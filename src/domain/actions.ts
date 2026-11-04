@@ -1,0 +1,439 @@
+/**
+ * Pure state transitions. Each takes a Workspace and returns a NEW Workspace.
+ * The UI (Call Lab, dashboard) and — later — real telephony webhooks should go
+ * through these functions so the rules live in exactly one place.
+ */
+import { MAX_RETRIES, RETRY_DELAY_MS } from "./clock";
+import { evaluateFindings, type ReportDraft } from "./findings";
+import { uid } from "./id";
+import type {
+  CallKind,
+  CallLog,
+  EventTone,
+  FarmReport,
+  LocalizedText,
+  PendingWorkerCall,
+  Workspace,
+} from "./types";
+
+const clone = (ws: Workspace): Workspace => structuredClone(ws);
+const iso = (d: Date) => d.toISOString();
+
+function pushEvent(ws: Workspace, at: Date, tone: EventTone, text: LocalizedText) {
+  ws.events.push({ id: uid("evt"), at: iso(at), tone, text });
+  if (ws.events.length > 200) ws.events.splice(0, ws.events.length - 200);
+}
+
+function pushCall(ws: Workspace, call: Omit<CallLog, "id">): CallLog {
+  const full = { id: uid("call"), ...call };
+  ws.calls.push(full);
+  return full;
+}
+
+// ───────────────────────── Worker reporting (Phases 2–3) ─────────────────────────
+
+export function completeWorkerReport(
+  input: Workspace,
+  now: Date,
+  draft: ReportDraft,
+): { ws: Workspace; report: FarmReport } {
+  const ws = clone(input);
+  const at = iso(now);
+
+  for (const u of draft.camelUpdates) {
+    const c = ws.camels.find((x) => x.id === u.camelId);
+    if (!c) continue;
+    Object.assign(c, { health: u.health, healthNote: u.note, certainty: u.certainty, updatedAt: at });
+  }
+  // Camels not mentioned are reported as fine by the herd-health answer only when the
+  // worker said so; the conversation engine adds explicit updates for that case.
+
+  for (const u of draft.resourceUpdates) {
+    const r = ws.resources.find((x) => x.kind === u.kind);
+    if (!r || !r.present) continue;
+    Object.assign(r, { level: u.level, quantity: u.quantity, note: u.note, certainty: u.certainty, updatedAt: at });
+  }
+
+  for (const t of draft.taskConfirmations) {
+    const ticket = ws.taskTickets.find((x) => x.id === t.taskId && x.status === "open");
+    if (ticket && t.done) Object.assign(ticket, { status: "closed", closedAt: at, closedVia: "worker_report" as CallKind });
+  }
+
+  const findings = evaluateFindings(input, draft);
+  const call = pushCall(ws, {
+    kind: "worker_report",
+    direction: "inbound",
+    party: "worker",
+    at,
+    outcome: "completed",
+    attempt: null,
+    summary: findings.length
+      ? { ar: `تحديث مكتمل — ${findings.length} ملاحظة مهمة`, en: `Update completed — ${findings.length} important finding(s)` }
+      : { ar: "تحديث مكتمل — لا ملاحظات مهمة", en: "Update completed — nothing important flagged" },
+    ticketId: null,
+    reportId: null,
+  });
+  const report: FarmReport = { id: uid("rep"), at, callId: call.id, answers: draft.answers, findings };
+  call.reportId = report.id;
+  ws.reports.push(report);
+  ws.lastUpdateAt = at;
+
+  pushEvent(ws, now, "success", {
+    ar: `حُفظ تحديث المزرعة من ${ws.settings.worker.name} (${draft.answers.length} إجابة)`,
+    en: `Farm update saved from ${ws.settings.worker.name} (${draft.answers.length} answers)`,
+  });
+  const closed = draft.taskConfirmations.filter((t) => t.done).length;
+  if (closed)
+    pushEvent(ws, now, "success", {
+      ar: `أُغلقت ${closed} مهمة بعد تأكيد العامل`,
+      en: `${closed} task ticket(s) closed after the worker confirmed`,
+    });
+  if (findings.length)
+    pushEvent(ws, now, "attention", {
+      ar: `رُصدت ${findings.length} ملاحظة تطابق معايير المالك`,
+      en: `${findings.length} finding(s) match the owner's criteria`,
+    });
+  return { ws, report };
+}
+
+export type RejectReason = "outside_window" | "weekly_done" | "daily_done" | "no_window";
+
+export function rejectWorkerReport(input: Workspace, now: Date, reason: RejectReason): Workspace {
+  const ws = clone(input);
+  const text: Record<RejectReason, LocalizedText> = {
+    outside_window: { ar: "خارج نافذة التقرير الأسبوعية", en: "Outside the weekly reporting window" },
+    weekly_done: { ar: "تقرير هذا الأسبوع مكتمل", en: "This week's report is already complete" },
+    daily_done: { ar: "تقرير اليوم مكتمل", en: "Today's report is already complete" },
+    no_window: { ar: "لم تُحدَّد نافذة التقرير", en: "No reporting window configured" },
+  };
+  pushCall(ws, {
+    kind: "worker_report_rejected",
+    direction: "inbound",
+    party: "worker",
+    at: iso(now),
+    outcome: "rejected",
+    attempt: null,
+    summary: text[reason],
+    ticketId: null,
+    reportId: null,
+  });
+  pushEvent(ws, now, "neutral", {
+    ar: `لم يُقبل اتصال التقرير: ${text[reason].ar}`,
+    en: `Report call not accepted: ${text[reason].en}`,
+  });
+  return ws;
+}
+
+// ───────────────────────── Owner calls (Phases 4–5) ─────────────────────────
+
+export function recordOwnerNotification(input: Workspace, now: Date, reportId: string, answered: boolean): Workspace {
+  const ws = clone(input);
+  pushCall(ws, {
+    kind: "owner_notification",
+    direction: "outbound",
+    party: "owner",
+    at: iso(now),
+    outcome: answered ? "completed" : "no_answer",
+    attempt: null,
+    summary: answered
+      ? { ar: "أُبلغ المالك بالتحديث", en: "Owner briefed on the update" }
+      : { ar: "مكالمة فائتة — تشير إلى وصول تحديث", en: "Missed call — signals that an update arrived" },
+    ticketId: null,
+    reportId,
+  });
+  if (answered) {
+    if (ws.settings.plan === "basic") ws.ownerAllowanceUsedAt = iso(now);
+    pushEvent(ws, now, "success", { ar: "اتصل المساعد بالمالك وأبلغه بالتحديث", en: "The agent called the owner with the update" });
+  } else {
+    ws.missedNotificationAt = iso(now);
+    pushEvent(ws, now, "neutral", {
+      ar: "لم يرد المالك — يظهر له اتصال فائت ويمكنه مراجعة الموقع",
+      en: "Owner didn't answer — a missed call shows, and the website has the details",
+    });
+  }
+  return ws;
+}
+
+export function recordOwnerInquiry(
+  input: Workspace,
+  now: Date,
+  mode: "unlimited" | "weekly" | "missed_callback",
+): Workspace {
+  const ws = clone(input);
+  pushCall(ws, {
+    kind: "owner_inquiry",
+    direction: "inbound",
+    party: "owner",
+    at: iso(now),
+    outcome: "completed",
+    attempt: null,
+    summary:
+      mode === "missed_callback"
+        ? { ar: "اتصال المالك بعد إشعار فائت", en: "Owner called back after a missed notification" }
+        : { ar: "استفسار المالك عن حالة المزرعة", en: "Owner asked about the farm" },
+    ticketId: null,
+    reportId: null,
+  });
+  if (ws.settings.plan === "basic") {
+    ws.ownerAllowanceUsedAt = iso(now);
+    if (mode === "missed_callback") ws.missedNotificationAt = null;
+  }
+  pushEvent(ws, now, "neutral", {
+    ar: "أجاب المساعد المالك بآخر معلومات محفوظة وتوقيتها",
+    en: "The agent answered the owner with the latest stored information and its time",
+  });
+  return ws;
+}
+
+export function rejectOwnerInquiry(input: Workspace, now: Date): Workspace {
+  const ws = clone(input);
+  pushCall(ws, {
+    kind: "owner_inquiry_rejected",
+    direction: "inbound",
+    party: "owner",
+    at: iso(now),
+    outcome: "rejected",
+    attempt: null,
+    summary: { ar: "استُخدم رصيد مكالمة هذا الأسبوع", en: "This week's owner call is already used" },
+    ticketId: null,
+    reportId: null,
+  });
+  pushEvent(ws, now, "neutral", {
+    ar: "باقة أساسية: مكالمة المالك الأسبوعية مستخدمة",
+    en: "Basic plan: the weekly owner call is already used",
+  });
+  return ws;
+}
+
+// ───────────────────────── Owner instructions (Phase 6) ─────────────────────────
+
+export interface InstructionInput {
+  message: string;
+  /** Does the request require the worker to perform an action? */
+  actionable: boolean;
+  /** Ultimate only: ISO time, or null for "any time". */
+  scheduledFor: string | null;
+}
+
+/**
+ * Basic: relay without a ticket. Ultimate + actionable: OPEN Task Ticket.
+ * Information-only: no ticket. In all cases an immediate AI → worker call is triggered.
+ */
+export function submitOwnerInstruction(
+  input: Workspace,
+  now: Date,
+  instr: InstructionInput,
+): { ws: Workspace; pendingCallId: string; taskId: string | null } {
+  const ws = clone(input);
+  const at = iso(now);
+  let taskId: string | null = null;
+  let relayId: string | null = null;
+
+  if (ws.settings.plan === "ultimate" && instr.actionable) {
+    taskId = uid("tsk");
+    ws.taskTickets.push({
+      id: taskId,
+      instruction: instr.message,
+      createdAt: at,
+      scheduledFor: instr.scheduledFor,
+      status: "open",
+      closedAt: null,
+      closedVia: null,
+    });
+    pushEvent(ws, now, "attention", {
+      ar: `فُتحت مهمة جديدة: «${instr.message}»`,
+      en: `Task ticket opened: “${instr.message}”`,
+    });
+  } else {
+    relayId = uid("rly");
+    ws.relays.push({ id: relayId, at, message: instr.message, delivered: false });
+    pushEvent(ws, now, "neutral", {
+      ar: `رسالة المالك ستُنقل للعامل بدون تذكرة: «${instr.message}»`,
+      en: `Owner's message will be relayed without a ticket: “${instr.message}”`,
+    });
+  }
+
+  const pending: PendingWorkerCall = {
+    id: uid("pwc"),
+    purpose: "instruction",
+    message: instr.message,
+    taskTicketId: taskId,
+    relayId,
+    attempts: [],
+    nextAttemptAt: at,
+    state: "pending",
+  };
+  ws.pendingWorkerCalls.push(pending);
+  return { ws, pendingCallId: pending.id, taskId };
+}
+
+/** Phase 7/8: at a task's scheduled time the AI calls the worker to verify completion. */
+export function startTaskVerification(input: Workspace, now: Date, taskId: string): { ws: Workspace; pendingCallId: string } {
+  const ws = clone(input);
+  const task = ws.taskTickets.find((t) => t.id === taskId);
+  const pending: PendingWorkerCall = {
+    id: uid("pwc"),
+    purpose: "task_verification",
+    message: task?.instruction ?? "",
+    taskTicketId: taskId,
+    relayId: null,
+    attempts: [],
+    nextAttemptAt: iso(now),
+    state: "pending",
+  };
+  ws.pendingWorkerCalls.push(pending);
+  return { ws, pendingCallId: pending.id };
+}
+
+export type AttemptOutcome = "delivered" | "retry_scheduled" | "no_answer_ticket";
+
+/**
+ * Phase 7: record one AI → worker call attempt.
+ * Unanswered → retry in 20 minutes, up to 3 retries → then OPEN No Answer Ticket.
+ */
+export function resolveWorkerCallAttempt(
+  input: Workspace,
+  now: Date,
+  pendingCallId: string,
+  answered: boolean,
+): { ws: Workspace; outcome: AttemptOutcome } {
+  const ws = clone(input);
+  const call = ws.pendingWorkerCalls.find((c) => c.id === pendingCallId);
+  if (!call || call.state !== "pending") return { ws, outcome: "delivered" };
+  const at = iso(now);
+  call.attempts.push({ at, answered });
+  const attempt = call.attempts.length;
+  const kind: CallKind = call.purpose === "instruction" ? "worker_instruction" : "worker_task_verification";
+
+  if (answered) {
+    call.state = "delivered";
+    call.nextAttemptAt = null;
+    if (call.relayId) {
+      const relay = ws.relays.find((r) => r.id === call.relayId);
+      if (relay) relay.delivered = true;
+    }
+    pushCall(ws, {
+      kind,
+      direction: "outbound",
+      party: "worker",
+      at,
+      outcome: "completed",
+      attempt,
+      summary:
+        call.purpose === "instruction"
+          ? { ar: `وصلت التعليمات للعامل: «${call.message}»`, en: `Instruction delivered: “${call.message}”` }
+          : { ar: `سُئل العامل عن المهمة: «${call.message}»`, en: `Worker asked about the task: “${call.message}”` },
+      ticketId: call.taskTicketId,
+      reportId: null,
+    });
+    pushEvent(ws, now, "success", {
+      ar: call.purpose === "instruction" ? "رد العامل ووصلته التعليمات" : "رد العامل على مكالمة التحقق",
+      en: call.purpose === "instruction" ? "Worker answered and received the instruction" : "Worker answered the verification call",
+    });
+    return { ws, outcome: "delivered" };
+  }
+
+  pushCall(ws, {
+    kind,
+    direction: "outbound",
+    party: "worker",
+    at,
+    outcome: "no_answer",
+    attempt,
+    summary: { ar: `لم يرد العامل (المحاولة ${attempt})`, en: `Worker didn't answer (attempt ${attempt})` },
+    ticketId: call.taskTicketId,
+    reportId: null,
+  });
+
+  if (attempt <= MAX_RETRIES) {
+    call.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
+    pushEvent(ws, now, "neutral", {
+      ar: `لم يرد العامل — إعادة المحاولة بعد ٢٠ دقيقة (${attempt}/${MAX_RETRIES + 1})`,
+      en: `Worker didn't answer — retrying in 20 minutes (${attempt}/${MAX_RETRIES + 1})`,
+    });
+    return { ws, outcome: "retry_scheduled" };
+  }
+
+  call.state = "no_answer_ticket";
+  call.nextAttemptAt = null;
+  ws.noAnswerTickets.push({
+    id: uid("nat"),
+    createdAt: at,
+    purpose: call.purpose,
+    message: call.message,
+    taskTicketId: call.taskTicketId,
+    status: "open",
+    closedAt: null,
+  });
+  pushEvent(ws, now, "attention", {
+    ar: "بعد ٣ محاولات إضافية فُتحت تذكرة «عدم رد» — بانتظار اتصال العامل",
+    en: "After 3 retries a No Answer Ticket was opened — waiting for the worker to call back",
+  });
+  return { ws, outcome: "no_answer_ticket" };
+}
+
+/** Phase 8: only an explicit confirmation closes a Task Ticket. Deadlines never close it. */
+export function confirmTask(input: Workspace, now: Date, taskId: string, done: boolean, via: CallKind): Workspace {
+  const ws = clone(input);
+  const t = ws.taskTickets.find((x) => x.id === taskId);
+  if (!t || t.status !== "open") return ws;
+  if (done) {
+    Object.assign(t, { status: "closed", closedAt: iso(now), closedVia: via });
+    pushEvent(ws, now, "success", {
+      ar: `أكد العامل إنجاز المهمة — نُقلت للسجل: «${t.instruction}»`,
+      en: `Worker confirmed the task — moved to History: “${t.instruction}”`,
+    });
+  } else {
+    pushEvent(ws, now, "neutral", {
+      ar: `المهمة لم تكتمل بعد — تبقى مفتوحة: «${t.instruction}»`,
+      en: `Task not done yet — it stays open: “${t.instruction}”`,
+    });
+  }
+  return ws;
+}
+
+/**
+ * Phase 9: the worker returns a missed AI call. Always answered, even outside
+ * Basic's window. Delivers what was missed and closes the No Answer Ticket(s).
+ * Does NOT update farm information or consume a reporting update.
+ */
+export function completeWorkerCallback(input: Workspace, now: Date): Workspace {
+  const ws = clone(input);
+  const at = iso(now);
+  const open = ws.noAnswerTickets.filter((t) => t.status === "open");
+  for (const t of open) {
+    Object.assign(t, { status: "closed", closedAt: at });
+    for (const c of ws.pendingWorkerCalls) {
+      if (c.state === "no_answer_ticket" && c.message === t.message && c.relayId) {
+        const relay = ws.relays.find((r) => r.id === c.relayId);
+        if (relay) relay.delivered = true;
+      }
+    }
+  }
+  pushCall(ws, {
+    kind: "worker_callback",
+    direction: "inbound",
+    party: "worker",
+    at,
+    outcome: "completed",
+    attempt: null,
+    summary: { ar: `اتصل العامل ووصلته ${open.length} رسالة فائتة`, en: `Worker called back; ${open.length} missed message(s) delivered` },
+    ticketId: open[0]?.id ?? null,
+    reportId: null,
+  });
+  pushEvent(ws, now, "success", {
+    ar: "أُغلقت تذكرة عدم الرد بعد اتصال العامل",
+    en: "No Answer Ticket closed after the worker called back",
+  });
+  return ws;
+}
+
+// ───────────────────────── Demo clock ─────────────────────────
+
+export function advanceClock(input: Workspace, ms: number): Workspace {
+  return { ...input, clockOffsetMs: input.clockOffsetMs + ms };
+}
+
+export function setClockTo(input: Workspace, target: Date, realNow = Date.now()): Workspace {
+  return { ...input, clockOffsetMs: target.getTime() - realNow };
+}

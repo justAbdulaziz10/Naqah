@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+/*
+ * NAQAH design tokens — Desert Luxury / Private Estate.
+ * Brand palette (Brand Identity Guide p.2). Use the semantic names in components:
+ *   bg-ivory (page), bg-cream (surfaces), text-espresso (text), bg-brown (primary),
+ *   text-gold / bg-gold (accent, decorative or large text only), border-stone (hairlines).
+ */
+@theme {
+  --color-ivory: #f5f0e8;
+  --color-cream: #fffcf8;
+  --color-espresso: #29241f;
+  --color-brown: #614832;
+  --color-brown-deep: #4e3927;
+  --color-sand: #d2b48c;
+  --color-sand-soft: #ebdcc6;
+  --color-stone: #ddd3c5;
+  --color-gold: #b68a58;
+  --color-gold-soft: #e9dccb;
+  --color-muted: #6e6359;
+  --color-faint: #9a8f84;
+
+  /* Status — muted, desert-appropriate, AA on cream */
+  --color-ok: #4f6b3d;
+  --color-ok-soft: #e4eadc;
+  --color-warn: #8a5a12;
+  --color-warn-soft: #f4e6cc;
+  --color-danger: #9b3524;
+  --color-danger-soft: #f5dfd8;
+  --color-info: #3f5a6b;
+  --color-info-soft: #dfe7ea;
+
+  --font-sans: var(--font-montserrat), var(--font-alexandria), ui-sans-serif, system-ui, sans-serif;
+  --font-arabic: var(--font-alexandria), var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 1.25rem;
+  --shadow-soft: 0 1px 2px rgb(41 36 31 / 0.04), 0 8px 24px -12px rgb(41 36 31 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(41 36 31 / 0.05), 0 24px 48px -24px rgb(41 36 31 / 0.25);
+
+  --animate-fade-up: fade-up 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-pulse-ring: pulse-ring 2.4s cubic-bezier(0.2, 0.7, 0.2, 1) infinite;
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes pulse-ring {
+    0% {
+      transform: scale(0.9);
+      opacity: 0.55;
+    }
+    80%,
+    100% {
+      transform: scale(1.6);
+      opacity: 0;
+    }
+  }
+}
+
+@layer base {
+  html {
+    background: var(--color-ivory);
+    color: var(--color-espresso);
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-ivory);
+    min-height: 100dvh;
+  }
+  /* Arabic-first: Alexandria leads for Arabic pages; Montserrat still renders Latin and digits. */
+  html[lang="ar"] body {
+    font-family: var(--font-sans);
+    line-height: 1.7;
+  }
+  ::selection {
+    background: var(--color-sand);
+    color: var(--color-espresso);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  /* Numbers, phone numbers and ids always render left-to-right. */
+  .ltr-nums {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

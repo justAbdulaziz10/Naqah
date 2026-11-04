@@ -1,0 +1,55 @@
+import type { Metadata, Viewport } from "next";
+import { Alexandria, Montserrat } from "next/font/google";
+import { notFound } from "next/navigation";
+import { I18nProvider } from "@/i18n/client";
+import { dirOf, isLocale, LOCALES } from "@/i18n/config";
+import "../globals.css";
+
+const alexandria = Alexandria({ variable: "--font-alexandria", subsets: ["arabic", "latin"], display: "swap" });
+const montserrat = Montserrat({ variable: "--font-montserrat", subsets: ["latin"], display: "swap" });
+
+export function generateStaticParams() {
+  return LOCALES.map((locale) => ({ locale }));
+}
+
+const META = {
+  ar: {
+    title: "ناقة | اطمئنان، دون انشغال",
+    description: "مساعد صوتي ذكي لإدارة عزب الإبل: العامل يتصل، ناقة تسأل وتحفظ، وأنت تصلك الخلاصة باتصال.",
+  },
+  en: {
+    title: "NAQAH | Peace of mind, without the busyness",
+    description:
+      "An AI voice agent for private camel ranches. Your worker calls, NAQAH asks and records, and you get the essentials in a call.",
+  },
+} as const;
+
+export async function generateMetadata({ params }: LayoutProps<"/[locale]">): Promise<Metadata> {
+  const { locale } = await params;
+  const m = META[isLocale(locale) ? locale : "ar"];
+  return {
+    metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
+    title: { default: m.title, template: `%s | ${isLocale(locale) && locale === "en" ? "NAQAH" : "ناقة"}` },
+    description: m.description,
+    alternates: { languages: { ar: "/ar", en: "/en" } },
+    openGraph: { title: m.title, description: m.description, type: "website", locale: locale === "en" ? "en_US" : "ar_SA" },
+  };
+}
+
+export const viewport: Viewport = {
+  themeColor: "#f5f0e8",
+  width: "device-width",
+  initialScale: 1,
+};
+
+export default async function LocaleLayout({ children, params }: LayoutProps<"/[locale]">) {
+  const { locale } = await params;
+  if (!isLocale(locale)) notFound();
+  return (
+    <html lang={locale} dir={dirOf(locale)} className={`${alexandria.variable} ${montserrat.variable} antialiased`}>
+      <body>
+        <I18nProvider locale={locale}>{children}</I18nProvider>
+      </body>
+    </html>
+  );
+}
