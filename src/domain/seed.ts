@@ -45,7 +45,8 @@ export function createEmptyWorkspace(plan: Plan = "ultimate"): Workspace {
       customQuestions: [],
       criteria: defaultCriteria(),
       emergencies: defaultEmergencies(),
-      window: plan === "basic" ? { day: 4, start: "17:00", end: "18:00" } : null,
+      // Basic: the owner must choose day + start + end explicitly (no default duration is assumed).
+      window: null,
     },
     camels: [],
     resources: emptyResources(true),
