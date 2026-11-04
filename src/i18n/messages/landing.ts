@@ -60,6 +60,8 @@ export const landing = defineMessages({
     },
     ownerCall: {
       title: "A short call, with only what matters",
+      openQuote: "“",
+      closeQuote: "”",
       description: "When an update needs your attention, NAQAH calls with a clear summary.",
       findingLabel: "When there is something to review",
       findingQuote:
@@ -227,6 +229,8 @@ export const landing = defineMessages({
     },
     ownerCall: {
       title: "اتصال قصير، للمهم فقط",
+      openQuote: "«",
+      closeQuote: "»",
       description: "إذا احتاج التحديث انتباهك، تتصل بك ناقة بخلاصة واضحة.",
       findingLabel: "إذا كان فيه ما يستحق المراجعة",
       findingQuote:

@@ -116,7 +116,9 @@ export function LandingPage({ locale }: { locale: Locale }) {
           </nav>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
-            <LocaleSwitcher className="hidden min-h-11 lg:inline-flex" />
+            <div className="hidden lg:block">
+              <LocaleSwitcher className="min-h-11" />
+            </div>
             <DemoAction size="md" className="min-h-11 max-sm:px-3.5 max-sm:text-xs">
               <span className="hidden sm:inline">{common.actions.startDemo}</span>
               <span className="sm:hidden">{landing.nav.demoShort}</span>
@@ -215,7 +217,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
               <article className="flex flex-col rounded-[1.25rem] border border-cream/15 bg-cream/[0.04] p-5 sm:p-6">
                 <p className="text-xs font-semibold text-gold">{landing.ownerCall.findingLabel}</p>
                 <blockquote className="mt-4 flex-1 text-lg leading-8 text-cream sm:text-xl sm:leading-9">
-                  «{landing.ownerCall.findingQuote}»
+                  {landing.ownerCall.openQuote}{landing.ownerCall.findingQuote}{landing.ownerCall.closeQuote}
                 </blockquote>
                 <div className="mt-5">
                   <SpeechButton text={landing.ownerCall.findingQuote} />
@@ -224,7 +226,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
               <article className="flex flex-col rounded-[1.25rem] border border-cream/15 bg-cream/[0.04] p-5 sm:p-6">
                 <p className="text-xs font-semibold text-cream/60">{landing.ownerCall.quietLabel}</p>
                 <blockquote className="mt-4 flex-1 text-base leading-8 text-cream/90 sm:text-lg sm:leading-9">
-                  «{landing.ownerCall.quietQuote}»
+                  {landing.ownerCall.openQuote}{landing.ownerCall.quietQuote}{landing.ownerCall.closeQuote}
                 </blockquote>
               </article>
             </div>

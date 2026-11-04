@@ -48,8 +48,7 @@ export function MobileNavigation({
   menuTitle: string;
 }) {
   return (
-    <div className="flex items-center gap-1.5 lg:hidden">
-      <LocaleSwitcher className="min-h-11 min-w-11 max-sm:px-2.5 max-sm:[&>span]:sr-only" />
+    <div className="flex items-center lg:hidden">
       <details className="group relative">
         <summary
           aria-label={menuLabel}
@@ -71,6 +70,9 @@ export function MobileNavigation({
               {link.label}
             </Link>
           ))}
+          <div className="mt-1 border-t border-stone/70 pt-2">
+            <LocaleSwitcher className="min-h-11 w-full justify-start rounded-xl px-3.5" />
+          </div>
         </nav>
       </details>
     </div>
