@@ -105,8 +105,8 @@ npm run typecheck && npm run lint && npm run build
 
 ## 6. Moving from demo to production (for the team)
 
-See §8 (added at the end of the build) for the full roadmap: Supabase schema, telephony (Twilio + a voice model),
-auth, and where each domain action plugs into a webhook.
+See §8 for the full roadmap: Supabase schema, telephony (Twilio + a voice model), auth, and where each domain
+action plugs into a webhook.
 
 ## 7. Open decisions (do NOT treat as approved)
 
@@ -121,3 +121,65 @@ Copied from the specs — the MVP picks a placeholder behavior and marks it in c
 8. How emergency categories are used during calls. (MVP: shown to the owner; worker calls owner directly)
 9. Predefined question categories and wording. (MVP: DRAFT in `catalog.ts`)
 10. AI model, voice/telephony provider, payments and prices. (MVP: none — simulated)
+
+## 8. Production roadmap (demo → real service)
+
+The demo keeps one `Workspace` in `localStorage`. Every rule is a pure function in `src/domain`, so production keeps
+the same functions and swaps only the storage and the "who triggers it" layer.
+
+### 8.1 Database — Supabase (free tier is enough to start)
+- Schema: `supabase/migrations/0001_init.sql` (validated on Postgres 14 with a stubbed `auth` schema; RLS tested).
+  One owner (`auth.users`) → one `farms` row (holds owner + settings + Basic window) → one `workers` row.
+  Child tables mirror `types.ts`: `camels`, `resources`, `custom_questions` (DB trigger enforces Basic ≤ 5),
+  `criteria`, `emergency_categories`, `calls`, `reports` + `report_answers` + `findings`, `task_tickets`, `relays`,
+  `pending_worker_calls` + `worker_call_attempts`, `no_answer_tickets`, `events`, `predefined_questions` (global).
+- RLS: owners read/write their farm's settings, herd, resources, questions, criteria, relays and events; they can
+  only **read** calls, reports, tickets and retries — those are written by the voice service with the
+  `service_role` key (server only, bypasses RLS). Never ship the service key to the browser.
+- Setup: create a project (the owner's Supabase account hit the 2-free-project limit during the build, so none was
+  created), run `supabase link` then `supabase db push`, and add `NEXT_PUBLIC_SUPABASE_URL`,
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` (browser) and `SUPABASE_SERVICE_ROLE_KEY` (server) to Vercel.
+- Migration path in the app: write `src/store/supabase.ts` exposing the same `update(fn)` shape: load the farm into a
+  `Workspace`, run the pure action, diff and persist. Keep `clockOffsetMs` demo-only (production uses real time).
+
+### 8.2 Auth
+Supabase Auth with phone OTP for the owner (matches the "ordinary phone" audience). The worker never logs in; they
+are recognised by caller ID (`workers.phone`) — an identification signal only, not proof (open decision 4).
+
+### 8.3 Telephony + voice agent
+- Numbers and calls: Twilio Programmable Voice (Saudi numbers need a regulatory bundle) or a local carrier SIP trunk.
+- Voice brain: a realtime speech-to-speech model connected to the Twilio media stream, or STT → LLM → TTS. The
+  scripted engine in `src/domain/conversation/` is the **reference behaviour**: question order, follow-ups,
+  confirmations, "I don't know", certainty labels. Use it as the tool/state layer and let the model only phrase the
+  turns. The model must call tools (below) and may say "saved" only after the tool returns success.
+- **No recordings**: disable Twilio recording and transcription storage; persist only extracted facts.
+
+### 8.4 Webhook → domain action map
+| Event | Route handler (suggested) | Domain functions |
+|---|---|---|
+| Worker calls in | `POST /api/voice/inbound` (caller = worker) | `routeWorkerInboundCall` → report / `rejectWorkerReport` / callback |
+| Report finished | tool `save_report` | `evaluateFindings`, `completeWorkerReport` |
+| Notify owner | outbound call right after save | `ownerBriefing`, `recordOwnerNotification(answered)` |
+| Owner gives instruction | tool `submit_instruction` | `submitOwnerInstruction` (Ultimate actionable → task ticket) |
+| Retry scheduler | Vercel Cron every 5 min → `GET /api/cron/worker-calls` | `dueWorkerCalls`, `resolveWorkerCallAttempt` (20 min × 3 → No Answer ticket) |
+| Scheduled task check | same cron | `dueTaskVerifications`, `startTaskVerification`, `confirmTask` |
+| Worker returns missed call | `POST /api/voice/inbound` | `completeWorkerCallback` (not a farm update) |
+| Owner calls in | `POST /api/voice/inbound` (caller = owner) | `routeOwnerInboundCall` → `recordOwnerInquiry` / `rejectOwnerInquiry` |
+| Emergency | none: the worker calls the owner directly | — |
+
+Note: Vercel Hobby cron runs at most once a day; the 20-minute retry needs Vercel Pro, Supabase `pg_cron`
+(free) calling the route, or Twilio's own scheduling.
+
+### 8.5 Payments
+Out of scope for the MVP (no prices shown, nothing charged). When decided: Moyasar or Tap (Saudi) or Stripe, with the
+plan stored on `farms.plan`.
+
+### 8.6 Deployment
+Vercel Hobby (free). `NEXT_PUBLIC_SITE_URL` is used for metadata/OG URLs. No other environment variables are needed
+for the demo.
+
+## 9. Testing & QA checklist
+- `npm test` covers the domain and the conversation engine. Add a test for every new rule.
+- Visual QA: check every page at 375px and 1440px, in `/ar` and `/en` (no horizontal scroll, RTL mirroring,
+  Latin digits, 44px targets). Playwright is installed as a dev dependency for this.
+- The demo clock (`clockOffsetMs`) is the only way to test windows and retries. Never use `Date.now()` in rules.
