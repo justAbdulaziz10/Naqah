@@ -30,6 +30,7 @@ import {
 import { start, answer, scenarioAvailability, type AnswerInput, type CallSession, type Scenario } from "@/domain/conversation/engine";
 import { makePersonalizer, personalizeTree } from "@/domain/conversation/personalize";
 import { useI18n } from "@/i18n/client";
+import { create } from "zustand";
 import { useNow, useWorkspaceStore } from "@/store/workspace";
 import { CamelMark } from "@/components/brand/CamelMark";
 import { cn } from "@/lib/cn";
@@ -620,6 +621,28 @@ function InsidePanel({
   );
 }
 
+/**
+ * The call in progress lives outside the page so switching language (a route change that
+ * remounts this page) keeps the conversation. In memory only: a reload starts fresh.
+ */
+interface LabCallState {
+  selected: PickerScenario;
+  session: CallSession | null;
+  workspaceKey: string | null;
+  baseline: string[];
+  callStartedAt: number | null;
+  patch: (value: Partial<Omit<LabCallState, "patch">>) => void;
+}
+
+const useLabCall = create<LabCallState>()((set) => ({
+  selected: "worker_report",
+  session: null,
+  workspaceKey: null,
+  baseline: [],
+  callStartedAt: null,
+  patch: (value) => set(value),
+}));
+
 export function LabPage() {
   const { m: baseMessages, t: baseT, locale, fmt } = useI18n();
   const ws = useWorkspaceStore((state) => state.workspace);
@@ -629,10 +652,14 @@ export function LabPage() {
   const t = useCallback((value: { ar: string; en: string }) => personalize(baseT(value)), [baseT, personalize]);
   const update = useWorkspaceStore((state) => state.update);
   const now = useNow();
-  const [selected, setSelected] = useState<PickerScenario>("worker_report");
-  const [session, setSession] = useState<CallSession | null>(null);
-  const [baseline, setBaseline] = useState<string[]>([]);
-  const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
+  const lab = useLabCall();
+  // Ignore a call left over from a different (reset or replaced) workspace.
+  const session = lab.session && lab.workspaceKey === ws?.createdAt ? lab.session : null;
+  const { selected, baseline, callStartedAt } = lab;
+  const setSelected = (value: PickerScenario) => lab.patch({ selected: value });
+  const setSession = (value: CallSession | null) => lab.patch({ session: value, workspaceKey: useWorkspaceStore.getState().workspace?.createdAt ?? null });
+  const setBaseline = (value: string[]) => lab.patch({ baseline: value });
+  const setCallStartedAt = (value: number | null) => lab.patch({ callStartedAt: value });
 
   const availability = useMemo(() => ws ? scenarioAvailability(ws, now) : null, [ws, now]);
 

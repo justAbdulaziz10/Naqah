@@ -21,4 +21,13 @@ describe("Call Lab personalization", () => {
     expect(tree.f("Abdullah")).toBe("Salem calls Faisal");
     expect(tree.n).toBe(3);
   });
+
+  it("never doubles a real name that already contains a sample name", () => {
+    const ws = createDemoWorkspace("ar", "ultimate");
+    ws.settings.worker.name = "أحمد الشمري";
+    ws.settings.owner.name = "محمد بن عبدالله";
+    const p = makePersonalizer(ws);
+    expect(p("حُفظ تحديث المزرعة من أحمد الشمري")).toBe("حُفظ تحديث المزرعة من أحمد الشمري");
+    expect(p("ناقة تتصل بعبدالله")).toBe("ناقة تتصل بعبدالله");
+  });
 });

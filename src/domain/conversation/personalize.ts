@@ -18,12 +18,16 @@ export type Personalizer = (text: string) => string;
 export function makePersonalizer(ws: Pick<Workspace, "settings"> | null): Personalizer {
   if (!ws) return (text) => text;
   const worker = ws.settings.worker.name.trim();
-  const owner = ws.settings.owner.name.trim().split(/\s+/)[0] ?? "";
+  const ownerFull = ws.settings.owner.name.trim();
+  const owner = ownerFull.split(/\s+/)[0] ?? "";
+  // A real name that already contains a sample name ("Ahmed Saleh", "محمد بن عبدالله") would
+  // otherwise double up or swap the wrong word, so leave that role alone.
+  const mentionsSample = (name: string, samples: readonly string[]) => samples.some((sample) => name.includes(sample));
   const pairs: [string, string][] = [];
-  if (worker && !(SAMPLE_NAMES.worker as readonly string[]).includes(worker)) {
+  if (worker && !mentionsSample(worker, SAMPLE_NAMES.worker)) {
     for (const sample of SAMPLE_NAMES.worker) pairs.push([sample, worker]);
   }
-  if (owner && !(SAMPLE_NAMES.owner as readonly string[]).includes(owner)) {
+  if (owner && !mentionsSample(ownerFull, SAMPLE_NAMES.owner)) {
     for (const sample of SAMPLE_NAMES.owner) pairs.push([sample, owner]);
   }
   if (!pairs.length) return (text) => text;

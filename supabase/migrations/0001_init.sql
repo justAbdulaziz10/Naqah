@@ -138,7 +138,8 @@ declare
   farm_plan plan;
   existing int;
 begin
-  select f.plan into farm_plan from farms f where f.id = new.farm_id;
+  -- Lock the farm row so two concurrent inserts can't both pass the count.
+  select f.plan into farm_plan from farms f where f.id = new.farm_id for update;
   if farm_plan = 'basic' then
     select count(*) into existing from custom_questions where farm_id = new.farm_id;
     if existing >= 5 then
@@ -149,6 +150,17 @@ begin
 end $$;
 create trigger custom_questions_limit before insert on custom_questions
   for each row execute function enforce_custom_question_limit();
+
+-- Switching a farm to Basic must also respect the 5-question limit.
+create or replace function enforce_plan_downgrade() returns trigger
+language plpgsql as $$
+begin
+  if new.plan = 'basic' and old.plan <> 'basic'
+     and (select count(*) from custom_questions where farm_id = new.id) > 5 then
+    raise exception 'Remove custom questions down to 5 before switching to Basic' using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
 
 create table criteria (
   id uuid primary key default gen_random_uuid(),
@@ -307,14 +319,23 @@ grant execute on function is_farm_owner(uuid) to authenticated;
 alter table farms enable row level security;
 create policy farms_owner on farms for all to authenticated
   using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+create trigger farms_plan_downgrade before update of plan on farms
+  for each row execute function enforce_plan_downgrade();
+
+-- RLS scopes *rows*; column grants scope *what* an owner may write. Plan (billing) and the
+-- call-allowance / last-update bookkeeping are written only by the service (service_role).
+revoke insert, update on farms from authenticated, anon;
+grant insert (owner_id, owner_name, owner_phone, name, location, window_day, window_start, window_end, setup_complete)
+  on farms to authenticated;
+grant update (owner_name, owner_phone, name, location, window_day, window_start, window_end, setup_complete)
+  on farms to authenticated;
 
 -- Tables keyed directly by farm_id: owner has full access to their farm's rows.
 do $$
 declare t text;
 begin
   foreach t in array array[
-    'workers', 'camels', 'resources', 'custom_questions', 'criteria', 'emergency_categories',
-    'relays', 'events'
+    'workers', 'camels', 'resources', 'custom_questions', 'criteria', 'emergency_categories'
   ] loop
     execute format('alter table %I enable row level security', t);
     execute format(
@@ -328,7 +349,8 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['calls', 'reports', 'pending_worker_calls', 'no_answer_tickets', 'task_tickets'] loop
+  -- relays + events included: owners must not mark messages delivered or forge the activity feed.
+  foreach t in array array['calls', 'reports', 'pending_worker_calls', 'no_answer_tickets', 'task_tickets', 'relays', 'events'] loop
     execute format('alter table %I enable row level security', t);
     execute format(
       'create policy %I on %I for select to authenticated using (is_farm_owner(farm_id))',

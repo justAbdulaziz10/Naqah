@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from "react";
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 import { createDemoWorkspace, createEmptyWorkspace, nowFor, type Locale, type Plan, type Workspace } from "@/domain";
 
 interface WorkspaceState {
@@ -26,6 +26,44 @@ interface WorkspaceState {
   startOnboarding: (plan: Plan) => void;
   reset: () => void;
 }
+
+type Persisted = { workspace: Workspace | null };
+
+const WORKSPACE_ARRAYS = ["camels", "resources", "reports", "calls", "taskTickets", "noAnswerTickets", "pendingWorkerCalls", "relays", "events"] as const;
+
+/** Minimal shape check so stale or hand-edited data can't crash the dashboard. */
+function isWorkspace(value: unknown): value is Workspace {
+  if (!value || typeof value !== "object") return false;
+  const ws = value as Record<string, unknown>;
+  return ws.version === 1 && typeof ws.settings === "object" && ws.settings !== null && WORKSPACE_ARRAYS.every((key) => Array.isArray(ws[key]));
+}
+
+/**
+ * localStorage adapter that never throws: unreadable or wrong-shaped data is dropped
+ * (the visitor simply sees "No farm yet" and can restart the demo).
+ */
+const safeStorage: PersistStorage<Persisted> = {
+  getItem: (name) => {
+    try {
+      const raw = localStorage.getItem(name);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as StorageValue<Persisted>;
+      const workspace = parsed?.state?.workspace ?? null;
+      if (workspace !== null && !isWorkspace(workspace)) throw new Error("unexpected workspace shape");
+      return { state: { workspace }, version: parsed.version ?? 1 };
+    } catch (error) {
+      console.warn("[naqah] discarded unreadable saved workspace", error);
+      try { localStorage.removeItem(name); } catch { /* storage unavailable */ }
+      return null;
+    }
+  },
+  setItem: (name, value) => {
+    try { localStorage.setItem(name, JSON.stringify(value)); } catch (error) { console.warn("[naqah] could not save workspace", error); }
+  },
+  removeItem: (name) => {
+    try { localStorage.removeItem(name); } catch { /* storage unavailable */ }
+  },
+};
 
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
@@ -44,11 +82,18 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     }),
     {
       name: "naqah-workspace-v1",
-      storage: createJSONStorage(() => localStorage),
+      version: 1,
+      storage: safeStorage,
       partialize: (s) => ({ workspace: s.workspace }),
+      // Future Workspace versions: transform `persisted` here instead of discarding it.
+      migrate: (persisted) => persisted as Persisted,
       // localStorage is synchronous, so rehydration finishes *inside* `create()` — before
-      // `useWorkspaceStore` is assigned. Use the state handed to the callback, never the export.
-      onRehydrateStorage: (initial) => (state) => (state ?? initial).markHydrated(),
+      // `useWorkspaceStore` is assigned, and the initial state can still overwrite a flag set
+      // there. Mark hydrated now (state handed to the callback) and again once the store exists.
+      onRehydrateStorage: (initial) => (state) => {
+        (state ?? initial).markHydrated();
+        queueMicrotask(() => useWorkspaceStore.setState({ hydrated: true }));
+      },
     },
   ),
 );
