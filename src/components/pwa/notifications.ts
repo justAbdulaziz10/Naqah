@@ -1,7 +1,7 @@
 import type { Locale, PlatformEvent } from "@/domain/types";
 import { deliverNotification } from "@/lib/push/client";
 
-export const NOTIFICATION_PREFERENCE_KEY = "naqah-notify-v1";
+export const NOTIFICATION_PREFERENCE_KEY = "naqah-notify-v1"; // gitleaks:allow (localStorage key name, not a secret)
 export const NOTIFICATION_PREFERENCE_EVENT = "naqah-notify-preference-change";
 
 export interface NotificationPayload {
