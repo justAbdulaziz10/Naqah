@@ -2,6 +2,7 @@
 // NAQAH verification CLI. JSON on stdout; nonzero exit when a check fails.
 // Usage: node scripts/verify-naqah.mjs <launch|doctor|screens|call-lab|wizard|stop> [--base URL] [--port N] [--locale ar|en]
 import { spawn } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -183,6 +184,120 @@ const commands = {
     const ok = !reason && ws?.setupComplete === true && steps.length === 9;
     out({ ok, cmd, evidence: dir, steps: steps.length, setupComplete: ws?.setupComplete ?? null, reason: ok ? undefined : reason ?? `expected 9 steps + setupComplete, got ${steps.length}` });
   },
+  async voice() {
+    const locale = opt("locale", "ar") === "en" ? "en" : "ar";
+    const workerPhone = opt("worker-phone", process.env.NAQAH_WORKER_PHONE ?? "");
+    if (!workerPhone) return fail("set --worker-phone or NAQAH_WORKER_PHONE to a registered caller ID");
+    const dir = evidenceDir("voice");
+    const exchanges = [];
+    const errors = [];
+    const callSid = `CA${Date.now().toString(16).padStart(32, "0")}`;
+    const toNumber = process.env.NEXT_PUBLIC_NAQAH_PHONE_NUMBER || "+966500000000";
+
+    const signature = (url, fields) => {
+      const token = process.env.TWILIO_AUTH_TOKEN;
+      if (!token) return undefined;
+      let value = url;
+      for (const key of Object.keys(fields).sort()) value += key + fields[key];
+      return createHmac("sha1", token).update(value, "utf8").digest("base64");
+    };
+    const post = async (url, fields) => {
+      const body = new URLSearchParams(fields);
+      const headers = { "Content-Type": "application/x-www-form-urlencoded" };
+      const signed = signature(url, fields);
+      if (signed) headers["X-Twilio-Signature"] = signed;
+      const response = await fetch(url, { method: "POST", headers, body });
+      const xml = await response.text();
+      exchanges.push({ request: { url, fields }, response: { status: response.status, body: xml } });
+      return { response, xml };
+    };
+    const decodeXml = (text) => text
+      .replaceAll("&apos;", "'").replaceAll("&quot;", '"').replaceAll("&gt;", ">")
+      .replaceAll("&lt;", "<").replaceAll("&amp;", "&");
+    const parseXml = (xml) => {
+      const problems = [];
+      if (!xml.startsWith("<Response>") || !xml.endsWith("</Response>")) problems.push("TwiML root is missing");
+      if (xml.replace(/&(amp|lt|gt|quot|apos);/g, "").includes("&")) problems.push("TwiML has an unescaped ampersand");
+      const stack = [];
+      for (const match of xml.matchAll(/<\/?([A-Za-z]+)(?:\s[^<>]*)?\s*\/?>/g)) {
+        const token = match[0];
+        if (token.startsWith("</")) {
+          if (stack.pop() !== match[1]) problems.push(`TwiML closing tag mismatch: ${match[1]}`);
+        } else if (!token.endsWith("/>")) stack.push(match[1]);
+      }
+      if (stack.length) problems.push(`TwiML unclosed tag: ${stack.at(-1)}`);
+      if (!/<Say\b/.test(xml)) problems.push("TwiML response has no Say");
+      return problems;
+    };
+    const sayText = (xml) => decodeXml(xml.match(/<Say\b[^>]*>([\s\S]*?)<\/Say>/)?.[1] ?? "");
+    const action = (xml) => {
+      const raw = xml.match(/<Gather\b[^>]*\baction="([^"]+)"/)?.[1];
+      return raw ? decodeXml(raw) : null;
+    };
+    const scriptedSpeech = (xml) => {
+      const text = sayText(xml);
+      if (locale === "en") {
+        const marker = "Press 1 for ";
+        const start = text.indexOf(marker);
+        if (start >= 0) return text.slice(start + marker.length).split(/\. Press 2 for |\. Press 3 for |\.$/u)[0].trim();
+        if (/how many|how much|quantity|roughly how/i.test(text)) return "12";
+        if (/when|what time/i.test(text)) return "5:15 pm";
+        return "No visitors";
+      }
+      const marker = "اضغط 1 لـ ";
+      const start = text.indexOf(marker);
+      if (start >= 0) return text.slice(start + marker.length).split(/، اضغط 2 لـ |، اضغط 3 لـ |\.$/u)[0].trim();
+      if (/كم|عدد|تقريباً/.test(text)) return "١٢";
+      if (/متى|وقت|الساعة/.test(text)) return "٥:١٥ مساء";
+      return "ما فيه زوار";
+    };
+
+    let reason;
+    let turns = 0;
+    let reportSaved = false;
+    let tamperedRejected = false;
+    try {
+      const inbound = await post(`${BASE}/api/voice/inbound`, { From: workerPhone, To: toNumber, CallSid: callSid });
+      errors.push(...parseXml(inbound.xml));
+      if (inbound.response.status !== 200) throw new Error(`inbound returned ${inbound.response.status}`);
+      let nextAction = action(inbound.xml);
+      if (!nextAction) throw new Error("inbound response did not include a Gather action; check the voice env vars and caller ID");
+
+      const actionUrl = new URL(nextAction);
+      const originalState = actionUrl.searchParams.get("s");
+      if (!originalState) throw new Error("Gather action did not contain signed state");
+      const tamperedUrl = new URL(nextAction);
+      const tamperedState = originalState[0] === "A" ? `B${originalState.slice(1)}` : `A${originalState.slice(1)}`;
+      tamperedUrl.searchParams.set("s", tamperedState);
+      const tampered = await post(tamperedUrl.toString(), { From: workerPhone, To: toNumber, CallSid: callSid, SpeechResult: locale === "ar" ? "نعم" : "yes" });
+      errors.push(...parseXml(tampered.xml));
+      tamperedRejected = tampered.response.status === 200 && /<Hangup\/>/.test(tampered.xml) && !action(tampered.xml);
+      if (!tamperedRejected) throw new Error("tampered state was not politely rejected");
+
+      while (nextAction && turns < 40) {
+        const answerText = scriptedSpeech(inbound.xml);
+        const turnResult = await post(nextAction, { From: workerPhone, To: toNumber, CallSid: callSid, SpeechResult: answerText });
+        errors.push(...parseXml(turnResult.xml));
+        if (turnResult.response.status !== 200) throw new Error(`turn returned ${turnResult.response.status}`);
+        turns += 1;
+        nextAction = action(turnResult.xml);
+        if (!nextAction) {
+          const final = sayText(turnResult.xml);
+          reportSaved = /saved/i.test(final) || /حفظ/.test(final);
+          if (!/<Hangup\/>/.test(turnResult.xml)) throw new Error("final response did not hang up");
+          if (!reportSaved) throw new Error("final Say did not confirm that the report was saved");
+          break;
+        }
+        inbound.xml = turnResult.xml;
+      }
+      if (turns >= 40) throw new Error("call did not reach Hangup within 40 turns");
+    } catch (error) {
+      reason = String(error?.message ?? error).split("\n")[0];
+    }
+    writeFileSync(`${dir}/exchanges.json`, JSON.stringify(exchanges, null, 2));
+    const ok = !reason && turns < 40 && reportSaved && tamperedRejected && errors.length === 0;
+    out({ ok, cmd, base: BASE, locale, turns, reportSaved, tamperedRejected, evidence: dir, errors, reason: ok ? undefined : reason ?? errors[0] ?? "voice call assertions failed" });
+  },
   async stop() {
     if (!existsSync(STATE)) return out({ ok: true, cmd, note: "nothing launched by verify-naqah" });
     const { pid } = JSON.parse(readFileSync(STATE, "utf8"));
@@ -199,6 +314,7 @@ if (!commands[cmd] || args.includes("--help")) {
   screens              32 screenshots (ar/en × 375/1440 × 8 pages); fails on overflow or console errors
   call-lab             worker report → owner call → task → 4 missed calls → No Answer ticket (asserted)
   wizard               onboarding with sample data, 9 steps, lands on /app with setupComplete
+  voice                simulate Twilio form webhooks and verify a saved report [--worker-phone E.164] [--locale ar|en]
   stop                 stop only the server this tool launched`);
   process.exit(cmd ? 0 : 1);
 }
