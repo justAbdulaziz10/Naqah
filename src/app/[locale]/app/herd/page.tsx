@@ -56,7 +56,11 @@ export default function HerdPage() {
         return {
           ...current,
           camels: current.camels.map((camel) =>
-            camel.id === id ? { ...camel, ...values, certainty: "verified", updatedAt } : camel,
+            camel.id !== id
+              ? camel
+              : camel.health === values.health && camel.healthNote === values.healthNote
+                ? { ...camel, ...values } // Name, sex or age only: the health record keeps its source and time.
+                : { ...camel, ...values, certainty: "verified", updatedAt },
           ),
         };
       }
@@ -76,7 +80,7 @@ export default function HerdPage() {
   }
 
   return (
-    <div className="animate-fade-up space-y-5 pb-8">
+    <div className="space-y-5 pb-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.app.herd.title}</h1>

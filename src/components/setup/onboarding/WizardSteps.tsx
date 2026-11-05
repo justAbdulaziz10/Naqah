@@ -35,7 +35,8 @@ import type { CriterionKind, Plan, ReportingWindow, ResourceKind, Weekday, Works
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
-import { getCallSetupGaps } from "../CallSetupStatus";
+import { getCallSetupGaps, hasCompleteWindow } from "../CallSetupStatus";
+import { formatSaudiMobile, phoneNeedsFixing } from "../phone";
 import type { WorkspaceUpdate } from "../types";
 import { ChoiceRow, FieldGroup, PhoneField, StepField, StepInput, StepSelect } from "./WizardParts";
 
@@ -147,7 +148,7 @@ export function PlanStep({ ws, onChange }: StepProps) {
 
 /* ─── Owner and farm ───────────────────────────────────────────────────── */
 
-export function OwnerFarmStep({ ws, onChange }: StepProps) {
+export function OwnerFarmStep({ ws, onChange, showErrors = false }: StepProps & { showErrors?: boolean }) {
   const { m } = useI18n();
   const { owner, farm } = ws.settings;
   const w = m.onboarding.wizard;
@@ -161,7 +162,7 @@ export function OwnerFarmStep({ ws, onChange }: StepProps) {
           <StepField label={w.yourName}>
             {({ id }) => <StepInput id={id} autoComplete="name" value={owner.name} onChange={(event) => setOwner({ name: event.target.value })} />}
           </StepField>
-          <PhoneField label={w.yourPhone} value={owner.phone} onChange={(phone) => setOwner({ phone })} />
+          <PhoneField label={w.yourPhone} value={owner.phone} showError={showErrors} onChange={(phone) => setOwner({ phone })} />
         </div>
       </FieldGroup>
       <FieldGroup title={w.farmGroup}>
@@ -192,7 +193,7 @@ type NavigatorWithContacts = Navigator & {
   contacts?: { select: (properties: ("name" | "tel")[], options?: { multiple?: boolean }) => Promise<PickedContact[]> };
 };
 
-export function WorkerStep({ ws, onChange }: StepProps) {
+export function WorkerStep({ ws, onChange, showErrors = false }: StepProps & { showErrors?: boolean }) {
   const { m, t } = useI18n();
   const worker = ws.settings.worker;
   const [contactPickerAvailable, setContactPickerAvailable] = useState(false);
@@ -223,7 +224,7 @@ export function WorkerStep({ ws, onChange }: StepProps) {
       const [contact] = await contacts.select(["name", "tel"], { multiple: false });
       const name = contact?.name?.[0]?.trim();
       const phone = contact?.tel?.[0]?.trim();
-      if (name || phone) setWorker({ ...(name ? { name } : {}), ...(phone ? { phone } : {}) });
+      if (name || phone) setWorker({ ...(name ? { name } : {}), ...(phone ? { phone: formatSaudiMobile(phone) } : {}) });
     } catch {
       // The picker can be dismissed without choosing.
     }
@@ -245,7 +246,7 @@ export function WorkerStep({ ws, onChange }: StepProps) {
         <StepField label={m.onboarding.workerName}>
           {({ id }) => <StepInput id={id} autoComplete="off" value={worker.name} onChange={(event) => setWorker({ name: event.target.value })} />}
         </StepField>
-        <PhoneField label={m.onboarding.workerPhone} autoComplete="off" value={worker.phone} onChange={(phone) => setWorker({ phone })} />
+        <PhoneField label={m.onboarding.workerPhone} autoComplete="off" value={worker.phone} showError={showErrors} onChange={(phone) => setWorker({ phone })} />
       </div>
       <StepField
         label={m.onboarding.workerLanguage}
@@ -415,12 +416,13 @@ export function DetailsStep({ ws, onChange }: StepProps) {
 
 /* ─── Weekly schedule (Basic only) ─────────────────────────────────────── */
 
-export function ScheduleStep({ ws, onChange }: StepProps) {
+export function ScheduleStep({ ws, onChange, showErrors = false }: StepProps & { showErrors?: boolean }) {
   const { m, t } = useI18n();
   const w = m.onboarding.wizard;
   const window = ws.settings.window;
   const bothTimes = Boolean(window?.start && window.end);
   const invalidTimes = Boolean(window && bothTimes && !isValidWindow(window));
+  const missingTimes = Boolean(showErrors && window && !bothTimes);
 
   function updateWindow(patch: Partial<ReportingWindow>) {
     onChange((current) => {
@@ -433,7 +435,7 @@ export function ScheduleStep({ ws, onChange }: StepProps) {
   return (
     <div className="space-y-8">
       <FieldGroup title={w.day}>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {WEEKDAY_LABELS.map((day, index) => (
             <ChoiceRow
               key={index}
@@ -450,7 +452,15 @@ export function ScheduleStep({ ws, onChange }: StepProps) {
       <div className="grid max-w-md grid-cols-2 gap-4">
         <StepField label={w.from}>
           {({ id }) => (
-            <StepInput id={id} type="time" className="ltr-nums" disabled={!window} value={window?.start ?? ""} onChange={(event) => updateWindow({ start: event.target.value })} />
+            <StepInput
+              id={id}
+              type="time"
+              className={cn("ltr-nums", missingTimes && !window?.start && "border-danger")}
+              disabled={!window}
+              aria-invalid={(missingTimes && !window?.start) || undefined}
+              value={window?.start ?? ""}
+              onChange={(event) => updateWindow({ start: event.target.value })}
+            />
           )}
         </StepField>
         <StepField label={w.to}>
@@ -458,9 +468,9 @@ export function ScheduleStep({ ws, onChange }: StepProps) {
             <StepInput
               id={id}
               type="time"
-              className={cn("ltr-nums", invalidTimes && "border-danger")}
+              className={cn("ltr-nums", (invalidTimes || (missingTimes && !window?.end)) && "border-danger")}
               disabled={!window}
-              aria-invalid={invalidTimes || undefined}
+              aria-invalid={invalidTimes || (missingTimes && !window?.end) || undefined}
               value={window?.end ?? ""}
               onChange={(event) => updateWindow({ end: event.target.value })}
             />
@@ -469,6 +479,8 @@ export function ScheduleStep({ ws, onChange }: StepProps) {
       </div>
       {invalidTimes ? (
         <p className="mt-3 text-[0.975rem] text-danger" role="alert">{m.onboarding.windowEndAfterStart}</p>
+      ) : missingTimes ? (
+        <p className="mt-3 text-[0.975rem] text-danger" role="alert">{w.windowIncomplete}</p>
       ) : !window ? (
         <p className="mt-3 text-[0.9375rem] text-muted">{w.pickDayFirst}</p>
       ) : null}
@@ -533,6 +545,7 @@ export function ReviewStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizar
       <>
         {name || <Missing />}
         {phone ? <> · <bdi className="ltr-nums">{phone}</bdi></> : null}
+        {phoneNeedsFixing(phone) ? <span className="block text-[0.9375rem] text-danger">{r.checkNumber}</span> : null}
       </>
     ) : <Missing />;
 
@@ -559,9 +572,9 @@ export function ReviewStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizar
         </ReviewRow>
         {plan === "basic" ? (
           <ReviewRow label={r.schedule} step="schedule" onEdit={onEdit}>
-            {window && window.start && window.end && isValidWindow(window) ? (
+            {hasCompleteWindow(window) ? (
               <>{t(WEEKDAY_LABELS[window.day])} · <bdi className="ltr-nums">{window.start}–{window.end}</bdi></>
-            ) : <Missing />}
+            ) : window ? <span className="text-danger">{r.scheduleUnfinished}</span> : <Missing />}
           </ReviewRow>
         ) : null}
       </dl>

@@ -27,6 +27,7 @@ import {
   setClockTo,
   type Workspace,
 } from "@/domain";
+import { isValidWindow } from "@/domain/clock";
 import { start, answer, hangUp, scenarioAvailability, type AnswerInput, type CallSession, type Scenario } from "@/domain/conversation/engine";
 import { makePersonalizer, personalizeTree } from "@/domain/conversation/personalize";
 import { heatLevel, weatherForToday, withDemoHeat } from "@/domain/weather";
@@ -706,7 +707,7 @@ export function LabPage() {
 
   function jumpToWindow() {
     const current = useWorkspaceStore.getState().workspace;
-    if (!current?.settings.window) return;
+    if (!current?.settings.window || !isValidWindow(current.settings.window)) return;
     const startAt = nextWindowStart(now, current.settings.window);
     const target = new Date(startAt.getTime() + 5 * MINUTE);
     update((current) => setClockTo(current, target));
@@ -776,7 +777,7 @@ export function LabPage() {
           <Button variant="secondary" size="sm" className="min-h-11" onClick={() => advance(20 * MINUTE)}>{m.lab.clock.plus20}</Button>
           <Button variant="secondary" size="sm" className="min-h-11" onClick={() => advance(HOUR)}>{m.lab.clock.plusHour}</Button>
           <Button variant="secondary" size="sm" className="min-h-11" onClick={jumpNextDay}>{m.lab.clock.nextDay}</Button>
-          {ws.settings.plan === "basic" && ws.settings.window ? (
+          {ws.settings.plan === "basic" && ws.settings.window && isValidWindow(ws.settings.window) ? (
             <Button variant="secondary" size="sm" className="min-h-11" onClick={jumpToWindow}>{m.lab.clock.jumpWindow}</Button>
           ) : null}
           {ws.settings.farm.coords && heatLevel(weatherForToday(ws, now)?.maxTempC ?? 0) === "none" ? (

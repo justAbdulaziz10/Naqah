@@ -6,6 +6,7 @@ import { PLAN_LIMITS } from "@/domain/catalog";
 import { isValidWindow } from "@/domain/clock";
 import type { Plan } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
+import { SaveState } from "../SaveState";
 import type { SetupSectionProps } from "../types";
 
 export function PlanSection({ ws, onChange, showSaved, onBasicWindowRequired }: SetupSectionProps & {
@@ -14,7 +15,7 @@ export function PlanSection({ ws, onChange, showSaved, onBasicWindowRequired }: 
   const { m } = useI18n();
   const hasTooManyQuestions = ws.settings.customQuestions.length > PLAN_LIMITS.basic.customQuestions;
   const window = ws.settings.window;
-  const basicWindowValid = Boolean(window?.start && window.end && isValidWindow(window));
+  const basicWindowValid = Boolean(window && isValidWindow(window));
 
   function choose(plan: Plan) {
     if (plan === ws.settings.plan) return;
@@ -53,7 +54,7 @@ export function PlanSection({ ws, onChange, showSaved, onBasicWindowRequired }: 
     <Card>
       <CardHeader
         title={m.onboarding.sectionTitles.plan}
-        action={showSaved ? <span className="text-xs font-medium text-muted">{m.common.actions.saved}</span> : undefined}
+        action={showSaved ? <SaveState /> : undefined}
       />
       <CardBody>
         <div role="radiogroup" aria-label={m.onboarding.sectionTitles.plan} className="grid gap-3 sm:grid-cols-2">

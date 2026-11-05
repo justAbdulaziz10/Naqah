@@ -1,22 +1,28 @@
 "use client";
 
-import type { Workspace } from "@/domain/types";
+import type { ReportingWindow, Workspace } from "@/domain/types";
 import { isValidWindow } from "@/domain/clock";
 import { useI18n } from "@/i18n/client";
 import { ButtonLink } from "@/components/ui";
 import { useId } from "react";
+import { isSaudiMobile } from "./phone";
 
 export type CallSetupGap = "owner" | "farm" | "worker" | "schedule";
+
+/** A window counts only once it has both times; a day alone, or an end with no start, is a draft. */
+export function hasCompleteWindow(window: ReportingWindow | null): window is ReportingWindow {
+  return Boolean(window && isValidWindow(window));
+}
 
 /** Configuration needed before a live call integration could use this farm. */
 export function getCallSetupGaps(ws: Workspace): CallSetupGap[] {
   const gaps: CallSetupGap[] = [];
   const { owner, farm, worker, plan, window } = ws.settings;
 
-  if (!owner.name.trim() || !owner.phone.trim()) gaps.push("owner");
+  if (!owner.name.trim() || !isSaudiMobile(owner.phone)) gaps.push("owner");
   if (!farm.name.trim()) gaps.push("farm");
-  if (!worker.name.trim() || !worker.phone.trim()) gaps.push("worker");
-  if (plan === "basic" && (!window || !isValidWindow(window))) gaps.push("schedule");
+  if (!worker.name.trim() || !isSaudiMobile(worker.phone)) gaps.push("worker");
+  if (plan === "basic" && !hasCompleteWindow(window)) gaps.push("schedule");
 
   return gaps;
 }

@@ -1,4 +1,4 @@
-import { createDemoWorkspace } from "@/domain/seed";
+import { createDemoWorkspace, createEmptyWorkspace } from "@/domain/seed";
 import type { Locale, Plan, Workspace } from "@/domain/types";
 
 const REPLACEMENT_DRAFT_KEY = "naqah-onboarding-replacement-v1";
@@ -91,4 +91,34 @@ export function createOnboardingSample(locale: Locale, plan: Plan): Workspace {
       updatedAt: null,
     })),
   };
+}
+
+/** The parts of a workspace an owner sets up, in a form that compares across fresh copies. */
+function setupFingerprint(ws: Workspace): string {
+  const { owner, farm, worker, window, customQuestions, criteria, emergencies, integrations } = ws.settings;
+  return JSON.stringify({
+    owner,
+    farm: { name: farm.name, location: farm.location, coords: farm.coords ?? null },
+    worker,
+    window,
+    questions: customQuestions.map((question) => question.text),
+    criteria: criteria.map(({ kind, label, enabled }) => ({ kind, label, enabled })),
+    emergencies: emergencies.map(({ kind, label }) => ({ kind, label })),
+    camels: ws.camels.map(({ name, sex, ageYears, health, healthNote }) => ({ name, sex, ageYears, health, healthNote })),
+    resources: ws.resources.map(({ kind, present }) => ({ kind, present })),
+    supplier: { name: integrations?.supplierName ?? "", phone: integrations?.supplierPhone ?? "" },
+    activity: ws.reports.length + ws.calls.length + ws.taskTickets.length + ws.noAnswerTickets.length + ws.relays.length,
+  });
+}
+
+/** True when the workspace holds anything beyond a blank setup or an untouched sample, so loading a sample would lose it. */
+export function hasOwnSetupData(ws: Workspace | null): boolean {
+  if (!ws) return false;
+  const { plan } = ws.settings;
+  const untouched = [
+    createEmptyWorkspace(plan),
+    ...(["ar", "en"] as const).flatMap((locale) => [createDemoWorkspace(locale, plan), createOnboardingSample(locale, plan)]),
+  ];
+  const fingerprint = setupFingerprint(ws);
+  return !untouched.some((candidate) => setupFingerprint(candidate) === fingerprint);
 }

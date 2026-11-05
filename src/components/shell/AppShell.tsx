@@ -16,11 +16,12 @@ import {
 } from "@phosphor-icons/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { CamelMark } from "@/components/brand/CamelMark";
 import { EventNotifier } from "@/components/pwa/EventNotifier";
 import { Logo } from "@/components/brand/Logo";
-import { Button, ButtonLink } from "@/components/ui";
+import { hasOwnSetupData } from "@/components/setup/draft";
+import { Button, ButtonLink, ConfirmDialog } from "@/components/ui";
 import { openNoAnswerTickets, openTaskTickets } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
@@ -52,6 +53,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const ws = useWorkspaceStore((s) => s.workspace);
   const startDemo = useWorkspaceStore((s) => s.startDemo);
   const setupHref = useSetupHref();
+  const [confirmingDemo, setConfirmingDemo] = useState(false);
 
   const isActive = (path: string) => {
     const full = href(path);
@@ -75,7 +77,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <p className="mt-2 text-muted">{m.common.demo.noWorkspaceBody}</p>
         </div>
         <div className="flex flex-wrap justify-center gap-3">
-          <Button onClick={() => startDemo(locale)} size="lg">
+          <Button onClick={() => (hasOwnSetupData(ws) ? setConfirmingDemo(true) : startDemo(locale))} size="lg">
             {m.common.actions.startDemo}
           </Button>
           <ButtonLink href={setupHref} variant="secondary" size="lg">
@@ -83,6 +85,19 @@ export function AppShell({ children }: { children: ReactNode }) {
           </ButtonLink>
         </div>
         <LocaleSwitcher />
+        {confirmingDemo ? (
+          <ConfirmDialog
+            title={m.common.demo.sampleConfirmTitle}
+            body={m.common.demo.sampleConfirmSetup}
+            confirmLabel={m.common.demo.sampleConfirmAction}
+            cancelLabel={m.common.demo.sampleConfirmCancel}
+            onConfirm={() => {
+              setConfirmingDemo(false);
+              startDemo(locale);
+            }}
+            onCancel={() => setConfirmingDemo(false)}
+          />
+        ) : null}
       </div>
     );
   }
@@ -97,7 +112,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="px-2">
           <Logo locale={locale} href={href("/")} />
         </div>
-        <nav aria-label={m.common.nav.overview} className="mt-10 flex flex-col gap-1">
+        <nav aria-label={m.common.nav.main} className="mt-10 flex flex-col gap-1">
           {NAV.map((item) => {
             const active = isActive(item.path);
             return (
@@ -125,7 +140,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
         <div className="mt-auto space-y-3 px-2">
           <div className="border-t border-stone/70 pt-4">
-            <p className="truncate text-sm font-semibold">{ws.settings.owner.name}</p>
+            {ws.settings.owner.name.trim() ? <p className="truncate text-sm font-semibold">{ws.settings.owner.name}</p> : null}
             <p className="mt-0.5 text-xs text-muted">{m.common.demo.badge}</p>
           </div>
           <LocaleSwitcher className="-ms-2.5" />
@@ -140,18 +155,21 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Logo locale={locale} href={href("/")} />
             </div>
             <div className="hidden min-w-0 items-center gap-3 lg:flex">
-              <h1 className="truncate text-lg font-bold">{ws.settings.farm.name}</h1>
+              {/* The overview titles itself with the estate name, so the bar only names it elsewhere. */}
+              {isActive("/app") ? null : <p className="truncate text-lg font-bold">{ws.settings.farm.name.trim() || m.app.overview.estateFallback}</p>}
               <span className="text-sm text-muted">{m.common.plans[ws.settings.plan]}</span>
             </div>
             <div className="ms-auto flex items-center gap-1">
-              <DemoClock />
+              <div className="max-sm:hidden">
+                <DemoClock />
+              </div>
               <div className="lg:hidden">
                 <LocaleSwitcher className="px-2.5" />
               </div>
               <Link
                 href={href("/app/settings")}
                 aria-label={m.common.nav.settings}
-                className="inline-flex size-10 items-center justify-center rounded-full hover:bg-espresso/5 lg:hidden"
+                className="inline-flex size-11 items-center justify-center rounded-full hover:bg-espresso/5 lg:hidden"
               >
                 <GearSix size={22} aria-hidden />
               </Link>
@@ -165,7 +183,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* Bottom tabs (mobile) */}
       <nav
-        aria-label={m.common.nav.overview}
+        aria-label={m.common.nav.main}
         className="fixed inset-x-0 bottom-0 z-40 border-t border-stone/70 bg-cream/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden"
       >
         <div className="mx-auto grid max-w-lg grid-cols-5">

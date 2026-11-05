@@ -4,6 +4,9 @@ import { useState } from "react";
 import { Button, Card, CardBody, CardHeader, Field, Input, Select } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { regionForCoords, SAUDI_REGIONS } from "@/lib/geo/regions";
+import { useSaveStatus } from "@/store/workspace";
+import { SaveState } from "../SaveState";
+import { PhoneInput } from "./PhoneInput";
 import type { SetupSectionProps } from "../types";
 
 type LocationFeedback = "saved" | "unsupported" | "denied" | "timeout" | "unavailable";
@@ -38,7 +41,8 @@ export function OwnerFarmSection({ ws, onChange, showSaved, showLocation = true 
           },
         }));
         setLocating(false);
-        setLocationFeedback("saved");
+        // The section's save state already reports a failed write; only confirm one that landed.
+        setLocationFeedback(useSaveStatus.getState().status === "failed" ? null : "saved");
       },
       (error) => {
         setLocating(false);
@@ -64,7 +68,7 @@ export function OwnerFarmSection({ ws, onChange, showSaved, showLocation = true 
     <Card>
       <CardHeader
         title={m.onboarding.sectionTitles.ownerFarm}
-        action={showSaved ? <span className="text-xs font-medium text-muted">{m.common.actions.saved}</span> : undefined}
+        action={showSaved ? <SaveState /> : undefined}
       />
       <CardBody className="grid gap-4 sm:grid-cols-2">
         <Field label={m.onboarding.ownerName} hint={m.onboarding.optional}>
@@ -80,23 +84,14 @@ export function OwnerFarmSection({ ws, onChange, showSaved, showLocation = true 
             />
           )}
         </Field>
-        <Field label={m.onboarding.ownerPhone} hint={`${m.onboarding.optional} · ${m.onboarding.saudiPhoneHint}`}>
-          {(id) => (
-            <Input
-              id={id}
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              className="ltr-nums text-start"
-              placeholder={m.onboarding.phonePlaceholder}
-              value={owner.phone}
-              onChange={(event) => onChange((current) => ({
-                ...current,
-                settings: { ...current.settings, owner: { ...current.settings.owner, phone: event.target.value } },
-              }))}
-            />
-          )}
-        </Field>
+        <PhoneInput
+          label={m.onboarding.ownerPhone}
+          value={owner.phone}
+          onChange={(phone) => onChange((current) => ({
+            ...current,
+            settings: { ...current.settings, owner: { ...current.settings.owner, phone } },
+          }))}
+        />
         <Field label={m.onboarding.farmName} hint={m.onboarding.optional}>
           {(id) => (
             <Input

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { ArrowsClockwise, PhoneIncoming, PhoneOutgoing, WarningCircle } from "@phosphor-icons/react";
 import { CertaintyBadge, EmptyState, OutcomeBadge } from "@/components/dashboard/DashboardPrimitives";
-import { Badge, Card, CardBody, Segmented } from "@/components/ui";
+import { Badge, ButtonLink, Card, CardBody, Segmented } from "@/components/ui";
 import { dayKey } from "@/domain";
 import type { CallKind, CallLog } from "@/domain";
 import { useI18n } from "@/i18n/client";
@@ -38,7 +38,7 @@ function CallMarker({ call }: { call: CallLog }) {
 }
 
 export default function CallsPage() {
-  const { m, t, fmt } = useI18n();
+  const { m, t, fmt, href } = useI18n();
   const ws = useWorkspace();
   const [filter, setFilter] = useState<CallFilter>("all");
 
@@ -61,7 +61,7 @@ export default function CallsPage() {
   if (!ws) return null;
 
   return (
-    <div className="animate-fade-up space-y-5 pb-8">
+    <div className="space-y-5 pb-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.app.calls.title}</h1>
         <Segmented
@@ -162,7 +162,16 @@ export default function CallsPage() {
           ))}
         </div>
       ) : (
-        <Card><EmptyState title={m.app.calls.empty} /></Card>
+        <Card>
+          {filter === "all" ? (
+            <EmptyState
+              camel
+              title={m.app.calls.empty}
+              body={m.app.calls.emptyBody}
+              action={<ButtonLink href={href("/app/lab")} variant="secondary">{m.app.overview.simulateCall}</ButtonLink>}
+            />
+          ) : <EmptyState title={m.app.calls.empty} />}
+        </Card>
       )}
     </div>
   );

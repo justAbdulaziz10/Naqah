@@ -36,6 +36,7 @@ export function CamelEditorDialog({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!name.trim()) return;
     onSave({
       name: name.trim(),
       sex,

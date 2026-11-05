@@ -5,6 +5,9 @@ import { Button, Card, CardBody, CardHeader, Field, Input, Select } from "@/comp
 import { WORKER_LANGUAGES } from "@/domain/catalog";
 import { useI18n } from "@/i18n/client";
 import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
+import { formatSaudiMobile } from "../phone";
+import { SaveState } from "../SaveState";
+import { PhoneInput } from "./PhoneInput";
 import type { SetupSectionProps } from "../types";
 
 interface PickedContact {
@@ -56,7 +59,7 @@ export function WorkerSection({ ws, onChange, showSaved }: SetupSectionProps) {
           worker: {
             ...current.settings.worker,
             ...(name ? { name } : {}),
-            ...(phone ? { phone } : {}),
+            ...(phone ? { phone: formatSaudiMobile(phone) } : {}),
           },
         },
       }));
@@ -69,7 +72,7 @@ export function WorkerSection({ ws, onChange, showSaved }: SetupSectionProps) {
     <Card>
       <CardHeader
         title={m.onboarding.sectionTitles.worker}
-        action={showSaved ? <span className="text-xs font-medium text-muted">{m.common.actions.saved}</span> : undefined}
+        action={showSaved ? <SaveState /> : undefined}
       />
       <CardBody className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -86,23 +89,15 @@ export function WorkerSection({ ws, onChange, showSaved }: SetupSectionProps) {
               />
             )}
           </Field>
-          <Field label={m.onboarding.workerPhone} hint={`${m.onboarding.optional} · ${m.onboarding.saudiPhoneHint}`}>
-            {(id) => (
-              <Input
-                id={id}
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                className="ltr-nums text-start"
-                placeholder={m.onboarding.phonePlaceholder}
-                value={worker.phone}
-                onChange={(event) => onChange((current) => ({
-                  ...current,
-                  settings: { ...current.settings, worker: { ...current.settings.worker, phone: event.target.value } },
-                }))}
-              />
-            )}
-          </Field>
+          <PhoneInput
+            label={m.onboarding.workerPhone}
+            autoComplete="off"
+            value={worker.phone}
+            onChange={(phone) => onChange((current) => ({
+              ...current,
+              settings: { ...current.settings, worker: { ...current.settings.worker, phone } },
+            }))}
+          />
         </div>
         {contactPickerAvailable ? (
           <Button variant="secondary" className="min-h-11" onClick={chooseContact}>

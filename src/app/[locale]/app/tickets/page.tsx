@@ -42,7 +42,7 @@ export default function TicketsPage() {
   const hasVisibleItems = tasks.length + noAnswers.length + relays.length > 0;
 
   return (
-    <div className="animate-fade-up space-y-5 pb-8">
+    <div className="space-y-5 pb-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.app.tickets.title}</h1>
@@ -87,7 +87,7 @@ export default function TicketsPage() {
                     {active
                       ? ticket.scheduledFor
                         ? <>{m.app.tickets.scheduledForPrefix} <time className="ltr-nums" dateTime={ticket.scheduledFor}>{fmt.dateTime(ticket.scheduledFor, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}</time> {m.app.tickets.scheduledForSuffix(ws.settings.worker.name)}</>
-                        : m.app.tickets.anyTime(ws.settings.worker.name)
+                        : m.app.tickets.anyTime(ws.settings.worker.name.trim() || m.app.overview.unnamedWorker)
                       : ticket.closedAt
                         ? <>{m.app.tickets.closedAt} <time className="ltr-nums" dateTime={ticket.closedAt}>{fmt.dateTime(ticket.closedAt, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}</time></>
                         : ""}
