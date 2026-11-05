@@ -4,7 +4,7 @@
 
 ## Sub-features
 - `hero-demo`: "Explore the live demo" starts the sample farm and opens `/app`.
-- `plan-demo`: "Try Basic" «جرّب الأساسية» / "Try Ultimate in the demo".
+- `plan-demo`: "Try Basic" «جرّب الأساسية» / "Try Ultimate" «جرّب المتكاملة».
 - `locale`: language switch keeps the path.
 
 ## How to get to it (user POV)
