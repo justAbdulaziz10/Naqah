@@ -70,11 +70,11 @@ function applyResult(
   };
 }
 
-export function newVoiceState(scenario: Scenario, locale: Locale, startedAt = Date.now()): VoiceState {
+export function newVoiceState(scenario: Scenario, locale: Locale, startedAt = Date.now(), callSid?: string): VoiceState {
   if (scenario !== "worker_report" && scenario !== "owner_inquiry") {
     throw new Error("Unsupported inbound voice scenario");
   }
-  return { v: 1, sc: scenario, l: locale, t: startedAt, a: [] };
+  return { v: 1, sc: scenario, l: locale, t: startedAt, ...(callSid === undefined ? {} : { callSid }), a: [] };
 }
 
 export function replayVoiceState(state: VoiceState): ReplayResult {
@@ -95,13 +95,8 @@ export function replayVoiceState(state: VoiceState): ReplayResult {
   return { workspace, session };
 }
 
-export function voiceActionUrl(requestUrl: string, signedState: string): string {
-  const url = new URL(requestUrl);
-  url.pathname = "/api/voice/turn";
-  url.search = "";
-  url.hash = "";
-  url.searchParams.set("s", signedState);
-  return url.toString();
+export function voiceActionUrl(_requestUrl: string, signedState: string): string {
+  return `/api/voice/turn?${new URLSearchParams({ s: signedState }).toString()}`;
 }
 
 export function trailingMissCount(inputs: AnswerInput[]): number {

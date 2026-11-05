@@ -15,6 +15,11 @@ interface WhatsAppPayload {
 export function whatsappPayload(to: string, body: string): WhatsAppPayload | null {
   const config = summaryCredentials().whatsapp;
   if (config.templateName) {
+    const lines = body
+      .split(/\r\n|\r|\n|\u2028|\u2029/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    const normalized = capWithEllipsis(lines.join(" • "), 1_000);
     return {
       messaging_product: "whatsapp",
       to,
@@ -22,7 +27,7 @@ export function whatsappPayload(to: string, body: string): WhatsAppPayload | nul
       template: {
         name: config.templateName,
         language: { code: config.templateLanguage },
-        components: [{ type: "body", parameters: [{ type: "text", text: body }] }],
+        components: [{ type: "body", parameters: [{ type: "text", text: normalized }] }],
       },
     };
   }
@@ -30,8 +35,12 @@ export function whatsappPayload(to: string, body: string): WhatsAppPayload | nul
     messaging_product: "whatsapp",
     to,
     type: "text",
-    text: { preview_url: false, body },
+    text: { preview_url: false, body: capWithEllipsis(body, 4_096) },
   };
+}
+
+function capWithEllipsis(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
 }
 
 export async function sendWhatsAppText(to: string, body: string): Promise<boolean> {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FarmReport } from "@/domain/types";
-import { buildOwnerSummary } from "./summary";
+import { buildOwnerCallSummary, buildOwnerSummary } from "./summary";
 
 const report: FarmReport = {
   id: "rep_1", at: "2026-01-01T00:00:00.000Z", callId: "call_1",
@@ -24,5 +24,19 @@ describe("owner report summary", () => {
       ...report.answers[0], question: { ar: `س${index}`, en: `Q${index}` }, answer: "x".repeat(200), answerText: undefined,
     })) };
     expect(buildOwnerSummary(long, "en").length).toBeLessThanOrEqual(4_000);
+  });
+
+  it("builds a short spoken owner call with a headline and findings", () => {
+    const long = {
+      ...report,
+      findings: Array.from({ length: 20 }, (_, index) => ({
+        id: `finding_${index}`, criterionId: `criterion_${index}`, text: { ar: "ملاحظة مهمة ".repeat(30), en: "Important finding ".repeat(30) },
+      })),
+    };
+    const summary = buildOwnerCallSummary(long, "en");
+    expect(summary).toContain("Farm update saved.");
+    expect(summary).toContain("Important findings:");
+    expect(summary.length).toBeLessThanOrEqual(600);
+    expect(summary.endsWith("…")).toBe(true);
   });
 });

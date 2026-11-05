@@ -27,6 +27,17 @@ describe("Twilio owner summary calls", () => {
     expect(fields.get("From")).toBe("+966500000000");
     expect(fields.get("To")).toBe("+966511111111");
     expect(fields.get("Twiml")).toContain("تم حفظ التقرير");
+    expect(fields.get("Twiml")!.length).toBeLessThan(4_000);
+  });
+
+  it("caps the spoken payload before building TwiML", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await callOwnerWithSummary("&".repeat(5_000), "en")).toBe(true);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const twiml = new URLSearchParams(String(init.body)).get("Twiml")!;
+    expect(twiml.length).toBeLessThan(4_000);
+    expect(twiml).toContain("&amp;");
   });
 
   it("does not call Twilio unless explicitly enabled and fully configured", async () => {

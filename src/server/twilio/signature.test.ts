@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formParameters, twilioRequestSignature, validateTwilioSignature } from "./signature";
+import { formParameters, twilioRequestSignature, twilioRequestSignatureUrls, validateTwilioRequestSignature, validateTwilioSignature } from "./signature";
 
 describe("Twilio webhook signatures", () => {
   it("validates the published Twilio form POST parameter example", () => {
@@ -21,5 +21,36 @@ describe("Twilio webhook signatures", () => {
     expect(formParameters(new URLSearchParams("From=%2B966500000000&From=%2B966511111111"))).toEqual({
       From: ["+966500000000", "+966511111111"],
     });
+  });
+
+  it("uses the configured public URL or first forwarded values with both default-port forms", () => {
+    const originalBase = process.env.NAQAH_PUBLIC_BASE_URL;
+    const request = new Request("http://internal:3000/api/voice/turn?s=abc", {
+      headers: {
+        "x-forwarded-proto": "https, http",
+        "x-forwarded-host": "voice.example.test, internal:3000",
+      },
+    });
+    expect(twilioRequestSignatureUrls(request)).toEqual([
+      "https://voice.example.test/api/voice/turn?s=abc",
+      "https://voice.example.test:443/api/voice/turn?s=abc",
+    ]);
+    try {
+      process.env.NAQAH_PUBLIC_BASE_URL = "https://configured.example.test";
+      expect(twilioRequestSignatureUrls(request)).toEqual([
+        "https://configured.example.test/api/voice/turn?s=abc",
+        "https://configured.example.test:443/api/voice/turn?s=abc",
+      ]);
+    } finally {
+      if (originalBase === undefined) delete process.env.NAQAH_PUBLIC_BASE_URL;
+      else process.env.NAQAH_PUBLIC_BASE_URL = originalBase;
+    }
+  });
+
+  it("accepts Twilio signatures with an explicit default port", () => {
+    const request = new Request("https://naqah.test/api/voice/inbound");
+    const params = { From: "+966507782190" };
+    const signature = twilioRequestSignature("https://naqah.test:443/api/voice/inbound", params, "route-token");
+    expect(validateTwilioRequestSignature(request, params, signature, "route-token")).toBe(true);
   });
 });

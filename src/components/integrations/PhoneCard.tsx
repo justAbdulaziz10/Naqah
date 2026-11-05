@@ -6,7 +6,7 @@ import { useI18n } from "@/i18n/client";
 
 interface IntegrationStatus {
   ok: true;
-  voice: { configured: boolean; number: string | null };
+  voice: { configured: boolean; number: string | null; signatureValidation: boolean };
   whatsapp: { configured: boolean };
   ownerCall: { configured: boolean };
 }
@@ -14,7 +14,7 @@ interface IntegrationStatus {
 function disconnectedStatus(): IntegrationStatus {
   return {
     ok: true,
-    voice: { configured: false, number: null },
+    voice: { configured: false, number: null, signatureValidation: false },
     whatsapp: { configured: false },
     ownerCall: { configured: false },
   };
@@ -40,6 +40,7 @@ export function PhoneCard() {
           !value.whatsapp ||
           !value.ownerCall ||
           typeof value.voice.configured !== "boolean" ||
+          typeof value.voice.signatureValidation !== "boolean" ||
           typeof value.whatsapp.configured !== "boolean" ||
           typeof value.ownerCall.configured !== "boolean"
         ) {
@@ -51,6 +52,7 @@ export function PhoneCard() {
             voice: {
               configured: value.voice.configured,
               number: typeof value.voice.number === "string" ? value.voice.number : null,
+              signatureValidation: value.voice.signatureValidation,
             },
             whatsapp: value.whatsapp,
             ownerCall: value.ownerCall,
@@ -86,6 +88,9 @@ export function PhoneCard() {
         ) : null}
         {status?.voice.configured && !lineNumber ? (
           <p className="text-sm text-muted">{m.integrations.phone.numberMissing}</p>
+        ) : null}
+        {status?.voice.configured && !status.voice.signatureValidation ? (
+          <p className="text-sm text-muted">{m.integrations.phone.signatureValidationOff}</p>
         ) : null}
         {status ? (
           <div className="space-y-1.5 border-t border-stone/60 pt-3 text-sm text-muted">

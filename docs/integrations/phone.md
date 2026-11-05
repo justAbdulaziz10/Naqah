@@ -1,9 +1,10 @@
 # Phone line and report summaries
 
 The phone adapter lets a registered worker call NAQAH, answer the scripted worker-report flow, and have the owner
-receive the saved report summary through WhatsApp Cloud API, an outbound Twilio call, or both. It appears in the
-owner's **Settings → Connections** section. With no voice configuration, that card says the line is not connected and
-that Call Lab simulates calls.
+receive the saved report summary through WhatsApp Cloud API, an outbound Twilio call, or both. Paid owner summaries
+are sent only after the completing voice webhook passes Twilio signature validation. It appears in the owner's
+**Settings → Connections** section. With no voice configuration, that card says the line is not connected and that
+Call Lab simulates calls; if signature validation is off, it says automatic owner summaries are paused.
 
 ## Provider setup
 
@@ -17,18 +18,21 @@ that Call Lab simulates calls.
    `https://<your-domain>/api/voice/inbound` using **HTTP POST**. Set the status callback URL to
    `https://<your-domain>/api/voice/status`, also using **HTTP POST**.
 3. Set `NAQAH_VOICE_SECRET` to a strong random secret, `NAQAH_WORKER_PHONE` to the worker's registered E.164 number,
-   and `NEXT_PUBLIC_NAQAH_PHONE_NUMBER` to the purchased number. Optionally set `NAQAH_OWNER_PHONE` to let the owner
-   call in for an inquiry. Set `TWILIO_AUTH_TOKEN` to enable signature validation for every inbound/turn webhook.
+   and `NEXT_PUBLIC_NAQAH_PHONE_NUMBER` to the purchased number. Set `TWILIO_AUTH_TOKEN` to require signature
+   validation on every inbound/turn webhook; production voice is disabled without it unless
+   `NAQAH_ALLOW_UNSIGNED_VOICE=1` is deliberately set. Unsigned calls never send paid owner summaries. Optionally set
+   `NAQAH_OWNER_PHONE` to let the owner call in for an inquiry.
 4. In Vercel project settings, add the same server variables to the environments you use. Add the public number as
    `NEXT_PUBLIC_NAQAH_PHONE_NUMBER`, then redeploy so it is available to the Settings card.
-5. Keep the configured webhook host and scheme consistent with the public URL Twilio signs. If a proxy rewrites the
-   webhook URL, configure it to preserve the original public URL and query string. The adapter validates
-   `X-Twilio-Signature` using the [documented form request signing rules](https://www.twilio.com/docs/usage/webhooks/webhooks-security).
+5. Set `NAQAH_PUBLIC_BASE_URL` to the public origin Twilio calls if your proxy does not provide the correct first
+   `x-forwarded-proto` and `x-forwarded-host` values. Otherwise the adapter uses those forwarded values, then falls
+   back to the request URL. Signature validation also checks the URL with and without an explicit default port, using
+   Twilio's [documented form request signing rules](https://www.twilio.com/docs/usage/webhooks/webhooks-security).
 
-The webhook sequence is `POST /api/voice/inbound` → the signed `action` URL in its `<Gather>` at
-`POST /api/voice/turn` → `POST /api/voice/status`. Configure the number with call forwarding/webhook behavior only; do
-not enable recording or transcription storage. The app stores answer text as part of signed state while a call is in
-progress, but it does not store audio.
+The webhook sequence is `POST /api/voice/inbound` → the relative `<Gather action>` at `POST /api/voice/turn` →
+`POST /api/voice/status`. Call state is bound to Twilio's `CallSid` when present. Configure the number with call
+forwarding/webhook behavior only; do not enable recording or transcription storage. Conversation state is signed, not
+encrypted: answer text is readable in the action URL and can appear in request logs. The app does not store audio.
 
 Twilio is the implemented voice-webhook adapter. Unifonic has its own [incoming-call API and IVR response format](https://unifonic.readme.io/reference/managing-your-incoming-calls),
 so an Unifonic number needs a provider-specific adapter; it cannot call these Twilio routes directly with TwiML.
@@ -41,10 +45,12 @@ Confirm current number availability and local requirements directly with either 
 | `NAQAH_VOICE_SECRET` | HMAC-SHA256 key for signed stateless call state. Required for live voice. |
 | `NAQAH_WORKER_PHONE` | Registered worker caller ID, preferably E.164. Required for live voice. |
 | `NAQAH_OWNER_PHONE` | Owner caller ID; enables owner inquiry matching and is required for owner call summaries. |
+| `NAQAH_PUBLIC_BASE_URL` | Public origin Twilio signs; takes precedence over forwarded headers. |
+| `NAQAH_ALLOW_UNSIGNED_VOICE` | Set to `1` to permit unsigned voice in production; owner summaries remain disabled. |
 | `NAQAH_VOICE_LOCALE` | `ar` by default, or `en`. |
 | `NAQAH_VOICE_ARABIC_VOICE` | Twilio `<Say>` voice override; defaults to `Polly.Zeina`. |
 | `NAQAH_VOICE_ENGLISH_VOICE` | Twilio `<Say>` voice override; defaults to `Polly.Joanna`. |
-| `TWILIO_AUTH_TOKEN` | Optional webhook signature validation. If set, unsigned or invalid webhooks are rejected. |
+| `TWILIO_AUTH_TOKEN` | Enables required Twilio signature checks. Invalid or missing signatures are rejected; required for production voice by default and for paid owner summaries. |
 | `TWILIO_ACCOUNT_SID` | Twilio account SID for outbound owner calls. |
 | `TWILIO_PHONE_NUMBER` | Twilio caller ID for outbound owner calls. |
 | `NAQAH_CALL_OWNER` | Set to `1` to place the outbound owner call; defaults to off. |
@@ -55,10 +61,16 @@ Confirm current number availability and local requirements directly with either 
 | `WHATSAPP_TEMPLATE_NAME` | Optional approved WhatsApp template for business-initiated messages outside the 24-hour service window. |
 | `WHATSAPP_TEMPLATE_LANGUAGE` | Template language code; defaults to `ar`. The approved template must accept one text body parameter. |
 
+Template summaries are whitespace-normalized into a single line with ` • ` separators and capped at 1,000 characters;
+plain-text summaries keep line breaks and are capped at 4,096 characters. The outbound spoken summary includes the
+headline and findings only and is capped at 600 characters.
+
 Copy `.env.example` to `.env.local` for local work. Never commit `.env.local` or provider tokens. For Vercel, use the
 project's Environment Variables settings. Leave the optional WhatsApp and outbound-call variables unset to disable
-those channels. Provider requests are made only when credentials and recipients are present; failures are logged as
-non-sensitive outcome lines and do not fail the worker call.
+those channels. Without `TWILIO_AUTH_TOKEN`, development and test calls may complete but never dispatch paid owner
+summaries; the server logs `owner summary skipped: unsigned webhook` once when a worker report completes. Provider
+failures are logged as non-sensitive outcome lines and do not fail the worker call. The Settings phone card shows
+whether signature validation is enabled without exposing the token.
 
 ## WhatsApp Cloud API
 
@@ -75,13 +87,18 @@ combinations may depend on the Twilio account and speech provider.
 
 ## Local verification without accounts
 
-Unit tests use mocked network calls and need no Twilio or Meta account. For a live local route simulation, run:
+Unit tests use mocked network calls and need no Twilio or Meta account. The voice verifier completes a real report on
+the configured server and can trigger paid summary channels, so use a local or test deployment unless those charges
+are intended. By default it refuses to run when `WHATSAPP_TOKEN` or
+`NAQAH_CALL_OWNER=1` is present in its environment; pass `--allow-paid` only when those effects are intended. For a
+local route run with no paid settings, use:
 
 ```sh
 NAQAH_VOICE_SECRET='a-random-test-secret-at-least-32-bytes' \
 NAQAH_WORKER_PHONE='+966507782190' \
+TWILIO_AUTH_TOKEN='local-test-auth-token' \
 node scripts/verify-naqah.mjs launch
-node scripts/verify-naqah.mjs voice --worker-phone '+966507782190'
+TWILIO_AUTH_TOKEN='local-test-auth-token' node scripts/verify-naqah.mjs voice --worker-phone '+966507782190'
 node scripts/verify-naqah.mjs stop
 ```
 
@@ -95,11 +112,16 @@ POST each `SpeechResult` to the `<Gather action>` URL returned by Twilio.
 
 - The dialogue is the scripted engine in `src/domain/conversation/engine.ts`; speech is matched with normalized keywords,
   number words, and reply-label overlap. It is not an LLM and does not understand open-ended speech generally.
-- Conversation state is signed into the Gather action URL and expires after 30 minutes. The app replays the engine
+- Conversation state is signed, not encrypted, into the Gather action URL and expires after 30 minutes. Answers are
+  therefore visible in URL and proxy request logs. The app replays the engine
   from a canonicalized sample workspace on every webhook. There is no server database, so the saved report is only
   available to build and send the immediate summary; it does not appear in the owner's dashboard yet.
 - Number and time extraction supports common Arabic and English forms, not every dialect or phrasing. The match is
   retried twice before an unknown choice is selected or the call ends.
+- Caller ID identifies a configured worker or owner but can be spoofed by a caller. A valid Twilio signature proves
+  the webhook came through Twilio; it does not prove that the caller ID belongs to the person calling.
+- The worker match is checked before the owner match. If `NAQAH_OWNER_PHONE` is the same number as
+  `NAQAH_WORKER_PHONE`, calls from that number are always treated as worker reports and owner inquiry is unreachable.
 - WhatsApp provider policy, number eligibility, call pricing, and templates are controlled by Meta and Twilio and can
   change. Confirm current terms and charges with each provider before enabling a paid channel.
 - The later production path is Supabase persistence plus a realtime speech model connected through Twilio media

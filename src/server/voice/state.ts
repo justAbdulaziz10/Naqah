@@ -7,6 +7,7 @@ export interface VoiceState {
   sc: Extract<Scenario, "worker_report" | "owner_inquiry">;
   l: Locale;
   t: number;
+  callSid?: string;
   a: AnswerInput[];
 }
 
@@ -60,6 +61,7 @@ export function verifyVoiceState(
       (state.sc !== "worker_report" && state.sc !== "owner_inquiry") ||
       (state.l !== "ar" && state.l !== "en") ||
       !Number.isSafeInteger(state.t) ||
+      (state.callSid !== undefined && (typeof state.callSid !== "string" || state.callSid.length > 128)) ||
       !Array.isArray(state.a) ||
       state.a.length > MAX_ANSWERS ||
       !state.a.every(validAnswer)

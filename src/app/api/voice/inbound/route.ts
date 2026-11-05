@@ -1,8 +1,8 @@
-import { voiceConfiguration } from "@/server/env";
+import { shouldRefuseUnsignedVoice, voiceConfiguration } from "@/server/env";
 import { replayVoiceState, newVoiceState, voiceActionUrl } from "@/server/voice/conversation";
 import { signVoiceState } from "@/server/voice/state";
 import { twimlGather, twimlGoodbye, twimlResponse } from "@/server/voice/twiml";
-import { formParameters, validateTwilioSignature } from "@/server/twilio/signature";
+import { checkTwilioWebhookSignature } from "@/server/twilio/signature";
 import { normalizeSpeech } from "@/server/voice/speech";
 
 function normalizePhone(phone: string): string {
@@ -12,24 +12,15 @@ function normalizePhone(phone: string): string {
   return digits;
 }
 
-function trustedRequest(request: Request, form: URLSearchParams): boolean {
-  const token = process.env.TWILIO_AUTH_TOKEN?.trim();
-  if (!token) return true;
-  return validateTwilioSignature(
-    request.url,
-    formParameters(form),
-    request.headers.get("X-Twilio-Signature"),
-    token,
+function disabledResponse(locale: "ar" | "en") {
+  return twimlResponse(
+    twimlGoodbye(locale, locale === "ar" ? "خط الاتصال غير مفعّل حالياً." : "The phone line is not configured yet."),
   );
 }
 
 export async function POST(request: Request): Promise<Response> {
   const config = voiceConfiguration();
-  if (!config.secret || !config.workerPhone) {
-    return twimlResponse(
-      twimlGoodbye(config.locale, config.locale === "ar" ? "خط الاتصال غير مفعّل حالياً." : "The phone line is not configured yet."),
-    );
-  }
+  if (!config.secret || !config.workerPhone || shouldRefuseUnsignedVoice()) return disabledResponse(config.locale);
 
   let form: URLSearchParams;
   try {
@@ -37,7 +28,8 @@ export async function POST(request: Request): Promise<Response> {
   } catch {
     return twimlResponse(twimlGoodbye(config.locale));
   }
-  if (!trustedRequest(request, form)) return twimlResponse(twimlGoodbye(config.locale), 403);
+  const signature = checkTwilioWebhookSignature(request, form);
+  if (!signature.valid) return twimlResponse(twimlGoodbye(config.locale), 403);
 
   const caller = normalizePhone(form.get("From") ?? "");
   const worker = normalizePhone(config.workerPhone);
@@ -51,8 +43,16 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const state = newVoiceState(scenario, config.locale, Date.now());
-  const replay = replayVoiceState(state);
+  const callSid = form.has("CallSid") ? form.get("CallSid") ?? "" : undefined;
+  if (callSid && callSid.length > 128) return twimlResponse(twimlGoodbye(config.locale));
+  const state = newVoiceState(scenario, config.locale, Date.now(), callSid);
+  let replay: ReturnType<typeof replayVoiceState>;
+  try {
+    replay = replayVoiceState(state);
+  } catch (error) {
+    console.error(error instanceof Error ? error.name : "UnknownError");
+    return twimlResponse(twimlGoodbye(state.l));
+  }
   if (replay.session.done) {
     const final = [...replay.session.turns].reverse().find((turn) => turn.speaker === "agent")?.text[state.l];
     return twimlResponse(twimlGoodbye(state.l, final));

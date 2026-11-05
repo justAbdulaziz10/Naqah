@@ -28,13 +28,31 @@ describe("WhatsApp Cloud API summaries", () => {
   it("uses an optional template with the summary as its body parameter", () => {
     vi.stubEnv("WHATSAPP_TEMPLATE_NAME", "naqah_summary");
     vi.stubEnv("WHATSAPP_TEMPLATE_LANGUAGE", "ar");
-    expect(whatsappPayload("+966511111111", "ملخص التقرير")).toEqual({
+    const summary = `ملخص التقرير\n\tملاحظة    مهمة\n${"تفصيل ".repeat(200)}`;
+    const payload = whatsappPayload("+966511111111", summary);
+    expect(payload).toEqual({
       messaging_product: "whatsapp", to: "+966511111111", type: "template",
       template: {
         name: "naqah_summary", language: { code: "ar" },
-        components: [{ type: "body", parameters: [{ type: "text", text: "ملخص التقرير" }] }],
+        components: [{ type: "body", parameters: [{ type: "text", text: expect.any(String) }] }],
       },
     });
+    const text = payload!.template!.components[0].parameters[0].text;
+    expect(text).not.toMatch(/[\n\t]/);
+    expect(text).not.toMatch(/ {4,}/);
+    expect(text).toContain(" • ");
+    expect(text.length).toBeLessThanOrEqual(1_000);
+    expect(text.endsWith("…")).toBe(true);
+  });
+
+  it("keeps plain-text line breaks and caps the body at 4096 characters", () => {
+    const text = `first line\nsecond line\n${"x".repeat(5_000)}`;
+    const payload = whatsappPayload("+966511111111", text);
+    expect(payload).toMatchObject({ type: "text", text: { body: expect.any(String) } });
+    if (payload?.type !== "text") throw new Error("expected a WhatsApp text payload");
+    expect(payload.text!.body).toContain("first line\nsecond line");
+    expect(payload.text!.body.length).toBeLessThanOrEqual(4_096);
+    expect(payload.text!.body.endsWith("…")).toBe(true);
   });
 
   it("degrades when credentials are missing or the provider rejects the message", async () => {

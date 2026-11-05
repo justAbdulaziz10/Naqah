@@ -23,6 +23,17 @@ export function buildOwnerSummary(report: FarmReport, locale: Locale): string {
   return lines.join("\n").slice(0, 4_000);
 }
 
+export function buildOwnerCallSummary(report: FarmReport, locale: Locale): string {
+  const findings = report.findings.map((finding) => finding.text[locale]);
+  const lines = [locale === "ar" ? "تم حفظ تحديث المزرعة." : "Farm update saved."];
+  if (findings.length) {
+    lines.push(locale === "ar" ? "أهم الملاحظات:" : "Important findings:");
+    lines.push(...findings.map((finding) => `• ${finding}`));
+  }
+  const summary = lines.join(" ");
+  return summary.length <= 600 ? summary : `${summary.slice(0, 599).trimEnd()}…`;
+}
+
 async function sendOwnerSummary(report: FarmReport, locale: Locale): Promise<void> {
   const text = buildOwnerSummary(report, locale);
   const config = summaryCredentials();
@@ -30,7 +41,7 @@ async function sendOwnerSummary(report: FarmReport, locale: Locale): Promise<voi
   if (config.whatsapp.token && config.whatsapp.phoneNumberId && config.whatsapp.recipient) {
     tasks.push(sendWhatsAppText(config.whatsapp.recipient, text));
   }
-  if (config.ownerCall.enabled) tasks.push(callOwnerWithSummary(text, locale));
+  if (config.ownerCall.enabled) tasks.push(callOwnerWithSummary(buildOwnerCallSummary(report, locale), locale));
   await Promise.allSettled(tasks);
 }
 

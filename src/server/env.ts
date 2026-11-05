@@ -6,6 +6,15 @@ export function voiceLocale(): Locale {
   return value("NAQAH_VOICE_LOCALE").toLowerCase() === "en" ? "en" : "ar";
 }
 
+export function voiceSignatureValidationEnabled(): boolean {
+  return Boolean(value("TWILIO_AUTH_TOKEN"));
+}
+
+export function shouldRefuseUnsignedVoice(): boolean {
+  const production = process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+  return production && process.env.NAQAH_ALLOW_UNSIGNED_VOICE !== "1" && !voiceSignatureValidationEnabled();
+}
+
 export function voiceConfiguration() {
   return {
     secret: value("NAQAH_VOICE_SECRET"),
@@ -31,6 +40,7 @@ export function integrationsStatus() {
     voice: {
       configured: Boolean(voice.secret && voice.workerPhone),
       number: value("NEXT_PUBLIC_NAQAH_PHONE_NUMBER") || null,
+      signatureValidation: voiceSignatureValidationEnabled(),
     },
     whatsapp: {
       configured: Boolean(

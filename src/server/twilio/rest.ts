@@ -8,7 +8,9 @@ export async function callOwnerWithSummary(text: string, locale: Locale): Promis
   if (typeof fetch !== "function") return false;
 
   const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.accountSid)}/Calls.json`;
-  const twiml = `<Response>${sayElement(text, locale)}</Response>`;
+  const spokenSummary = text.length <= 600 ? text : `${text.slice(0, 599).trimEnd()}…`;
+  const twiml = `<Response>${sayElement(spokenSummary, locale)}</Response>`;
+  if (twiml.length >= 4_000) return false;
   const body = new URLSearchParams({ To: config.to, From: config.from, Twiml: twiml });
   try {
     const response = await fetch(endpoint, {

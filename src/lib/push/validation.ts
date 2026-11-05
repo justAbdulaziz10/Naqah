@@ -25,13 +25,29 @@ export function isPushSubscription(value: unknown): value is PushSubscriptionInp
 
   try {
     const endpoint = new URL(value.endpoint);
-    if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password) return false;
+    if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.port) return false;
+    if (!isAllowedPushHost(endpoint.hostname)) return false;
   } catch {
     return false;
   }
 
   return typeof value.keys.p256dh === "string" && /^[A-Za-z0-9_-]{1,512}$/.test(value.keys.p256dh)
     && typeof value.keys.auth === "string" && /^[A-Za-z0-9_-]{1,512}$/.test(value.keys.auth);
+}
+
+function isAllowedPushHost(hostname: string): boolean {
+  return hostname === "fcm.googleapis.com"
+    || isSubdomainOf(hostname, "push.services.mozilla.com")
+    || isSubdomainOf(hostname, "push.apple.com")
+    || isSubdomainOf(hostname, "notify.windows.com")
+    || isSubdomainOf(hostname, "wns.windows.com");
+}
+
+function isSubdomainOf(hostname: string, domain: string): boolean {
+  const suffix = `.${domain}`;
+  if (!hostname.endsWith(suffix)) return false;
+  const prefix = hostname.slice(0, -suffix.length);
+  return prefix.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label));
 }
 
 export function isPushPayload(value: unknown): value is PushPayload {

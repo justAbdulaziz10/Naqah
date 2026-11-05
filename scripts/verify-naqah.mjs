@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // NAQAH verification CLI. JSON on stdout; nonzero exit when a check fails.
-// Usage: node scripts/verify-naqah.mjs <launch|doctor|screens|call-lab|wizard|stop> [--base URL] [--port N] [--locale ar|en]
+// Usage: node scripts/verify-naqah.mjs <launch|doctor|screens|call-lab|wizard|voice|stop> [--base URL] [--port N] [--locale ar|en]
 import { spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync } from "node:fs";
@@ -184,7 +184,16 @@ const commands = {
     const ok = !reason && ws?.setupComplete === true && steps.length === 9;
     out({ ok, cmd, evidence: dir, steps: steps.length, setupComplete: ws?.setupComplete ?? null, reason: ok ? undefined : reason ?? `expected 9 steps + setupComplete, got ${steps.length}` });
   },
+  // This completes a real worker report against the configured voice server.
   async voice() {
+    const allowPaid = args.includes("--allow-paid");
+    const dryRun = args.includes("--dry-run") || !allowPaid;
+    if (dryRun && !allowPaid && (process.env.WHATSAPP_TOKEN !== undefined || process.env.NAQAH_CALL_OWNER === "1")) {
+      return fail("voice completes a real worker report; dry-run refuses when paid summary settings are present", {
+        dryRun: true,
+        hint: "unset WHATSAPP_TOKEN and NAQAH_CALL_OWNER, or pass --allow-paid to permit paid side effects",
+      });
+    }
     const locale = opt("locale", "ar") === "en" ? "en" : "ar";
     const workerPhone = opt("worker-phone", process.env.NAQAH_WORKER_PHONE ?? "");
     if (!workerPhone) return fail("set --worker-phone or NAQAH_WORKER_PHONE to a registered caller ID");
@@ -204,11 +213,12 @@ const commands = {
     const post = async (url, fields) => {
       const body = new URLSearchParams(fields);
       const headers = { "Content-Type": "application/x-www-form-urlencoded" };
-      const signed = signature(url, fields);
+      const resolvedUrl = new URL(url, BASE).toString();
+      const signed = signature(resolvedUrl, fields);
       if (signed) headers["X-Twilio-Signature"] = signed;
-      const response = await fetch(url, { method: "POST", headers, body });
+      const response = await fetch(resolvedUrl, { method: "POST", headers, body });
       const xml = await response.text();
-      exchanges.push({ request: { url, fields }, response: { status: response.status, body: xml } });
+      exchanges.push({ request: { url: resolvedUrl, fields }, response: { status: response.status, body: xml } });
       return { response, xml };
     };
     const decodeXml = (text) => text
@@ -263,10 +273,10 @@ const commands = {
       let nextAction = action(inbound.xml);
       if (!nextAction) throw new Error("inbound response did not include a Gather action; check the voice env vars and caller ID");
 
-      const actionUrl = new URL(nextAction);
+      const actionUrl = new URL(nextAction, BASE);
       const originalState = actionUrl.searchParams.get("s");
       if (!originalState) throw new Error("Gather action did not contain signed state");
-      const tamperedUrl = new URL(nextAction);
+      const tamperedUrl = new URL(nextAction, BASE);
       const tamperedState = originalState[0] === "A" ? `B${originalState.slice(1)}` : `A${originalState.slice(1)}`;
       tamperedUrl.searchParams.set("s", tamperedState);
       const tampered = await post(tamperedUrl.toString(), { From: workerPhone, To: toNumber, CallSid: callSid, SpeechResult: locale === "ar" ? "نعم" : "yes" });
@@ -296,7 +306,7 @@ const commands = {
     }
     writeFileSync(`${dir}/exchanges.json`, JSON.stringify(exchanges, null, 2));
     const ok = !reason && turns < 40 && reportSaved && tamperedRejected && errors.length === 0;
-    out({ ok, cmd, base: BASE, locale, turns, reportSaved, tamperedRejected, evidence: dir, errors, reason: ok ? undefined : reason ?? errors[0] ?? "voice call assertions failed" });
+    out({ ok, cmd, base: BASE, locale, dryRun, turns, reportSaved, tamperedRejected, evidence: dir, errors, reason: ok ? undefined : reason ?? errors[0] ?? "voice call assertions failed" });
   },
   async stop() {
     if (!existsSync(STATE)) return out({ ok: true, cmd, note: "nothing launched by verify-naqah" });
@@ -314,7 +324,8 @@ if (!commands[cmd] || args.includes("--help")) {
   screens              32 screenshots (ar/en × 375/1440 × 8 pages); fails on overflow or console errors
   call-lab             worker report → owner call → task → 4 missed calls → No Answer ticket (asserted)
   wizard               onboarding with sample data, 9 steps, lands on /app with setupComplete
-  voice                simulate Twilio form webhooks and verify a saved report [--worker-phone E.164] [--locale ar|en]
+  voice                complete a real report, then verify save + tamper rejection [--worker-phone E.164] [--locale ar|en] [--dry-run] [--allow-paid]
+                       dry-run is the default and refuses paid summary env vars; --allow-paid permits side effects
   stop                 stop only the server this tool launched`);
   process.exit(cmd ? 0 : 1);
 }
