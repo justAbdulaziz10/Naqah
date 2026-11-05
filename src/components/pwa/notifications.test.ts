@@ -9,7 +9,7 @@ function event(id: string, tone: PlatformEvent["tone"], en: string, ar = "حدث
 describe("selectNotificationEvents", () => {
   it("selects attention, danger, findings, No Answer tickets, and owner-call summaries", () => {
     const events = [
-      event("finding", "attention", "1 finding(s) match the owner's criteria"),
+      event("finding", "attention", "1 finding matches the owner's criteria"),
       event("ticket", "attention", "After 3 retries a No Answer Ticket was opened — waiting for the worker to call back"),
       event("danger", "danger", "A dangerous event"),
       event("owner-call", "success", "The agent called the owner with the update", "اتصل المساعد بالمالك وأبلغه بالتحديث"),

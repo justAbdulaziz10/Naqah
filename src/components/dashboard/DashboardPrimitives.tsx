@@ -32,7 +32,7 @@ export function HealthBadge({ health }: { health: HealthStatus }) {
 export function CertaintyBadge({ certainty }: { certainty: Certainty }) {
   const { t } = useI18n();
   return (
-    <span className={`text-xs ${certainty === "verified" ? "font-semibold text-ok" : "text-muted"}`}>
+    <span className={`text-[0.8125rem] ${certainty === "verified" ? "font-semibold text-ok" : "text-muted"}`}>
       {t(CERTAINTY_LABELS[certainty])}
     </span>
   );
@@ -50,17 +50,34 @@ export function OutcomeBadge({ outcome }: { outcome: CallOutcome }) {
 
 const meterTone: Record<Exclude<Level, "unknown">, string> = {
   good: "bg-ok",
-  medium: "bg-info",
+  medium: "bg-brown",
   low: "bg-warn",
   critical: "bg-danger",
 };
 
-const meterFill: Record<Exclude<Level, "unknown">, number> = {
-  good: 4,
-  medium: 3,
-  low: 2,
-  critical: 1,
+/** Stock is an amount, so "about half" fills half. */
+const stockFill: Record<Exclude<Level, "unknown">, number> = { good: 4, medium: 2, low: 1, critical: 1 };
+
+const conditionText: Record<Level, string> = {
+  good: "text-ok",
+  medium: "text-warn",
+  low: "text-warn",
+  critical: "text-danger",
+  unknown: "text-muted",
 };
+
+/** Fences and shelter are a condition, not an amount, so they read as a word and never a gauge. */
+export const isConditionResource = (kind: ResourceKind) => kind === "fences" || kind === "shelter";
+
+export function ConditionLabel({ kind, level }: { kind: ResourceKind; level: Level }) {
+  const { t } = useI18n();
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold ${conditionText[level]}`}>
+      <span className="size-1.5 rounded-full bg-current" aria-hidden />
+      {t(levelLabel(kind, level))}
+    </span>
+  );
+}
 
 export function ResourceMeter({ kind, level }: { kind: ResourceKind; level: Level }) {
   const { t } = useI18n();
@@ -77,7 +94,7 @@ export function ResourceMeter({ kind, level }: { kind: ResourceKind; level: Leve
           className={
             level === "unknown"
               ? "h-2.5 flex-1 rounded-sm border border-dashed border-stone bg-ivory"
-              : `h-2.5 flex-1 rounded-sm ${index < meterFill[level] ? meterTone[level] : "bg-stone/50"}`
+              : `h-2.5 flex-1 rounded-sm ${index < stockFill[level] ? meterTone[level] : "bg-stone/50"}`
           }
         />
       ))}

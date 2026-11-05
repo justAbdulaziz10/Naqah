@@ -102,7 +102,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const openTasks = openTaskTickets(ws).length + openNoAnswerTickets(ws).length;
+  const openTasks = (ws.settings.plan === "ultimate" ? openTaskTickets(ws).length : 0) + openNoAnswerTickets(ws).length;
 
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[260px_1fr]">
@@ -111,8 +111,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className="sticky top-0 hidden h-dvh flex-col border-e border-stone/70 bg-cream/60 px-4 py-6 lg:flex">
         <div className="px-2">
           <Logo locale={locale} href={href("/")} />
+          <p className="mt-5 truncate font-semibold text-espresso">{ws.settings.farm.name.trim() || m.app.overview.estateFallback}</p>
+          <p className="text-sm text-muted">{m.common.plans[ws.settings.plan]}</p>
         </div>
-        <nav aria-label={m.common.nav.main} className="mt-10 flex flex-col gap-1">
+        <nav aria-label={m.common.nav.main} className="mt-6 flex flex-col gap-1">
           {NAV.map((item) => {
             const active = isActive(item.path);
             return (
@@ -150,32 +152,21 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-col">
         {/* Top bar */}
         <header className="sticky top-0 z-30 border-b border-stone/60 bg-ivory/85 backdrop-blur-md">
-          <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:px-6 lg:px-8">
-            <div className="lg:hidden">
-              <Logo locale={locale} href={href("/")} />
-            </div>
-            <div className="hidden min-w-0 items-center gap-3 lg:flex">
-              {/* The overview titles itself with the estate name, so the bar only names it elsewhere. */}
-              {isActive("/app") ? null : <p className="truncate text-lg font-bold">{ws.settings.farm.name.trim() || m.app.overview.estateFallback}</p>}
-              <span className="text-sm text-muted">{m.common.plans[ws.settings.plan]}</span>
-            </div>
+          {/* Phones only: on desktop the sidebar names the product and the estate. */}
+          <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:px-6 lg:hidden">
+            <Logo locale={locale} href={href("/")} className="min-h-11" />
             <div className="ms-auto flex items-center gap-1">
-              <div className="max-sm:hidden">
-                <DemoClock />
-              </div>
-              <div className="lg:hidden">
-                <LocaleSwitcher className="px-2.5" />
-              </div>
+              <LocaleSwitcher />
               <Link
                 href={href("/app/settings")}
                 aria-label={m.common.nav.settings}
-                className="inline-flex size-11 items-center justify-center rounded-full hover:bg-espresso/5 lg:hidden"
+                className="inline-flex size-11 items-center justify-center rounded-full hover:bg-espresso/5"
               >
                 <GearSix size={22} aria-hidden />
               </Link>
             </div>
           </div>
-          <DemoNotice />
+          <DemoNotice showSimulate={!isActive("/app/lab")} labHref={href("/app/lab")} />
         </header>
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">{children}</main>
@@ -219,17 +210,27 @@ export function AppShell({ children }: { children: ReactNode }) {
  * Every record in this browser workspace is simulated (sample farm or Call Lab runs); real
  * calls don't reach it yet. Shown on every dashboard page so no one mistakes it for live data.
  */
-function DemoNotice() {
+function DemoNotice({ showSimulate, labHref }: { showSimulate: boolean; labHref: string }) {
   const { m } = useI18n();
   return (
-    <div role="note" className="border-t border-stone/60 bg-cream">
-      <p className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-2 text-sm sm:px-6 lg:px-8">
+    <div role="note" className="border-t border-stone/60 bg-cream lg:border-t-0">
+      <div className="mx-auto flex min-h-11 max-w-6xl items-center gap-2 px-4 text-sm sm:px-6 lg:px-8">
         <Flask size={16} className="shrink-0 text-brown" aria-hidden />
         <span className="shrink-0 font-semibold text-brown">{m.common.demo.label}</span>
         <span aria-hidden className="text-muted">·</span>
-        <span className="min-w-0 truncate text-muted sm:hidden">{m.common.demo.noticeShort}</span>
-        <span className="hidden min-w-0 text-muted sm:inline">{m.common.demo.notice}</span>
-      </p>
+        <span className="min-w-0 truncate text-muted xl:hidden">{m.common.demo.noticeShort}</span>
+        <span className="hidden min-w-0 truncate text-muted xl:inline">{m.common.demo.notice}</span>
+        <div className="ms-auto flex shrink-0 items-center gap-1">
+          <div className="max-sm:hidden">
+            <DemoClock />
+          </div>
+          {showSimulate ? (
+            <Link href={labHref} className="inline-flex min-h-11 items-center gap-1.5 font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
+              {m.common.demo.simulateCall}
+            </Link>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

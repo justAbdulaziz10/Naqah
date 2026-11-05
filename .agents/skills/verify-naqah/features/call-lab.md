@@ -13,7 +13,7 @@ through the same pure domain actions a real voice agent would call.
 - `clock`: +20 min, +1 hour, next day 17:00, jump to Basic window.
 
 ## How to get to it (user POV)
-- Sidebar / bottom tab "Call Lab" «مختبر المكالمات»; overview card "Simulate a call"; tickets "Verify now".
+- Sidebar / bottom tab "Call Lab" «مختبر المكالمات»; demo strip "Simulate a call" «محاكاة مكالمة»; tickets "Verify now".
 
 ## Driving it with Playwright
 Preconditions: sample farm started (see README).
