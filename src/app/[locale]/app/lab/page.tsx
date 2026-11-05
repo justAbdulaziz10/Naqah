@@ -1,9 +1,5 @@
-"use client";
+import { LabPage } from "@/components/lab/LabPage";
 
-import { useI18n } from "@/i18n/client";
-
-/** Placeholder — owned by the lab slice. */
 export default function Page() {
-  const { m } = useI18n();
-  return <h1 className="text-2xl font-bold">{m.common.nav.lab}</h1>;
+  return <LabPage />;
 }
