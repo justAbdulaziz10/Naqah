@@ -1,13 +1,16 @@
 "use client";
 
 import { ArrowRight, WarningCircle } from "@phosphor-icons/react";
+import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { EmptyState, noAnswerAttemptInfo } from "@/components/dashboard/DashboardPrimitives";
+import { useHashTarget } from "@/components/dashboard/useHashTarget";
 import { TaskCalendarLink } from "@/components/integrations/TaskCalendarLink";
 import { Badge, ButtonLink, Card, Segmented } from "@/components/ui";
 import { openNoAnswerTickets, openTaskTickets } from "@/domain";
 import type { CallKind } from "@/domain";
 import { useI18n } from "@/i18n/client";
+import { cn } from "@/lib/cn";
 import { useNow, useWorkspace } from "@/store/workspace";
 
 type TicketTab = "active" | "history";
@@ -51,6 +54,7 @@ export default function TicketsPage() {
   const ws = useWorkspace();
   const now = useNow();
   const [tab, setTab] = useState<TicketTab>("active");
+  const linkedTaskId = useHashTarget("task-", Boolean(ws));
   if (!ws) return null;
 
   const ultimate = ws.settings.plan === "ultimate";
@@ -86,7 +90,12 @@ export default function TicketsPage() {
           {tasks.length ? (
             <TicketGroup id="tickets-tasks" title={m.app.tickets.taskTickets}>
               {tasks.map((ticket) => (
-                <li key={ticket.id} className="py-4 last:pb-0">
+                <li
+                  key={ticket.id}
+                  data-hash-target={`task-${ticket.id}`}
+                  tabIndex={-1}
+                  className={cn("py-4 last:pb-0 focus:outline-none", linkedTaskId === ticket.id && "border-s-2 border-s-brown ps-3")}
+                >
                   <p className="text-lg font-semibold leading-relaxed text-espresso">{ticket.instruction}</p>
                   <p className="mt-1 text-sm text-muted">
                     {active
@@ -185,6 +194,9 @@ export default function TicketsPage() {
             <div className="mt-4">
               <p className="font-semibold text-espresso">{m.app.tickets.basicExplainerTitle}</p>
               <p className="mt-1 text-sm leading-relaxed text-muted">{m.app.tickets.basicExplainerBody}</p>
+              <Link href={`${href("/app/settings")}#settings-plan`} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
+                {m.app.tickets.comparePlans}
+              </Link>
             </div>
           )}
         </Card>

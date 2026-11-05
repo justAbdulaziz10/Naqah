@@ -20,6 +20,7 @@ import {
   Trash,
   WarningCircle,
 } from "@phosphor-icons/react";
+import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   CRITERION_LABELS,
@@ -38,7 +39,7 @@ import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
 import { getCallSetupGaps, hasCompleteWindow } from "../CallSetupStatus";
 import { formatSaudiMobile, phoneNeedsFixing } from "../phone";
 import type { WorkspaceUpdate } from "../types";
-import { ChoiceRow, FieldGroup, PhoneField, StepField, StepInput, StepSelect } from "./WizardParts";
+import { ChoiceRow, FieldGroup, PhoneField, StepField, StepHead, StepInput, StepSelect } from "./WizardParts";
 
 export type WizardStepKey = "plan" | "ownerFarm" | "worker" | "details" | "schedule" | "review";
 
@@ -48,6 +49,44 @@ interface StepProps {
 }
 
 const ICON = 24;
+
+/* ─── Existing farm ────────────────────────────────────────────────────── */
+
+/** Shown instead of the wizard when setup is opened for a farm that is already set up. */
+export function ExistingFarmChoice({ ws, resuming, onStartOver }: { ws: Workspace; resuming: boolean; onStartOver: () => void }) {
+  const { m, href } = useI18n();
+  const existing = m.onboarding.wizard.existing;
+
+  return (
+    <div>
+      <StepHead title={existing.title} lead={existing.lead(ws.settings.farm.name.trim())} />
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <Link
+          href={href("/app")}
+          className="inline-flex min-h-14 items-center justify-center rounded-full bg-espresso px-8 text-[1.0625rem] font-semibold text-cream transition hover:bg-brown active:scale-[0.98]"
+        >
+          {existing.open}
+        </Link>
+        <Link
+          href={href("/app/settings")}
+          className="inline-flex min-h-14 items-center justify-center rounded-full border border-stone bg-white px-7 text-[1.0625rem] font-semibold text-espresso transition hover:border-sand"
+        >
+          {existing.settings}
+        </Link>
+      </div>
+      <div className="mt-10 border-t border-stone/80 pt-6">
+        <button
+          type="button"
+          onClick={onStartOver}
+          className="inline-flex min-h-12 items-center text-[1rem] font-semibold text-brown underline decoration-sand underline-offset-4 transition hover:decoration-brown"
+        >
+          {resuming ? existing.continueOver : existing.startOver}
+        </button>
+        <p className="mt-1 max-w-[52ch] text-[0.9375rem] leading-relaxed text-muted">{existing.startOverNote}</p>
+      </div>
+    </div>
+  );
+}
 
 /* ─── Plan ─────────────────────────────────────────────────────────────── */
 
@@ -251,7 +290,7 @@ export function WorkerStep({ ws, onChange, showErrors = false }: StepProps & { s
       <StepField
         label={m.onboarding.workerLanguage}
         className="sm:max-w-[calc(50%-0.625rem)]"
-        hint={isLiveCallLanguage(worker.language) ? undefined : m.onboarding.workerLanguageNotLive(t(selectedLanguage.label))}
+        hint={isLiveCallLanguage(worker.language) ? m.onboarding.workerLanguageLive : m.onboarding.workerLanguageNotLive(t(selectedLanguage.label))}
       >
         {({ id, describedBy }) => (
           <StepSelect

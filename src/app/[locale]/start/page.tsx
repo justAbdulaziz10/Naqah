@@ -10,9 +10,11 @@ import {
   getCallSetupGaps,
   clearReplacementDraft,
   createOnboardingSample,
+  createReplacementDraft,
   hasOwnSetupData,
   phoneNeedsFixing,
   readReplacementDraft,
+  replacementLoss,
   saveReplacementDraft,
   subscribeReplacementDraft,
   type CallSetupGap,
@@ -20,6 +22,7 @@ import {
 } from "@/components/setup";
 import {
   DetailsStep,
+  ExistingFarmChoice,
   OwnerFarmStep,
   PlanStep,
   ReviewStep,
@@ -32,7 +35,6 @@ import { ConfirmDialog } from "@/components/ui";
 import { isValidWindow } from "@/domain/clock";
 import { uid } from "@/domain/id";
 import type { Plan, Workspace } from "@/domain/types";
-import { createEmptyWorkspace } from "@/domain/seed";
 import { useI18n } from "@/i18n/client";
 import { onboarding as onboardingMessages } from "@/i18n/messages/onboarding";
 import { cn } from "@/lib/cn";
@@ -68,6 +70,9 @@ export default function StartPage() {
   const [step, setStep] = useState(0);
   const [showStepErrors, setShowStepErrors] = useState(false);
   const [confirmingSample, setConfirmingSample] = useState(false);
+  const [confirmingReplace, setConfirmingReplace] = useState(false);
+  const [startingOver, setStartingOver] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const isReplacing = workspace?.setupComplete === true;
   const sourceCreatedAt = isReplacing ? workspace.createdAt : undefined;
   const getReplacementSnapshot = useCallback(() => readReplacementDraft(sourceCreatedAt), [sourceCreatedAt]);
@@ -76,7 +81,7 @@ export default function StartPage() {
   // Only built client-side when replacing an existing workspace (never during prerender).
   const emptyReplacementDraft = useMemo(() => {
     if (!isReplacing || !workspace) return null;
-    return { ...createEmptyWorkspace("basic"), camels: workspace.camels };
+    return createReplacementDraft(workspace);
   }, [isReplacing, workspace]);
   const replacementDraft = volatileReplacementDraft ?? storedReplacementDraft; // Set only when the latest write failed.
   const replacementBase = replacementDraft ?? emptyReplacementDraft;
@@ -94,10 +99,31 @@ export default function StartPage() {
   useEffect(() => {
     if (!hasActiveWorkspace) return;
     document.getElementById("current-step-title")?.focus({ preventScroll: true });
-  }, [hasActiveWorkspace, step]);
+  }, [hasActiveWorkspace, step, startingOver]);
 
-  if (!hydrated || !activeWorkspace) {
+  if (!hydrated || !activeWorkspace || finishing) {
     return <div className="flex min-h-dvh items-center justify-center px-6 text-center text-muted">{m.onboarding.loading}</div>;
+  }
+
+  // A finished farm never lands in the wizard by accident: starting over is its own choice.
+  if (isReplacing && workspace && !startingOver) {
+    return (
+      <div className="min-h-dvh bg-ivory">
+        <header className="bg-espresso text-cream">
+          <div className="mx-auto flex w-full max-w-[44rem] items-center justify-between gap-3 px-4 py-3 sm:px-6">
+            <Logo locale={locale} href={href("/")} tone="light" />
+            <LocaleSwitcher tone="light" className="px-3" />
+          </div>
+        </header>
+        <main className="mx-auto w-full max-w-[44rem] px-4 pb-12 pt-10 sm:px-6 sm:pt-16">
+          <ExistingFarmChoice
+            ws={workspace}
+            resuming={Boolean(replacementDraft)}
+            onStartOver={() => setStartingOver(true)}
+          />
+        </main>
+      </div>
+    );
   }
 
   const ws = activeWorkspace;
@@ -154,6 +180,8 @@ export default function StartPage() {
         text: { ar: onboardingMessages.ar.setupEvent, en: onboardingMessages.en.setupEvent },
       }],
     });
+    setConfirmingReplace(false);
+    setFinishing(true);
     if (isReplacing) {
       useWorkspaceStore.getState().update(() => complete(ws));
       clearReplacementDraft();
@@ -175,6 +203,7 @@ export default function StartPage() {
     }
   })();
   const head = m.onboarding.wizard.heads[currentKey];
+  const loss = isReplacing && workspace ? replacementLoss(workspace) : null;
   const replaceNotice = isReplacing ? (
     <div className={cn("flex flex-col gap-1 rounded-2xl border border-stone bg-cream px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4", isLast ? "mt-8" : "mb-8")}>
       <p className="flex items-start gap-2.5 text-[0.975rem] leading-relaxed text-espresso">
@@ -291,11 +320,11 @@ export default function StartPage() {
             {isLast ? (
               <button
                 type="button"
-                onClick={confirmSetup}
+                onClick={isReplacing ? () => setConfirmingReplace(true) : confirmSetup}
                 className="col-span-2 inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-espresso px-7 text-[1.0625rem] font-semibold text-cream transition hover:bg-brown active:scale-[0.98]"
               >
                 <CheckCircle size={22} weight="fill" aria-hidden />
-                {m.onboarding.confirmAndOpen}
+                {isReplacing ? m.onboarding.wizard.replaceFinish : m.onboarding.confirmAndOpen}
               </button>
             ) : (
               <button
@@ -330,6 +359,16 @@ export default function StartPage() {
           </div>
         </main>
       </div>
+      {confirmingReplace && loss ? (
+        <ConfirmDialog
+          title={m.onboarding.wizard.replaceConfirmTitle}
+          body={loss.reports + loss.calls + loss.tickets ? m.onboarding.wizard.replaceConfirmBody(loss) : m.onboarding.wizard.replaceConfirmEmpty}
+          confirmLabel={m.onboarding.wizard.replaceConfirmAction}
+          cancelLabel={m.onboarding.wizard.replaceConfirmCancel}
+          onConfirm={confirmSetup}
+          onCancel={() => setConfirmingReplace(false)}
+        />
+      ) : null}
       {confirmingSample ? (
         <ConfirmDialog
           title={m.common.demo.sampleConfirmTitle}

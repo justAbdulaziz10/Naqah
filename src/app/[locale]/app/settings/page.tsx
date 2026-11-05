@@ -86,7 +86,7 @@ export default function SettingsPage() {
       <CallSetupStatus ws={ws} />
 
       <GroupTitle id="settings-farm">{m.onboarding.settingsGroups.farm}</GroupTitle>
-      <PlanSection {...section("plan")} onBasicWindowRequired={onBasicWindowRequired} />
+      <div id="settings-plan" className={anchor}><PlanSection {...section("plan")} onBasicWindowRequired={onBasicWindowRequired} /></div>
       <OwnerFarmSection {...section("ownerFarm")} />
 
       <Card>

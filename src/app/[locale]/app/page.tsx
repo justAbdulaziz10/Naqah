@@ -8,7 +8,7 @@ import { EstateMatters } from "@/components/dashboard/EstateMatters";
 import { estateMatters } from "@/components/dashboard/matters";
 import { WEEKDAY_LABELS, nextWindowStart, openNoAnswerTickets, openTaskTickets, ownerAllowanceUsed, reportDoneThisPeriod, routeOwnerInboundCall, lastReportAt, fromRiyadh, riyadhParts, sameWeek } from "@/domain";
 import { useI18n } from "@/i18n/client";
-import { CallSetupStatus, getCallSetupGaps, hasCompleteWindow } from "@/components/setup";
+import { CallSetupStatus, getCallSetupGaps, hasCallLanguageNote, hasCompleteWindow } from "@/components/setup";
 import { useNow, useWorkspace } from "@/store/workspace";
 
 function timeForWindow(value: string, now: Date) {
@@ -44,7 +44,7 @@ export default function OverviewPage() {
   const hour = riyadhParts(now).hours;
   const greeting = hour < 12 ? app.overview.greetingMorning : hour < 18 ? app.overview.greetingAfternoon : app.overview.greetingEvening;
   const estateName = ws.settings.farm.name.trim() || app.overview.estateFallback;
-  const callSetupIncomplete = getCallSetupGaps(ws).length > 0;
+  const showCallSetup = getCallSetupGaps(ws).length > 0 || hasCallLanguageNote(ws);
 
   const unanswered = openNoAnswerTickets(ws);
   const matters = estateMatters(ws, latestReport);
@@ -134,7 +134,7 @@ export default function OverviewPage() {
         </Card>
       )}
 
-      {callSetupIncomplete ? <CallSetupStatus ws={ws} settingsHref={href("/app/settings")} /> : null}
+      {showCallSetup ? <CallSetupStatus ws={ws} settingsHref={href("/app/settings")} /> : null}
 
       <EstateLedger ws={ws} worker={worker} now={now} hasReport={hasReport} allowance={allowance} />
     </div>

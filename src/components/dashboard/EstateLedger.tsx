@@ -77,7 +77,9 @@ function HerdRoster({ ws, now }: { ws: Workspace; now: Date }) {
         <ul className="grid gap-x-8 sm:grid-cols-2">
           {roster.map((camel) => (
             <li key={camel.id} className="flex min-h-12 items-center justify-between gap-3 border-b border-stone/70">
-              <span className="min-w-0 truncate font-semibold text-espresso">{camel.name}</span>
+              <Link href={`${href("/app/herd")}#camel-${camel.id}`} className="flex min-h-11 min-w-0 items-center font-semibold text-espresso underline decoration-transparent underline-offset-4 hover:decoration-brown">
+                <span className="truncate">{camel.name}</span>
+              </Link>
               <HealthBadge health={camel.health} />
             </li>
           ))}

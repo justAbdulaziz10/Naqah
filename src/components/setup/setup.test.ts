@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDemoWorkspace, createEmptyWorkspace } from "@/domain/seed";
 import { getCallSetupGaps } from "./CallSetupStatus";
-import { createOnboardingSample, hasOwnSetupData } from "./draft";
+import { createOnboardingSample, createReplacementDraft, hasOwnSetupData, replacementLoss } from "./draft";
 import { formatSaudiMobile, isSaudiMobile, phoneNeedsFixing } from "./phone";
 
 describe("Saudi mobile numbers", () => {
@@ -31,6 +31,29 @@ describe("Saudi mobile numbers", () => {
   it("does not flag an empty optional field", () => {
     expect(phoneNeedsFixing("  ")).toBe(false);
     expect(phoneNeedsFixing("123")).toBe(true);
+  });
+});
+
+describe("starting over on an existing farm", () => {
+  it("keeps the plan, settings and herd, and leaves the history behind", () => {
+    const ws = createDemoWorkspace("en", "ultimate");
+    const draft = createReplacementDraft(ws);
+    expect(draft.settings).toEqual(ws.settings);
+    expect(draft.settings.plan).toBe("ultimate");
+    expect(draft.camels).toEqual(ws.camels);
+    expect(draft.setupComplete).toBe(false);
+    expect(replacementLoss(draft)).toEqual({ reports: 0, calls: 0, tickets: 0 });
+    expect(draft.resources.map((resource) => resource.present)).toEqual(ws.resources.map((resource) => resource.present));
+    expect(draft.resources.every((resource) => resource.level === "unknown" && resource.updatedAt === null)).toBe(true);
+  });
+
+  it("counts everything the owner would lose", () => {
+    const ws = createDemoWorkspace("en", "ultimate");
+    expect(replacementLoss(ws)).toEqual({
+      reports: ws.reports.length,
+      calls: ws.calls.length,
+      tickets: ws.taskTickets.length + ws.noAnswerTickets.length,
+    });
   });
 });
 

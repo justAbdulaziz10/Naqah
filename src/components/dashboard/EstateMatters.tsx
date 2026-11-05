@@ -2,14 +2,16 @@
 
 import { WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { CertaintyBadge, HealthBadge, noAnswerAttemptInfo } from "@/components/dashboard/DashboardPrimitives";
 import type { NoAnswerTicket, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
-import type { EstateMatter, MatterInstruction } from "./matters";
+import { isHerdFinding, type EstateMatter, type MatterInstruction } from "./matters";
 
 const ROW_LIMIT = 4;
+const recordLink = "underline decoration-stone underline-offset-4 hover:decoration-brown focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown";
 
-function Step({ title, detail, last = false, waiting = false }: { title: string; detail?: string | null; last?: boolean; waiting?: boolean }) {
+function Step({ title, detail, last = false, waiting = false }: { title: ReactNode; detail?: string | null; last?: boolean; waiting?: boolean }) {
   return (
     <li className="relative flex min-w-0 flex-1 gap-3 pb-4 last:pb-0 md:block md:pb-0 md:pe-5">
       <span className="relative flex w-3 shrink-0 flex-col items-center md:h-3 md:w-full md:flex-row">
@@ -32,19 +34,28 @@ function instructionWaiting(item: MatterInstruction, worker: string, m: ReturnTy
   };
 }
 
-function MatterRow({ matter, reportAt, worker, now }: { matter: EstateMatter; reportAt: string | null; worker: string; now: Date }) {
-  const { m, t, fmt } = useI18n();
+function MatterRow({ ws, matter, reportAt, worker, now }: { ws: Workspace; matter: EstateMatter; reportAt: string | null; worker: string; now: Date }) {
+  const { m, t, fmt, href } = useI18n();
   const { camel, findings, instructions } = matter;
   const reported = findings[0] ? t(findings[0].text) : camel?.healthNote ?? null;
   const instruction = instructions[0] ?? null;
   const waiting = instruction ? instructionWaiting(instruction, worker, m) : null;
   const headline = camel?.name ?? (instruction && !reported ? instruction.text : reported);
   const at = camel?.updatedAt ?? reportAt;
+  const taskHref = instruction?.kind === "task" ? `${href("/app/tickets")}#task-${instruction.id}` : null;
+  const headlineHref = camel
+    ? `${href("/app/herd")}#camel-${camel.id}`
+    : findings[0] && isHerdFinding(ws, findings[0])
+      ? href("/app/herd")
+      : instruction && !reported ? taskHref : null;
+  const instructionTitle = instruction ? m.app.overview.yourInstruction(fmt.relative(instruction.at, now)) : null;
 
   return (
     <li className="grid gap-x-8 gap-y-4 py-5 first:pt-0 last:pb-0 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
       <div className="min-w-0">
-        <p className="text-xl font-semibold leading-snug text-espresso">{headline}</p>
+        <p className="text-xl font-semibold leading-snug text-espresso">
+          {headlineHref ? <Link href={headlineHref} className={recordLink}>{headline}</Link> : headline}
+        </p>
         {camel ? (
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
             <HealthBadge health={camel.health} />
@@ -54,7 +65,7 @@ function MatterRow({ matter, reportAt, worker, now }: { matter: EstateMatter; re
       </div>
       <ol className="flex min-w-0 flex-col md:flex-row">
         {reported ? <Step title={at ? m.app.overview.reportedAt(worker, fmt.relative(at, now)) : m.app.overview.reportedBy(worker)} detail={reported === headline ? null : reported} last={!instruction} /> : null}
-        {instruction ? <Step title={m.app.overview.yourInstruction(fmt.relative(instruction.at, now))} detail={instruction.text === headline ? null : instruction.text} /> : null}
+        {instruction ? <Step title={taskHref ? <Link href={taskHref} className={recordLink}>{instructionTitle}</Link> : instructionTitle} detail={instruction.text === headline ? null : instruction.text} /> : null}
         {waiting ? <Step title={waiting.title} detail={waiting.detail} last waiting /> : null}
       </ol>
     </li>
@@ -96,7 +107,7 @@ export function EstateMatters({ ws, matters, unanswered, reportAt, worker, now }
       <h2 id="estate-matters" className="text-lg font-semibold text-espresso">{m.app.overview.attention}</h2>
       <ul className="mt-4 divide-y divide-stone/70">
         {shownUnanswered.map((ticket) => <UnansweredRow key={ticket.id} ws={ws} ticket={ticket} worker={worker} />)}
-        {shownMatters.map((matter) => <MatterRow key={matter.id} matter={matter} reportAt={reportAt} worker={worker} now={now} />)}
+        {shownMatters.map((matter) => <MatterRow key={matter.id} ws={ws} matter={matter} reportAt={reportAt} worker={worker} now={now} />)}
       </ul>
       {hidden > 0 ? (
         <Link href={href("/app/tickets")} className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">

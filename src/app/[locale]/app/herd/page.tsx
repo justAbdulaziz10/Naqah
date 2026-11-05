@@ -4,11 +4,13 @@ import { useMemo, useRef, useState } from "react";
 import { PencilSimple, Plus } from "@phosphor-icons/react";
 import { CamelEditorDialog, type CamelFormValues } from "@/components/dashboard/CamelEditorDialog";
 import { CertaintyBadge, EmptyState, HealthBadge } from "@/components/dashboard/DashboardPrimitives";
+import { useHashTarget } from "@/components/dashboard/useHashTarget";
 import { Button, Card, ConfirmDialog, Field, IconButton, Input, Segmented } from "@/components/ui";
 import { uid } from "@/domain/id";
 import { CERTAINTY_LABELS } from "@/domain";
 import type { Camel } from "@/domain";
 import { useI18n } from "@/i18n/client";
+import { cn } from "@/lib/cn";
 import { useNow, useWorkspace, useWorkspaceStore } from "@/store/workspace";
 
 type HerdFilter = "all" | "attention" | "healthy";
@@ -26,6 +28,8 @@ export default function HerdPage() {
   const [removing, setRemoving] = useState<Camel | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
+
+  const linkedCamelId = useHashTarget("camel-", Boolean(ws));
 
   const editingCamel = ws?.camels.find((camel) => camel.id === editingId) ?? null;
   const visibleCamels = useMemo(() => {
@@ -193,7 +197,7 @@ export default function HerdPage() {
             </thead>
             <tbody className="divide-y divide-stone/70">
               {visibleCamels.map((camel) => (
-                <tr key={camel.id} className="align-top transition-colors hover:bg-ivory/50">
+                <tr key={camel.id} data-hash-target={`camel-${camel.id}`} tabIndex={-1} className={cn("align-top transition-colors hover:bg-ivory/50 focus:outline-none", linkedCamelId === camel.id && "bg-ivory")}>
                   <th scope="row" className="px-6 py-3.5 text-start font-normal">
                     <span className="block text-lg font-semibold leading-snug text-espresso">{camel.name}</span>
                     <span className="mt-0.5 block text-sm text-muted">{describe(camel)}</span>
@@ -211,7 +215,7 @@ export default function HerdPage() {
 
           <ul className="divide-y divide-stone/70 md:hidden">
             {visibleCamels.map((camel) => (
-              <li key={camel.id} className="flex items-start justify-between gap-3 px-5 py-4">
+              <li key={camel.id} data-hash-target={`camel-${camel.id}`} tabIndex={-1} className={cn("flex items-start justify-between gap-3 px-5 py-4 focus:outline-none", linkedCamelId === camel.id && "bg-ivory")}>
                 <div className="min-w-0">
                   <h2 className="text-lg font-semibold leading-snug text-espresso">{camel.name}</h2>
                   <div className="mt-0.5"><HealthBadge health={camel.health} /></div>

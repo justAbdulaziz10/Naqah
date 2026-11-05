@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDemoWorkspace, createEmptyWorkspace } from "@/domain/seed";
 import type { Camel, FarmReport, Workspace } from "@/domain/types";
-import { estateMatters, mentions } from "./matters";
+import { estateMatters, isHerdFinding, mentions } from "./matters";
 
 const camel = (id: string, name: string, health: Camel["health"]): Camel => ({
   id, name, tag: "", sex: "female", ageYears: null, health, healthNote: null, certainty: "reported", updatedAt: null,
@@ -19,6 +19,17 @@ describe("mentions", () => {
     expect(mentions("Move Wadha — today", "wadha")).toBe(true);
   });
   it("never matches an empty name", () => expect(mentions("anything", "  ")).toBe(false));
+});
+
+describe("herd findings", () => {
+  it("leads only herd criteria to the herd", () => {
+    const ws = createDemoWorkspace("en", "ultimate");
+    const of = (kind: string) => ws.settings.criteria.find((criterion) => criterion.kind === kind)!.id;
+    expect(isHerdFinding(ws, { ...finding("a", "x"), criterionId: of("sick_camel") })).toBe(true);
+    expect(isHerdFinding(ws, { ...finding("b", "x"), criterionId: of("missing_camel") })).toBe(true);
+    expect(isHerdFinding(ws, { ...finding("c", "x"), criterionId: of("low_feed") })).toBe(false);
+    expect(isHerdFinding(ws, finding("d", "x"))).toBe(false);
+  });
 });
 
 describe("estate matters", () => {

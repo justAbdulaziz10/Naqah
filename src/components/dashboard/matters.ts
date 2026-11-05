@@ -20,6 +20,12 @@ export function mentions(text: string, name: string) {
   return Boolean(needle) && words(text).includes(words(needle));
 }
 
+/** Whether a finding is about the herd, so a row with no named camel can still lead there. */
+export function isHerdFinding(ws: Workspace, finding: Finding) {
+  const kind = ws.settings.criteria.find((criterion) => criterion.id === finding.criterionId)?.kind;
+  return kind === "sick_camel" || kind === "missing_camel";
+}
+
 const concern = { sick: 0, watch: 1 } as const;
 
 /**

@@ -64,6 +64,32 @@ export function clearReplacementDraft(): void {
   window.dispatchEvent(new Event(DRAFT_CHANGE_EVENT));
 }
 
+/** Starts over from the current plan and settings, so nothing changes unless the owner changes it. Stock readings belong to the history and do not carry over. */
+export function createReplacementDraft(ws: Workspace): Workspace {
+  return {
+    ...createEmptyWorkspace(ws.settings.plan),
+    settings: ws.settings,
+    camels: ws.camels,
+    resources: ws.resources.map((resource) => ({
+      ...resource,
+      level: "unknown",
+      quantity: null,
+      note: null,
+      certainty: "unknown",
+      updatedAt: null,
+    })),
+  };
+}
+
+/** What confirming a replacement clears, for the owner to read before agreeing. */
+export function replacementLoss(ws: Workspace) {
+  return {
+    reports: ws.reports.length,
+    calls: ws.calls.length,
+    tickets: ws.taskTickets.length + ws.noAnswerTickets.length,
+  };
+}
+
 /** Sample values for onboarding, without a prior report or demo activity. */
 export function createOnboardingSample(locale: Locale, plan: Plan): Workspace {
   const sample = createDemoWorkspace(locale, plan);
