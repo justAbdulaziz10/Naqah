@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import { redirect, notFound } from 'next/navigation';
+import { connection } from 'next/server';
 import { AuthFrame } from '@/components/auth/AuthFrame';
 import { LogoutButton } from '@/components/auth/LogoutButton';
 import { ButtonLink } from '@/components/ui';
@@ -13,6 +14,8 @@ async function VerifiedOwner({ params, searchParams }: Props) {
   const { locale } = await params;
   if (!isLocale(locale)) notFound();
   const m = auth[locale];
+  // Session SDK background work reads the current time; run it only for a real request.
+  await connection();
   const { user, unavailable } = await getOwner();
   const next = safeReturnPath((await searchParams).next);
   if (unavailable) return <AuthFrame><p role="alert">{m.unavailable}</p><ButtonLink href={`/${locale}/login`} className="mt-6">{m.login}</ButtonLink></AuthFrame>;
