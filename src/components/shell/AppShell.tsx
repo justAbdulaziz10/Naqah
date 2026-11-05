@@ -178,7 +178,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 )}
               >
                 <NavIcon icon={item.icon} active={active} />
-                <span className="max-w-full truncate px-1">{m.common.nav[item.key]}</span>
+                <span className="max-w-full truncate px-1">{item.key === "lab" ? m.common.nav.labShort : m.common.nav[item.key]}</span>
                 {item.key === "tickets" && openTasks > 0 ? (
                   <span className="absolute top-2 start-1/2 ms-2.5 min-w-4 rounded-full bg-brown px-1 text-center text-[0.65rem] leading-4 text-cream">
                     {openTasks}
