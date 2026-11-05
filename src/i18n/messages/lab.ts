@@ -107,7 +107,12 @@ export const lab = defineMessages({
       detail: "The owner will hear the important findings, then can leave instructions for Ahmed.",
       start: "Continue to owner call",
     },
-    languageNote: "In production NAQAH speaks Urdu with Ahmed; this preview shows the conversation in English or Arabic.",
+    toWorker: {
+      title: "NAQAH is now calling Ahmed",
+      detail: "Ahmed hears Abdullah's instruction. If he doesn't answer, NAQAH retries every 20 minutes.",
+      start: "Continue to Ahmed's call",
+    },
+    languageNote: (language: string) => `In production NAQAH speaks ${language} with Ahmed; this preview shows the conversation in English or Arabic.`,
     emergency: {
       title: "Emergency calls go directly to the owner",
       detail: (owner: string) => "Ahmed calls " + owner + " directly. NAQAH never dispatches an emergency response.",
@@ -223,7 +228,12 @@ export const lab = defineMessages({
       detail: "بيسمع المالك أهم الملاحظات، وبعدها يقدر يرسل تعليمات لأحمد.",
       start: "متابعة اتصال المالك",
     },
-    languageNote: "في الإنتاج تتحدث ناقة مع أحمد بالأردية؛ في هذه المعاينة يظهر الحوار بالعربية أو الإنجليزية.",
+    toWorker: {
+      title: "ناقة تتصل الآن بأحمد",
+      detail: "يسمع أحمد تعليمات عبدالله. وإذا ما رد، تعيد ناقة الاتصال كل 20 دقيقة.",
+      start: "متابعة اتصال أحمد",
+    },
+    languageNote: (language: string) => `في الإنتاج تتحدث ناقة مع أحمد باللغة ${language}؛ في هذه المعاينة يظهر الحوار بالعربية أو الإنجليزية.`,
     emergency: {
       title: "اتصالات الطوارئ تذهب للمالك مباشرة",
       detail: (owner: string) => "أحمد يتصل بـ" + owner + " مباشرة. ناقة لا ترسل استجابة للطوارئ.",

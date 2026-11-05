@@ -7,7 +7,7 @@ import {
   SpeakerHigh,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -18,6 +18,7 @@ import {
   EMERGENCY_LABELS,
   HEALTH_LABELS,
   RESOURCE_LABELS,
+  WORKER_LANGUAGES,
   advanceClock,
   atRiyadhTime,
   HOUR,
@@ -27,6 +28,7 @@ import {
   type Workspace,
 } from "@/domain";
 import { start, answer, scenarioAvailability, type AnswerInput, type CallSession, type Scenario } from "@/domain/conversation/engine";
+import { makePersonalizer, personalizeTree } from "@/domain/conversation/personalize";
 import { useI18n } from "@/i18n/client";
 import { useNow, useWorkspaceStore } from "@/store/workspace";
 import { CamelMark } from "@/components/brand/CamelMark";
@@ -472,7 +474,7 @@ function FactList({ session, ws, m, t }: { session: CallSession | null; ws: Work
           <p className="text-sm font-semibold leading-relaxed">{t(item.question)}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="break-words text-sm text-muted">
-              {item.certainty === "unknown" ? m.lab.facts.unknownAnswer : item.answer}
+              {item.certainty === "unknown" ? m.lab.facts.unknownAnswer : item.answerText ? t(item.answerText) : item.answer}
             </span>
             <Badge tone={certaintyTone[item.certainty]}>{certaintyText(item.certainty, m)}</Badge>
           </div>
@@ -619,8 +621,12 @@ function InsidePanel({
 }
 
 export function LabPage() {
-  const { m, t, locale, fmt } = useI18n();
+  const { m: baseMessages, t: baseT, locale, fmt } = useI18n();
   const ws = useWorkspaceStore((state) => state.workspace);
+  // Script + copy are written around the sample farm's names; show the real farm's names instead.
+  const personalize = useMemo(() => makePersonalizer(ws), [ws]);
+  const m = useMemo(() => ({ ...baseMessages, lab: personalizeTree(baseMessages.lab, personalize) }), [baseMessages, personalize]);
+  const t = useCallback((value: { ar: string; en: string }) => personalize(baseT(value)), [baseT, personalize]);
   const update = useWorkspaceStore((state) => state.update);
   const now = useNow();
   const [selected, setSelected] = useState<PickerScenario>("worker_report");
@@ -749,7 +755,7 @@ export function LabPage() {
       </Card>
 
       {workerLanguageNotice ? (
-        <p className="rounded-xl bg-info-soft px-4 py-3 text-sm leading-relaxed text-info">{m.lab.languageNote}</p>
+        <p className="rounded-xl bg-info-soft px-4 py-3 text-sm leading-relaxed text-info">{m.lab.languageNote(t(WORKER_LANGUAGES.find((item) => item.id === ws.settings.worker.language)?.label ?? { ar: "", en: "" }))}</p>
       ) : null}
 
       <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,460px)_minmax(0,1fr)] lg:items-start">
@@ -780,8 +786,22 @@ export function LabPage() {
                 {m.lab.transition.start}
               </Button>
             </Card>
-          ) : session?.scenario === "owner_notification" && session.done ? (
-            <Button variant="secondary" className="min-h-11" onClick={finish}>{m.lab.phone.cancel}</Button>
+          ) : session?.scenario === "owner_notification" && session.done && ws.pendingWorkerCalls.some((call) => call.state === "pending") ? (
+            <Card className="flex flex-col gap-3 border-gold/50 bg-gold-soft/35 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <h2 className="font-bold">{m.lab.toWorker.title}</h2>
+                <p className="mt-1 text-sm leading-relaxed text-muted">{m.lab.toWorker.detail}</p>
+              </div>
+              <Button
+                className="min-h-11 shrink-0"
+                onClick={() => {
+                  setSelected("worker_outbound");
+                  begin("worker_outbound");
+                }}
+              >
+                {m.lab.toWorker.start}
+              </Button>
+            </Card>
           ) : null}
           {isEmergency && session ? (
             <Button variant="secondary" className="min-h-11" onClick={finish}>{m.lab.phone.cancel}</Button>

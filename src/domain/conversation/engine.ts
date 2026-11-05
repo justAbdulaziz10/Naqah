@@ -128,6 +128,7 @@ export interface ScenarioAvailability {
 }
 
 const copy = (en: string, ar: string): LocalizedText => ({ en, ar });
+const UNKNOWN_ANSWER = copy("I don’t know", "ما أدري");
 const noDraft = (): ReportDraft => ({
   answers: [],
   camelUpdates: [],
@@ -581,15 +582,18 @@ function askReportItem(session: CallSession, ws: Workspace, now: Date): CallSess
 function reportAnswer(
   session: CallSession,
   item: ReportItem,
-  answer: string,
+  answer: string | LocalizedText,
   certainty: Certainty,
   question = item.question,
 ): CallSession {
+  // Fixed choices keep both languages; free text is stored exactly as said.
+  const localized = typeof answer === "string" ? {} : { answerText: answer };
+  const text = typeof answer === "string" ? answer : answer.en;
   return {
     ...session,
     draft: {
       ...session.draft,
-      answers: [...session.draft.answers, { questionId: item.id, question, answer, certainty, followUp: false }],
+      answers: [...session.draft.answers, { questionId: item.id, question, answer: text, ...localized, certainty, followUp: false }],
     },
   };
 }
@@ -624,7 +628,7 @@ function handleReportQuestion(
     const recorded = reportAnswer(
       { ...current.session, draft },
       item,
-      unknown ? "I don’t know" : done ? "Yes, completed" : "Not yet",
+      unknown ? UNKNOWN_ANSWER : done ? copy("Yes, completed", "إيه، خلصت") : copy("Not yet", "باقي"),
       unknown ? "unknown" : "reported",
     );
     return { session: nextReportItem(recorded, ws, now) };
@@ -632,7 +636,7 @@ function handleReportQuestion(
 
   if (item.kind === "custom") {
     const unknown = isUnknown(value, input.text);
-    const answer = unknown ? "I don’t know" : value === "suggest_ok" ? "All good" : value === "suggest_none" ? "Nothing new" : input.text ?? value;
+    const answer = unknown ? UNKNOWN_ANSWER : value === "suggest_ok" ? copy("All good", "كل شيء تمام") : value === "suggest_none" ? copy("Nothing new", "ما فيه شيء جديد") : input.text ?? value;
     const recorded = reportAnswer(current.session, item, answer, unknown ? "unknown" : "reported");
     return { session: nextReportItem(recorded, ws, now) };
   }
@@ -649,13 +653,13 @@ function handleReportQuestion(
       const recorded = reportAnswer(
         { ...current.session, draft },
         item,
-        "All camels appear well",
+        copy("All camels appear well", "الحلال كله بخير"),
         "reported",
       );
       return { session: nextReportItem(recorded, ws, now) };
     }
     if (isUnknown(value, input.text)) {
-      const recorded = reportAnswer(current.session, item, "I don’t know", "unknown");
+      const recorded = reportAnswer(current.session, item, UNKNOWN_ANSWER, "unknown");
       return { session: nextReportItem(recorded, ws, now) };
     }
     const picking = {
@@ -671,7 +675,7 @@ function handleReportQuestion(
     if (item.id === "herd_count") {
       if (value === "yes") {
         const draft = { ...current.session.draft, herdAccountedFor: true };
-        const recorded = reportAnswer({ ...current.session, draft }, item, "All camels are accounted for", "reported");
+        const recorded = reportAnswer({ ...current.session, draft }, item, copy("All camels are accounted for", "الحلال كامل العدد"), "reported");
         return { session: nextReportItem(recorded, ws, now) };
       }
       if (value === "no") {
@@ -689,7 +693,7 @@ function handleReportQuestion(
         };
       }
       const draft = { ...current.session.draft, herdAccountedFor: null };
-      const recorded = reportAnswer({ ...current.session, draft }, item, "I don’t know", "unknown");
+      const recorded = reportAnswer({ ...current.session, draft }, item, UNKNOWN_ANSWER, "unknown");
       return { session: nextReportItem(recorded, ws, now) };
     }
   }
@@ -717,7 +721,7 @@ function handleReportQuestion(
   }
 
   const unknown = isUnknown(value, input.text);
-  const recorded = reportAnswer(current.session, item, unknown ? "I don’t know" : value, unknown ? "unknown" : "reported");
+  const recorded = reportAnswer(current.session, item, unknown ? UNKNOWN_ANSWER : value, unknown ? "unknown" : "reported");
   return { session: nextReportItem(recorded, ws, now) };
 }
 
@@ -742,7 +746,7 @@ function handleHealthPick(session: CallSession, ws: Workspace, now: Date, input:
   if (current.value === "unknown" || isUnknown(current.value, input.text)) {
     const item = session.data.queue?.[session.data.reportIndex ?? 0];
     if (!item) return { session: current.session };
-    const recorded = reportAnswer(current.session, item, "I don’t know", "unknown");
+    const recorded = reportAnswer(current.session, item, UNKNOWN_ANSWER, "unknown");
     return { session: nextReportItem(recorded, ws, now) };
   }
   const camelId = current.value.startsWith("camel:") ? current.value.slice("camel:".length) : "";
@@ -869,7 +873,7 @@ function finishCamelHealth(session: CallSession, ws: Workspace, now: Date): Call
     draft: {
       ...recorded.draft,
       answers: recorded.draft.answers.map((entry, index) =>
-        index === recorded.draft.answers.length - 1 ? { ...lastAnswer, answer: localizedAnswer.en } : entry,
+        index === recorded.draft.answers.length - 1 ? { ...lastAnswer, answer: localizedAnswer.en, answerText: localizedAnswer } : entry,
       ),
     },
   };
@@ -888,6 +892,7 @@ function addResourceAnswer(
   const label = levelLabel(item.resource, level);
   const quantityEn = quantity ? " (" + quantity + ")" : "";
   const answerEn = label.en + quantityEn;
+  const answerText = { en: answerEn, ar: label.ar + quantityEn };
   const next = {
     ...session,
     draft: {
@@ -899,6 +904,7 @@ function addResourceAnswer(
           questionId: item.id,
           question: item.question,
           answer: answerEn,
+          answerText,
           certainty,
           followUp: false,
         },
@@ -1421,7 +1427,7 @@ export function answer(session: CallSession, ws: Workspace, now: Date, input: An
         const recorded = reportAnswer(
           current.session,
           item,
-          unknown ? "I don’t know" : (input.text ?? current.value).trim(),
+          unknown ? UNKNOWN_ANSWER : (input.text ?? current.value).trim(),
           unknown ? "unknown" : "reported",
         );
         return { session: nextReportItem(recorded, ws, now) };

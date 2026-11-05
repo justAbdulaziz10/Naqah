@@ -158,6 +158,8 @@ export interface ReportAnswer {
   question: LocalizedText;
   /** What the worker said, in plain words. */
   answer: string;
+  /** Same answer in both UI languages when it was a fixed choice (free text stays only in `answer`). */
+  answerText?: LocalizedText;
   certainty: Certainty;
   /** True when the AI asked it as a contextual follow-up (does not count toward Basic's 5). */
   followUp: boolean;

@@ -202,7 +202,9 @@ create table report_answers (
   question_id text not null,                     -- predefined id or custom_questions.id
   question_ar text not null,
   question_en text not null,
-  answer text not null,
+  answer text not null,                          -- what the worker said (free text kept verbatim)
+  answer_ar text,                                -- fixed-choice answers in both UI languages (null for free text)
+  answer_en text,
   certainty certainty not null,
   follow_up boolean not null default false,      -- contextual follow-up; does not count toward Basic's 5
   sort_order smallint not null default 0
