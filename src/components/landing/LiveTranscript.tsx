@@ -3,108 +3,113 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "@/i18n/client";
 
-/** A short conversation reveals line by line; reduced-motion users see the full exchange. */
+const STEP_MS = 1100;
+const HOLD_MS = 3600;
+
+/**
+ * The worker's call, set as a timestamped ledger. Rows reveal one by one; every row is
+ * always in the layout (no shift) and in the accessibility tree. Reduced motion shows all.
+ */
 export function LiveTranscript() {
   const { m } = useI18n();
-  const lines = m.landing.hero.transcript;
-  const [visibleCount, setVisibleCount] = useState(lines.length);
+  const call = m.landing.call;
+  const total = call.lines.length + 2; // lines, saved facts, owner call
+  const [shown, setShown] = useState(total);
 
   useEffect(() => {
-    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (motion.matches) return;
+    let step = 1;
     let timer = 0;
-
-    if (preference.matches) {
-      return;
-    }
-
-    let current = 1;
-
-    const revealNext = () => {
-      timer = window.setTimeout(() => {
-        if (preference.matches) {
-          setVisibleCount(lines.length);
-          return;
-        }
-
-        if (current < lines.length) {
-          current += 1;
-          setVisibleCount(current);
-          revealNext();
-          return;
-        }
-
-        timer = window.setTimeout(() => {
-          current = 1;
-          setVisibleCount(current);
-          revealNext();
-        }, 3200);
-      }, 1150);
+    const tick = () => {
+      timer = window.setTimeout(
+        () => {
+          step = step >= total ? 1 : step + 1;
+          setShown(step);
+          tick();
+        },
+        step >= total ? HOLD_MS : STEP_MS,
+      );
     };
-
-    const onMotionChange = (event: MediaQueryListEvent) => {
-      if (event.matches) {
-        window.clearTimeout(timer);
-        setVisibleCount(lines.length);
-      }
+    const onChange = (event: MediaQueryListEvent) => {
+      if (!event.matches) return;
+      window.clearTimeout(timer);
+      setShown(total);
     };
-
-    preference.addEventListener("change", onMotionChange);
     timer = window.setTimeout(() => {
-      setVisibleCount(current);
-      revealNext();
+      setShown(step);
+      tick();
     }, 40);
+    motion.addEventListener("change", onChange);
     return () => {
       window.clearTimeout(timer);
-      preference.removeEventListener("change", onMotionChange);
+      motion.removeEventListener("change", onChange);
     };
-  }, [lines.length]);
+  }, [total]);
+
+  const reveal = (index: number) =>
+    `transition-[opacity,translate] duration-500 ease-out ${index < shown ? "opacity-100" : "translate-y-1 opacity-0"}`;
 
   return (
-    <div className="rounded-[1.25rem] bg-espresso p-5 text-cream sm:p-7">
-      <div className="mb-6 flex items-center justify-between gap-4 border-b border-cream/10 pb-5">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="inline-flex size-2.5 shrink-0 rounded-full bg-ok ring-2 ring-ok/25" aria-hidden="true" />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-cream">{m.landing.hero.callLabel}</p>
-            <p className="mt-0.5 text-xs text-cream/60">{m.landing.hero.callStatus}</p>
-          </div>
-        </div>
-        <span className="shrink-0 rounded-full border border-cream/15 px-3 py-1.5 text-xs text-cream/75">
-          {m.common.demo.badge}
-        </span>
-      </div>
+    <figure className="border-t-2 border-espresso">
+      <figcaption className="flex items-baseline justify-between gap-4 py-4 text-sm">
+        <span className="font-semibold">{call.label}</span>
+        <span className="ltr-nums shrink-0 tabular-nums text-faint">17:42</span>
+      </figcaption>
 
-      <div className="mb-4 flex items-center gap-3">
-        <span className="inline-flex size-10 items-center justify-center rounded-full bg-cream/10 text-sm font-semibold text-cream" aria-hidden="true">
-          {m.landing.hero.worker.slice(0, 1)}
-        </span>
-        <div>
-          <p className="text-sm font-semibold text-cream">{m.landing.hero.worker}</p>
-          <p className="mt-0.5 text-xs text-cream/60">{m.landing.hero.ordinaryPhone}</p>
-        </div>
-      </div>
-
-      <ol aria-label={m.landing.hero.callLabel} className="flex flex-col gap-2.5">
-        {lines.map((line, index) => {
-          const isAgent = index % 2 === 1;
-          if (index >= visibleCount) return null;
+      <ol className="border-t border-stone">
+        {call.lines.map((line, index) => {
+          const naqah = line.who === "naqah";
           return (
             <li
-              key={`${index}-${line}`}
-              className={`motion-safe:animate-fade-up max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-relaxed sm:max-w-[84%] ${
-                isAgent
-                  ? "self-end bg-sand-soft text-espresso"
-                  : "self-start bg-white/10 text-cream"
-              } ${isAgent ? "ms-auto" : "me-auto"}`}
+              key={index}
+              className={`grid grid-cols-[3rem_1fr] gap-x-4 border-b border-stone py-3.5 sm:grid-cols-[3rem_4.5rem_1fr] ${reveal(index)}`}
             >
-              <span className="mb-1 block text-[0.68rem] font-semibold text-current/65">
-                {isAgent ? m.landing.hero.naqah : m.landing.hero.worker}
+              <span className="ltr-nums pt-0.5 text-xs tabular-nums text-faint">{line.time}</span>
+              <span className={`text-sm font-semibold ${naqah ? "text-gold" : "text-espresso"} max-sm:hidden`}>
+                {naqah ? call.naqah : call.worker}
               </span>
-              {line}
+              <p className={`text-[0.95rem] leading-relaxed ${naqah ? "text-muted" : "text-espresso"}`}>
+                <span className={`me-2 font-semibold sm:hidden ${naqah ? "text-gold" : ""}`}>
+                  {naqah ? call.naqah : call.worker}
+                </span>
+                {line.text}
+              </p>
             </li>
           );
         })}
+
+        <li className={`grid grid-cols-[3rem_1fr] gap-x-4 border-b border-stone py-4 sm:grid-cols-[3rem_4.5rem_1fr] ${reveal(call.lines.length)}`}>
+          <span className="ltr-nums pt-0.5 text-xs tabular-nums text-faint">17:44</span>
+          <span className="text-sm font-semibold text-ok max-sm:hidden">{call.saved}</span>
+          <div className="grid gap-2">
+            <span className="text-sm font-semibold text-ok sm:hidden">{call.saved}</span>
+            <dl className="grid gap-2">
+            {call.facts.map((fact) => (
+              <div key={fact.label} className="flex flex-wrap items-baseline gap-x-2">
+                <dt className="font-semibold">{fact.label}</dt>
+                <dd className="flex flex-wrap items-baseline gap-x-2">
+                  <span>{fact.value}</span>
+                  <span className="text-sm text-faint">{fact.certainty}</span>
+                </dd>
+              </div>
+            ))}
+            </dl>
+          </div>
+        </li>
+
+        <li className={`grid grid-cols-[3rem_1fr] gap-x-4 py-4 sm:grid-cols-[3rem_4.5rem_1fr] ${reveal(call.lines.length + 1)}`}>
+          <span className="ltr-nums pt-0.5 text-xs tabular-nums text-faint">17:44</span>
+          <span className="max-sm:hidden" aria-hidden="true" />
+          <p className="flex items-center gap-2.5 font-semibold text-brown">
+            <span className="relative flex size-2" aria-hidden="true">
+              <span className="absolute inset-0 rounded-full bg-brown motion-safe:animate-pulse-ring" />
+              <span className="relative size-2 rounded-full bg-brown" />
+            </span>
+            {call.next}
+          </p>
+        </li>
       </ol>
-    </div>
+    </figure>
   );
 }

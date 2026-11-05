@@ -18,7 +18,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { CamelMark } from "@/components/brand/CamelMark";
 import { Logo } from "@/components/brand/Logo";
-import { Badge, Button, ButtonLink } from "@/components/ui";
+import { Button, ButtonLink } from "@/components/ui";
 import { openNoAnswerTickets, openTaskTickets } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
@@ -102,8 +102,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex h-11 items-center gap-3 rounded-xl px-3 text-[0.95rem] font-semibold transition",
-                  active ? "bg-espresso text-cream" : "text-muted hover:bg-espresso/5 hover:text-espresso",
-                  item.key === "lab" && !active && "text-brown",
+                  active ? "bg-espresso/[0.07] text-espresso" : "text-muted hover:bg-espresso/5 hover:text-espresso",
                 )}
               >
                 <span className="flex w-6 justify-center">
@@ -111,7 +110,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </span>
                 <span className="flex-1">{m.common.nav[item.key]}</span>
                 {item.key === "tickets" && openTasks > 0 ? (
-                  <span className={cn("rounded-full px-2 py-0.5 text-xs", active ? "bg-cream/15" : "bg-gold-soft text-brown")}>
+                  <span className="ltr-nums text-xs font-semibold tabular-nums text-brown">
                     {openTasks}
                   </span>
                 ) : null}
@@ -120,12 +119,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
         <div className="mt-auto space-y-3 px-2">
-          <div className="rounded-2xl border border-stone/80 bg-ivory p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-faint">{m.common.demo.badge}</p>
-            <p className="mt-1 truncate font-bold">{ws.settings.farm.name}</p>
-            <p className="truncate text-sm text-muted">{ws.settings.owner.name}</p>
+          <div className="border-t border-stone/70 pt-4">
+            <p className="truncate text-sm font-semibold">{ws.settings.owner.name}</p>
+            <p className="mt-0.5 text-xs text-faint">{m.common.demo.badge}</p>
           </div>
-          <LocaleSwitcher className="w-full justify-center" />
+          <LocaleSwitcher className="-ms-2.5" />
         </div>
       </aside>
 
@@ -138,7 +136,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
             <div className="hidden min-w-0 items-center gap-3 lg:flex">
               <h1 className="truncate text-lg font-bold">{ws.settings.farm.name}</h1>
-              <Badge tone={ws.settings.plan === "ultimate" ? "dark" : "gold"}>{m.common.plans[ws.settings.plan]}</Badge>
+              <span className="text-sm text-muted">{m.common.plans[ws.settings.plan]}</span>
             </div>
             <div className="ms-auto flex items-center gap-1">
               <DemoClock />
@@ -167,7 +165,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="mx-auto grid max-w-lg grid-cols-5">
           {NAV.filter((n) => n.key !== "settings").map((item) => {
             const active = isActive(item.path);
-            const isLab = item.key === "lab";
             return (
               <Link
                 key={item.key}
@@ -178,21 +175,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                   active ? "text-espresso" : "text-muted",
                 )}
               >
-                {isLab ? (
-                  <span
-                    className={cn(
-                      "flex size-11 -mt-5 items-center justify-center rounded-full shadow-lift ring-4 ring-cream",
-                      active ? "bg-espresso text-gold" : "bg-brown text-cream",
-                    )}
-                  >
-                    <Waveform size={22} weight="bold" aria-hidden />
-                  </span>
-                ) : (
-                  <NavIcon icon={item.icon} active={active} />
-                )}
+                <NavIcon icon={item.icon} active={active} />
                 <span className="max-w-full truncate px-1">{m.common.nav[item.key]}</span>
                 {item.key === "tickets" && openTasks > 0 ? (
-                  <span className="absolute top-2 start-1/2 ms-2 min-w-4 rounded-full bg-gold px-1 text-center text-[0.65rem] leading-4 text-espresso">
+                  <span className="absolute top-2 start-1/2 ms-2.5 min-w-4 rounded-full bg-brown px-1 text-center text-[0.65rem] leading-4 text-cream">
                     {openTasks}
                   </span>
                 ) : null}
@@ -210,12 +196,8 @@ export function DemoClock() {
   const { m, fmt } = useI18n();
   const now = useNow();
   return (
-    <div className="flex items-center gap-2 rounded-full border border-stone/80 bg-cream px-3 py-1.5" title={m.common.demo.clockHint}>
-      <span className="relative flex size-2">
-        <span className="absolute inline-flex size-full animate-ping rounded-full bg-gold/60" />
-        <span className="relative inline-flex size-2 rounded-full bg-gold" />
-      </span>
-      <span className="text-xs font-semibold text-muted">
+    <div className="px-2" title={m.common.demo.clockHint}>
+      <span className="ltr-nums text-sm tabular-nums text-muted">
         <span className="hidden sm:inline">{fmt.dateTime(now, { hour: "numeric", minute: "2-digit", weekday: "short", day: undefined, month: undefined })}</span>
         <span className="sm:hidden">{fmt.time(now)}</span>
       </span>

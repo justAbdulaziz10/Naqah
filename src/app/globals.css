@@ -75,9 +75,12 @@
     background: var(--color-ivory);
     min-height: 100dvh;
   }
-  /* Arabic-first: Alexandria leads for Arabic pages; Montserrat still renders Latin and digits. */
+  /*
+   * Arabic pages must lead with Alexandria: next/font's "Montserrat Fallback" face covers every
+   * codepoint, so with Montserrat first Arabic glyphs would render in the Arial fallback.
+   */
   html[lang="ar"] body {
-    font-family: var(--font-sans);
+    font-family: var(--font-arabic);
     line-height: 1.7;
   }
   ::selection {

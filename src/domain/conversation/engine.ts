@@ -31,6 +31,7 @@ import {
   dueWorkerCalls,
   openNoAnswerTickets,
   openTaskTickets,
+  overdueScheduledTasks,
   routeOwnerInboundCall,
   routeWorkerInboundCall,
   taskTicketsEnabled,
@@ -82,16 +83,17 @@ interface ConversationData {
   tempNote?: string | null;
   tempLevel?: Level;
   tempQuantity?: string;
-  ownerMode?: "unlimited" | "weekly" | "missed_callback";
   reportId?: string;
   instruction?: string;
   actionable?: boolean;
   scheduledFor?: string | null;
   pendingCallIds?: string[];
+  startedVerificationCallIds?: string[];
   pendingIndex?: number;
   currentCallId?: string;
   inquiryTopics?: string[];
-  callbackTicketIds?: string[];
+  callbackTaskIds?: string[];
+  callbackTaskIndex?: number;
 }
 
 export interface CallSession {
@@ -292,13 +294,15 @@ function startWorkerReport(ws: Workspace, now: Date): EngineResult {
     return { session: completed, commit: commitTo(rejectWorkerReport(ws, now, route.reason)) };
   }
 
-  const queue: ReportItem[] = applicableQuestions(ws).map((question) => ({
-    kind: "predefined",
-    id: question.id,
-    question: question.text,
-    answerKind: question.answerKind,
-    resource: question.requires,
-  }));
+  const queue: ReportItem[] = applicableQuestions(ws)
+    .filter((question) => question.id !== "herd_count" || ws.camels.length > 0)
+    .map((question) => ({
+      kind: "predefined",
+      id: question.id,
+      question: question.text,
+      answerKind: question.answerKind,
+      resource: question.requires,
+    }));
   queue.push(
     ...ws.settings.customQuestions.map((question) => ({
       kind: "custom" as const,
@@ -307,9 +311,10 @@ function startWorkerReport(ws: Workspace, now: Date): EngineResult {
     })),
   );
   if (taskTicketsEnabled(ws)) {
+    const overdueIds = new Set(overdueScheduledTasks(ws, now).map((task) => task.id));
     queue.push(
       ...openTaskTickets(ws)
-        .filter((task) => task.scheduledFor === null)
+        .filter((task) => task.scheduledFor === null || overdueIds.has(task.id))
         .map((task) => ({
           kind: "task" as const,
           id: "task_" + task.id,
@@ -348,7 +353,11 @@ function startWorkerCallback(ws: Workspace, now: Date): EngineResult {
   const tickets = openNoAnswerTickets(ws).filter((ticket) => route.ticketIds.includes(ticket.id));
   const messagesEn = tickets.map((ticket) => ticket.message).join("; ");
   const messagesAr = tickets.map((ticket) => ticket.message).join("؛ ");
-  const session = blank("worker_callback", now);
+  const callbackTaskIds = overdueScheduledTasks(ws, now).map((task) => task.id);
+  const session = {
+    ...blank("worker_callback", now),
+    data: { callbackTaskIds, callbackTaskIndex: 0 },
+  };
   const text = copy(
     "You missed our call. Message from the owner: " + (messagesEn || "Please call Abdullah back.") + " This is a message delivery call, not a farm update.",
     "فاتتك مكالمتنا. رسالة المالك: " + (messagesAr || "فضلاً تواصل مع عبدالله.") + " هذا اتصال لتسليم رسالة، وليس تحديثاً للمزرعة.",
@@ -390,11 +399,13 @@ function startOwnerNotification(ws: Workspace, now: Date, requestedReportId?: st
 function startWorkerOutbound(ws: Workspace, now: Date): EngineResult {
   let prepared = ws;
   let startedVerification = false;
+  const startedVerificationCallIds: string[] = [];
   const dueTasks = dueTaskVerifications(prepared, now);
   for (const task of dueTasks) {
     const result = startTaskVerification(prepared, now, task.id);
     prepared = result.ws;
     startedVerification = true;
+    startedVerificationCallIds.push(result.pendingCallId);
   }
 
   const pendingIds = prepared.pendingWorkerCalls
@@ -404,7 +415,7 @@ function startWorkerOutbound(ws: Workspace, now: Date): EngineResult {
     .map((call) => call.id);
   let session: CallSession = {
     ...blank("worker_outbound", now),
-    data: { pendingCallIds: pendingIds, pendingIndex: 0 },
+    data: { pendingCallIds: pendingIds, pendingIndex: 0, startedVerificationCallIds },
   };
   if (!pendingIds.length) {
     session = say(
@@ -475,13 +486,14 @@ function startOwnerInquiry(ws: Workspace, now: Date): EngineResult {
   }
   const next = {
     ...session,
-    data: { ...session.data, ownerMode: route.mode, inquiryTopics: [] },
+    data: { ...session.data, inquiryTopics: [] },
   };
   return {
     session: askInquiryTopics(
       say(next, copy("Hello Abdullah. What would you like to check?", "هلا عبدالله. وش تحب تعرف عنه؟"), now),
       now,
     ),
+    commit: commitTo(recordOwnerInquiry(ws, now, route.mode)),
   };
 }
 
@@ -662,6 +674,15 @@ function handleReportQuestion(
       const recorded = reportAnswer(current.session, item, UNKNOWN_ANSWER, "unknown");
       return { session: nextReportItem(recorded, ws, now) };
     }
+    if (ws.camels.length === 0) {
+      const recorded = reportAnswer(
+        current.session,
+        item,
+        copy("A camel needs attention (unspecified)", "فيه ناقة تحتاج متابعة (غير محددة)"),
+        "reported",
+      );
+      return { session: nextReportItem(recorded, ws, now) };
+    }
     const picking = {
       ...current.session,
       data: { ...current.session.data, askedCamelIds: [], tempCamelId: undefined },
@@ -746,6 +767,9 @@ function handleHealthPick(session: CallSession, ws: Workspace, now: Date, input:
   if (current.value === "unknown" || isUnknown(current.value, input.text)) {
     const item = session.data.queue?.[session.data.reportIndex ?? 0];
     if (!item) return { session: current.session };
+    if ((session.data.askedCamelIds ?? []).length > 0) {
+      return { session: finishCamelHealth(current.session, ws, now) };
+    }
     const recorded = reportAnswer(current.session, item, UNKNOWN_ANSWER, "unknown");
     return { session: nextReportItem(recorded, ws, now) };
   }
@@ -1040,6 +1064,7 @@ function handleOwnerNotification(session: CallSession, ws: Workspace, now: Date,
         commit: commitTo(updated),
       };
     }
+    const updated = recordOwnerNotification(ws, now, reportId, true);
     const report = ws.reports.find((item) => item.id === reportId);
     const briefing = ownerBriefing(report?.findings ?? []);
     return {
@@ -1050,14 +1075,13 @@ function handleOwnerNotification(session: CallSession, ws: Workspace, now: Date,
         "instruction_yesno",
         [reply("instruction_yes", "Yes, I do", "إيه"), reply("instruction_no", "No, thanks", "لا، شكراً")],
       ),
+      commit: commitTo(updated),
     };
   }
   if (session.step === "instruction_yesno") {
     if (current.value === "instruction_no") {
-      const updated = recordOwnerNotification(ws, now, reportId, true);
       return {
         session: say(current.session, copy("Thank you. The update is ready on the website.", "شكراً لك. التحديث موجود في الموقع."), now, true),
-        commit: commitTo(updated),
       };
     }
     return {
@@ -1103,10 +1127,10 @@ function handleOwnerNotification(session: CallSession, ws: Workspace, now: Date,
         ),
       };
     }
-    return submitInstruction(next, ws, now, reportId, actionable, null);
+    return submitInstruction(next, ws, now, actionable, null);
   }
   if (session.step === "instruction_schedule") {
-    if (current.value === "any_time") return submitInstruction(current.session, ws, now, reportId, true, null);
+    if (current.value === "any_time") return submitInstruction(current.session, ws, now, true, null);
     return {
       session: ask(
         current.session,
@@ -1134,7 +1158,7 @@ function handleOwnerNotification(session: CallSession, ws: Workspace, now: Date,
         session: ask(current.session, copy("Choose a later time today.", "اختر وقتاً لاحقاً اليوم."), now, "instruction_time", [reply("any_time", "Any time", "في أي وقت")], "time"),
       };
     }
-    return submitInstruction(current.session, ws, now, reportId, true, scheduled.toISOString());
+    return submitInstruction(current.session, ws, now, true, scheduled.toISOString());
   }
   return { session: current.session };
 }
@@ -1143,7 +1167,6 @@ function submitInstruction(
   session: CallSession,
   ws: Workspace,
   now: Date,
-  reportId: string,
   actionable: boolean,
   scheduledFor: string | null,
 ): EngineResult {
@@ -1152,7 +1175,6 @@ function submitInstruction(
     actionable,
     scheduledFor,
   });
-  const notified = recordOwnerNotification(created.ws, now, reportId, true);
   let next: CallSession = {
     ...session,
     data: { ...session.data, scheduledFor, actionable },
@@ -1173,22 +1195,68 @@ function submitInstruction(
       true,
     );
   }
-  return { session: next, commit: commitTo(notified) };
+  return { session: next, commit: commitTo(created.ws) };
 }
 
 function handleWorkerCallback(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
   const current = workerTurn(session, input, now);
-  if (session.step !== "callback_acknowledge") return { session: current.session };
-  const updated = completeWorkerCallback(ws, now);
-  return {
-    session: say(
+  if (session.step === "callback_acknowledge") {
+    const updated = completeWorkerCallback(ws, now);
+    const delivered = say(
       current.session,
-      copy("Thank you. The missed message has been delivered. This call did not create a farm update.", "شكراً لك. وصلت رسالة المالك. هذا الاتصال ما أنشأ تحديثاً للمزرعة."),
+      copy("Thank you. The missed message has been delivered.", "شكراً لك. وصلت رسالة المالك."),
       now,
-      true,
-    ),
-    commit: commitTo(updated),
-  };
+    );
+    return {
+      session: askNextCallbackTask(delivered, updated, now),
+      commit: commitTo(updated),
+    };
+  }
+  if (session.step === "callback_task_confirmation") {
+    const index = session.data.callbackTaskIndex ?? 0;
+    const taskId = session.data.callbackTaskIds?.[index];
+    const task = taskId ? ws.taskTickets.find((item) => item.id === taskId && item.status === "open") : undefined;
+    let updated = ws;
+    if (task && (current.value === "yes" || current.value === "no")) {
+      updated = confirmTask(ws, now, task.id, current.value === "yes", "worker_callback");
+    }
+    const next = {
+      ...current.session,
+      data: { ...current.session.data, callbackTaskIndex: index + 1 },
+    };
+    return {
+      session: askNextCallbackTask(next, updated, now),
+      ...(updated !== ws ? { commit: commitTo(updated) } : {}),
+    };
+  }
+  return { session: current.session };
+}
+
+function askNextCallbackTask(session: CallSession, ws: Workspace, now: Date): CallSession {
+  const taskIds = session.data.callbackTaskIds ?? [];
+  const overdueIds = new Set(overdueScheduledTasks(ws, now).map((task) => task.id));
+  let index = session.data.callbackTaskIndex ?? 0;
+  while (index < taskIds.length) {
+    const taskId = taskIds[index];
+    const task = ws.taskTickets.find((item) => item.id === taskId && item.status === "open");
+    if (!task || !overdueIds.has(taskId)) {
+      index += 1;
+      continue;
+    }
+    return ask(
+      { ...session, data: { ...session.data, callbackTaskIndex: index } },
+      copy("Did you finish the overdue task: " + task.instruction + "?", "خلصت المهمة المتأخرة: " + task.instruction + "؟"),
+      now,
+      "callback_task_confirmation",
+      [reply("yes", "Yes, complete", "إيه، خلصت"), reply("no", "No, not yet", "لا، باقي"), reply("unknown", "I don’t know", "ما أدري")],
+    );
+  }
+  return say(
+    { ...session, data: { ...session.data, callbackTaskIndex: index } },
+    copy("This call did not create a farm update.", "هذا الاتصال ما أنشأ تحديثاً للمزرعة."),
+    now,
+    true,
+  );
 }
 
 function handleWorkerOutbound(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
@@ -1364,8 +1432,8 @@ function inquiryTopicAnswer(ws: Workspace, topic: string): LocalizedText {
   const lines = answers.map((answer) => {
     const certainty = CERTAINTY_LABELS[answer.certainty];
     return {
-      en: "Ahmed reported “" + answer.answer + "” (" + certainty.en.toLowerCase() + ").",
-      ar: "أفاد أحمد: «" + answer.answer + "» (" + certainty.ar + ").",
+      en: "Ahmed reported “" + (answer.answerText?.en ?? answer.answer) + "” (" + certainty.en.toLowerCase() + ").",
+      ar: "أفاد أحمد: «" + (answer.answerText?.ar ?? answer.answer) + "» (" + certainty.ar + ").",
     };
   });
   return copy(
@@ -1378,11 +1446,8 @@ function handleOwnerInquiry(session: CallSession, ws: Workspace, now: Date, inpu
   const current = workerTurn(session, input, now);
   if (session.step !== "inquiry_topics") return { session: current.session };
   if (current.value === "inquiry_done") {
-    const mode = session.data.ownerMode ?? "unlimited";
-    const updated = recordOwnerInquiry(ws, now, mode);
     return {
       session: say(current.session, copy("Thank you. No tasks were created during this inquiry.", "شكراً لك. ما أنشأنا أي مهام خلال هذا الاستفسار."), now, true),
-      commit: commitTo(updated),
     };
   }
   const topic = TOPICS.find((item) => item.value === current.value);
@@ -1458,4 +1523,19 @@ export function answer(session: CallSession, ws: Workspace, now: Date, input: An
     case "emergency":
       return { session };
   }
+}
+
+/** End an active call while retaining only state already committed by answered steps. */
+export function hangUp(session: CallSession, ws: Workspace, now: Date): EngineResult {
+  if (session.done) return { session };
+  const ended = say(session, copy("This call has ended.", "انتهى الاتصال."), now, true);
+  if (session.scenario !== "worker_outbound") return { session: ended };
+
+  const startedIds = new Set(session.data.startedVerificationCallIds ?? []);
+  if (!startedIds.size) return { session: ended };
+  const pendingWorkerCalls = ws.pendingWorkerCalls.filter(
+    (call) => !(startedIds.has(call.id) && call.state === "pending" && call.attempts.length === 0),
+  );
+  if (pendingWorkerCalls.length === ws.pendingWorkerCalls.length) return { session: ended };
+  return { session: ended, commit: commitTo({ ...ws, pendingWorkerCalls }) };
 }

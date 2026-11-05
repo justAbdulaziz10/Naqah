@@ -85,14 +85,21 @@ export function reportDoneThisPeriod(ws: Workspace, now: Date): boolean {
 export const openTaskTickets = (ws: Workspace) => ws.taskTickets.filter((t) => t.status === "open");
 export const openNoAnswerTickets = (ws: Workspace) => ws.noAnswerTickets.filter((t) => t.status === "open");
 
-/** Ultimate: scheduled tasks whose time has come and that have no verification call yet. */
-export function dueTaskVerifications(ws: Workspace, now: Date) {
+/** Open scheduled tasks whose time has come, whether or not a verification was attempted. */
+export function overdueScheduledTasks(ws: Workspace, now: Date) {
   return openTaskTickets(ws).filter(
-    (t) =>
-      t.scheduledFor !== null &&
-      new Date(t.scheduledFor).getTime() <= now.getTime() &&
-      !ws.pendingWorkerCalls.some((c) => c.taskTicketId === t.id && c.purpose === "task_verification"),
+    (task) => task.scheduledFor !== null && new Date(task.scheduledFor).getTime() <= now.getTime(),
   );
+}
+
+/** Ultimate: scheduled tasks ready for a verification call, except those with a pending call. */
+export function dueTaskVerifications(ws: Workspace, now: Date) {
+  const pendingTaskIds = new Set(
+    ws.pendingWorkerCalls
+      .filter((call) => call.purpose === "task_verification" && call.state === "pending")
+      .map((call) => call.taskTicketId),
+  );
+  return overdueScheduledTasks(ws, now).filter((task) => !pendingTaskIds.has(task.id));
 }
 
 /** Worker calls with a retry due at or before `now`. */

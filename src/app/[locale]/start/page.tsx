@@ -292,7 +292,7 @@ export default function StartPage() {
       <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-28 pt-7 sm:px-6 sm:pt-10 lg:pb-10">
         <h1 id="current-step-title" tabIndex={-1} className="sr-only">{m.onboarding.title}: {m.onboarding.steps[currentKey]}</h1>
         {isReplacing ? (
-          <div className="mb-5 flex flex-col justify-between gap-3 rounded-2xl border border-sand/70 bg-gold-soft/40 px-4 py-3 sm:flex-row sm:items-center">
+          <div className="mb-5 flex flex-col justify-between gap-2 border-b border-stone/70 pb-4 sm:flex-row sm:items-center">
             <p className="text-sm font-medium text-espresso">{m.onboarding.existingFarmNotice}</p>
             <ButtonLink href={href("/app")} variant="ghost" size="sm" className="self-start sm:self-auto">
               {m.common.actions.openDashboard}

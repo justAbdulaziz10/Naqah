@@ -1,38 +1,41 @@
 import type { ReactNode } from "react";
 import { CamelMark } from "@/components/brand/CamelMark";
-import { Badge } from "@/components/ui";
 import { CERTAINTY_LABELS, HEALTH_LABELS, MAX_RETRIES, RESOURCE_LABELS, levelLabel } from "@/domain";
 import type { CallOutcome, Certainty, HealthStatus, Level, ResourceKind, Workspace, NoAnswerTicket } from "@/domain";
 import { useI18n } from "@/i18n/client";
 
-const healthTone: Record<HealthStatus, "ok" | "warn" | "danger" | "neutral"> = {
-  healthy: "ok",
-  watch: "warn",
-  sick: "danger",
-  unknown: "neutral",
+const healthText: Record<HealthStatus, string> = {
+  healthy: "text-ok",
+  watch: "text-warn",
+  sick: "text-danger",
+  unknown: "text-muted",
 };
 
-const certaintyTone: Record<Certainty, "info" | "warn" | "neutral" | "ok"> = {
-  reported: "info",
-  approximate: "warn",
-  unknown: "neutral",
-  verified: "ok",
+const outcomeText: Record<CallOutcome, string> = {
+  completed: "text-ok",
+  no_answer: "text-warn",
+  rejected: "text-muted",
 };
 
-const outcomeTone: Record<CallOutcome, "ok" | "warn" | "neutral"> = {
-  completed: "ok",
-  no_answer: "warn",
-  rejected: "neutral",
-};
-
+/** Health is a coloured dot and a word; not a pill. */
 export function HealthBadge({ health }: { health: HealthStatus }) {
   const { t } = useI18n();
-  return <Badge tone={healthTone[health]} dot>{t(HEALTH_LABELS[health])}</Badge>;
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-sm font-semibold ${healthText[health]}`}>
+      <span className="size-1.5 rounded-full bg-current" aria-hidden />
+      {t(HEALTH_LABELS[health])}
+    </span>
+  );
 }
 
+/** Certainty is provenance metadata, so it reads as quiet text beside the fact. */
 export function CertaintyBadge({ certainty }: { certainty: Certainty }) {
   const { t } = useI18n();
-  return <Badge tone={certaintyTone[certainty]}>{t(CERTAINTY_LABELS[certainty])}</Badge>;
+  return (
+    <span className={`text-xs ${certainty === "verified" ? "font-semibold text-ok" : "text-faint"}`}>
+      {t(CERTAINTY_LABELS[certainty])}
+    </span>
+  );
 }
 
 export function OutcomeBadge({ outcome }: { outcome: CallOutcome }) {
@@ -42,7 +45,7 @@ export function OutcomeBadge({ outcome }: { outcome: CallOutcome }) {
     no_answer: m.app.calls.noAnswer,
     rejected: m.app.calls.rejected,
   };
-  return <Badge tone={outcomeTone[outcome]}>{labels[outcome]}</Badge>;
+  return <span className={`text-sm font-semibold ${outcomeText[outcome]}`}>{labels[outcome]}</span>;
 }
 
 const meterTone: Record<Exclude<Level, "unknown">, string> = {

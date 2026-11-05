@@ -195,6 +195,14 @@ for the demo.
   and console errors. **Always run it against `npm run build && npx next start`**, not only `next dev` — two bugs
   below only showed up in production.
 
+### Design rules (from the 2026-11 distill pass)
+
+- No pills for status. `Badge`, `HealthBadge`, `CertaintyBadge` and `OutcomeBadge` render coloured text (with an optional dot). Certainty is quiet provenance text, never a chip.
+- No icon tiles, eyebrow labels, numbered 01/02/03 steps, same-size icon card grids, or decorative SVG waves/blobs. `CardHeader` shows an icon inline only, never in a tinted square.
+- Cards have a hairline border and no shadow. Do not nest cards, and do not tint cards with gold or other status colours to call attention.
+- The landing is one editorial page: hero plus the call ledger (`LiveTranscript`), the owner quote (`OwnerCall`), the rules list, the plan table, and the final band. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`.
+- Arabic pages lead with Alexandria (`--font-arabic`). next/font's "Montserrat Fallback" covers every codepoint, so with Montserrat first, Arabic renders in Arial.
+
 ### Known pitfalls (learned the hard way)
 - **Store hydration:** localStorage rehydration runs *inside* zustand's `create()`, before `useWorkspaceStore` is
   assigned. `onRehydrateStorage` must use the state it is given (`markHydrated()`), never the exported store —

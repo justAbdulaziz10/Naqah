@@ -1,19 +1,19 @@
 "use client";
 
-import { ArrowRight, CheckCircle, Circle, PhoneCall, WarningCircle } from "@phosphor-icons/react";
-import { Badge, ButtonLink, Card, CardBody, CardHeader } from "@/components/ui";
+import { ArrowRight, CheckCircle, Circle, WarningCircle } from "@phosphor-icons/react";
+import { ButtonLink, Card, CardBody, CardHeader } from "@/components/ui";
 import { CertaintyBadge, EmptyState, HealthBadge, ResourceMeter, noAnswerAttemptInfo } from "@/components/dashboard/DashboardPrimitives";
 import { EMERGENCY_LABELS, RESOURCE_LABELS, WEEKDAY_LABELS, levelLabel, nextWindowStart, openNoAnswerTickets, openTaskTickets, ownerAllowanceUsed, reportDoneThisPeriod, routeOwnerInboundCall, lastReportAt, fromRiyadh, riyadhParts, sameWeek } from "@/domain";
 import type { EventTone } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { useNow, useWorkspace } from "@/store/workspace";
 
-const statusTone = {
-  good: "ok",
-  medium: "info",
-  low: "warn",
-  critical: "danger",
-  unknown: "neutral",
+const statusText = {
+  good: "text-ok",
+  medium: "text-muted",
+  low: "text-warn",
+  critical: "text-danger",
+  unknown: "text-faint",
 } as const;
 
 function timeForWindow(value: string, now: Date) {
@@ -67,8 +67,8 @@ export default function OverviewPage() {
 
   return (
     <div className="animate-fade-up space-y-5 pb-8">
-      <header className="rounded-[var(--radius-card)] border border-stone/80 bg-cream px-5 py-5 shadow-soft sm:px-7 sm:py-6">
-        <h1 className="text-2xl font-bold leading-tight text-espresso sm:text-[1.8rem]">{greeting(ownerName)}</h1>
+      <header className="pb-2 pt-1">
+        <h1 className="text-[1.75rem] font-semibold leading-tight tracking-[-0.02em] text-espresso sm:text-[2.25rem]">{greeting(ownerName)}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
           {reportAt ? (
             <p>
@@ -77,7 +77,7 @@ export default function OverviewPage() {
             </p>
           ) : <p>{app.overview.noUpdate}</p>}
           {reportAt && !reportIsCurrent ? (
-            <Badge tone="warn" dot>{ws.settings.plan === "ultimate" ? app.overview.awaitingToday : app.overview.awaitingWeek}</Badge>
+            <p className="font-semibold text-warn">{ws.settings.plan === "ultimate" ? app.overview.awaitingToday : app.overview.awaitingWeek}</p>
           ) : null}
         </div>
       </header>
@@ -85,7 +85,7 @@ export default function OverviewPage() {
       <div className="grid gap-5 lg:grid-cols-12">
         <div className="flex min-w-0 flex-col gap-5 lg:col-span-8">
           <Card>
-            <CardHeader title={app.overview.nextExpected} icon={<PhoneCall size={19} weight="fill" aria-hidden />} />
+            <CardHeader title={app.overview.nextExpected} />
             <CardBody className="flex flex-col items-start gap-4 pt-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="font-semibold text-espresso">
@@ -143,7 +143,7 @@ export default function OverviewPage() {
           </Card>
 
           <Card>
-            <CardHeader title={app.overview.openItems} action={<ButtonLink href={href("/app/tickets")} variant="ghost" size="sm" className="min-h-11">{app.overview.viewTickets}</ButtonLink>} />
+            <CardHeader title={app.overview.openItems} action={<ButtonLink href={href("/app/tickets")} variant="ghost" size="sm" className="-me-3 min-h-11 text-brown">{app.overview.viewTickets}</ButtonLink>} />
             <CardBody className="space-y-5 pt-3">
               {ws.settings.plan === "ultimate" ? (
                 <>
@@ -204,9 +204,9 @@ export default function OverviewPage() {
                 {resources.map((resource) => (
                   <li key={resource.kind} className="grid gap-2 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                     <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                         <span className="font-semibold">{t(RESOURCE_LABELS[resource.kind])}</span>
-                        <Badge tone={statusTone[resource.level]}>{t(levelLabel(resource.kind, resource.level))}</Badge>
+                        <span className={`text-sm font-medium ${statusText[resource.level]}`}>{t(levelLabel(resource.kind, resource.level))}</span>
                       </div>
                       {resource.quantity ? <p className="mt-1 text-sm text-muted">{resource.quantity}</p> : null}
                     </div>
@@ -228,9 +228,9 @@ export default function OverviewPage() {
           </Card>
 
           <Card>
-            <CardHeader title={app.overview.herdSummary} action={<ButtonLink href={href("/app/herd")} variant="ghost" size="sm" className="min-h-11">{app.overview.viewHerd}</ButtonLink>} />
+            <CardHeader title={app.overview.herdSummary} action={<ButtonLink href={href("/app/herd")} variant="ghost" size="sm" className="-me-3 min-h-11 text-brown">{app.overview.viewHerd}</ButtonLink>} />
             <CardBody className="pt-3">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <dl className="grid grid-cols-3 gap-y-4 border-b border-stone/70 pb-4 sm:grid-cols-5">
                 {[
                   [app.overview.totalCamels, ws.camels.length],
                   [app.overview.healthy, herdCounts.healthy],
@@ -238,12 +238,12 @@ export default function OverviewPage() {
                   [app.overview.sick, herdCounts.sick],
                   [app.overview.unknown, herdCounts.unknown],
                 ].map(([label, count]) => (
-                  <div key={label} className="rounded-xl bg-ivory px-3 py-2.5">
-                    <p className="text-lg font-bold leading-none text-espresso">{fmt.number(Number(count))}</p>
-                    <p className="mt-1.5 text-xs leading-snug text-muted">{label}</p>
+                  <div key={label} className="flex flex-col-reverse">
+                    <dt className="mt-1 text-xs leading-snug text-muted">{label}</dt>
+                    <dd className="ltr-nums text-start text-2xl font-semibold tabular-nums leading-none text-espresso">{fmt.number(Number(count))}</dd>
                   </div>
                 ))}
-              </div>
+              </dl>
               <div className="mt-4">
                 <h3 className="mb-2 text-sm font-semibold text-muted">{app.overview.needsAttention}</h3>
                 {attentionCamels.length ? (
@@ -266,12 +266,11 @@ export default function OverviewPage() {
         </div>
 
         <aside className="flex min-w-0 flex-col gap-5 lg:col-span-4">
+          {ws.settings.plan === "basic" ? (
           <Card>
             <CardHeader title={app.overview.allowance} />
             <CardBody className="pt-3">
-              {ws.settings.plan === "ultimate" ? (
-                <Badge tone="ok" dot>{app.overview.unlimitedCalls}</Badge>
-              ) : (
+              {(
                 <>
                   <p className="font-semibold">
                     {allowanceUsed && ws.ownerAllowanceUsedAt ? <>{app.overview.allowanceUsed} <time className="ltr-nums" dateTime={ws.ownerAllowanceUsedAt}>{fmt.date(ws.ownerAllowanceUsedAt)}</time></> : app.overview.allowanceAvailable}
@@ -285,16 +284,15 @@ export default function OverviewPage() {
               )}
             </CardBody>
           </Card>
+          ) : null}
 
-          <Card className="border-brown/25">
-            <CardHeader title={app.overview.emergency} icon={<WarningCircle size={19} weight="fill" aria-hidden />} />
+          <Card>
+            <CardHeader title={app.overview.emergency} />
             <CardBody className="pt-3">
               <p className="font-semibold">{app.overview.emergencyInstructions}</p>
               <p className="mt-3 text-sm font-semibold text-muted">{app.overview.emergencyCategories}</p>
               {emergencyLabels.length ? (
-                <ul className="mt-2 flex flex-wrap gap-2">
-                  {emergencyLabels.map((label, index) => <li key={`${label}-${index}`}><Badge tone="neutral">{label}</Badge></li>)}
-                </ul>
+                <p className="mt-1 text-sm leading-relaxed text-espresso">{emergencyLabels.join(locale === "ar" ? "، " : ", ")}</p>
               ) : <p className="mt-2 text-sm text-muted">{app.overview.noEmergencyCategories}</p>}
               <a className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-lg font-semibold text-brown underline decoration-stone underline-offset-4" href={`tel:${ws.settings.worker.phone.replace(/[\s()-]/g, "")}`}>
                 {app.overview.callWorker}
@@ -304,7 +302,7 @@ export default function OverviewPage() {
           </Card>
 
           <Card>
-            <CardHeader title={app.overview.activity} action={<ButtonLink href={href("/app/calls")} variant="ghost" size="sm" className="min-h-11">{app.overview.viewCalls}</ButtonLink>} />
+            <CardHeader title={app.overview.activity} action={<ButtonLink href={href("/app/calls")} variant="ghost" size="sm" className="-me-3 min-h-11 text-brown">{app.overview.viewCalls}</ButtonLink>} />
             <CardBody className="pt-3">
               {recentEvents.length ? (
                 <ul className="divide-y divide-stone/70">

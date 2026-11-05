@@ -116,10 +116,55 @@ export function SpeechButton({ text }: { text: string }) {
       type="button"
       aria-pressed={speaking}
       onClick={toggleSpeech}
-      className="inline-flex min-h-11 items-center gap-2 rounded-full border border-cream/25 px-4 text-sm font-semibold text-cream transition hover:bg-cream/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+      className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-gold underline-offset-4 transition hover:text-cream hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
     >
       <SpeakerHigh size={18} weight="regular" aria-hidden="true" />
-      {speaking ? m.landing.ownerCall.stop : m.landing.ownerCall.listen}
+      {speaking ? m.landing.owner.stop : m.landing.owner.listen}
     </button>
+  );
+}
+
+/** What the owner hears: one quote, two outcomes. */
+export function OwnerCall() {
+  const { m, locale } = useI18n();
+  const owner = m.landing.owner;
+  const [quiet, setQuiet] = useState(false);
+  const quote = quiet ? owner.quietQuote : owner.reviewQuote;
+  const options = [
+    { quiet: false, label: owner.review },
+    { quiet: true, label: owner.quiet },
+  ];
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-x-6 gap-y-1 border-b border-cream/15">
+        {options.map((option) => {
+          const active = option.quiet === quiet;
+          return (
+            <button
+              key={option.label}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setQuiet(option.quiet)}
+              className={`-mb-px min-h-11 border-b-2 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold ${
+                active ? "border-gold text-cream" : "border-transparent text-cream/55 hover:text-cream"
+              }`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      <blockquote
+        key={quote}
+        aria-live="polite"
+        className="motion-safe:animate-fade-up mt-8 text-[clamp(1.6rem,3.4vw,2.75rem)] font-medium leading-[1.3] tracking-[-0.015em] text-cream lg:min-h-[4em]"
+      >
+        {locale === "ar" ? `«${quote}»` : `“${quote}”`}
+      </blockquote>
+      <div className="mt-6">
+        <SpeechButton text={quote} />
+      </div>
+    </div>
   );
 }

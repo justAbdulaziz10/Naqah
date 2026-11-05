@@ -146,6 +146,54 @@ describe("tickets (Phases 6 & 8)", () => {
     const { taskId } = submitOwnerInstruction(ultimate(), THU_1710, { message: "Guests arrive Friday", actionable: false, scheduledFor: null });
     expect(taskId).toBeNull();
   });
+  it("keeps overdue tasks eligible after a verification call is delivered or ends in a No Answer Ticket", () => {
+    const ws = ultimate();
+    const task = "scheduled-review";
+    const withDeliveredCall = {
+      ...ws,
+      taskTickets: [...ws.taskTickets, {
+        id: task,
+        instruction: "Check the shade net",
+        createdAt: THU_1710.toISOString(),
+        scheduledFor: fromRiyadh(2026, 11, 5, 18, 0).toISOString(),
+        status: "open" as const,
+        closedAt: null,
+        closedVia: null,
+      }],
+      pendingWorkerCalls: [{
+        id: "verification-delivered",
+        purpose: "task_verification" as const,
+        message: "Check the shade net",
+        taskTicketId: task,
+        relayId: null,
+        attempts: [{ at: THU_1710.toISOString(), answered: true }],
+        nextAttemptAt: null,
+        state: "delivered" as const,
+      }],
+    };
+    const tomorrow = fromRiyadh(2026, 11, 6, 9, 0);
+    expect(dueTaskVerifications(withDeliveredCall, tomorrow).map((item) => item.id)).toContain(task);
+
+    const withPendingCall = {
+      ...withDeliveredCall,
+      pendingWorkerCalls: [{
+        ...withDeliveredCall.pendingWorkerCalls[0],
+        state: "pending" as const,
+        nextAttemptAt: THU_1710.toISOString(),
+      }],
+    };
+    expect(dueTaskVerifications(withPendingCall, tomorrow).map((item) => item.id)).not.toContain(task);
+
+    const withNoAnswerTicket = {
+      ...withDeliveredCall,
+      pendingWorkerCalls: [{
+        ...withDeliveredCall.pendingWorkerCalls[0],
+        id: "verification-no-answer",
+        state: "no_answer_ticket" as const,
+      }],
+    };
+    expect(dueTaskVerifications(withNoAnswerTicket, tomorrow).map((item) => item.id)).toContain(task);
+  });
 });
 
 describe("owner calls (Phases 4–5)", () => {
@@ -181,5 +229,21 @@ describe("findings", () => {
     expect(findings).toHaveLength(2);
     expect(ownerBriefing(findings).en).toContain("Wadha is sick");
     expect(ownerBriefing([]).en).toContain("nothing important");
+  });
+  it("matches custom criteria in either answer language and localizes the finding", () => {
+    const ws = ultimate();
+    ws.settings.criteria = [{ id: "custom", kind: "custom", label: "مريضة", enabled: true }];
+    const findings = evaluateFindings(ws, emptyDraft({
+      answers: [{
+        questionId: "custom-health",
+        question: { ar: "كيف حال وضحة؟", en: "How is Wadha?" },
+        answer: "Sick",
+        answerText: { ar: "مريضة", en: "Sick" },
+        certainty: "reported",
+        followUp: false,
+      }],
+    }));
+    expect(findings).toHaveLength(1);
+    expect(findings[0].text).toEqual({ ar: "مريضة: «مريضة»", en: "مريضة: “Sick”" });
   });
 });

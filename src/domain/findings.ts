@@ -36,6 +36,14 @@ export function evaluateFindings(ws: Workspace, draft: ReportDraft): Finding[] {
 
     switch (c.kind) {
       case "sick_camel":
+        if (draft.answers.some((answer) => {
+          if (answer.questionId !== "herd_health" || answer.certainty !== "reported") return false;
+          const en = (answer.answerText?.en ?? answer.answer).toLowerCase();
+          const ar = answer.answerText?.ar ?? answer.answer;
+          return en.includes("a camel needs attention (unspecified)") || ar.includes("ناقة تحتاج متابعة (غير محددة)");
+        })) {
+          push({ ar: "فيه ناقة تحتاج متابعة (غير محددة)", en: "A camel needs attention (unspecified)" });
+        }
         for (const u of draft.camelUpdates) {
           if (u.health !== "sick" && u.health !== "watch") continue;
           const name = camel(u.camelId)?.name ?? "?";
@@ -71,8 +79,18 @@ export function evaluateFindings(ws: Workspace, draft: ReportDraft): Finding[] {
       case "custom": {
         const words = (c.label ?? "").split(/[,،]/).map((w) => w.trim().toLowerCase()).filter(Boolean);
         if (!words.length) break;
-        const hit = draft.answers.find((a) => words.some((w) => a.answer.toLowerCase().includes(w)));
-        if (hit) push({ ar: `${c.label}: «${hit.answer}»`, en: `${c.label}: “${hit.answer}”` });
+        const hit = draft.answers.find((answer) => {
+          const values = [answer.answer, answer.answerText?.ar, answer.answerText?.en]
+            .filter((value): value is string => Boolean(value))
+            .map((value) => value.toLowerCase());
+          return words.some((word) => values.some((value) => value.includes(word)));
+        });
+        if (hit) {
+          push({
+            ar: `${c.label}: «${hit.answerText?.ar ?? hit.answer}»`,
+            en: `${c.label}: “${hit.answerText?.en ?? hit.answer}”`,
+          });
+        }
         break;
       }
     }

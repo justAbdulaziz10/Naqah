@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { recordOwnerInquiry, submitOwnerInstruction } from "../actions";
 import { fromRiyadh, RETRY_DELAY_MS } from "../clock";
-import { ownerBriefing } from "../findings";
-import { createDemoWorkspace } from "../seed";
+import { evaluateFindings, ownerBriefing } from "../findings";
+import { dueTaskVerifications, routeOwnerInboundCall } from "../rules";
+import { createDemoWorkspace, createEmptyWorkspace } from "../seed";
 import type { Workspace } from "../types";
-import { answer, start, type CallSession } from "./engine";
+import { answer, hangUp, start, type CallSession } from "./engine";
 
 const NOW = fromRiyadh(2026, 11, 5, 17, 10);
 
@@ -16,6 +17,21 @@ function applyAnswer(
 ) {
   const result = answer(session, ws, now, input);
   return { session: result.session, ws: result.commit ? result.commit(ws) : ws };
+}
+
+function scheduledTaskWorkspace() {
+  const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 5, 17, 10));
+  const task = {
+    id: "scheduled-review",
+    instruction: "Check the shade net",
+    createdAt: fromRiyadh(2026, 11, 5, 17, 0).toISOString(),
+    scheduledFor: fromRiyadh(2026, 11, 5, 18, 0).toISOString(),
+    status: "open" as const,
+    closedAt: null,
+    closedVia: null,
+  };
+  ws.taskTickets.push(task);
+  return { ws, task };
 }
 
 function ownerInstruction(ws: Workspace, now = NOW) {
@@ -117,6 +133,92 @@ describe("Call Lab conversation engine", () => {
     expect(session.draft.answers[0].certainty).toBe("unknown");
   });
 
+  it("repeats an overdue scheduled task in the next report after the worker says not yet", () => {
+    const { ws, task } = scheduledTaskWorkspace();
+    const dueAt = fromRiyadh(2026, 11, 5, 19, 0);
+    const started = start(ws, dueAt, "worker_outbound");
+    let session = started.session;
+    let current = started.commit?.(ws) ?? ws;
+
+    let result = applyAnswer(session, current, dueAt, { value: "answer" });
+    session = result.session;
+    current = result.ws;
+    result = applyAnswer(session, current, dueAt, { value: "no" });
+    session = result.session;
+    current = result.ws;
+
+    expect(current.taskTickets.find((item) => item.id === task.id)?.status).toBe("open");
+    const tomorrow = fromRiyadh(2026, 11, 6, 9, 0);
+    expect(dueTaskVerifications(current, tomorrow).map((item) => item.id)).toContain(task.id);
+    const report = start(current, tomorrow, "worker_report").session;
+    expect(report.data.queue?.some((item) => item.kind === "task" && item.taskId === task.id)).toBe(true);
+  });
+
+  it("delivers a No Answer callback before asking about its overdue task and closes only on yes", () => {
+    const { ws, task } = scheduledTaskWorkspace();
+    const dueAt = fromRiyadh(2026, 11, 5, 19, 0);
+    const started = start(ws, dueAt, "worker_outbound");
+    let session = started.session;
+    let current = started.commit?.(ws) ?? ws;
+    let now = dueAt;
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      let result = applyAnswer(session, current, now, { value: "no_answer" });
+      session = result.session;
+      current = result.ws;
+      if (attempt < 3) {
+        result = applyAnswer(session, current, now, { value: "skip_20" });
+        session = result.session;
+        current = result.ws;
+        now = new Date(now.getTime() + RETRY_DELAY_MS);
+      }
+    }
+
+    expect(current.noAnswerTickets.some((ticket) => ticket.taskTicketId === task.id && ticket.status === "open")).toBe(true);
+    const reportsBefore = current.reports.length;
+    const callbackAt = fromRiyadh(2026, 11, 6, 9, 0);
+    const callback = start(current, callbackAt, "worker_callback").session;
+    expect(callback.step).toBe("callback_acknowledge");
+    expect(callback.turns[0].text.en).toContain("Check the shade net");
+
+    let result = applyAnswer(callback, current, callbackAt, { value: "received" });
+    session = result.session;
+    current = result.ws;
+    expect(session.step).toBe("callback_task_confirmation");
+    expect(current.noAnswerTickets.every((ticket) => ticket.status === "closed")).toBe(true);
+    expect(current.reports).toHaveLength(reportsBefore);
+    expect(current.taskTickets.find((item) => item.id === task.id)?.status).toBe("open");
+
+    result = applyAnswer(session, current, callbackAt, { value: "yes" });
+    current = result.ws;
+    const closed = current.taskTickets.find((item) => item.id === task.id);
+    expect(closed?.status).toBe("closed");
+    expect(closed?.closedVia).toBe("worker_callback");
+  });
+
+  it("hangs up an unanswered outbound verification without changing the workspace", () => {
+    const { ws } = scheduledTaskWorkspace();
+    const dueAt = fromRiyadh(2026, 11, 5, 19, 0);
+    const started = start(ws, dueAt, "worker_outbound");
+    const afterStart = started.commit?.(ws) ?? ws;
+    const ended = hangUp(started.session, afterStart, dueAt);
+    const afterHangUp = ended.commit?.(afterStart) ?? afterStart;
+
+    expect(ended.session.done).toBe(true);
+    expect(afterHangUp).toEqual(ws);
+  });
+
+  it("does not save an unfinished worker report when hung up", () => {
+    const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    const session = start(ws, NOW, "worker_report").session;
+    const partial = answer(session, ws, NOW, { value: "no" }).session;
+    const ended = hangUp(partial, ws, NOW);
+
+    expect(ended.session.done).toBe(true);
+    expect(ended.commit).toBeUndefined();
+    expect(ws.reports).toHaveLength(1);
+  });
+
   it("rejects a Basic report outside its weekly window and records the rejection", () => {
     const ws = createDemoWorkspace("en", "basic", fromRiyadh(2026, 11, 3, 9, 0));
     const session = start(ws, fromRiyadh(2026, 11, 5, 18, 30), "worker_report");
@@ -183,5 +285,87 @@ describe("Call Lab conversation engine", () => {
     const updated = started.commit?.(ws) ?? ws;
     expect(updated.calls.at(-1)?.kind).toBe("owner_inquiry_rejected");
     expect(updated.calls.at(-1)?.outcome).toBe("rejected");
+  });
+
+  it("uses the Basic owner inquiry allowance when the accepted call is hung up", () => {
+    const ws = createDemoWorkspace("en", "basic", fromRiyadh(2026, 11, 3, 9, 0));
+    const started = start(ws, NOW, "owner_inquiry");
+    let current = started.commit?.(ws) ?? ws;
+    const ended = hangUp(started.session, current, NOW);
+    current = ended.commit?.(current) ?? current;
+
+    expect(ended.session.done).toBe(true);
+    expect(current.calls.filter((call) => call.kind === "owner_inquiry" && call.at === NOW.toISOString())).toHaveLength(1);
+    const second = start(current, fromRiyadh(2026, 11, 5, 17, 20), "owner_inquiry");
+    expect(second.session.done).toBe(true);
+    const afterSecond = second.commit?.(current) ?? current;
+    expect(afterSecond.calls.at(-1)?.kind).toBe("owner_inquiry_rejected");
+    expect(routeOwnerInboundCall(afterSecond, fromRiyadh(2026, 11, 5, 17, 20))).toEqual({ kind: "rejected", reason: "allowance_used" });
+  });
+
+  it("uses the Basic owner allowance as soon as an answered notification is answered", () => {
+    const ws = createDemoWorkspace("en", "basic", fromRiyadh(2026, 11, 3, 9, 0));
+    const reportId = ws.reports[0].id;
+    const started = start(ws, NOW, "owner_notification", { reportId });
+    const answered = answer(started.session, ws, NOW, { value: "answer" });
+    let current = answered.commit?.(ws) ?? ws;
+    const ended = hangUp(answered.session, current, NOW);
+    current = ended.commit?.(current) ?? current;
+
+    expect(current.ownerAllowanceUsedAt).toBe(NOW.toISOString());
+    expect(current.calls.filter((call) => call.kind === "owner_notification" && call.at === NOW.toISOString())).toHaveLength(1);
+    expect(routeOwnerInboundCall(current, fromRiyadh(2026, 11, 5, 17, 20))).toEqual({ kind: "rejected", reason: "allowance_used" });
+  });
+
+  it("uses answerText in the matching locale for the owner inquiry last update", () => {
+    const ws = createDemoWorkspace("ar", "ultimate", NOW);
+    const latest = ws.reports[ws.reports.length - 1];
+    latest.answers = [{
+      questionId: "herd_health",
+      question: { ar: "كيف حال الحلال؟", en: "How is the herd?" },
+      answer: "All camels are well",
+      answerText: { ar: "الحلال كله بخير", en: "All camels are well" },
+      certainty: "reported",
+      followUp: false,
+    }];
+    const started = start(ws, NOW, "owner_inquiry");
+    const result = answer(started.session, ws, NOW, { value: "last_update" });
+
+    expect(result.session.turns.some((turn) => turn.speaker === "agent" && turn.text.ar.includes("الحلال كله بخير"))).toBe(true);
+  });
+
+  it("records an unspecified herd-health concern when the herd is empty and skips herd count", () => {
+    const ws = createEmptyWorkspace("ultimate");
+    const session = start(ws, NOW, "worker_report").session;
+    expect(session.data.currentQuestionId).toBe("herd_health");
+    expect(session.data.queue?.some((item) => item.id === "herd_count")).toBe(false);
+
+    const result = answer(session, ws, NOW, { value: "no" });
+    const reportAnswer = result.session.draft.answers.find((item) => item.questionId === "herd_health");
+    expect(result.session.step).not.toBe("health_pick");
+    expect(reportAnswer).toMatchObject({
+      answer: "A camel needs attention (unspecified)",
+      answerText: { ar: "فيه ناقة تحتاج متابعة (غير محددة)", en: "A camel needs attention (unspecified)" },
+      certainty: "reported",
+    });
+    const findings = evaluateFindings(ws, result.session.draft);
+    expect(ownerBriefing(findings).en).toContain("A camel needs attention (unspecified)");
+  });
+
+  it("keeps a confirmed camel report when the worker does not know about another camel", () => {
+    const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    let session = start(ws, NOW, "worker_report").session;
+    session = answer(session, ws, NOW, { value: "no" }).session;
+    session = answer(session, ws, NOW, { value: "camel:" + ws.camels[0].id }).session;
+    session = answer(session, ws, NOW, { value: "healthy" }).session;
+    session = answer(session, ws, NOW, { value: "skip_note" }).session;
+    session = answer(session, ws, NOW, { value: "yes" }).session;
+    session = answer(session, ws, NOW, { value: "yes" }).session;
+    const result = answer(session, ws, NOW, { value: "unknown" });
+    const reportAnswer = result.session.draft.answers.find((item) => item.questionId === "herd_health");
+
+    expect(result.session.step).toBe("report_question");
+    expect(reportAnswer?.certainty).toBe("reported");
+    expect(reportAnswer?.answer).toContain("Wadha: Healthy");
   });
 });

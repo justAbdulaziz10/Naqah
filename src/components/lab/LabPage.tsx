@@ -27,7 +27,7 @@ import {
   setClockTo,
   type Workspace,
 } from "@/domain";
-import { start, answer, scenarioAvailability, type AnswerInput, type CallSession, type Scenario } from "@/domain/conversation/engine";
+import { start, answer, hangUp, scenarioAvailability, type AnswerInput, type CallSession, type Scenario } from "@/domain/conversation/engine";
 import { makePersonalizer, personalizeTree } from "@/domain/conversation/personalize";
 import { useI18n } from "@/i18n/client";
 import { create } from "zustand";
@@ -292,7 +292,7 @@ function PhoneStage({
   const timer = formatDuration(timerStarted, timerNow);
 
   return (
-    <Card className="min-w-0 overflow-hidden border-stone/80 shadow-lift">
+    <Card className="min-w-0 overflow-hidden">
       <div className="bg-espresso px-5 py-5 text-cream sm:px-6">
         <div className="flex items-center gap-4">
           <div className="relative flex size-14 shrink-0 items-center justify-center rounded-full bg-brown-deep">
@@ -343,10 +343,7 @@ function PhoneStage({
           ))
         ) : (
           <div className="m-auto max-w-xs py-8 text-center">
-            <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-gold-soft text-brown">
-              <Phone size={22} aria-hidden />
-            </span>
-            <p className="mt-4 font-semibold text-espresso">{m.lab.phone.previewReady}</p>
+            <p className="font-semibold text-espresso">{m.lab.phone.previewReady}</p>
             <p className="mt-1 text-sm text-muted">{m.lab.phone.noConversation}</p>
           </div>
         )}
@@ -438,11 +435,9 @@ function PhoneStage({
 
 function EmergencyPanel({ ws, m, t }: { ws: Workspace; m: ReturnType<typeof useI18n>["m"]; t: (value: { ar: string; en: string }) => string }) {
   return (
-    <Card className="border-warn/35 bg-warn-soft/45 p-5 sm:p-6">
+    <Card className="border-warn/40 p-5 sm:p-6">
       <div className="flex items-start gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-warn-soft text-warn">
-          <WarningCircle size={22} weight="fill" aria-hidden />
-        </span>
+        <WarningCircle size={22} weight="fill" className="mt-1 shrink-0 text-warn" aria-hidden />
         <div className="min-w-0">
           <h2 className="text-lg font-bold">{m.lab.emergency.title}</h2>
           <p className="mt-1 text-sm leading-relaxed text-muted">{m.lab.emergency.detail(ws.settings.owner.name)}</p>
@@ -687,7 +682,13 @@ export function LabPage() {
     if (result.commit) update(() => result.commit!(current));
   }
 
+  /** Ends the call. An unfinished call goes through the engine so abandoned state is undone. */
   function finish() {
+    const current = useWorkspaceStore.getState().workspace;
+    if (current && session && !session.done) {
+      const result = hangUp(session, current, now);
+      if (result.commit) update(() => result.commit!(current));
+    }
     setSession(null);
     setCallStartedAt(null);
   }
@@ -720,7 +721,7 @@ export function LabPage() {
       </header>
 
       <section aria-label={m.lab.title} className="space-y-3">
-        <div className="flex gap-2 overflow-x-auto pb-2 lg:grid lg:grid-cols-4 lg:overflow-visible">
+        <div className="-mx-4 flex gap-6 overflow-x-auto border-b border-stone px-4 sm:mx-0 sm:px-0 lg:grid lg:grid-cols-4 lg:overflow-visible">
           {PICKER_SCENARIOS.map((scenario) => {
             const key = scenarioMessageKey(scenario);
             const current = selected === scenario;
@@ -733,19 +734,19 @@ export function LabPage() {
                 disabled={disabled}
                 onClick={() => setSelected(scenario)}
                 className={cn(
-                  "min-h-[5.25rem] min-w-[13rem] rounded-2xl border px-4 py-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold lg:min-w-0",
-                  current ? "border-brown bg-brown text-cream shadow-soft" : "border-stone bg-cream text-espresso hover:border-sand",
+                  "-mb-px min-w-[12rem] border-b-2 pb-3.5 pt-1 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold lg:min-w-0",
+                  current ? "border-brown text-espresso" : "border-transparent text-muted hover:text-espresso",
                   disabled && "cursor-not-allowed opacity-50",
                 )}
               >
-                <span className="block font-bold">{m.lab.scenarios[key].title}</span>
-                <span className={cn("mt-1 block text-xs leading-relaxed", current ? "text-cream/75" : "text-muted")}>{m.lab.scenarios[key].detail}</span>
+                <span className="block font-semibold">{m.lab.scenarios[key].title}</span>
+                <span className="mt-1 block text-xs leading-relaxed text-muted">{m.lab.scenarios[key].detail}</span>
               </button>
             );
           })}
         </div>
 
-        <div className="flex flex-col items-start gap-2 rounded-xl border border-stone/70 bg-cream/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-2.5">
             <Badge tone={availabilityTone} dot>{m.lab.availability.label}</Badge>
             <p className="pt-0.5 text-sm leading-relaxed text-muted">
@@ -761,11 +762,9 @@ export function LabPage() {
         </div>
       </section>
 
-      <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+      <div className="flex flex-col gap-3 border-y border-stone/70 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gold-soft text-brown">
-            <Clock size={19} aria-hidden />
-          </span>
+          <Clock size={20} className="shrink-0 text-brown" aria-hidden />
           <div>
             <p className="font-semibold">{m.lab.clock.title}</p>
             <p className="text-sm text-muted"><bdi className="ltr-nums">{fmt.dateTime(now)}</bdi> <span className="mx-1 text-faint">·</span>{m.lab.clock.current}</p>
@@ -779,10 +778,10 @@ export function LabPage() {
             <Button variant="secondary" size="sm" className="min-h-11" onClick={jumpToWindow}>{m.lab.clock.jumpWindow}</Button>
           ) : null}
         </div>
-      </Card>
+      </div>
 
       {workerLanguageNotice ? (
-        <p className="rounded-xl bg-info-soft px-4 py-3 text-sm leading-relaxed text-info">{m.lab.languageNote(t(WORKER_LANGUAGES.find((item) => item.id === ws.settings.worker.language)?.label ?? { ar: "", en: "" }))}</p>
+        <p className="text-sm leading-relaxed text-info">{m.lab.languageNote(t(WORKER_LANGUAGES.find((item) => item.id === ws.settings.worker.language)?.label ?? { ar: "", en: "" }))}</p>
       ) : null}
 
       <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,460px)_minmax(0,1fr)] lg:items-start">
@@ -804,7 +803,7 @@ export function LabPage() {
             />
           )}
           {session?.next && session.scenario === "worker_report" ? (
-            <Card className="flex flex-col gap-3 border-gold/50 bg-gold-soft/35 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <Card className="flex flex-col gap-3 border-brown/30 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <h2 className="font-bold">{m.lab.transition.title}</h2>
                 <p className="mt-1 text-sm leading-relaxed text-muted">{m.lab.transition.detail}</p>
@@ -814,7 +813,7 @@ export function LabPage() {
               </Button>
             </Card>
           ) : session?.scenario === "owner_notification" && session.done && ws.pendingWorkerCalls.some((call) => call.state === "pending") ? (
-            <Card className="flex flex-col gap-3 border-gold/50 bg-gold-soft/35 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <Card className="flex flex-col gap-3 border-brown/30 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <h2 className="font-bold">{m.lab.toWorker.title}</h2>
                 <p className="mt-1 text-sm leading-relaxed text-muted">{m.lab.toWorker.detail}</p>
