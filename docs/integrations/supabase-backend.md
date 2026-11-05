@@ -81,6 +81,9 @@ Rollback at any step before 7: turn the flag off. The local data is untouched.
 **Needs a decision**
 - [ ] How a farm gets Ultimate. Owners can't set their plan, so every farm starts on Basic until
       billing or an admin step exists.
+- [ ] What "Start over" means for a real farm. It clears reports, calls and tickets in demo mode,
+      but owners can't delete those rows, and they are real history. Hide it in account mode, or
+      decide how history is archived.
 - [ ] Unregistered callers (open decision 4), and instructions during inquiry calls (6).
 - [ ] Whether, and how often, an unconfirmed task is called about again. Today it gets one
       automatic call, then is asked about during the worker's own calls.
