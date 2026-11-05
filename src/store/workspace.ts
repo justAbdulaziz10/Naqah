@@ -18,6 +18,8 @@ interface WorkspaceState {
   /** True once localStorage has been read (avoid rendering "empty" before hydration). */
   hydrated: boolean;
   setWorkspace: (ws: Workspace) => void;
+  /** Internal: flipped by the persist middleware once storage has been read. */
+  markHydrated: () => void;
   /** Apply a pure domain transition: `update(ws => completeWorkerReport(ws, now, draft).ws)`. */
   update: (fn: (ws: Workspace) => Workspace) => void;
   startDemo: (locale: Locale, plan?: Plan) => void;
@@ -31,6 +33,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       workspace: null,
       hydrated: false,
       setWorkspace: (ws) => set({ workspace: ws }),
+      markHydrated: () => set({ hydrated: true }),
       update: (fn) => {
         const ws = get().workspace;
         if (ws) set({ workspace: fn(ws) });
@@ -43,7 +46,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       name: "naqah-workspace-v1",
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({ workspace: s.workspace }),
-      onRehydrateStorage: () => () => useWorkspaceStore.setState({ hydrated: true }),
+      // localStorage is synchronous, so rehydration finishes *inside* `create()` — before
+      // `useWorkspaceStore` is assigned. Use the state handed to the callback, never the export.
+      onRehydrateStorage: (initial) => (state) => (state ?? initial).markHydrated(),
     },
   ),
 );
