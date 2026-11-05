@@ -15,6 +15,8 @@
 Preconditions: sample farm started.
 - `verify-naqah screens` visits all of them in both locales and viewports; inspect
   `artifacts/verify/screens/<ts>/{ar,en}-{m,d}-app*.png`.
+- Herd "Add camel" dialog (Name, Tag, Save) is asserted by `verify-naqah features`. Remove and settings "Reset demo"
+  use `window.confirm`; accept the dialog in Playwright (`page.once("dialog", d => d.accept())`).
 - After `call-lab`, `/app/tickets` shows the new task and the No Answer ticket; `/app/calls` shows the new calls.
 
 ## Gotchas
