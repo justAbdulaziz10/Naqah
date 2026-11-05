@@ -25,7 +25,8 @@ Preconditions: sample farm started (see README).
 - Expected: `workspace.reports` +1; `taskTickets` +1 open; `pendingWorkerCalls[].state` → `no_answer_ticket`;
   `noAnswerTickets` +1; transcript contains "No Answer Ticket"; then "Ahmed calls in his update" again routes to the callback: ticket
   `closed`, `reports` unchanged. All asserted by `verify-naqah call-lab`.
-- Owner inquiry, emergency and the clock: asserted by `verify-naqah features`.
+- Owner inquiry, emergency, the clock and "Simulate a heat day" «محاكاة يوم حار» (worker report then opens with
+  the water-and-shade question): asserted by `verify-naqah features`.
 
 ## Gotchas
 - Emergency has no "Start preview": selecting the card shows the direct-call info at once.

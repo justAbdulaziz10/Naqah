@@ -32,7 +32,7 @@ relaunch), cached Playwright Chromium is present. Run before the first drive and
 | Command | Proves (asserted, not printed) |
 |---|---|
 | `call-lab [--locale ar]` | sample farm → worker report saved with a sick-camel finding → owner call opens a task ticket and queues a worker call → 4 missed attempts (20-min skips) → No Answer ticket, transcript says so → worker calls back: ticket closed, no new report; no page errors |
-| `features [--locale ar]` | "Try Basic" «جرّب الأساسية» → `/app` on Basic; language switch keeps the path; settings "Load sample Ultimate farm"; herd "Add camel" +1; clock +20 min; owner inquiry logs a call; emergency shows the direct-call card and saves nothing; settings "Reset demo" clears the workspace |
+| `features [--locale ar]` | "Try Basic" «جرّب الأساسية» → `/app` on Basic; language switch keeps the path; settings "Load sample Ultimate farm"; herd "Add camel" +1; Lab "Simulate a heat day" → worker report asks the water-and-shade question; clock +20 min; owner inquiry logs a call; emergency shows the direct-call card and saves nothing; settings "Reset demo" clears the workspace |
 | `voice [--locale ar]` | signed Twilio webhooks: worker report saved in ≤40 turns, tampered state rejected (see features/phone.md for env) |
 | `wizard [--locale ar]` | onboarding with "Fill sample data": 9 steps, lands on `/app`, `setupComplete: true` |
 | `screens` | 32 full-page screenshots (ar/en × 375/1440 × 8 pages), no horizontal overflow, no console errors |
@@ -59,3 +59,5 @@ Never `pkill next` — the user often has `npm run dev` on :3000.
 retry chain after the third skip).
 2026-11-05 (merge of the maintenance branch onto the integrations work): call-lab (en, ar) and features (en, ar)
 ok after updating the landing CTA selector to the redesigned copy ("Try Basic" «جرّب الأساسية»).
+Break test: commenting out `queue.unshift(heatQuestion)` in `engine.ts` made `features` fail with
+`worker report asks the heat-day question`; restored → ok.

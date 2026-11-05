@@ -375,6 +375,20 @@ const commands = {
       check("herd add camel", ws.camels.length === before + 1 && ws.camels.some((c) => c.name === "Verify"), `${before} → ${ws.camels.length}`);
     });
     // Demo clock: +20 min moves clockOffsetMs.
+    // Weather: "Simulate a heat day" makes the worker report open with the water-and-shade question.
+    await step("lab-heat-day", async () => {
+      await page.evaluate(() => localStorage.removeItem("naqah-workspace-v1")); // fresh sample: today's report not yet done
+      await startDemo(page, LOCALE);
+      await page.goto(`${BASE}/${LOCALE}/app/lab`, { waitUntil: "networkidle" });
+      await page.getByRole("button", { name: ar ? "محاكاة يوم حار" : "Simulate a heat day" }).click();
+      await page.waitForTimeout(300);
+      check("heat day stores a 46° forecast for today", (await readWs(page))?.weather?.maxTempC === 46);
+      await page.getByRole("button", { name: ar ? "بدء التجربة" : "Start preview" }).click();
+      const asked = await page.getByText(ar ? /الجو حار اليوم/ : /hot day/).first()
+        .waitFor({ timeout: 10000 }).then(() => true, () => false);
+      check("worker report asks the heat-day question", asked);
+      await page.getByRole("button", { name: ar ? "إنهاء" : "End call" }).first().click().catch(() => {});
+    });
     await step("lab-clock", async () => {
       await page.goto(`${BASE}/${LOCALE}/app/lab`, { waitUntil: "networkidle" });
       const before = (await readWs(page)).clockOffsetMs;
@@ -430,7 +444,7 @@ if (!commands[cmd] || args.includes("--help")) {
   screens              32 screenshots (ar/en × 375/1440 × 8 pages); fails on overflow or console errors
   call-lab             worker report → owner call → task → 4 missed calls → No Answer ticket → callback closes it (asserted)
   wizard               onboarding with sample data, 9 steps, lands on /app with setupComplete
-  features             landing plan CTA, locale switch, settings sample load, herd add, clock, owner inquiry, emergency, reset
+  features             landing plan CTA, locale switch, settings sample load, herd add, heat day, clock, owner inquiry, emergency, reset
   voice                complete a real report, then verify save + tamper rejection [--worker-phone E.164] [--locale ar|en] [--dry-run] [--allow-paid]
                        dry-run is the default and refuses paid summary env vars; --allow-paid permits side effects
   stop                 stop only the server this tool launched`);
