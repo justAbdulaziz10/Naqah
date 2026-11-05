@@ -14,7 +14,10 @@
 Preconditions: none.
 - Open `/en`, click "Explore the live demo" → expect URL `/en/app` and the overview greeting.
 - `verify-naqah screens` covers layout (home-*.png, tall full-page shots).
-- OG image: `GET /-/opengraph-image.png` → 200 image/png.
+- "Try Basic in the demo" → `/app` with `settings.plan === "basic"`, and the language link keeping the path:
+  asserted by `verify-naqah features`.
+- `/` → 307 to `/ar`, or `/en` with `Accept-Language: en`.
+- OG image (also `/en/opengraph-image.png`): `GET /-/opengraph-image.png` → 200 image/png.
 
 ## Gotchas
 - The Vercel team alias (`*-abdulazizs-projects-*.vercel.app`) is behind Vercel SSO; use https://naqah.vercel.app.

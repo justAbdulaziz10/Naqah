@@ -21,11 +21,15 @@ Preconditions: sample farm started (see README).
 - "Start preview" «بدء التجربة» → quick replies are buttons in the phone footer; text/number/time questions show an
   input + "Send" «إرسال».
 - After a saved report: "Continue to owner call" «متابعة اتصال المالك». After an owner instruction:
-  "Continue to Ahmed's call" «متابعة اتصال أحمد». Missed attempt: "No answer" then "Skip 20 minutes".
+  "Continue to Ahmed's call" «متابعة اتصال أحمد». Missed attempt: "No answer" «ما رد» then "Skip 20 minutes" «تجاوز 20 دقيقة».
 - Expected: `workspace.reports` +1; `taskTickets` +1 open; `pendingWorkerCalls[].state` → `no_answer_ticket`;
-  `noAnswerTickets` +1; transcript contains "No Answer Ticket". All asserted by `verify-naqah call-lab`.
+  `noAnswerTickets` +1; transcript contains "No Answer Ticket"; then "Ahmed calls in his update" again routes to the callback: ticket
+  `closed`, `reports` unchanged. All asserted by `verify-naqah call-lab`.
+- Owner inquiry, emergency and the clock: asserted by `verify-naqah features`.
 
 ## Gotchas
+- Emergency has no "Start preview": selecting the card shows the direct-call info at once.
+- While a No Answer ticket is open, the worker card starts a callback, not a report.
 - Replies render after a typing delay (~1.5 s); wait before reading buttons.
 - Picking "Yes, another" forever loops through every camel — prefer "No, that's all".
 - The sample's open task gets confirmed in the worker report, so count tickets right before the owner call.

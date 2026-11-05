@@ -16,6 +16,7 @@ Preconditions: empty localStorage.
 - `/{locale}/start` → button matching /sample/i («عينة») → "Continue" «متابعة» ×8 → "Confirm and open dashboard".
 - Expected: URL `/{locale}/app`, `workspace.setupComplete === true`, 9 step titles seen (`#current-step-title`).
   Asserted by `verify-naqah wizard`.
+- Settings "Load sample Ultimate farm" → `settings.plan === "ultimate"`: asserted by `verify-naqah features`.
 
 ## Gotchas
 - On mobile the sample button is labelled "Sample"/«عينة», not "Fill sample data".

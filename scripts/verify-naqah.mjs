@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // NAQAH verification CLI. JSON on stdout; nonzero exit when a check fails.
-// Usage: node scripts/verify-naqah.mjs <launch|doctor|screens|call-lab|wizard|stop> [--base URL] [--port N] [--locale ar|en]
+// Usage: node scripts/verify-naqah.mjs <launch|doctor|screens|call-lab|wizard|features|stop> [--base URL] [--port N] [--locale ar|en]
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -45,10 +45,12 @@ async function startDemo(page, locale, plan = "ultimate") {
 async function driveCall(page, pref, transcript) {
   const area = page.locator("div.border-t").filter({ has: page.locator("button") }).last();
   const skip = /End call|Start preview|Close preview|Send|إنهاء|بدء التجربة|إغلاق|إرسال/i;
-  for (let i = 0; i < 40; i++) {
+  let idle = 0;
+  for (let i = 0; i < 60; i++) {
     await page.waitForTimeout(1600);
     const names = (await area.locator("button").allInnerTexts()).map((s) => s.trim()).filter((s) => s && !skip.test(s));
     if (names.length) {
+      idle = 0;
       const pick = names.find((n) => pref?.test(n)) ?? names[0];
       transcript.push(pick);
       await area.locator("button").filter({ hasText: pick }).first().click();
@@ -63,9 +65,10 @@ async function driveCall(page, pref, transcript) {
       await area.getByRole("button", { name: /Send|إرسال/ }).click();
       continue;
     }
-    return;
+    // A reply can take longer than one poll; only stop after three quiet polls.
+    if (++idle >= 3) return;
   }
-  throw new Error("call did not finish within 40 turns");
+  throw new Error("call did not finish within 60 polls");
 }
 
 const commands = {
@@ -142,7 +145,7 @@ const commands = {
       await page.screenshot({ path: `${dir}/2-owner-call.png`, fullPage: true });
 
       await page.getByRole("button", { name: /Continue to .*call|متابعة اتصال/ }).click();
-      await driveCall(page, /^No answer$|ما رد|Skip 20|تخطي 20/, transcript);
+      await driveCall(page, /^No answer$|^ما رد$|^Skip 20 minutes$|^تجاوز 20 دقيقة$/, transcript);
       ws = await readWs(page);
       const tickets = ws.noAnswerTickets.filter((t) => t.status !== "closed").length;
       check("4 missed attempts open a No Answer ticket", tickets > 0, `open no-answer tickets ${tickets}`);
@@ -150,6 +153,16 @@ const commands = {
       const text = await page.locator("main").innerText();
       check("transcript states the ticket", /No Answer Ticket|تذكرة/.test(text));
       await page.screenshot({ path: `${dir}/3-no-answer.png`, fullPage: true });
+
+      // Worker returns the missed call: delivers the message, closes the ticket, is not a farm update.
+      const reportsBefore = ws.reports.length;
+      await page.goto(`${BASE}/${LOCALE}/app/lab`, { waitUntil: "networkidle" });
+      await page.getByRole("button", { name: LOCALE === "ar" ? "بدء التجربة" : "Start preview" }).click();
+      await driveCall(page, /Yes|إيه|نعم|^Completed$|تم/, transcript);
+      ws = await readWs(page);
+      check("callback closes the No Answer ticket", ws.noAnswerTickets.every((t) => t.status === "closed"), ws.noAnswerTickets.map((t) => t.status));
+      check("callback is not a farm update", ws.reports.length === reportsBefore, `${reportsBefore} → ${ws.reports.length}`);
+      await page.screenshot({ path: `${dir}/4-callback.png`, fullPage: true });
     } catch (e) {
       check("drive completed", false, String(e.message ?? e).split("\n")[0]);
     }
@@ -183,6 +196,99 @@ const commands = {
     const ok = !reason && ws?.setupComplete === true && steps.length === 9;
     out({ ok, cmd, evidence: dir, steps: steps.length, setupComplete: ws?.setupComplete ?? null, reason: ok ? undefined : reason ?? `expected 9 steps + setupComplete, got ${steps.length}` });
   },
+  async features() {
+    const dir = evidenceDir("features");
+    const b = await browser();
+    const page = await b.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors = []; page.on("pageerror", (e) => errors.push(String(e.message ?? e)));
+    const checks = []; const transcript = [];
+    const check = (name, pass, detail) => checks.push({ name, pass: !!pass, detail });
+    const ar = LOCALE === "ar";
+    const step = async (name, fn) => {
+      try { await fn(); } catch (e) { check(name, false, String(e.message ?? e).split("\n")[0]); }
+      await page.screenshot({ path: `${dir}/${name}.png`, fullPage: true }).catch(() => {});
+    };
+    const pickScenario = async (en, arName, startCall = true) => {
+      await page.goto(`${BASE}/${LOCALE}/app/lab`, { waitUntil: "networkidle" });
+      await page.getByRole("button", { name: ar ? arName : en }).first().click();
+      if (!startCall) return;
+      await page.getByRole("button", { name: ar ? "بدء التجربة" : "Start preview" }).click();
+    };
+    // Landing: plan CTA starts that plan's sample farm and opens /app.
+    await step("landing-plan-cta", async () => {
+      await page.goto(`${BASE}/${LOCALE}`, { waitUntil: "networkidle" });
+      await page.getByRole("button", { name: ar ? "جرّب الأساسية في العرض" : "Try Basic in the demo" }).first().click();
+      await page.waitForURL(new RegExp(`/${LOCALE}/app$`), { timeout: 10000 });
+      check("Try Basic opens /app on the Basic plan", (await readWs(page))?.settings?.plan === "basic");
+    });
+    // Locale switch keeps the path.
+    await step("locale-switch", async () => {
+      await page.goto(`${BASE}/${LOCALE}/app/herd`, { waitUntil: "networkidle" });
+      const other = ar ? "en" : "ar";
+      await page.locator(`a[href="/${other}/app/herd"]`).first().click();
+      await page.waitForURL(new RegExp(`/${other}/app/herd$`), { timeout: 10000 });
+      check("language switch keeps the path", true, page.url());
+    });
+    // Settings: load the Ultimate sample (the rest of this run needs it).
+    await step("settings-load-ultimate", async () => {
+      await page.goto(`${BASE}/${LOCALE}/app/settings`, { waitUntil: "networkidle" });
+      await page.getByRole("button", { name: ar ? "تحميل مزرعة متكاملة تجريبية" : "Load sample Ultimate farm" }).click();
+      await page.waitForTimeout(300);
+      check("settings loads the Ultimate sample", (await readWs(page))?.settings?.plan === "ultimate");
+    });
+    // Herd: add a camel through the dialog.
+    await step("herd-add", async () => {
+      const before = (await readWs(page)).camels.length;
+      await page.goto(`${BASE}/${LOCALE}/app/herd`, { waitUntil: "networkidle" });
+      await page.getByRole("button", { name: ar ? "إضافة ناقة" : "Add camel" }).first().click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByLabel(ar ? "الاسم" : "Name", { exact: false }).first().fill("Verify");
+      await dialog.getByLabel(ar ? /الوسم/ : "Tag", { exact: false }).first().fill("VF-0001");
+      await dialog.getByRole("button", { name: ar ? "حفظ" : "Save" }).click();
+      await page.waitForTimeout(300);
+      const ws = await readWs(page);
+      check("herd add camel", ws.camels.length === before + 1 && ws.camels.some((c) => c.name === "Verify"), `${before} → ${ws.camels.length}`);
+    });
+    // Demo clock: +20 min moves clockOffsetMs.
+    await step("lab-clock", async () => {
+      await page.goto(`${BASE}/${LOCALE}/app/lab`, { waitUntil: "networkidle" });
+      const before = (await readWs(page)).clockOffsetMs;
+      await page.getByRole("button", { name: ar ? "+20 دقيقة" : "+20 min" }).click();
+      await page.waitForTimeout(300);
+      const after = (await readWs(page)).clockOffsetMs;
+      check("clock +20 min", after - before === 20 * 60 * 1000, `${before} → ${after}`);
+    });
+    // Owner inquiry: a finished call is logged.
+    await step("lab-owner-inquiry", async () => {
+      const before = (await readWs(page)).calls.length;
+      await pickScenario("Owner calls NAQAH", "المالك يتصل بناقة");
+      await driveCall(page, /^No|^لا/, transcript);
+      const after = (await readWs(page)).calls.length;
+      check("owner inquiry logs a call", after === before + 1, `${before} → ${after}`);
+    });
+    // Emergency: info only, nothing saved.
+    await step("lab-emergency", async () => {
+      const before = JSON.stringify((await readWs(page)).calls);
+      await pickScenario("Emergency", "حالة طارئة", false);
+      await page.waitForTimeout(1600);
+      const text = await page.locator("main").innerText();
+      check("emergency says the worker calls the owner directly", /Emergency calls go directly to the owner|اتصالات الطوارئ تذهب للمالك مباشرة/.test(text));
+      check("emergency saves nothing", JSON.stringify((await readWs(page)).calls) === before);
+    });
+    // Settings: Reset demo (window.confirm) clears the workspace. Last, because it wipes state.
+    await step("settings-reset", async () => {
+      await page.goto(`${BASE}/${LOCALE}/app/settings`, { waitUntil: "networkidle" });
+      page.once("dialog", (d) => d.accept());
+      await page.getByRole("button", { name: ar ? "إعادة ضبط العرض" : "Reset demo" }).click();
+      await page.waitForTimeout(500);
+      check("settings Reset demo clears the workspace", (await readWs(page)) === null);
+    });
+    check("no page errors", errors.length === 0, errors);
+    await b.close();
+    writeFileSync(`${dir}/transcript.json`, JSON.stringify({ transcript, checks }, null, 2));
+    const failed = checks.filter((c) => !c.pass);
+    out({ ok: failed.length === 0, cmd, base: BASE, locale: LOCALE, evidence: dir, checks, reason: failed.length ? failed.map((c) => c.name).join("; ") : undefined });
+  },
   async stop() {
     if (!existsSync(STATE)) return out({ ok: true, cmd, note: "nothing launched by verify-naqah" });
     const { pid } = JSON.parse(readFileSync(STATE, "utf8"));
@@ -197,8 +303,9 @@ if (!commands[cmd] || args.includes("--help")) {
   launch [--no-build]  build, start next on --port, record pid (refuses if the port is busy)
   doctor               read-only: our server answers, same build, Chromium available
   screens              32 screenshots (ar/en × 375/1440 × 8 pages); fails on overflow or console errors
-  call-lab             worker report → owner call → task → 4 missed calls → No Answer ticket (asserted)
+  call-lab             worker report → owner call → task → 4 missed calls → No Answer ticket → callback closes it (asserted)
   wizard               onboarding with sample data, 9 steps, lands on /app with setupComplete
+  features             landing plan CTA, locale switch, settings sample load, herd add, clock, owner inquiry, emergency, reset
   stop                 stop only the server this tool launched`);
   process.exit(cmd ? 0 : 1);
 }
