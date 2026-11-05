@@ -12,8 +12,9 @@ export const auth = defineMessages({
     network: 'Could not connect. Check your internet and try again.', unavailable: 'Login is unavailable right now. Please try again later.',
     failed: 'Could not complete this step. Please try again later.', signedIn: 'You are signed in',
     successBody: 'Your mobile number is verified. Farm setup and your demo data are separate from your account.',
-    logout: 'Log out', loggingOut: 'Logging out…', home: 'Return home', otherLogin: 'Already have an account? Log in', otherSignup: 'New to Naqah? Create an account',
+    logout: 'Log out', loggingOut: 'Logging out…', home: 'Return home', otherLogin: 'Already have an account? Log in', otherSignup: 'New to NAQAH? Create an account',
     loading: 'Please wait…', resendSent: 'A new code has been sent.',
+    captcha: 'The security check did not finish. Reload the page and try again.', captchaLabel: 'Security check', continue: 'Continue to your farm',
   },
   ar: {
     login: 'دخول المالك', signup: 'إنشاء حسابك', intro: 'أدخل رقم جوالك ونرسل لك رمز برسالة نصية.',
@@ -28,5 +29,6 @@ export const auth = defineMessages({
     successBody: 'تم التحقق من رقم جوالك. إعداد العزبة وبيانات العرض التجريبي منفصلة عن حسابك.',
     logout: 'تسجيل الخروج', loggingOut: 'جاري الخروج…', home: 'العودة للرئيسية', otherLogin: 'عندك حساب؟ سجّل دخولك', otherSignup: 'جديد في ناقة؟ أنشئ حسابك',
     loading: 'لحظة من فضلك…', resendSent: 'أرسلنا لك رمز جديد.',
+    captcha: 'ما اكتمل التحقق الأمني. حدّث الصفحة وحاول مرة ثانية.', captchaLabel: 'التحقق الأمني', continue: 'تابع إلى عزبتك',
   },
 });

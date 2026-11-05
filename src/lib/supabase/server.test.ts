@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ getUser: vi.fn(), create: vi.fn(), config: vi.fn(), set: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('@supabase/ssr', () => ({ createServerClient: mock.create }));
+vi.mock('next/server', () => ({ connection: async () => {} }));
 vi.mock('next/headers', () => ({ cookies: async () => ({ getAll: () => [], set: mock.set }) }));
-vi.mock('./config', () => ({ getSupabaseConfig: mock.config }));
+vi.mock('./config', async (original) => ({ ...await original<typeof import('./config')>(), getSupabaseConfig: mock.config }));
 import { getOwner, createWritableClient } from './server';
 
 describe('server-confirmed owner session', () => {
@@ -27,6 +28,14 @@ describe('server-confirmed owner session', () => {
     mock.config.mockReturnValue({ url: 'https://example.supabase.co', key: 'test-only' });
     mock.getUser.mockRejectedValue(new Error('offline'));
     expect(await getOwner()).toEqual({ user: null, unavailable: true });
+  });
+  it('treats a hung Auth check as unavailable', async () => {
+    vi.useFakeTimers();
+    mock.getUser.mockReturnValue(new Promise(() => {}));
+    const pending = getOwner();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(await pending).toEqual({ user: null, unavailable: true });
+    vi.useRealTimers();
   });
   it('writes session deletion cookies without swallowing failures in actions', async () => {
     await createWritableClient();

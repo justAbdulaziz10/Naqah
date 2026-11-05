@@ -3,16 +3,21 @@
 import { Translate } from "@phosphor-icons/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { otherLocale } from "@/i18n/config";
+import { useSyncExternalStore } from "react";
+import { otherLocale, searchForLocale } from "@/i18n/config";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 
-/** Links to the same page in the other language and remembers the choice. */
+const subscribeNever = () => () => {};
+
+/** Links to the same page, query included, in the other language and remembers the choice. */
 export function LocaleSwitcher({ className, tone = "dark" }: { className?: string; tone?: "dark" | "light" }) {
   const { locale, m } = useI18n();
   const pathname = usePathname() ?? `/${locale}`;
   const target = otherLocale(locale);
-  const href = pathname.replace(new RegExp(`^/${locale}(?=/|$)`), `/${target}`);
+  // Read after hydration: useSearchParams would opt static pages out of prerendering.
+  const search = useSyncExternalStore(subscribeNever, () => window.location.search, () => "");
+  const href = pathname.replace(new RegExp(`^/${locale}(?=/|$)`), `/${target}`) + searchForLocale(search, locale, target);
   return (
     <Link
       href={href}

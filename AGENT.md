@@ -174,7 +174,7 @@ the same functions and swaps only the storage and the "who triggers it" layer.
   `service_role` key (server only, bypasses RLS). Never ship the service key to the browser.
 - Setup: create a project (the owner's Supabase account hit the 2-free-project limit during the build, so none was
   created), run `supabase link` then `supabase db push`, and add `NEXT_PUBLIC_SUPABASE_URL`,
-  `NEXT_PUBLIC_SUPABASE_ANON_KEY` (browser) and `SUPABASE_SERVICE_ROLE_KEY` (server) to Vercel.
+  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (browser) and `SUPABASE_SERVICE_ROLE_KEY` (server) to Vercel.
 - Migration path in the app: write `src/store/supabase.ts` exposing the same `update(fn)` shape: load the farm into a
   `Workspace`, run the pure action, diff and persist. Keep `clockOffsetMs` demo-only (production uses real time).
 

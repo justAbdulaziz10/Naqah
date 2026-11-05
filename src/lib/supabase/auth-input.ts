@@ -3,12 +3,12 @@ export function latinDigits(value: string) {
   return value.replace(/[٠-٩۰-۹]/g, (digit) => String(digit.charCodeAt(0) - (digit <= '٩' ? 0x660 : 0x6f0)));
 }
 
-/** Saudi mobile numbers (SMS): 05xxxxxxxx, 5xxxxxxxx, +9665xxxxxxxx, 009665xxxxxxxx. */
+/** Saudi mobile numbers (SMS): 05xxxxxxxx, 5xxxxxxxx, 9665xxxxxxxx, +9665xxxxxxxx, 009665xxxxxxxx. */
 export function normalizeSaudiPhone(value: string): string | null {
-  const phone = latinDigits(value).trim().replace(/[\s()-]/g, '');
+  const phone = latinDigits(value).replace(/[\s()\-\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ''); // Pasted numbers carry bidi marks.
   if (/^05\d{8}$/.test(phone)) return `+966${phone.slice(1)}`;
   if (/^5\d{8}$/.test(phone)) return `+966${phone}`;
-  if (/^(?:\+|00)9665\d{8}$/.test(phone)) return phone.replace(/^00/, '+');
+  if (/^(?:\+|00)?9665\d{8}$/.test(phone)) return `+${phone.replace(/^(?:\+|00)/, '')}`;
   return null;
 }
 
@@ -22,15 +22,18 @@ export function safeReturnPath(value: unknown): string | null {
     if (url.origin !== 'https://naqah.invalid' || !/^\/(ar|en)(?:\/|$)/.test(url.pathname)) return null;
     if (/^\/(ar|en)\/(login|signup)(?:\/|$)/.test(url.pathname)) return null;
     // Keep encoded values intact after validating their decoded form.
-    return url.pathname + url.search + url.hash;
+    const kept = new URL(value, 'https://naqah.invalid');
+    if (kept.origin !== url.origin || !/^\/(ar|en)(?:\/|$)/.test(kept.pathname)) return null;
+    return kept.pathname + kept.search + kept.hash;
   } catch { return null; }
 }
 
-export type AuthIssue = 'invalidCode' | 'rateLimit' | 'network' | 'unavailable' | 'failed';
+export type AuthIssue = 'invalidCode' | 'rateLimit' | 'network' | 'unavailable' | 'captcha' | 'failed';
 export function authIssue(error: { code?: string; status?: number; name?: string } | null): AuthIssue {
-  if (error?.code === 'otp_expired' || error?.code === 'otp_disabled' || error?.code === 'invalid_credentials') return 'invalidCode';
+  if (error?.code === 'otp_expired' || error?.code === 'invalid_credentials') return 'invalidCode';
   if (error?.status === 429 || error?.code?.includes('rate_limit')) return 'rateLimit';
   if (error?.name === 'AuthRetryableFetchError' || error?.name === 'TypeError' || error?.status === 0) return 'network';
-  if (error?.code === 'sms_send_failed' || error?.code === 'phone_provider_disabled' || error?.code === 'signup_disabled') return 'unavailable';
+  if (error?.code === 'captcha_failed') return 'captcha';
+  if (error?.code === 'sms_send_failed' || error?.code === 'phone_provider_disabled' || error?.code === 'signup_disabled' || error?.code === 'otp_disabled') return 'unavailable';
   return 'failed';
 }
