@@ -42,8 +42,11 @@ function isWorkspace(value: unknown): value is Workspace {
  * localStorage adapter that never throws: unreadable or wrong-shaped data is dropped
  * (the visitor simply sees "No farm yet" and can restart the demo).
  */
+const hasStorage = () => typeof localStorage !== "undefined";
+
 const safeStorage: PersistStorage<Persisted> = {
   getItem: (name) => {
+    if (!hasStorage()) return null; // server prerender: nothing saved yet
     try {
       const raw = localStorage.getItem(name);
       if (!raw) return null;
@@ -58,6 +61,7 @@ const safeStorage: PersistStorage<Persisted> = {
     }
   },
   setItem: (name, value) => {
+    if (!hasStorage()) return;
     try { localStorage.setItem(name, JSON.stringify(value)); } catch (error) { console.warn("[naqah] could not save workspace", error); }
   },
   removeItem: (name) => {
