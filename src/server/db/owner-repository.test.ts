@@ -1,0 +1,78 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createOwnerRepository } from "./owner-repository";
+
+const farmId = "11111111-1111-4111-8111-111111111111";
+const camelId = "22222222-2222-4222-8222-222222222222";
+
+type Reply = { data: unknown; error: { code: string; message?: string } | null };
+
+/** Records the query chain and resolves with the reply for that table. */
+function fakeClient(replies: Record<string, Reply>) {
+  const calls: { table: string; op: string; args: unknown[] }[] = [];
+  const client = {
+    from(table: string) {
+      const reply = replies[table] ?? { data: [{ id: "row" }], error: null };
+      const chain: Record<string, unknown> = {
+        then: (done: (value: Reply) => unknown) => Promise.resolve(reply).then(done),
+      };
+      for (const op of ["select", "insert", "update", "delete", "upsert", "eq", "single", "maybeSingle"]) {
+        chain[op] = (...args: unknown[]) => { calls.push({ table, op, args }); return chain; };
+      }
+      return chain;
+    },
+  };
+  return { client: client as unknown as SupabaseClient, calls };
+}
+
+describe("owner repository", () => {
+  beforeEach(() => vi.clearAllMocks());
+  const farms = { data: { id: farmId }, error: null };
+
+  it("scopes every write to the owner's farm", async () => {
+    const { client, calls } = fakeClient({ farms });
+    await createOwnerRepository(client, "owner").updateCamel(camelId, { name: "Wadha" });
+    expect(calls).toEqual(expect.arrayContaining([
+      { table: "farms", op: "eq", args: ["owner_id", "owner"] },
+      { table: "camels", op: "eq", args: ["farm_id", farmId] },
+      { table: "camels", op: "eq", args: ["id", camelId] },
+    ]));
+  });
+  it("takes the farm from the owner, never from the input", async () => {
+    const { client, calls } = fakeClient({ farms, camels: { data: { id: camelId }, error: null } });
+    await createOwnerRepository(client, "owner").addCamel({ name: "Wadha", farm_id: "someone-else" });
+    expect(calls.find((c) => c.op === "insert")?.args[0]).toEqual({ name: "Wadha", farm_id: farmId });
+  });
+  it("does not report a save when RLS hid the row", async () => {
+    const { client } = fakeClient({ farms, camels: { data: [], error: null } });
+    await expect(createOwnerRepository(client, "owner").deleteCamel(camelId)).rejects.toMatchObject({ code: "not_found" });
+  });
+  it("refuses a malformed id before any query", async () => {
+    const { client, calls } = fakeClient({ farms });
+    await expect(createOwnerRepository(client, "owner").deleteCamel("1 or 1=1")).rejects.toMatchObject({ code: "invalid_input" });
+    expect(calls.some((c) => c.table === "camels")).toBe(false);
+  });
+  it("names the Basic question limit", async () => {
+    const { client } = fakeClient({ farms, custom_questions: { data: null, error: { code: "23514", message: "Basic plan allows up to 5 custom questions" } } });
+    await expect(createOwnerRepository(client, "owner").addCustomQuestion("q")).rejects.toMatchObject({ code: "limit_reached" });
+  });
+  it("hides database text from errors", async () => {
+    const { client } = fakeClient({ farms: { data: null, error: { code: "XX000", message: "secret detail" } } });
+    await expect(createOwnerRepository(client, "owner").load()).rejects.toMatchObject({ code: "unavailable", message: "XX000" });
+  });
+  it("skips first-time setup when it already finished", async () => {
+    const { client, calls } = fakeClient({ farms, workers: { data: { farm_id: farmId }, error: null } });
+    await createOwnerRepository(client, "owner").ensureFarm();
+    expect(calls.some((c) => c.table === "criteria")).toBe(false);
+  });
+  it("creates defaults with stable ids and the worker last", async () => {
+    const { client, calls } = fakeClient({ farms, workers: { data: null, error: null } });
+    await createOwnerRepository(client, "owner").ensureFarm();
+    const upserts = calls.filter((c) => c.op === "upsert");
+    expect(upserts.map((c) => c.table)).toEqual(["farms", "resources", "criteria", "emergency_categories", "workers"]);
+    expect(upserts[0].args[0]).toEqual({ owner_id: "owner" });
+    const repeat = fakeClient({ farms, workers: { data: null, error: null } });
+    await createOwnerRepository(repeat.client, "owner").ensureFarm();
+    expect(repeat.calls.filter((c) => c.op === "upsert")[2].args[0]).toEqual(upserts[2].args[0]);
+  });
+});
