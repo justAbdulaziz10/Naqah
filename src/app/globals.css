@@ -280,3 +280,11 @@ html[data-intro-playing] header [data-brand-mark] {
 .naqah-journey [data-plane="near"] {
   transform: translateX(calc((var(--p) - 0.5) * -96px * var(--dir)));
 }
+
+/* Welcome → onboarding: the reading pane fades while navigation is already under way (Handoff §04). */
+.naqah-welcome-pane {
+  transition: opacity 300ms var(--ease-standard);
+}
+html[data-welcome-leaving] .naqah-welcome-pane {
+  opacity: 0;
+}

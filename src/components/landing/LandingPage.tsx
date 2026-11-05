@@ -1,10 +1,10 @@
 import { ArrowUpRight } from "@phosphor-icons/react/dist/ssr";
-import Link from "next/link";
 import type { Locale } from "@/domain/types";
 import { CamelMark } from "@/components/brand/CamelMark";
 import { Logo } from "@/components/brand/Logo";
 import { WovenFragment, WovenFrame, WovenSignature } from "@/components/heritage/Woven";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
+import { SetupLink } from "@/components/welcome/WelcomeActions";
 import { getMessages } from "@/i18n/messages";
 import { CamelColours } from "./CamelColours";
 import { EstatePhoto } from "./EstatePhoto";
@@ -124,12 +124,9 @@ export function LandingPage({ locale }: { locale: Locale }) {
                     {common.actions.startDemo}
                     <Arrow />
                   </DemoAction>
-                  <Link
-                    href={prefix("/start")}
-                    className={`${textLink} text-espresso hover:text-brown lg:text-cream lg:hover:text-gold`}
-                  >
+                  <SetupLink className={`${textLink} text-espresso hover:text-brown lg:text-cream lg:hover:text-gold`}>
                     {common.actions.setUp}
-                  </Link>
+                  </SetupLink>
                 </div>
               </div>
             </div>
@@ -307,9 +304,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
                 {common.actions.startDemo}
                 <Arrow />
               </DemoAction>
-              <Link href={prefix("/start")} className={`${textLink} text-cream hover:text-gold`}>
-                {common.actions.setUp}
-              </Link>
+              <SetupLink className={`${textLink} text-cream hover:text-gold`}>{common.actions.setUp}</SetupLink>
             </div>
           </div>
         </section>

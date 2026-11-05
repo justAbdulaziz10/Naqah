@@ -6,7 +6,7 @@ import type { LocalizedText } from "@/domain/types";
  */
 export type CamelColourId = "wadh" | "shul" | "sufr" | "shaqh" | "humr" | "majaheem";
 
-export type LandingPhotoId = "hero" | "evening" | "heritage" | "herd" | "closing" | CamelColourId;
+export type LandingPhotoId = "hero" | "evening" | "heritage" | "herd" | "closing" | "welcome" | CamelColourId;
 
 export interface LandingPhoto {
   /** Path under /public, e.g. "/images/landing/hero.jpg". */
