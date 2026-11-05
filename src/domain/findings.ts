@@ -20,6 +20,8 @@ export interface ReportDraft {
   herdAccountedFor: boolean | null;
   /** Ultimate: answers about open task tickets asked during this interaction. */
   taskConfirmations: { taskId: string; done: boolean }[];
+  /** Findings raised directly by the conversation (e.g. the heat-day water check), not by a criterion. */
+  extraFindings?: Finding[];
 }
 
 const LOW = new Set(["low", "critical"]);
@@ -95,6 +97,7 @@ export function evaluateFindings(ws: Workspace, draft: ReportDraft): Finding[] {
       }
     }
   }
+  if (draft.extraFindings) out.push(...draft.extraFindings);
   return out;
 }
 

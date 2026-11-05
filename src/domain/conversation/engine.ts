@@ -40,7 +40,6 @@ import {
 } from "../rules";
 import type {
   Certainty,
-  Finding,
   HealthStatus,
   Level,
   LocalizedText,
@@ -98,7 +97,6 @@ interface ConversationData {
   inquiryTopics?: string[];
   callbackTaskIds?: string[];
   callbackTaskIndex?: number;
-  weatherFinding?: Finding;
 }
 
 export interface CallSession {
@@ -667,15 +665,10 @@ function handleReportQuestion(
     const notEnough = value === "not_enough";
     const selected = unknown ? UNKNOWN_ANSWER : notEnough ? copy("Not enough", "ما يكفي") : copy("Yes", "إيه");
     const recorded = reportAnswer(current.session, item, selected, unknown ? "unknown" : "reported");
-    return {
-      session: nextReportItem({
-        ...recorded,
-        data: {
-          ...recorded.data,
-          ...(notEnough ? { weatherFinding: heatWaterFinding(uid("fnd")) } : {}),
-        },
-      }, ws, now),
-    };
+    const draft = notEnough
+      ? { ...recorded.draft, extraFindings: [...(recorded.draft.extraFindings ?? []), heatWaterFinding(uid("fnd"))] }
+      : recorded.draft;
+    return { session: nextReportItem({ ...recorded, draft }, ws, now) };
   }
 
   if (item.kind === "task") {
@@ -1046,10 +1039,7 @@ function handleQuantityConfirm(session: CallSession, ws: Workspace, now: Date, i
 }
 
 function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallSession {
-  const findings = [
-    ...evaluateFindings(ws, session.draft),
-    ...(session.data.weatherFinding ? [session.data.weatherFinding] : []),
-  ];
+  const findings = evaluateFindings(ws, session.draft);
   const factsEn: string[] = [];
   const factsAr: string[] = [];
   for (const update of session.draft.camelUpdates) {
@@ -1087,17 +1077,6 @@ function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallS
 
 function completeReport(session: CallSession, ws: Workspace, now: Date): EngineResult {
   const completed = completeWorkerReport(ws, now, session.draft);
-  if (session.data.weatherFinding) {
-    completed.report.findings.push(session.data.weatherFinding);
-    const reportCall = completed.ws.calls.find((call) => call.id === completed.report.callId);
-    if (reportCall) {
-      const count = completed.report.findings.length;
-      reportCall.summary = {
-        ar: `تحديث مكتمل — ${count} ملاحظة مهمة`,
-        en: `Update completed — ${count} important finding(s)`,
-      };
-    }
-  }
   const next = say(
     {
       ...session,

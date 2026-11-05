@@ -418,6 +418,7 @@ describe("Call Lab conversation engine", () => {
     expect(finding?.text.en).toBe("The worker reported that water or shade may not be enough for a hot day");
     expect(finding?.text.ar).toContain("أفاد العامل");
     expect(committed.calls.at(-1)?.summary.en).toBe("Update completed — 1 important finding(s)");
+    expect(committed.events.some((event) => event.text.en === "1 finding(s) match the owner's criteria")).toBe(true);
     expect(committed.taskTickets).toHaveLength(0);
     expect(committed.pendingWorkerCalls).toHaveLength(0);
   });
