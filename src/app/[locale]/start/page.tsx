@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, ArrowRight, CheckCircle } from "@phosphor-icons/react";
-import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Logo } from "@/components/brand/Logo";
 import {
@@ -177,7 +177,8 @@ export default function StartPage() {
   const getReplacementSnapshot = useCallback(() => readReplacementDraft(sourceCreatedAt), [sourceCreatedAt]);
   const storedReplacementDraft = useSyncExternalStore(subscribeReplacementDraft, getReplacementSnapshot, () => null);
   const [volatileReplacementDraft, setVolatileReplacementDraft] = useState<Workspace | null>(null);
-  const [emptyReplacementDraft] = useState(() => createEmptyWorkspace("basic"));
+  // Only built client-side when replacing an existing workspace (never during prerender).
+  const emptyReplacementDraft = useMemo(() => (isReplacing ? createEmptyWorkspace("basic") : null), [isReplacing]);
   const replacementDraft = storedReplacementDraft ?? volatileReplacementDraft;
   const activeWorkspace = isReplacing ? replacementDraft ?? emptyReplacementDraft : workspace;
   const hasActiveWorkspace = Boolean(activeWorkspace);
@@ -200,7 +201,7 @@ export default function StartPage() {
   const valid = isStepValid(step, ws);
   const mutateWorkspace = (update: WorkspaceUpdate) => {
     if (isReplacing && workspace) {
-      const next = update(replacementDraft ?? emptyReplacementDraft);
+      const next = update(ws);
       setVolatileReplacementDraft(saveReplacementDraft(workspace.createdAt, next) ? null : next);
     }
     else useWorkspaceStore.getState().update(update);
