@@ -25,7 +25,7 @@ export function WeatherLine() {
   return (
     <p className="mt-2 text-sm text-muted">
       {m.integrations.weather.todayLabel(location)}{" "}
-      <bdi className="ltr-nums">{Math.round(forecast.maxTempC)}°</bdi> {m.integrations.weather.maximum}
+      <bdi dir="ltr" className="ltr-nums">{Math.round(forecast.maxTempC)}°</bdi> {m.integrations.weather.maximum}
       {heat !== "none" ? <><span aria-hidden="true"> · </span>{m.integrations.weather.heatDay}</> : null}
     </p>
   );

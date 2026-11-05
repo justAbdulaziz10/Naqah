@@ -94,9 +94,9 @@ export function WeatherCard() {
             <>
               <p className="text-sm font-semibold text-espresso">{weatherMessages.forecast}</p>
               <p className="font-medium text-espresso">
-                <bdi className="ltr-nums">{fmt.number(Math.round(workspace.weather.maxTempC))}°</bdi> {weatherMessages.maximum}
+                <bdi dir="ltr" className="ltr-nums">{fmt.number(Math.round(workspace.weather.maxTempC))}°</bdi> {weatherMessages.maximum}
                 {workspace.weather.minTempC !== null ? (
-                  <> <span aria-hidden="true">·</span> <bdi className="ltr-nums">{fmt.number(Math.round(workspace.weather.minTempC))}°</bdi> {weatherMessages.minimum}</>
+                  <> <span aria-hidden="true">·</span> <bdi dir="ltr" className="ltr-nums">{fmt.number(Math.round(workspace.weather.minTempC))}°</bdi> {weatherMessages.minimum}</>
                 ) : null}
               </p>
               <p className="text-sm text-muted">

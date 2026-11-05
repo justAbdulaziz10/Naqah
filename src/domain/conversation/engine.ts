@@ -251,7 +251,7 @@ function heatDayReportItem(ws: Workspace, now: Date): ReportItem | null {
     id: "weather_heat_water",
     question: copy(
       `It's a hot day (${maxTemp}°). Do the camels have enough water and shade?`,
-      `الجو حار اليوم (${maxTemp}°). عند النوق ماء وظل كافيين؟`,
+      `الجو حار اليوم (${maxTemp} درجة). عند النوق ماء وظل كافيين؟`,
     ),
   };
 }
