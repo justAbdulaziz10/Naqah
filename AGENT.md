@@ -58,12 +58,20 @@ Next.js 16 (App Router, React 19, Tailwind v4)  →  deployed on Vercel (free Ho
    │   ├─ findings.ts           important-findings evaluation + owner briefing text
    │   ├─ actions.ts            state transitions (complete report, open ticket, retry, callback…)
    │   ├─ seed.ts               empty workspace + sample demo farm
-   │   └─ rules.test.ts         Vitest coverage of every rule above
+   │   ├─ rules.test.ts         Vitest coverage of every rule above
+   │   └─ conversation/         scripted call engine for the Call Lab (start/answer → session + commit)
+   │       ├─ engine.ts         every call type: worker report, owner briefing, NAQAH→worker + retries,
+   │       │                    worker callback, owner inquiry, emergency info. Mirrors a future voice agent.
+   │       └─ personalize.ts    swaps the sample names (Ahmed/Abdullah) for the farm's real ones at render
    ├─ store/workspace.ts        zustand store persisted to localStorage (`naqah-workspace-v1`)
    ├─ i18n/                     config, formatting (Riyadh time, Latin digits), messages per slice
    ├─ components/ui/            design-system primitives (Button, Card, Badge, Field, Switch, Segmented)
    ├─ components/brand/         CamelMark (approved logo, traced 1:1) and Logo lockup
-   └─ components/shell/         AppShell (dashboard nav), LocaleSwitcher, DemoClock
+   ├─ components/shell/         AppShell (dashboard nav), LocaleSwitcher, DemoClock
+   ├─ components/landing/       public landing page sections
+   ├─ components/setup/         onboarding wizard + settings sections (shared)
+   ├─ components/dashboard/     overview/herd/tickets/calls building blocks
+   └─ components/lab/           Call Lab UI (phone stage, "Inside NAQAH" panel, demo clock)
 supabase/migrations/            production schema (not used by the demo yet) — see §6
 ```
 
@@ -183,3 +191,18 @@ for the demo.
 - Visual QA: check every page at 375px and 1440px, in `/ar` and `/en` (no horizontal scroll, RTL mirroring,
   Latin digits, 44px targets). Playwright is installed as a dev dependency for this.
 - The demo clock (`clockOffsetMs`) is the only way to test windows and retries. Never use `Date.now()` in rules.
+- `scripts/qa-screens.mjs` screenshots every page (ar/en × 375/1440) against a running server and flags overflow
+  and console errors. **Always run it against `npm run build && npx next start`**, not only `next dev` — two bugs
+  below only showed up in production.
+
+### Known pitfalls (learned the hard way)
+- **Store hydration:** localStorage rehydration runs *inside* zustand's `create()`, before `useWorkspaceStore` is
+  assigned. `onRehydrateStorage` must use the state it is given (`markHydrated()`), never the exported store —
+  otherwise the dashboard is stuck on the loading camel in production.
+- **Prerender + Cache Components:** a client component must not call `new Date()` / `Date.now()` during the first
+  render (e.g. a `useState(() => createEmptyWorkspace())` initializer). The build fails on `/[locale]/start`.
+  Create such values in an event handler, an effect, or only when actually needed on the client.
+- **Answers in two languages:** fixed-choice answers carry `answerText {ar,en}`; free text stays in `answer` exactly
+  as said. Render `answerText ? t(answerText) : answer`.
+- **Names in the Call Lab:** engine and lab copy were written with the sample names; `personalize.ts` swaps them.
+  When the real voice agent arrives, pass names explicitly instead (TODO in that file).
