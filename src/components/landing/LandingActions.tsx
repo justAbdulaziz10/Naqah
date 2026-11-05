@@ -1,9 +1,9 @@
 "use client";
 
-import { List, SpeakerHigh } from "@phosphor-icons/react";
+import { CircleNotch, List, SpeakerHigh } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import type { Plan } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
@@ -15,24 +15,33 @@ type DemoActionProps = ButtonStyleProps & {
   plan?: Plan;
 };
 
-/** Starts the sample farm when needed, then opens the owner dashboard. */
+/** Starts the sample farm when needed, then opens the owner dashboard. Disabled while it opens. */
 export function DemoAction({ children, plan, ...style }: DemoActionProps) {
-  const { locale, href } = useI18n();
+  const { locale, href, m } = useI18n();
   const router = useRouter();
+  const [pending, startTransition] = useTransition();
 
   function start() {
+    if (pending) return;
     const state = useWorkspaceStore.getState();
     if (plan) {
       state.startDemo(locale, plan);
     } else if (!state.workspace?.setupComplete) {
       state.startDemo(locale);
     }
-    router.push(href("/app"));
+    startTransition(() => router.push(href("/app")));
   }
 
   return (
-    <button type="button" onClick={start} className={buttonClass(style)}>
-      {children}
+    <button type="button" onClick={start} disabled={pending} aria-busy={pending} className={buttonClass(style)}>
+      {pending ? (
+        <>
+          <CircleNotch size={18} className="motion-safe:animate-spin" aria-hidden="true" />
+          {m.landing.pending}
+        </>
+      ) : (
+        children
+      )}
     </button>
   );
 }
@@ -70,7 +79,7 @@ export function MobileNavigation({
               {link.label}
             </Link>
           ))}
-          <div className="mt-1 border-t border-stone/70 pt-2">
+          <div className="mt-1 pt-1">
             <LocaleSwitcher className="min-h-11 w-full justify-start rounded-xl px-3.5" />
           </div>
         </nav>
@@ -137,7 +146,7 @@ export function OwnerCall() {
 
   return (
     <div>
-      <div className="flex flex-wrap gap-x-6 gap-y-1 border-b border-cream/15">
+      <div className={"flex flex-wrap gap-x-6 gap-y-1 border-b border-cream/15" /* taste-skill-ignore: tab track of the owner-call control */}>
         {options.map((option) => {
           const active = option.quiet === quiet;
           return (
@@ -158,7 +167,7 @@ export function OwnerCall() {
       <blockquote
         key={quote}
         aria-live="polite"
-        className="motion-safe:animate-fade-up mt-8 text-[clamp(1.6rem,3.4vw,2.75rem)] font-medium leading-[1.3] tracking-[-0.015em] text-cream lg:min-h-[4em]"
+        className="motion-safe:animate-fade-up mt-8 text-[clamp(1.25rem,1.9vw,1.625rem)] font-medium leading-[1.45] tracking-[-0.01em] text-cream lg:min-h-[4.4em]"
       >
         {locale === "ar" ? `«${quote}»` : `“${quote}”`}
       </blockquote>

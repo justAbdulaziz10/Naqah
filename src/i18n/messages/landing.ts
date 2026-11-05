@@ -5,16 +5,42 @@ export const landing = defineMessages({
   en: {
     nav: {
       how: "The call",
+      principles: "Principles",
+      colours: "Colours",
       plans: "Plans",
       menu: "Open navigation menu",
       menuLabel: "Page navigation",
+      skip: "Skip to content",
     },
     hero: {
       title: "Peace of mind, without the busyness",
       description:
-        "At the end of the day your worker calls NAQAH from an ordinary phone, in his own language. NAQAH asks your questions, keeps the facts, and calls you only with what matters.",
+        "At the end of the workday your worker calls NAQAH from an ordinary phone. NAQAH asks your questions, keeps the facts, and calls you with what matters.",
     },
     example: "Illustrative example",
+    intro: { skip: "Skip intro" },
+    journey: {
+      title: "Close to your herd",
+      body: "Stay close to your camels without following every detail yourself.",
+    },
+    pending: "Opening the demo…",
+    story: {
+      title: "One call at the end of the day",
+      stages: [
+        {
+          lead: "When the workday ends,",
+          body: "your worker calls NAQAH from an ordinary phone. No app and no forms. On Ultimate that is every day; on Basic, once a week in the window you set.",
+        },
+        {
+          lead: "Your questions, one at a time.",
+          body: "NAQAH asks what you set up, confirms numbers and camel names, and accepts “I don’t know”. Each fact is saved with how sure it is.",
+        },
+        {
+          lead: "Then NAQAH calls you.",
+          body: "Right after the update is saved, even when there is nothing to flag. The details wait for you on the website.",
+        },
+      ],
+    },
     call: {
       label: "Thursday’s update, Al Safra Ranch",
       worker: "Ahmed",
@@ -43,52 +69,97 @@ export const landing = defineMessages({
       listen: "Listen",
       stop: "Stop",
     },
-    rules: {
-      title: "Rules NAQAH keeps",
+    principles: {
+      title: "What NAQAH holds to",
+      lead: "Built for the camel estate as it is really run: one owner, one worker, and a herd you know by name.",
+      statement: "Rooted in heritage. Clear in detail.",
       items: [
-        { title: "Your questions, one at a time", body: "“I don’t know” is a valid answer. Nothing is guessed." },
-        { title: "Every fact says how sure it is", body: "Reported, approximate, unknown or verified, with the time it was said." },
-        { title: "Nothing is recorded", body: "No call audio is kept. Only the facts drawn from it." },
-        { title: "Missed calls are followed up", body: "Three retries, 20 minutes apart. Then a No Answer ticket opens." },
-        { title: "Tasks close when the worker confirms", body: "On Ultimate, your instructions stay open until he says they are done." },
-        { title: "Emergencies never wait for NAQAH", body: "The worker calls you directly." },
+        { label: "Recordings", value: "None. Only the facts drawn from the call are kept." },
+        { label: "If the worker misses a call", value: "NAQAH tries three more times, 20 minutes apart, then opens a No Answer ticket." },
+        { label: "Your instructions", value: "On Ultimate, a task stays open until the worker confirms it is done." },
+        { label: "Emergencies", value: "They never wait for NAQAH. The worker calls you directly." },
+      ],
+    },
+    colours: {
+      title: "The colours of the herd",
+      lead: "The six colour classes judged at the King Abdulaziz Camel Festival, from white Wadh to dark Majaheem.",
+      items: [
+        { id: "wadh", name: "Wadh", native: "الوضح", description: "Bright white coats, the palest of the light-coloured camels." },
+        { id: "shul", name: "Shu'l", native: "الشعل", description: "A warm light tan, between red and blond." },
+        { id: "sufr", name: "Sufr", native: "الصفر", description: "Sandy yellow to beige coats." },
+        { id: "shaqh", name: "Shaqh", native: "الشقح", description: "Off-white coats, a little darker than Wadh." },
+        { id: "humr", name: "Humr", native: "الحمر", description: "Red to reddish-brown coats." },
+        { id: "majaheem", name: "Majaheem", native: "المجاهيم", description: "Dark black coats, sometimes with a faint reddish tint." },
       ],
     },
     plans: {
       title: "Two rhythms",
       pricing: "Pricing is shared with pilot partners and announced at launch.",
-      labels: { cadence: "Report", questions: "Your questions", calls: "Your calls", tickets: "Task tickets" },
+      labels: {
+        cadence: "Farm report",
+        questions: "Your own questions",
+        update: "NAQAH calls you",
+        calls: "Your calls to NAQAH",
+        tickets: "Task tickets",
+      },
       basic: {
         name: "Basic",
         summary: "Once a week, in a window you choose.",
         cta: "Try Basic",
-        rows: { cadence: "Weekly", questions: "Up to 5", calls: "One a week", tickets: "Not included" },
+        rows: { cadence: "Weekly", questions: "Up to 5", update: "After every report", calls: "One a week", tickets: "Not included" },
       },
       ultimate: {
         name: "Ultimate",
         summary: "Every day, at the end of the workday.",
         cta: "Try Ultimate",
-        rows: { cadence: "Daily", questions: "Unlimited", calls: "Unlimited", tickets: "Open until confirmed" },
+        rows: { cadence: "Daily", questions: "Unlimited", update: "After every report", calls: "Unlimited", tickets: "Open until confirmed" },
       },
     },
     final: {
       title: "See a quieter day",
       body: "A sample ranch is ready. Make it yours after.",
     },
+    credits: "Photography",
   },
   ar: {
     nav: {
       how: "المكالمة",
+      principles: "التزاماتنا",
+      colours: "الألوان",
       plans: "الخطط",
       menu: "فتح قائمة التنقل",
       menuLabel: "التنقل في الصفحة",
+      skip: "انتقل إلى المحتوى",
     },
     hero: {
       title: "اطمئنان، دون انشغال",
       description:
-        "في نهاية اليوم يتصل العامل بناقة من جواله العادي، وبلغته. ناقة تسأله أسئلتك، وتحفظ المعلومات، وتتصل بك بالمهم فقط.",
+        "في نهاية الدوام يتصل العامل بناقة من جواله العادي. ناقة تسأله أسئلتك، وتحفظ المعلومات، وتتصل بك بالمهم.",
     },
     example: "مثال توضيحي",
+    intro: { skip: "تخطّي" },
+    journey: {
+      title: "قريب من حلالك",
+      body: "تبقى قريب من حلالك، دون ما تتابع كل التفاصيل بنفسك.",
+    },
+    pending: "جاري فتح العرض…",
+    story: {
+      title: "مكالمة واحدة في آخر اليوم",
+      stages: [
+        {
+          lead: "إذا خلص الدوام،",
+          body: "يتصل العامل بناقة من جواله العادي. بدون تطبيق ولا نماذج. في المتكاملة كل يوم، وفي الأساسية مرة في الأسبوع ضمن الوقت اللي تحدده.",
+        },
+        {
+          lead: "أسئلتك، سؤال بعد سؤال.",
+          body: "ناقة تسأل اللي جهزته، وتتأكد من الأرقام وأسماء الحلال، و«ما أدري» إجابة مقبولة. وكل معلومة تنحفظ مع مدى التأكد منها.",
+        },
+        {
+          lead: "بعدها ناقة تتصل فيك.",
+          body: "مباشرة بعد حفظ التحديث، حتى لو ما فيه شيء مهم. والتفاصيل تنتظرك في الموقع.",
+        },
+      ],
+    },
     call: {
       label: "تحديث الخميس، عزبة الصفراء",
       worker: "أحمد",
@@ -116,37 +187,56 @@ export const landing = defineMessages({
       listen: "استمع",
       stop: "إيقاف",
     },
-    rules: {
-      title: "قواعد تلتزم بها ناقة",
+    principles: {
+      title: "ما تلتزم به ناقة",
+      lead: "مصممة للعزبة كما تُدار فعلاً: مالك واحد، وعامل واحد، وحلال تعرفه بالاسم.",
+      statement: "أصالة في الجذور. وضوح في التفاصيل.",
       items: [
-        { title: "أسئلتك، سؤال بعد سؤال", body: "«ما أدري» إجابة مقبولة. ما فيه تخمين." },
-        { title: "كل معلومة توضّح مصدرها", body: "حسب الإفادة، تقديرية، غير معروفة، أو مؤكدة، مع وقت قولها." },
-        { title: "ما فيه تسجيل", body: "ما يُحفظ صوت المكالمة. تُحفظ المعلومات فقط." },
-        { title: "المكالمة الفائتة لها متابعة", body: "ثلاث محاولات، بين كل وحدة 20 دقيقة. بعدها تُفتح تذكرة عدم رد." },
-        { title: "المهمة ما تُقفل إلا بتأكيد العامل", body: "في المتكاملة، تبقى تعليماتك مفتوحة حتى يقول إنه أنجزها." },
-        { title: "الطوارئ ما تنتظر ناقة", body: "العامل يتصل بك مباشرة." },
+        { label: "التسجيل", value: "ما فيه تسجيل. تُحفظ المعلومات المستخرجة من المكالمة فقط." },
+        { label: "إذا فاتت العامل مكالمة", value: "تعيد ناقة المحاولة ثلاث مرات، بين كل وحدة 20 دقيقة، ثم تفتح تذكرة عدم رد." },
+        { label: "تعليماتك", value: "في المتكاملة، تبقى المهمة مفتوحة حتى يؤكد العامل إنه أنجزها." },
+        { label: "الطوارئ", value: "ما تنتظر ناقة. العامل يتصل بك مباشرة." },
+      ],
+    },
+    colours: {
+      title: "ألوان الإبل",
+      lead: "الألوان الستة اللي تُحكَّم في مهرجان الملك عبدالعزيز للإبل، من الوضح البيض إلى المجاهيم السود.",
+      items: [
+        { id: "wadh", name: "الوضح", native: "", description: "وبرها أبيض ناصع، وهي أفتح المغاتير لوناً." },
+        { id: "shul", name: "الشعل", native: "", description: "لونها بين الأحمر والأشقر، قريب من الحنطي." },
+        { id: "sufr", name: "الصفر", native: "", description: "لونها أصفر رملي يميل للبيج." },
+        { id: "shaqh", name: "الشقح", native: "", description: "بياضها أقل من الوضح، ويميل للغبرة." },
+        { id: "humr", name: "الحمر", native: "", description: "وبرها يميل للحمرة أو البني." },
+        { id: "majaheem", name: "المجاهيم", native: "", description: "لونها أسود داكن، وأحياناً فيه حمرة خفيفة." },
       ],
     },
     plans: {
       title: "إيقاعان",
       pricing: "الأسعار تُشارك مع شركاء التجربة وتُعلن عند الإطلاق.",
-      labels: { cadence: "التقرير", questions: "أسئلتك", calls: "اتصالاتك", tickets: "تذاكر المهام" },
+      labels: {
+        cadence: "تقرير المزرعة",
+        questions: "أسئلتك الخاصة",
+        update: "ناقة تتصل فيك",
+        calls: "اتصالاتك بناقة",
+        tickets: "تذاكر المهام",
+      },
       basic: {
         name: "الأساسية",
         summary: "مرة في الأسبوع، في وقت تختاره.",
         cta: "جرّب الأساسية",
-        rows: { cadence: "أسبوعي", questions: "حتى 5", calls: "مرة في الأسبوع", tickets: "غير متاحة" },
+        rows: { cadence: "أسبوعي", questions: "حتى 5", update: "بعد كل تقرير", calls: "مرة في الأسبوع", tickets: "غير متاحة" },
       },
       ultimate: {
         name: "المتكاملة",
         summary: "كل يوم، في نهاية دوام العامل.",
         cta: "جرّب المتكاملة",
-        rows: { cadence: "يومي", questions: "بلا حد", calls: "بلا حد", tickets: "مفتوحة حتى التأكيد" },
+        rows: { cadence: "يومي", questions: "بلا حد", update: "بعد كل تقرير", calls: "بلا حد", tickets: "مفتوحة حتى التأكيد" },
       },
     },
     final: {
       title: "شوف يوماً أهدأ",
       body: "عزبة نموذجية جاهزة. وبعدها خلّها عزبتك.",
     },
+    credits: "التصوير",
   },
 });

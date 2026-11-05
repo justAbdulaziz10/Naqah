@@ -1,54 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useI18n } from "@/i18n/client";
 
-const STEP_MS = 1100;
-const HOLD_MS = 3600;
-
 /**
- * The worker's call, set as a timestamped ledger. Rows reveal one by one; every row is
- * always in the layout (no shift) and in the accessibility tree. Reduced motion shows all.
+ * The worker's call, set as a timestamped ledger: what was said, what was saved, and the owner
+ * call that follows. Still by design (handoff §08: no endless animation); every row is readable.
  */
 export function LiveTranscript() {
   const { m } = useI18n();
   const call = m.landing.call;
-  const total = call.lines.length + 2; // lines, saved facts, owner call
-  const [shown, setShown] = useState(total);
-
-  useEffect(() => {
-    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (motion.matches) return;
-    let step = 1;
-    let timer = 0;
-    const tick = () => {
-      timer = window.setTimeout(
-        () => {
-          step = step >= total ? 1 : step + 1;
-          setShown(step);
-          tick();
-        },
-        step >= total ? HOLD_MS : STEP_MS,
-      );
-    };
-    const onChange = (event: MediaQueryListEvent) => {
-      if (!event.matches) return;
-      window.clearTimeout(timer);
-      setShown(total);
-    };
-    timer = window.setTimeout(() => {
-      setShown(step);
-      tick();
-    }, 40);
-    motion.addEventListener("change", onChange);
-    return () => {
-      window.clearTimeout(timer);
-      motion.removeEventListener("change", onChange);
-    };
-  }, [total]);
-
-  const reveal = (index: number) =>
-    `transition-[opacity,translate] duration-500 ease-out ${index < shown ? "opacity-100" : "translate-y-1 opacity-0"}`;
+  const row = "grid grid-cols-[3rem_1fr] gap-x-4 border-b border-stone sm:grid-cols-[3rem_4.5rem_1fr]"; // taste-skill-ignore: ledger rows inside the product fragment (data-ui)
 
   return (
     <figure className="border-t-2 border-espresso">
@@ -60,19 +21,16 @@ export function LiveTranscript() {
         <span className="ltr-nums shrink-0 tabular-nums text-muted">17:42</span>
       </figcaption>
 
-      <ol className="border-t border-stone">
+      <ol className={"border-t border-stone" /* taste-skill-ignore: ledger rule inside the product fragment */}>
         {call.lines.map((line, index) => {
           const naqah = line.who === "naqah";
           return (
-            <li
-              key={index}
-              className={`grid grid-cols-[3rem_1fr] gap-x-4 border-b border-stone py-3.5 sm:grid-cols-[3rem_4.5rem_1fr] ${reveal(index)}`}
-            >
-              <span className="ltr-nums pt-0.5 text-xs tabular-nums text-muted">{line.time}</span>
+            <li key={index} data-reveal="" data-reveal-delay={index * 70} className={`${row} py-3.5`}>
+              <span className="ltr-nums pt-0.5 text-[0.8125rem] tabular-nums text-muted">{line.time}</span>
               <span className={`text-sm font-semibold ${naqah ? "text-brown" : "text-espresso"} max-sm:hidden`}>
                 {naqah ? call.naqah : call.worker}
               </span>
-              <p className={`text-[0.95rem] leading-relaxed ${naqah ? "text-muted" : "text-espresso"}`}>
+              <p className={`text-base leading-relaxed ${naqah ? "text-muted" : "text-espresso"}`}>
                 <span className={`me-2 font-semibold sm:hidden ${naqah ? "text-brown" : ""}`}>
                   {naqah ? call.naqah : call.worker}
                 </span>
@@ -82,33 +40,30 @@ export function LiveTranscript() {
           );
         })}
 
-        <li className={`grid grid-cols-[3rem_1fr] gap-x-4 border-b border-stone py-4 sm:grid-cols-[3rem_4.5rem_1fr] ${reveal(call.lines.length)}`}>
-          <span className="ltr-nums pt-0.5 text-xs tabular-nums text-muted">17:44</span>
+        <li data-reveal="" data-reveal-delay={call.lines.length * 70 + 100} className={`${row} py-4`}>
+          <span className="ltr-nums pt-0.5 text-[0.8125rem] tabular-nums text-muted">17:44</span>
           <span className="text-sm font-semibold text-ok max-sm:hidden">{call.saved}</span>
           <div className="grid gap-2">
             <span className="text-sm font-semibold text-ok sm:hidden">{call.saved}</span>
             <dl className="grid gap-2">
-            {call.facts.map((fact) => (
-              <div key={fact.label} className="flex flex-wrap items-baseline gap-x-2">
-                <dt className="font-semibold">{fact.label}</dt>
-                <dd className="flex flex-wrap items-baseline gap-x-2">
-                  <span>{fact.value}</span>
-                  <span className="text-sm text-muted">{fact.certainty}</span>
-                </dd>
-              </div>
-            ))}
+              {call.facts.map((fact) => (
+                <div key={fact.label} className="flex flex-wrap items-baseline gap-x-2">
+                  <dt className="font-semibold">{fact.label}</dt>
+                  <dd className="flex flex-wrap items-baseline gap-x-2">
+                    <span>{fact.value}</span>
+                    <span className="text-sm text-muted">{fact.certainty}</span>
+                  </dd>
+                </div>
+              ))}
             </dl>
           </div>
         </li>
 
-        <li className={`grid grid-cols-[3rem_1fr] gap-x-4 py-4 sm:grid-cols-[3rem_4.5rem_1fr] ${reveal(call.lines.length + 1)}`}>
-          <span className="ltr-nums pt-0.5 text-xs tabular-nums text-muted">17:44</span>
+        <li data-reveal="" data-reveal-delay={call.lines.length * 70 + 260} className={`${row} border-b-0 py-4`}>
+          <span className="ltr-nums pt-0.5 text-[0.8125rem] tabular-nums text-muted">17:44</span>
           <span className="max-sm:hidden" aria-hidden="true" />
           <p className="flex items-center gap-2.5 font-semibold text-brown">
-            <span className="relative flex size-2" aria-hidden="true">
-              <span className="absolute inset-0 rounded-full bg-brown motion-safe:animate-pulse-ring" />
-              <span className="relative size-2 rounded-full bg-brown" />
-            </span>
+            <span className="naqah-ring relative size-2 rounded-full bg-brown" aria-hidden="true" />
             {call.next}
           </p>
         </li>

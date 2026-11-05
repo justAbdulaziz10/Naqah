@@ -7,7 +7,10 @@ import { CamelMark } from "./CamelMark";
 export function Logo({ locale, className, tone = "dark", href }: { locale: Locale; className?: string; tone?: "dark" | "light"; href?: string }) {
   const content = (
     <span className={cn("inline-flex items-center gap-2.5", className)}>
-      <CamelMark className="h-7 w-auto shrink-0" />
+      {/* data-brand-mark: where the landing's woven intro lands the mark. The mark itself is unchanged. */}
+      <span data-brand-mark className="inline-flex shrink-0">
+        <CamelMark className="h-7 w-auto" />
+      </span>
       <span className={cn("text-[1.05rem] font-bold tracking-[0.08em]", tone === "dark" ? "text-espresso" : "text-cream")}>
         {locale === "ar" ? <span className="font-arabic tracking-normal text-[1.2rem]">ناقة</span> : "NAQAH"}
       </span>
