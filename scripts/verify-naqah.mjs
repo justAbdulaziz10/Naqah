@@ -108,7 +108,7 @@ const commands = {
   },
   async screens() {
     const dir = evidenceDir("screens");
-    const env = { ...process.env, BASE, OUT: dir, CHROMIUM_PATH: chromiumPath() ?? "" };
+    const env = { ...process.env, BASE, OUT: dir, CHROMIUM_PATH: process.env.CHROMIUM_PATH ?? chromiumPath() ?? "" };
     const c = spawn("node", ["scripts/qa-screens.mjs"], { env, stdio: ["ignore", "pipe", "pipe"] });
     let log = ""; c.stdout.on("data", (d) => (log += d)); c.stderr.on("data", (d) => (log += d));
     const code = await new Promise((r) => c.on("close", r));
@@ -194,8 +194,8 @@ const commands = {
     } catch (e) { reason ??= String(e.message ?? e).split("\n")[0]; }
     const ws = await readWs(page).catch(() => null);
     await b.close();
-    const ok = !reason && ws?.setupComplete === true && steps.length === 9;
-    out({ ok, cmd, evidence: dir, steps: steps.length, setupComplete: ws?.setupComplete ?? null, reason: ok ? undefined : reason ?? `expected 9 steps + setupComplete, got ${steps.length}` });
+    const ok = !reason && ws?.setupComplete === true && steps.length === 6;
+    out({ ok, cmd, evidence: dir, steps: steps.length, setupComplete: ws?.setupComplete ?? null, reason: ok ? undefined : reason ?? `expected 6 Basic steps + setupComplete, got ${steps.length}` });
   },
   // This completes a real worker report against the configured voice server.
   async voice() {
@@ -365,14 +365,20 @@ const commands = {
     await step("herd-add", async () => {
       const before = (await readWs(page)).camels.length;
       await page.goto(`${BASE}/${LOCALE}/app/herd`, { waitUntil: "networkidle" });
-      await page.getByRole("button", { name: ar ? "إضافة ناقة" : "Add camel" }).first().click();
+      await page.getByRole("button", { name: ar ? /إضافة ناقة أو جمل/ : "Add camel" }).first().click();
       const dialog = page.getByRole("dialog");
       await dialog.getByLabel(ar ? "الاسم" : "Name", { exact: false }).first().fill("Verify");
-      await dialog.getByLabel(ar ? /الوسم/ : "Tag", { exact: false }).first().fill("VF-0001");
+      const sex = dialog.getByLabel(ar ? "النوع" : "Type", { exact: false });
+      const sexOptions = await sex.locator("option").allTextContents();
+      const tagInputs = await dialog.getByLabel(ar ? /الوسم/ : "Tag", { exact: false }).count();
+      await sex.selectOption("male");
       await dialog.getByRole("button", { name: ar ? "حفظ" : "Save" }).click();
       await page.waitForTimeout(300);
       const ws = await readWs(page);
       check("herd add camel", ws.camels.length === before + 1 && ws.camels.some((c) => c.name === "Verify"), `${before} → ${ws.camels.length}`);
+      check("herd form has no tag field", tagInputs === 0, `tag inputs ${tagInputs}`);
+      check("herd form offers camel terms", ar ? sexOptions.some((label) => /ناقة/.test(label)) && sexOptions.some((label) => /جمل/.test(label)) : sexOptions.some((label) => /Female camel/.test(label)) && sexOptions.some((label) => /Male camel/.test(label)), sexOptions);
+      check("new camel keeps the legacy tag empty", ws.camels.find((c) => c.name === "Verify")?.tag === "");
     });
     // Demo clock: +20 min moves clockOffsetMs.
     // Weather: "Simulate a heat day" makes the worker report open with the water-and-shade question.
@@ -443,7 +449,7 @@ if (!commands[cmd] || args.includes("--help")) {
   doctor               read-only: our server answers, same build, Chromium available
   screens              32 screenshots (ar/en × 375/1440 × 8 pages); fails on overflow or console errors
   call-lab             worker report → owner call → task → 4 missed calls → No Answer ticket → callback closes it (asserted)
-  wizard               onboarding with sample data, 9 steps, lands on /app with setupComplete
+  wizard               Basic onboarding with sample data, 6 steps, lands on /app with setupComplete
   features             landing plan CTA, locale switch, settings sample load, herd add, heat day, clock, owner inquiry, emergency, reset
   voice                complete a real report, then verify save + tamper rejection [--worker-phone E.164] [--locale ar|en] [--dry-run] [--allow-paid]
                        dry-run is the default and refuses paid summary env vars; --allow-paid permits side effects

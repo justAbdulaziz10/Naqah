@@ -60,7 +60,7 @@ export default function HerdPage() {
           ),
         };
       }
-      const camel: Camel = { id: uid("cml"), ...values, certainty: "verified", updatedAt };
+      const camel: Camel = { id: uid("cml"), ...values, tag: "", certainty: "verified", updatedAt };
       return { ...current, camels: [...current.camels, camel] };
     });
     closeEditor();
@@ -125,7 +125,7 @@ export default function HerdPage() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
                       <h2 className="text-lg font-bold leading-tight">{camel.name}</h2>
-                      <span className="text-sm font-medium text-muted ltr-nums">{camel.tag}</span>
+                      {camel.tag ? <span className="text-sm font-medium text-muted ltr-nums">{camel.tag}</span> : null}
                       <HealthBadge health={camel.health} />
                     </div>
                     <p className="mt-2 text-sm leading-relaxed text-muted">

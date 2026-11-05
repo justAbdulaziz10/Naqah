@@ -8,6 +8,7 @@ import { MessageWorkerLink, OrderSupplierLink } from "@/components/integrations/
 import { EMERGENCY_LABELS, RESOURCE_LABELS, WEEKDAY_LABELS, levelLabel, nextWindowStart, openNoAnswerTickets, openTaskTickets, ownerAllowanceUsed, reportDoneThisPeriod, routeOwnerInboundCall, lastReportAt, fromRiyadh, riyadhParts, sameWeek } from "@/domain";
 import type { EventTone } from "@/domain";
 import { useI18n } from "@/i18n/client";
+import { CallSetupStatus, getCallSetupGaps } from "@/components/setup";
 import { useNow, useWorkspace } from "@/store/workspace";
 
 const statusText = {
@@ -41,8 +42,9 @@ export default function OverviewPage() {
   const latestReport = reportAt ? [...ws.reports].reverse().find((report) => report.at === reportAt) ?? null : null;
   const reportIsCurrent = reportDoneThisPeriod(ws, now);
   const nextWindowDate = ws.settings.window && !reportIsCurrent ? nextWindowStart(now, ws.settings.window) : null;
-  const workerName = ws.settings.worker.name || (locale === "en" ? "Ahmed" : "أحمد");
-  const ownerName = ws.settings.owner.name.trim().split(/\s+/)[0] || (locale === "en" ? "Abdullah" : "عبدالله");
+  const workerName = ws.settings.worker.name.trim() || app.overview.unnamedWorker;
+  const ownerName = ws.settings.owner.name.trim().split(/\s+/)[0] ?? "";
+  const callSetupIncomplete = getCallSetupGaps(ws).length > 0;
   const hour = riyadhParts(now).hours;
   const greeting = hour < 12 ? app.overview.greetingMorning : hour < 18 ? app.overview.greetingAfternoon : app.overview.greetingEvening;
   const taskTickets = openTaskTickets(ws);
@@ -84,6 +86,8 @@ export default function OverviewPage() {
         </div>
         <WeatherLine />
       </header>
+
+      {callSetupIncomplete ? <CallSetupStatus ws={ws} settingsHref={href("/app/settings")} /> : null}
 
       <div className="grid gap-5 lg:grid-cols-12">
         <div className="flex min-w-0 flex-col gap-5 lg:col-span-8">

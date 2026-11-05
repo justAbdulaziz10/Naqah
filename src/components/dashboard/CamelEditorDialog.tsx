@@ -6,7 +6,7 @@ import type { Camel, HealthStatus } from "@/domain";
 import { Button, Field, IconButton, Input, Select, Textarea } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 
-export type CamelFormValues = Pick<Camel, "name" | "tag" | "sex" | "ageYears" | "health" | "healthNote">;
+export type CamelFormValues = Pick<Camel, "name" | "sex" | "ageYears" | "health" | "healthNote">;
 
 export function CamelEditorDialog({
   open,
@@ -22,7 +22,6 @@ export function CamelEditorDialog({
   const { m } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState(camel?.name ?? "");
-  const [tag, setTag] = useState(camel?.tag ?? "");
   const [sex, setSex] = useState<Camel["sex"]>(camel?.sex ?? "female");
   const [age, setAge] = useState(camel?.ageYears === null || camel?.ageYears === undefined ? "" : String(camel.ageYears));
   const [health, setHealth] = useState<HealthStatus>(camel?.health ?? "unknown");
@@ -39,7 +38,6 @@ export function CamelEditorDialog({
     event.preventDefault();
     onSave({
       name: name.trim(),
-      tag: tag.trim(),
       sex,
       ageYears: age.trim() ? Number(age) : null,
       health,
@@ -73,9 +71,6 @@ export function CamelEditorDialog({
         <div className="grid gap-4 overflow-y-auto px-5 py-5 sm:grid-cols-2 sm:px-6">
           <Field label={m.app.herd.name}>
             {(id) => <Input id={id} autoFocus required value={name} onChange={(event) => setName(event.target.value)} />}
-          </Field>
-          <Field label={m.app.herd.tag}>
-            {(id) => <Input id={id} className="ltr-nums" required value={tag} onChange={(event) => setTag(event.target.value)} />}
           </Field>
           <Field label={m.app.herd.sex}>
             {(id) => (

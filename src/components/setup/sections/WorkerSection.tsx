@@ -18,7 +18,7 @@ interface ContactPicker {
 
 type NavigatorWithContacts = Navigator & { contacts?: ContactPicker };
 
-export function WorkerSection({ ws, onChange, showSaved, showErrors }: SetupSectionProps) {
+export function WorkerSection({ ws, onChange, showSaved }: SetupSectionProps) {
   const { m, t } = useI18n();
   const worker = ws.settings.worker;
   const [contactPickerAvailable, setContactPickerAvailable] = useState(false);
@@ -73,13 +73,12 @@ export function WorkerSection({ ws, onChange, showSaved, showErrors }: SetupSect
       />
       <CardBody className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={m.onboarding.workerName} error={showErrors && !worker.name.trim() ? m.onboarding.requiredField : undefined}>
+          <Field label={m.onboarding.workerName} hint={m.onboarding.optional}>
             {(id) => (
               <Input
                 id={id}
                 autoComplete="given-name"
                 value={worker.name}
-                aria-invalid={showErrors && !worker.name.trim()}
                 onChange={(event) => onChange((current) => ({
                   ...current,
                   settings: { ...current.settings, worker: { ...current.settings.worker, name: event.target.value } },
@@ -87,7 +86,7 @@ export function WorkerSection({ ws, onChange, showSaved, showErrors }: SetupSect
               />
             )}
           </Field>
-          <Field label={m.onboarding.workerPhone} hint={m.onboarding.saudiPhoneHint} error={showErrors && !worker.phone.trim() ? m.onboarding.requiredField : undefined}>
+          <Field label={m.onboarding.workerPhone} hint={`${m.onboarding.optional} · ${m.onboarding.saudiPhoneHint}`}>
             {(id) => (
               <Input
                 id={id}
@@ -97,7 +96,6 @@ export function WorkerSection({ ws, onChange, showSaved, showErrors }: SetupSect
                 className="ltr-nums text-start"
                 placeholder={m.onboarding.phonePlaceholder}
                 value={worker.phone}
-                aria-invalid={showErrors && !worker.phone.trim()}
                 onChange={(event) => onChange((current) => ({
                   ...current,
                   settings: { ...current.settings, worker: { ...current.settings.worker, phone: event.target.value } },

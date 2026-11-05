@@ -4,6 +4,8 @@ import { ArrowUpRight } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 import { Button, ButtonLink, Card, CardBody, CardHeader } from "@/components/ui";
 import {
+  CallSetupStatus,
+  EmergencySection,
   OwnerFarmSection,
   PlanSection,
   QuestionsSection,
@@ -27,7 +29,7 @@ export default function SettingsPage() {
   if (!ws) return null;
 
   const onBasicWindowRequired = () => {
-    document.getElementById("settings-schedule")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    requestAnimationFrame(() => document.getElementById("settings-schedule")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
   const onChange = (update: WorkspaceUpdate) => {
     useWorkspaceStore.getState().update(update);
@@ -39,6 +41,7 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold tracking-tight text-espresso">{m.onboarding.settingsTitle}</h1>
       </div>
 
+      <CallSetupStatus ws={ws} />
       <PlanSection ws={ws} onChange={onChange} showSaved onBasicWindowRequired={onBasicWindowRequired} />
       <OwnerFarmSection ws={ws} onChange={onChange} showSaved />
 
@@ -55,10 +58,13 @@ export default function SettingsPage() {
       <WorkerSection ws={ws} onChange={onChange} showSaved />
       <ResourcesSection ws={ws} onChange={onChange} showSaved />
       <WhatMattersSection ws={ws} onChange={onChange} showSaved />
+      <EmergencySection ws={ws} onChange={onChange} showSaved />
       <QuestionsSection ws={ws} onChange={onChange} showSaved />
-      <div id="settings-schedule" className="scroll-mt-24">
-        <ScheduleSection ws={ws} onChange={onChange} showSaved />
-      </div>
+      {ws.settings.plan === "basic" ? (
+        <div id="settings-schedule" className="scroll-mt-24">
+          <ScheduleSection ws={ws} onChange={onChange} showSaved />
+        </div>
+      ) : null}
 
       <IntegrationsSection />
 

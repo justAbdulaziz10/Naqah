@@ -1,4 +1,7 @@
 export { HerdSection } from "./sections/HerdSection";
+export { CallSetupStatus, getCallSetupGaps } from "./CallSetupStatus";
+export type { CallSetupGap } from "./CallSetupStatus";
+export { EmergencySection } from "./sections/EmergencySection";
 export { OwnerFarmSection } from "./sections/OwnerFarmSection";
 export { PlanSection } from "./sections/PlanSection";
 export { QuestionsSection } from "./sections/QuestionsSection";

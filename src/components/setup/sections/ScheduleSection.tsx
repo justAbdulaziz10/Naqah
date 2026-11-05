@@ -7,7 +7,7 @@ import type { ReportingWindow, Weekday } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import type { SetupSectionProps } from "../types";
 
-export function ScheduleSection({ ws, onChange, showSaved, showErrors }: SetupSectionProps) {
+export function ScheduleSection({ ws, onChange, showSaved, showErrors, optional = false }: SetupSectionProps & { optional?: boolean }) {
   const { m, t } = useI18n();
   const window = ws.settings.window;
   const hasCompleteTimes = Boolean(window?.start && window.end);
@@ -37,13 +37,13 @@ export function ScheduleSection({ ws, onChange, showSaved, showErrors }: SetupSe
           <p className="max-w-prose leading-relaxed text-muted">{m.onboarding.ultimateSchedule}</p>
         ) : (
           <div className="space-y-4">
-            <p className="text-sm text-muted">{m.onboarding.basicSchedule}</p>
+            <p className="text-sm text-muted">{optional ? m.onboarding.scheduleCanBeSetLater : m.onboarding.basicSchedule}</p>
             <div className="grid gap-4 sm:grid-cols-3">
               <Field label={m.onboarding.weekday}>
                 {(id) => (
                   <Select
                     id={id}
-                    required
+                    required={!optional}
                     value={window ? String(window.day) : ""}
                     onChange={(event) => {
                       if (!event.target.value) {
@@ -65,7 +65,7 @@ export function ScheduleSection({ ws, onChange, showSaved, showErrors }: SetupSe
                   <Input
                     id={id}
                     type="time"
-                    required
+                    required={!optional}
                     className="ltr-nums"
                     value={window?.start ?? ""}
                     disabled={!window}
@@ -78,7 +78,7 @@ export function ScheduleSection({ ws, onChange, showSaved, showErrors }: SetupSe
                   <Input
                     id={id}
                     type="time"
-                    required
+                    required={!optional}
                     className="ltr-nums"
                     value={window?.end ?? ""}
                     disabled={!window}
@@ -87,7 +87,7 @@ export function ScheduleSection({ ws, onChange, showSaved, showErrors }: SetupSe
                 )}
               </Field>
             </div>
-            {(showErrors || ws.settings.plan === "basic") && !windowValid ? (
+            {!optional && (showErrors || ws.settings.plan === "basic") && !windowValid ? (
               <p className="text-sm text-danger" role="alert">
                 {window && hasCompleteTimes ? m.onboarding.windowEndAfterStart : m.onboarding.windowRequired}
               </p>

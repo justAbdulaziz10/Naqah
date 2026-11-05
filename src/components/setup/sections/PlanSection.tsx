@@ -88,11 +88,11 @@ export function PlanSection({ ws, onChange, showSaved, onBasicWindowRequired }: 
                   <span className="text-lg font-bold text-espresso">{plan.title}</span>
                   <span
                     className={`inline-flex size-6 items-center justify-center rounded-full border ${
-                      selected ? "border-brown bg-brown text-cream" : "border-stone text-transparent"
+                      selected ? "border-brown bg-brown text-cream" : "border-stone"
                     }`}
                     aria-hidden="true"
                   >
-                    <Check size={14} weight="fill" />
+                    {selected ? <Check size={14} weight="fill" /> : null}
                   </span>
                 </span>
                 <ul className="mt-3 space-y-2 text-sm leading-relaxed text-muted">
