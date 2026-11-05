@@ -13,11 +13,13 @@ export function CamelEditorDialog({
   camel,
   onClose,
   onSave,
+  onRemove,
 }: {
   open: boolean;
   camel: Camel | null;
   onClose: () => void;
   onSave: (values: CamelFormValues) => void;
+  onRemove: () => void;
 }) {
   const { m } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -118,6 +120,7 @@ export function CamelEditorDialog({
         </div>
 
         <div className="flex flex-wrap justify-end gap-2 border-t border-stone px-5 py-4 sm:px-6">
+          {camel ? <Button variant="ghost" className="me-auto text-danger!" onClick={onRemove}>{m.app.herd.removeCamel}</Button> : null}
           <Button variant="secondary" onClick={onClose}>{m.common.actions.cancel}</Button>
           <Button type="submit">{m.common.actions.save}</Button>
         </div>

@@ -27,7 +27,7 @@ export function LocaleSwitcher({ className, tone = "dark" }: { className?: strin
         document.cookie = `naqah-locale=${target}; path=/; max-age=31536000; samesite=lax`;
       }}
       className={cn(
-        "inline-flex h-10 items-center gap-2 rounded-full px-3.5 text-sm font-semibold transition",
+        "inline-flex h-11 items-center gap-2 rounded-full px-3.5 text-sm font-semibold transition",
         tone === "dark" ? "text-espresso hover:bg-espresso/5" : "text-cream hover:bg-cream/10",
         className,
       )}
