@@ -80,7 +80,7 @@ export function PhoneCard() {
         {status?.voice.configured && lineNumber && dialNumber ? (
           <a
             href={`tel:${dialNumber}`}
-            className="inline-flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold text-brown underline decoration-1 underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+            className="inline-flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold text-brown underline decoration-1 underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
           >
             <span>{m.integrations.phone.callNow}</span>
             <bdi className="ltr-nums">{lineNumber}</bdi>

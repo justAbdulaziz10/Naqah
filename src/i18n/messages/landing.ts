@@ -14,6 +14,7 @@ export const landing = defineMessages({
       description:
         "At the end of the day your worker calls NAQAH from an ordinary phone, in his own language. NAQAH asks your questions, keeps the facts, and calls you only with what matters.",
     },
+    example: "Illustrative example",
     call: {
       label: "Thursday’s update, Al Safra Ranch",
       worker: "Ahmed",
@@ -87,6 +88,7 @@ export const landing = defineMessages({
       description:
         "في نهاية اليوم يتصل العامل بناقة من جواله العادي، وبلغته. ناقة تسأله أسئلتك، وتحفظ المعلومات، وتتصل بك بالمهم فقط.",
     },
+    example: "مثال توضيحي",
     call: {
       label: "تحديث الخميس، عزبة الصفراء",
       worker: "أحمد",

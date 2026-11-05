@@ -7,6 +7,7 @@
  */
 import {
   ClipboardText,
+  Flask,
   GearSix,
   House,
   PhoneList,
@@ -123,7 +124,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="mt-auto space-y-3 px-2">
           <div className="border-t border-stone/70 pt-4">
             <p className="truncate text-sm font-semibold">{ws.settings.owner.name}</p>
-            <p className="mt-0.5 text-xs text-faint">{m.common.demo.badge}</p>
+            <p className="mt-0.5 text-xs text-muted">{m.common.demo.badge}</p>
           </div>
           <LocaleSwitcher className="-ms-2.5" />
         </div>
@@ -154,6 +155,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
             </div>
           </div>
+          <DemoNotice />
         </header>
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">{children}</main>
@@ -189,6 +191,25 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </div>
       </nav>
+    </div>
+  );
+}
+
+/**
+ * Every record in this browser workspace is simulated (sample farm or Call Lab runs); real
+ * calls don't reach it yet. Shown on every dashboard page so no one mistakes it for live data.
+ */
+function DemoNotice() {
+  const { m } = useI18n();
+  return (
+    <div role="note" className="border-t border-stone/60 bg-cream">
+      <p className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-2 text-sm sm:px-6 lg:px-8">
+        <Flask size={16} className="shrink-0 text-brown" aria-hidden />
+        <span className="shrink-0 font-semibold text-brown">{m.common.demo.label}</span>
+        <span aria-hidden className="text-muted">·</span>
+        <span className="min-w-0 truncate text-muted sm:hidden">{m.common.demo.noticeShort}</span>
+        <span className="hidden min-w-0 text-muted sm:inline">{m.common.demo.notice}</span>
+      </p>
     </div>
   );
 }

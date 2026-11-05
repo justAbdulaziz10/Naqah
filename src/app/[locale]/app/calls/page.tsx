@@ -30,7 +30,7 @@ function CallMarker({ call }: { call: CallLog }) {
     return <WarningCircle size={21} weight="fill" className="text-warn" aria-hidden />;
   }
   if (call.kind === "worker_callback") {
-    return <ArrowsClockwise size={21} weight="bold" className="text-info" aria-hidden />;
+    return <ArrowsClockwise size={21} weight="fill" className="text-info" aria-hidden />;
   }
   const Icon = call.direction === "inbound" ? PhoneIncoming : PhoneOutgoing;
   const color = call.outcome === "no_answer" ? "text-warn" : call.party === "worker" ? "text-info" : "text-brown";

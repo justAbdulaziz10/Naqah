@@ -20,7 +20,13 @@
   --color-muted: #6e6359;
   --color-faint: #9a8f84;
 
-  /* Status — muted, desert-appropriate, AA on cream */
+  /*
+   * Editorial accent (Frontend Handoff §07, PROPOSED, not a core palette amendment).
+   * Heritage and editorial graphics only. Never an error, warning or status colour.
+   */
+  --color-crimson-editorial: #8f3040;
+
+  /* Status — muted, desert-appropriate, AA on cream. Functional only; keep distinct from crimson. */
   --color-ok: #4f6b3d;
   --color-ok-soft: #e4eadc;
   --color-warn: #8a5a12;
@@ -39,6 +45,12 @@
 
   --animate-fade-up: fade-up 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
   --animate-pulse-ring: pulse-ring 2.4s cubic-bezier(0.2, 0.7, 0.2, 1) infinite;
+
+  /* Motion tokens from Handoff §08 (proposed values). Tokens only; no new animation yet. */
+  --duration-micro: 150ms;
+  --duration-panel: 300ms;
+  --duration-editorial: 550ms;
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
 
   @keyframes fade-up {
     from {
@@ -87,8 +99,9 @@
     background: var(--color-sand);
     color: var(--color-espresso);
   }
+  /* Follows the element's text colour, so it stays visible on ivory, cream and espresso. */
   :focus-visible {
-    outline: 2px solid var(--color-gold);
+    outline: 2px solid currentColor;
     outline-offset: 2px;
     border-radius: 6px;
   }

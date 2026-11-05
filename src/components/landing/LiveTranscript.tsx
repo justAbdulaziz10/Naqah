@@ -53,8 +53,11 @@ export function LiveTranscript() {
   return (
     <figure className="border-t-2 border-espresso">
       <figcaption className="flex items-baseline justify-between gap-4 py-4 text-sm">
-        <span className="font-semibold">{call.label}</span>
-        <span className="ltr-nums shrink-0 tabular-nums text-faint">17:42</span>
+        <span>
+          <span className="font-semibold">{call.label}</span>
+          <span className="mt-0.5 block text-muted">{m.landing.example}</span>
+        </span>
+        <span className="ltr-nums shrink-0 tabular-nums text-muted">17:42</span>
       </figcaption>
 
       <ol className="border-t border-stone">
@@ -65,12 +68,12 @@ export function LiveTranscript() {
               key={index}
               className={`grid grid-cols-[3rem_1fr] gap-x-4 border-b border-stone py-3.5 sm:grid-cols-[3rem_4.5rem_1fr] ${reveal(index)}`}
             >
-              <span className="ltr-nums pt-0.5 text-xs tabular-nums text-faint">{line.time}</span>
-              <span className={`text-sm font-semibold ${naqah ? "text-gold" : "text-espresso"} max-sm:hidden`}>
+              <span className="ltr-nums pt-0.5 text-xs tabular-nums text-muted">{line.time}</span>
+              <span className={`text-sm font-semibold ${naqah ? "text-brown" : "text-espresso"} max-sm:hidden`}>
                 {naqah ? call.naqah : call.worker}
               </span>
               <p className={`text-[0.95rem] leading-relaxed ${naqah ? "text-muted" : "text-espresso"}`}>
-                <span className={`me-2 font-semibold sm:hidden ${naqah ? "text-gold" : ""}`}>
+                <span className={`me-2 font-semibold sm:hidden ${naqah ? "text-brown" : ""}`}>
                   {naqah ? call.naqah : call.worker}
                 </span>
                 {line.text}
@@ -80,7 +83,7 @@ export function LiveTranscript() {
         })}
 
         <li className={`grid grid-cols-[3rem_1fr] gap-x-4 border-b border-stone py-4 sm:grid-cols-[3rem_4.5rem_1fr] ${reveal(call.lines.length)}`}>
-          <span className="ltr-nums pt-0.5 text-xs tabular-nums text-faint">17:44</span>
+          <span className="ltr-nums pt-0.5 text-xs tabular-nums text-muted">17:44</span>
           <span className="text-sm font-semibold text-ok max-sm:hidden">{call.saved}</span>
           <div className="grid gap-2">
             <span className="text-sm font-semibold text-ok sm:hidden">{call.saved}</span>
@@ -90,7 +93,7 @@ export function LiveTranscript() {
                 <dt className="font-semibold">{fact.label}</dt>
                 <dd className="flex flex-wrap items-baseline gap-x-2">
                   <span>{fact.value}</span>
-                  <span className="text-sm text-faint">{fact.certainty}</span>
+                  <span className="text-sm text-muted">{fact.certainty}</span>
                 </dd>
               </div>
             ))}
@@ -99,7 +102,7 @@ export function LiveTranscript() {
         </li>
 
         <li className={`grid grid-cols-[3rem_1fr] gap-x-4 py-4 sm:grid-cols-[3rem_4.5rem_1fr] ${reveal(call.lines.length + 1)}`}>
-          <span className="ltr-nums pt-0.5 text-xs tabular-nums text-faint">17:44</span>
+          <span className="ltr-nums pt-0.5 text-xs tabular-nums text-muted">17:44</span>
           <span className="max-sm:hidden" aria-hidden="true" />
           <p className="flex items-center gap-2.5 font-semibold text-brown">
             <span className="relative flex size-2" aria-hidden="true">

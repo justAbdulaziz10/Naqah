@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button, Card, CardBody, CardHeader, Field, Input, Select } from "@/components/ui";
 import { WORKER_LANGUAGES } from "@/domain/catalog";
 import { useI18n } from "@/i18n/client";
+import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
 import type { SetupSectionProps } from "../types";
 
 interface PickedContact {
@@ -21,6 +22,14 @@ export function WorkerSection({ ws, onChange, showSaved, showErrors }: SetupSect
   const { m, t } = useI18n();
   const worker = ws.settings.worker;
   const [contactPickerAvailable, setContactPickerAvailable] = useState(false);
+  const selectedLanguage = WORKER_LANGUAGES.find((language) => language.id === worker.language) ?? WORKER_LANGUAGES[0];
+  const liveLanguages = WORKER_LANGUAGES.filter((language) => isLiveCallLanguage(language.id));
+  const laterLanguages = WORKER_LANGUAGES.filter((language) => !isLiveCallLanguage(language.id));
+  const languageOption = (language: (typeof WORKER_LANGUAGES)[number]) => (
+    <option key={language.id} value={language.id}>
+      {language.native} · {t(language.label)}
+    </option>
+  );
 
   useEffect(() => {
     let active = true;
@@ -102,7 +111,10 @@ export function WorkerSection({ ws, onChange, showSaved, showErrors }: SetupSect
             {m.integrations.weather.chooseFromContacts}
           </Button>
         ) : null}
-        <Field label={m.onboarding.workerLanguage}>
+        <Field
+          label={m.onboarding.workerLanguage}
+          hint={isLiveCallLanguage(worker.language) ? m.onboarding.workerLanguageLive : m.onboarding.workerLanguageNotLive(t(selectedLanguage.label))}
+        >
           {(id) => (
             <Select
               id={id}
@@ -112,11 +124,12 @@ export function WorkerSection({ ws, onChange, showSaved, showErrors }: SetupSect
                 settings: { ...current.settings, worker: { ...current.settings.worker, language: event.target.value as typeof worker.language } },
               }))}
             >
-              {WORKER_LANGUAGES.map((language) => (
-                <option key={language.id} value={language.id}>
-                  {language.native} · {t(language.label)}
-                </option>
-              ))}
+              <optgroup label={m.onboarding.liveCallLanguages}>
+                {liveLanguages.map(languageOption)}
+              </optgroup>
+              <optgroup label={m.onboarding.laterCallLanguages}>
+                {laterLanguages.map(languageOption)}
+              </optgroup>
             </Select>
           )}
         </Field>

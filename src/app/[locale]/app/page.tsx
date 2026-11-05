@@ -15,7 +15,7 @@ const statusText = {
   medium: "text-muted",
   low: "text-warn",
   critical: "text-danger",
-  unknown: "text-faint",
+  unknown: "text-muted",
 } as const;
 
 function timeForWindow(value: string, now: Date) {
@@ -162,7 +162,7 @@ export default function OverviewPage() {
                                 ? <>{app.overview.taskScheduledPrefix} <time className="ltr-nums" dateTime={ticket.scheduledFor}>{fmt.dateTime(ticket.scheduledFor, { hour: "numeric", minute: "2-digit", hour12: true })}</time> {app.overview.taskScheduledSuffix(workerName)}</>
                                 : app.overview.taskAnyTime(workerName)}
                             </p>
-                            <p className="mt-1 text-xs text-faint">{app.overview.created(fmt.relative(ticket.createdAt, now))}</p>
+                            <p className="mt-1 text-xs text-muted">{app.overview.created(fmt.relative(ticket.createdAt, now))}</p>
                           </li>
                         ))}
                       </ul>
@@ -192,7 +192,7 @@ export default function OverviewPage() {
                   {pendingRelays.slice(0, 5).map((relay) => (
                     <li key={relay.id} className="py-3 first:pt-0 last:pb-0">
                       <p className="font-semibold leading-relaxed">{relay.message}</p>
-                      <p className="mt-1 text-xs text-faint">{app.overview.created(fmt.relative(relay.at, now))}</p>
+                      <p className="mt-1 text-xs text-muted">{app.overview.created(fmt.relative(relay.at, now))}</p>
                     </li>
                   ))}
                 </ul>
@@ -221,7 +221,7 @@ export default function OverviewPage() {
                   </li>
                 ))}
                 {absentResources.map((resource) => (
-                  <li key={resource.kind} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm text-faint last:pb-0">
+                  <li key={resource.kind} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm text-muted last:pb-0">
                     <span>{t(RESOURCE_LABELS[resource.kind])}</span>
                     <span>{app.overview.notOnFarm}</span>
                   </li>
@@ -318,7 +318,7 @@ export default function OverviewPage() {
                       <span className="mt-0.5"><EventMarker tone={event.tone} /></span>
                       <div className="min-w-0">
                         <p className="text-sm leading-relaxed">{t(event.text)}</p>
-                        <p className="mt-1 text-xs text-faint">{fmt.relative(event.at, now)}</p>
+                        <p className="mt-1 text-xs text-muted">{fmt.relative(event.at, now)}</p>
                       </div>
                     </li>
                   ))}

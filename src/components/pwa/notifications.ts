@@ -73,9 +73,10 @@ export function selectNotificationEvents(
 
 export function buildNotification(event: PlatformEvent, locale: Locale): NotificationPayload {
   const ownerCall = isOwnerCallSummary(event);
+  // Events come from the simulated browser workspace, so the title says so.
   const title = locale === "ar"
-    ? ownerCall ? "ناقة | اتصال المالك" : "ناقة | مستجد مهم في المزرعة"
-    : ownerCall ? "NAQAH | Owner call" : "NAQAH | Important farm update";
+    ? ownerCall ? "ناقة (تجريبي) | اتصال المالك" : "ناقة (تجريبي) | مستجد مهم في المزرعة"
+    : ownerCall ? "NAQAH (Demo) | Owner call" : "NAQAH (Demo) | Important farm update";
   const destination = isNoAnswerTicket(event) ? "/app/tickets" : ownerCall ? "/app/calls" : "/app";
 
   return {

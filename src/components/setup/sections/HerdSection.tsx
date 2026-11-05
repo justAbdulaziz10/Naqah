@@ -86,9 +86,9 @@ export function HerdSection({ ws, onChange, showErrors }: SetupSectionProps) {
           type="button"
           onClick={addCamel}
           disabled={!name.trim() || !tag.trim() || ageInvalid}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-stone px-5 text-sm font-semibold text-espresso transition hover:border-sand hover:bg-ivory focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-gold/20 disabled:cursor-not-allowed disabled:opacity-45"
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-stone px-5 text-sm font-semibold text-espresso transition hover:border-sand hover:bg-ivory focus-visible:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown disabled:cursor-not-allowed disabled:opacity-45"
         >
-          <Plus size={18} weight="bold" aria-hidden />
+          <Plus size={18} weight="fill" aria-hidden />
           {m.onboarding.addCamel}
         </button>
 

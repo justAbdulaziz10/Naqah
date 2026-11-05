@@ -80,7 +80,7 @@ export function PlanSection({ ws, onChange, showSaved, onBasicWindowRequired }: 
                   nextButton.focus();
                   choose(next);
                 }}
-                className={`relative flex min-h-44 flex-col items-start rounded-2xl border p-4 text-start transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-gold/25 disabled:cursor-not-allowed disabled:opacity-60 ${
+                className={`relative flex min-h-44 flex-col items-start rounded-2xl border p-4 text-start transition focus-visible:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown disabled:cursor-not-allowed disabled:opacity-60 ${
                   selected ? "border-brown bg-ivory" : "border-stone bg-white/55 hover:border-sand"
                 }`}
               >
@@ -92,7 +92,7 @@ export function PlanSection({ ws, onChange, showSaved, onBasicWindowRequired }: 
                     }`}
                     aria-hidden="true"
                   >
-                    <Check size={14} weight="bold" />
+                    <Check size={14} weight="fill" />
                   </span>
                 </span>
                 <ul className="mt-3 space-y-2 text-sm leading-relaxed text-muted">

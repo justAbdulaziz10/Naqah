@@ -35,6 +35,7 @@ import { create } from "zustand";
 import { useNow, useWorkspaceStore } from "@/store/workspace";
 import { CamelMark } from "@/components/brand/CamelMark";
 import { cn } from "@/lib/cn";
+import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
 
 type PickerScenario = "worker_report" | "worker_outbound" | "owner_inquiry" | "emergency";
 
@@ -662,7 +663,7 @@ export function LabPage() {
   if (!ws || !availability) return null;
 
   const selectedAvailability = availabilityCopy(selected, ws, now, availability, fmt, m);
-  const workerLanguageNotice = ["ur", "hi", "bn", "fil"].includes(ws.settings.worker.language);
+  const workerLanguageNotice = !isLiveCallLanguage(ws.settings.worker.language);
   const sessionActive = Boolean(session && !session.done);
 
   function begin(scenario: Scenario, reportId?: string) {
@@ -735,7 +736,7 @@ export function LabPage() {
                 disabled={disabled}
                 onClick={() => setSelected(scenario)}
                 className={cn(
-                  "-mb-px min-w-[12rem] border-b-2 pb-3.5 pt-1 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold lg:min-w-0",
+                  "-mb-px min-w-[12rem] border-b-2 pb-3.5 pt-1 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brown lg:min-w-0",
                   current ? "border-brown text-espresso" : "border-transparent text-muted hover:text-espresso",
                   disabled && "cursor-not-allowed opacity-50",
                 )}

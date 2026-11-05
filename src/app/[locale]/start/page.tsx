@@ -35,6 +35,7 @@ import type { CriterionKind, EmergencyKind, Plan, Workspace } from "@/domain/typ
 import { createEmptyWorkspace } from "@/domain/seed";
 import { useI18n } from "@/i18n/client";
 import { onboarding as onboardingMessages } from "@/i18n/messages/onboarding";
+import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
 import { useWorkspaceStore } from "@/store/workspace";
 
@@ -90,7 +91,7 @@ function ReviewCard({
         <button
           type="button"
           onClick={() => onEdit(step)}
-          className="inline-flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-brown underline decoration-stone underline-offset-4 transition hover:decoration-brown focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-gold/20"
+          className="inline-flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-brown underline decoration-stone underline-offset-4 transition hover:decoration-brown focus-visible:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown"
         >
           {m.onboarding.editSection}
         </button>
@@ -136,6 +137,7 @@ function Review({ ws, onEdit }: { ws: Workspace; onEdit: (step: number) => void 
         </ReviewCard>
         <ReviewCard title={m.onboarding.workerSummary} step={4} onEdit={onEdit}>
           <p>{ws.settings.worker.name} · {workerLanguage.native} ({t(workerLanguage.label)})</p>
+          {isLiveCallLanguage(workerLanguage.id) ? null : <p className="text-sm text-muted">{m.onboarding.notOnLiveCalls}</p>}
           <p className="ltr-nums">{ws.settings.worker.phone}</p>
         </ReviewCard>
         <ReviewCard title={m.onboarding.criteriaSummary} step={5} onEdit={onEdit}>
@@ -316,7 +318,7 @@ export default function StartPage() {
           </Button>
           {step === STEPS.length - 1 ? (
             <Button size="md" className="px-3 text-sm sm:px-5" disabled={!valid} onClick={confirmSetup}>
-              <CheckCircle size={19} weight="bold" aria-hidden />
+              <CheckCircle size={19} weight="fill" aria-hidden />
               {m.onboarding.confirmAndOpen}
             </Button>
           ) : (

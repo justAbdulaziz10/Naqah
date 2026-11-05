@@ -94,9 +94,9 @@ export default function TicketsPage() {
                   </p>
                   {active && ticket.status === "open" && ticket.scheduledFor ? <TaskCalendarLink ticket={ticket} /> : null}
                   {active ? (
-                    <p className="mt-1 text-xs text-faint">{m.app.tickets.created(fmt.relative(ticket.createdAt, now))}</p>
+                    <p className="mt-1 text-xs text-muted">{m.app.tickets.created(fmt.relative(ticket.createdAt, now))}</p>
                   ) : ticket.closedVia ? (
-                    <p className="mt-1 text-xs text-faint">{m.app.tickets.closedVia(callKindLabel(ticket.closedVia, m))}</p>
+                    <p className="mt-1 text-xs text-muted">{m.app.tickets.closedVia(callKindLabel(ticket.closedVia, m))}</p>
                   ) : null}
                 </li>
               ))}
@@ -145,7 +145,7 @@ export default function TicketsPage() {
                 <li key={relay.id} className="py-4 first:pt-0 last:pb-0">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <Badge tone={relay.delivered ? "ok" : "warn"} dot>{relay.delivered ? m.app.tickets.delivered : m.app.tickets.notDelivered}</Badge>
-                    <span className="text-xs text-faint">{m.app.tickets.relayedAt(fmt.relative(relay.at, now))}</span>
+                    <span className="text-xs text-muted">{m.app.tickets.relayedAt(fmt.relative(relay.at, now))}</span>
                   </div>
                   <p className="mt-2 font-semibold leading-relaxed">{relay.message}</p>
                 </li>

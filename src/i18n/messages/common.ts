@@ -37,6 +37,9 @@ export const common = defineMessages({
     },
     demo: {
       badge: "Investor preview",
+      label: "Demo",
+      noticeShort: "Simulated data",
+      notice: "Farm updates, calls and tickets here are simulated. Real calls don't reach this dashboard yet.",
       clock: "Demo clock",
       clockHint: "Riyadh time",
       noWorkspace: "No farm yet",
@@ -88,6 +91,9 @@ export const common = defineMessages({
     },
     demo: {
       badge: "نسخة عرض للمستثمرين",
+      label: "عرض تجريبي",
+      noticeShort: "بيانات محاكاة",
+      notice: "التحديثات والمكالمات والمهام هنا محاكاة. المكالمات الحقيقية ما توصل لهذه اللوحة حالياً.",
       clock: "ساعة العرض",
       clockHint: "بتوقيت الرياض",
       noWorkspace: "لا توجد مزرعة بعد",

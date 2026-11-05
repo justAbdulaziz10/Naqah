@@ -83,7 +83,7 @@ export default function HerdPage() {
           <p className="mt-1 text-sm text-muted">{m.app.herd.count(fmt.number(ws.camels.length))}</p>
         </div>
         <Button ref={addButtonRef} className="w-full sm:w-auto" onClick={openNewCamel}>
-          <Plus size={18} weight="bold" aria-hidden />
+          <Plus size={18} weight="fill" aria-hidden />
           {m.app.herd.addCamel}
         </Button>
       </header>
@@ -111,7 +111,7 @@ export default function HerdPage() {
             camel
             title={m.app.herd.noCamelsTitle}
             body={m.app.herd.noCamelsBody}
-            action={<Button onClick={openNewCamel}><Plus size={17} weight="bold" aria-hidden />{m.app.herd.addCamel}</Button>}
+            action={<Button onClick={openNewCamel}><Plus size={17} weight="fill" aria-hidden />{m.app.herd.addCamel}</Button>}
           />
         </Card>
       ) : visibleCamels.length === 0 ? (
@@ -158,7 +158,7 @@ export default function HerdPage() {
                   <span className="text-muted">{camel.sex === "female" ? m.app.herd.female : m.app.herd.male}</span>
                   <span className="text-muted">{camel.ageYears === null ? m.app.herd.ageUnknown : m.app.herd.ageYears(fmt.number(camel.ageYears))}</span>
                   <CertaintyBadge certainty={camel.certainty} />
-                  <span className="text-xs text-faint">
+                  <span className="text-xs text-muted">
                     {camel.updatedAt ? m.app.herd.updated(fmt.relative(camel.updatedAt, now)) : m.app.herd.neverUpdated}
                   </span>
                 </div>

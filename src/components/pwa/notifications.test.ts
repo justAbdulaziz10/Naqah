@@ -35,7 +35,7 @@ describe("buildNotification", () => {
     );
 
     expect(result).toEqual({
-      title: "ناقة | مستجد مهم في المزرعة",
+      title: "ناقة (تجريبي) | مستجد مهم في المزرعة",
       body: "فُتحت تذكرة «عدم رد» بعد المحاولات",
       url: "/ar/app/tickets",
       tag: "naqah-ticket-1",
@@ -44,7 +44,7 @@ describe("buildNotification", () => {
 
   it("localizes the owner-call title and destination", () => {
     expect(buildNotification(event("call-1", "success", "The agent called the owner with the update"), "en")).toEqual({
-      title: "NAQAH | Owner call",
+      title: "NAQAH (Demo) | Owner call",
       body: "The agent called the owner with the update",
       url: "/en/app/calls",
       tag: "naqah-call-1",

@@ -12,7 +12,7 @@ const planRows = ["cadence", "questions", "calls", "tickets"] as const;
 const plans = ["basic", "ultimate"] as const;
 
 const textLink =
-  "inline-flex min-h-11 items-center font-semibold underline decoration-1 underline-offset-[6px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold";
+  "inline-flex min-h-11 items-center font-semibold underline decoration-1 underline-offset-[6px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current";
 
 function Arrow({ size = 18 }: { size?: number }) {
   return <ArrowUpRight size={size} weight="regular" className="rtl:-scale-x-100" aria-hidden="true" />;

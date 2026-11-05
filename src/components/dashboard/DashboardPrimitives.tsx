@@ -32,7 +32,7 @@ export function HealthBadge({ health }: { health: HealthStatus }) {
 export function CertaintyBadge({ certainty }: { certainty: Certainty }) {
   const { t } = useI18n();
   return (
-    <span className={`text-xs ${certainty === "verified" ? "font-semibold text-ok" : "text-faint"}`}>
+    <span className={`text-xs ${certainty === "verified" ? "font-semibold text-ok" : "text-muted"}`}>
       {t(CERTAINTY_LABELS[certainty])}
     </span>
   );

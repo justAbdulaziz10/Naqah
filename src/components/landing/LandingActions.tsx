@@ -52,7 +52,7 @@ export function MobileNavigation({
       <details className="group relative">
         <summary
           aria-label={menuLabel}
-          className="inline-flex size-11 cursor-pointer list-none items-center justify-center rounded-full border border-stone text-espresso transition hover:bg-espresso/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold [&::-webkit-details-marker]:hidden"
+          className="inline-flex size-11 cursor-pointer list-none items-center justify-center rounded-full border border-stone text-espresso transition hover:bg-espresso/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current [&::-webkit-details-marker]:hidden"
         >
           <List size={20} weight="regular" aria-hidden="true" />
         </summary>
@@ -65,7 +65,7 @@ export function MobileNavigation({
               key={link.href}
               href={link.href}
               onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")}
-              className="flex min-h-11 items-center rounded-xl px-3.5 text-sm font-semibold text-espresso transition hover:bg-ivory focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+              className="flex min-h-11 items-center rounded-xl px-3.5 text-sm font-semibold text-espresso transition hover:bg-ivory focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
             >
               {link.label}
             </Link>
@@ -116,7 +116,7 @@ export function SpeechButton({ text }: { text: string }) {
       type="button"
       aria-pressed={speaking}
       onClick={toggleSpeech}
-      className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-gold underline-offset-4 transition hover:text-cream hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+      className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-gold underline-offset-4 transition hover:text-cream hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
     >
       <SpeakerHigh size={18} weight="regular" aria-hidden="true" />
       {speaking ? m.landing.owner.stop : m.landing.owner.listen}
@@ -146,7 +146,7 @@ export function OwnerCall() {
               type="button"
               aria-pressed={active}
               onClick={() => setQuiet(option.quiet)}
-              className={`-mb-px min-h-11 border-b-2 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold ${
+              className={`-mb-px min-h-11 border-b-2 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current ${
                 active ? "border-gold text-cream" : "border-transparent text-cream/55 hover:text-cream"
               }`}
             >
@@ -162,8 +162,9 @@ export function OwnerCall() {
       >
         {locale === "ar" ? `«${quote}»` : `“${quote}”`}
       </blockquote>
-      <div className="mt-6">
+      <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2">
         <SpeechButton text={quote} />
+        <p className="text-sm text-cream/70">{m.landing.example}</p>
       </div>
     </div>
   );
