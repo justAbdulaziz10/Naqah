@@ -3,6 +3,7 @@
 import { ArrowRight, CheckCircle, ClipboardText, WarningCircle } from "@phosphor-icons/react";
 import { useState } from "react";
 import { EmptyState, noAnswerAttemptInfo } from "@/components/dashboard/DashboardPrimitives";
+import { TaskCalendarLink } from "@/components/integrations/TaskCalendarLink";
 import { Badge, ButtonLink, Card, CardBody, CardHeader, Segmented } from "@/components/ui";
 import { openNoAnswerTickets, openTaskTickets } from "@/domain";
 import type { CallKind } from "@/domain";
@@ -91,6 +92,7 @@ export default function TicketsPage() {
                         ? <>{m.app.tickets.closedAt} <time className="ltr-nums" dateTime={ticket.closedAt}>{fmt.dateTime(ticket.closedAt, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}</time></>
                         : ""}
                   </p>
+                  {active && ticket.status === "open" && ticket.scheduledFor ? <TaskCalendarLink ticket={ticket} /> : null}
                   {active ? (
                     <p className="mt-1 text-xs text-faint">{m.app.tickets.created(fmt.relative(ticket.createdAt, now))}</p>
                   ) : ticket.closedVia ? (

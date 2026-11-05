@@ -3,6 +3,8 @@
 import { ArrowRight, CheckCircle, Circle, WarningCircle } from "@phosphor-icons/react";
 import { ButtonLink, Card, CardBody, CardHeader } from "@/components/ui";
 import { CertaintyBadge, EmptyState, HealthBadge, ResourceMeter, noAnswerAttemptInfo } from "@/components/dashboard/DashboardPrimitives";
+import { WeatherLine } from "@/components/dashboard/WeatherLine";
+import { MessageWorkerLink, OrderSupplierLink } from "@/components/integrations/WhatsAppActions";
 import { EMERGENCY_LABELS, RESOURCE_LABELS, WEEKDAY_LABELS, levelLabel, nextWindowStart, openNoAnswerTickets, openTaskTickets, ownerAllowanceUsed, reportDoneThisPeriod, routeOwnerInboundCall, lastReportAt, fromRiyadh, riyadhParts, sameWeek } from "@/domain";
 import type { EventTone } from "@/domain";
 import { useI18n } from "@/i18n/client";
@@ -80,6 +82,7 @@ export default function OverviewPage() {
             <p className="font-semibold text-warn">{ws.settings.plan === "ultimate" ? app.overview.awaitingToday : app.overview.awaitingWeek}</p>
           ) : null}
         </div>
+        <WeatherLine />
       </header>
 
       <div className="grid gap-5 lg:grid-cols-12">
@@ -224,6 +227,7 @@ export default function OverviewPage() {
                   </li>
                 ))}
               </ul>
+              <OrderSupplierLink kinds={["feed", "water"]} />
             </CardBody>
           </Card>
 
@@ -298,6 +302,9 @@ export default function OverviewPage() {
                 {app.overview.callWorker}
                 <span className="ltr-nums">{ws.settings.worker.phone}</span>
               </a>
+              <div>
+                <MessageWorkerLink />
+              </div>
             </CardBody>
           </Card>
 

@@ -29,6 +29,7 @@ import {
 } from "@/domain";
 import { start, answer, hangUp, scenarioAvailability, type AnswerInput, type CallSession, type Scenario } from "@/domain/conversation/engine";
 import { makePersonalizer, personalizeTree } from "@/domain/conversation/personalize";
+import { heatLevel, weatherForToday, withDemoHeat } from "@/domain/weather";
 import { useI18n } from "@/i18n/client";
 import { create } from "zustand";
 import { useNow, useWorkspaceStore } from "@/store/workspace";
@@ -776,6 +777,9 @@ export function LabPage() {
           <Button variant="secondary" size="sm" className="min-h-11" onClick={jumpNextDay}>{m.lab.clock.nextDay}</Button>
           {ws.settings.plan === "basic" && ws.settings.window ? (
             <Button variant="secondary" size="sm" className="min-h-11" onClick={jumpToWindow}>{m.lab.clock.jumpWindow}</Button>
+          ) : null}
+          {ws.settings.farm.coords && heatLevel(weatherForToday(ws, now)?.maxTempC ?? 0) === "none" ? (
+            <Button variant="secondary" size="sm" className="min-h-11" onClick={() => update((current) => withDemoHeat(current, now))}>{m.integrations.weather.simulateHeatDay}</Button>
           ) : null}
         </div>
       </div>
