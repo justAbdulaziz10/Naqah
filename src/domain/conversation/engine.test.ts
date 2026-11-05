@@ -4,6 +4,7 @@ import { fromRiyadh, RETRY_DELAY_MS } from "../clock";
 import { evaluateFindings, ownerBriefing } from "../findings";
 import { dueTaskVerifications, routeOwnerInboundCall } from "../rules";
 import { createDemoWorkspace, createEmptyWorkspace } from "../seed";
+import { withDemoHeat } from "../weather";
 import type { Workspace } from "../types";
 import { answer, hangUp, start, type CallSession } from "./engine";
 
@@ -367,5 +368,58 @@ describe("Call Lab conversation engine", () => {
     expect(result.session.step).toBe("report_question");
     expect(reportAnswer?.certainty).toBe("reported");
     expect(reportAnswer?.answer).toContain("Wadha: Healthy");
+  });
+
+  it("asks the heat-day question first only for a current hot forecast with farm coordinates", () => {
+    const ws = withDemoHeat(createDemoWorkspace("en", "ultimate", NOW), NOW);
+    const hot = start(ws, NOW, "worker_report").session;
+
+    expect(hot.data.currentQuestionId).toBe("weather_heat_water");
+    expect(hot.turns.at(-2)?.text.en).toContain("Hello Ahmed");
+    expect(hot.turns.at(-1)?.text.en).toContain("hot day (46°)");
+    expect(hot.replies.map((item) => item.label.en)).toEqual(["Yes", "Not enough", "I don’t know"]);
+
+    const normalWs = structuredClone(ws);
+    normalWs.weather!.maxTempC = 39.9;
+    expect(start(normalWs, NOW, "worker_report").session.data.currentQuestionId).not.toBe("weather_heat_water");
+
+    const staleWs = structuredClone(ws);
+    staleWs.weather!.date = "2026-11-04";
+    expect(start(staleWs, NOW, "worker_report").session.data.currentQuestionId).not.toBe("weather_heat_water");
+
+    const noCoordsWs = structuredClone(ws);
+    noCoordsWs.settings.farm.coords = null;
+    expect(start(noCoordsWs, NOW, "worker_report").session.data.currentQuestionId).not.toBe("weather_heat_water");
+  });
+
+  it("stores a heat-day water and shade finding when the worker answers not enough", () => {
+    const ws = createEmptyWorkspace("ultimate");
+    ws.settings.farm.coords = { lat: 24.155, lon: 47.334 };
+    ws.resources = ws.resources.map((resource) => ({ ...resource, present: false }));
+    const heated = withDemoHeat(ws, NOW);
+
+    let session = start(heated, NOW, "worker_report").session;
+    expect(session.data.currentQuestionId).toBe("weather_heat_water");
+    session = answer(session, heated, NOW, { value: "not_enough" }).session;
+    const heatAnswer = session.draft.answers.find((item) => item.questionId === "weather_heat_water");
+    expect(heatAnswer).toMatchObject({
+      answer: "Not enough",
+      answerText: { en: "Not enough", ar: "ما يكفي" },
+      certainty: "reported",
+    });
+
+    session = answer(session, heated, NOW, { value: "unknown" }).session;
+    expect(session.step).toBe("report_summary");
+    expect(session.turns.at(-1)?.text.en).toContain("water or shade may not be enough");
+    const saved = answer(session, heated, NOW, { value: "confirm_save" });
+    const committed = saved.commit?.(heated) ?? heated;
+    const finding = committed.reports.at(-1)?.findings.find((item) => item.criterionId === "weather_heat_day");
+
+    expect(finding?.text.en).toBe("The worker reported that water or shade may not be enough for a hot day");
+    expect(finding?.text.ar).toContain("أفاد العامل");
+    expect(committed.calls.at(-1)?.summary.en).toBe("Update completed — 1 important finding(s)");
+    expect(committed.events.some((event) => event.text.en === "1 finding(s) match the owner's criteria")).toBe(true);
+    expect(committed.taskTickets).toHaveLength(0);
+    expect(committed.pendingWorkerCalls).toHaveLength(0);
   });
 });
