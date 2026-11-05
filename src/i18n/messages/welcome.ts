@@ -10,6 +10,7 @@ export const welcome = defineMessages({
     cta: "Start setting up your estate",
     pending: "Opening setup…",
     how: "How NAQAH works",
+    signIn: "Owner sign-in",
   },
   ar: {
     metaTitle: "حيّاك الله",
@@ -19,5 +20,6 @@ export const welcome = defineMessages({
     cta: "ابدأ إعداد مربطك",
     pending: "جاري فتح الإعداد…",
     how: "كيف تشتغل ناقة؟",
+    signIn: "دخول المالك",
   },
 });

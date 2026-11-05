@@ -1,4 +1,5 @@
 import { ArrowUpRight } from "@phosphor-icons/react/dist/ssr";
+import Link from "next/link";
 import type { Locale } from "@/domain/types";
 import { CamelMark } from "@/components/brand/CamelMark";
 import { Logo } from "@/components/brand/Logo";
@@ -77,6 +78,12 @@ export function LandingPage({ locale }: { locale: Locale }) {
                   {link.label}
                 </a>
               ))}
+              <Link
+                href={prefix("/login")}
+                className="inline-flex min-h-11 items-center px-3.5 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso"
+              >
+                {landing.nav.signIn}
+              </Link>
             </nav>
             <div className="hidden lg:block">
               <LocaleSwitcher className="min-h-11" />
@@ -84,7 +91,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
             <DemoAction size="md" className={`ms-2 max-sm:hidden ${flat}`}>
               {common.actions.startDemo}
             </DemoAction>
-            <MobileNavigation links={anchorLinks} menuLabel={landing.nav.menu} menuTitle={landing.nav.menuLabel} />
+            <MobileNavigation links={[...anchorLinks, { href: prefix("/login"), label: landing.nav.signIn }]} menuLabel={landing.nav.menu} menuTitle={landing.nav.menuLabel} />
           </div>
         </div>
       </header>

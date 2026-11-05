@@ -4,10 +4,12 @@ import { useMemo, useRef, useState } from "react";
 import { PencilSimple, Plus, Trash } from "@phosphor-icons/react";
 import { CamelEditorDialog, type CamelFormValues } from "@/components/dashboard/CamelEditorDialog";
 import { CertaintyBadge, EmptyState, HealthBadge } from "@/components/dashboard/DashboardPrimitives";
+import { useHashTarget } from "@/components/dashboard/useHashTarget";
 import { Button, Card, Field, IconButton, Input, Segmented } from "@/components/ui";
 import { uid } from "@/domain/id";
 import type { Camel } from "@/domain";
 import { useI18n } from "@/i18n/client";
+import { cn } from "@/lib/cn";
 import { useNow, useWorkspace, useWorkspaceStore } from "@/store/workspace";
 
 type HerdFilter = "all" | "attention" | "healthy";
@@ -22,6 +24,8 @@ export default function HerdPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
+
+  const linkedCamelId = useHashTarget("camel-", Boolean(ws));
 
   const editingCamel = ws?.camels.find((camel) => camel.id === editingId) ?? null;
   const visibleCamels = useMemo(() => {
@@ -123,8 +127,8 @@ export default function HerdPage() {
       ) : (
         <ul className="grid gap-3">
           {visibleCamels.map((camel) => (
-            <li key={camel.id}>
-              <Card className="px-4 py-4 sm:px-5">
+            <li key={camel.id} id={`camel-${camel.id}`} tabIndex={-1} className="rounded-2xl focus:outline-none">
+              <Card className={cn("px-4 py-4 sm:px-5", linkedCamelId === camel.id && "border-brown")}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-2">

@@ -9,7 +9,8 @@ import { MessageWorkerLink, OrderSupplierLink } from "@/components/integrations/
 import { EMERGENCY_LABELS, RESOURCE_LABELS, WEEKDAY_LABELS, levelLabel, nextWindowStart, openNoAnswerTickets, openTaskTickets, ownerAllowanceUsed, reportDoneThisPeriod, routeOwnerInboundCall, lastReportAt, fromRiyadh, riyadhParts, sameWeek } from "@/domain";
 import type { EventTone } from "@/domain";
 import { useI18n } from "@/i18n/client";
-import { CallSetupStatus, getCallSetupGaps, hasCompleteWindow } from "@/components/setup";
+import { findingHerdTarget } from "@/components/dashboard/findingLink";
+import { CallSetupStatus, getCallSetupGaps, hasCallLanguageNote, hasCompleteWindow } from "@/components/setup";
 import { useNow, useWorkspace } from "@/store/workspace";
 
 const statusText = {
@@ -46,7 +47,7 @@ export default function OverviewPage() {
   const nextWindowDate = reportWindow && !reportIsCurrent ? nextWindowStart(now, reportWindow) : null;
   const workerName = ws.settings.worker.name.trim() || app.overview.unnamedWorker;
   const ownerName = ws.settings.owner.name.trim().split(/\s+/)[0] ?? "";
-  const callSetupIncomplete = getCallSetupGaps(ws).length > 0;
+  const showCallSetup = getCallSetupGaps(ws).length > 0 || hasCallLanguageNote(ws);
   const hour = riyadhParts(now).hours;
   const greeting = hour < 12 ? app.overview.greetingMorning : hour < 18 ? app.overview.greetingAfternoon : app.overview.greetingEvening;
   const taskTickets = openTaskTickets(ws);
@@ -71,6 +72,7 @@ export default function OverviewPage() {
     category.kind === "custom" ? category.label || app.overview.unknown : t(EMERGENCY_LABELS[category.kind]),
   );
 
+  const camelHref = (id: string) => `${href("/app/herd")}#camel-${id}`;
   const estateName = ws.settings.farm.name.trim() || app.overview.estateFallback;
   const hasReport = Boolean(reportAt);
   const workerPhone = ws.settings.worker.phone.replace(/[\s()-]/g, "");
@@ -82,6 +84,47 @@ export default function OverviewPage() {
     { label: app.overview.setupCriteria, target: "#settings-criteria" },
     { label: app.overview.setupEmergencies, target: "#settings-emergencies" },
   ];
+
+  // Work waiting on the worker reads right after the findings, ahead of the farm's standing state.
+  const openItemsLead = hasReport && (ws.settings.plan === "ultimate" ? taskTickets.length > 0 : pendingRelays.length > 0);
+  const openItems = (
+    <Card>
+      <CardHeader title={app.overview.openItems} action={<ButtonLink href={href("/app/tickets")} variant="ghost" size="sm" className="-me-3 min-h-11 text-brown">{app.overview.viewTickets}</ButtonLink>} />
+      <CardBody className="pt-3">
+        {ws.settings.plan === "ultimate" ? (
+          taskTickets.length ? (
+            <ul className="divide-y divide-stone/70">
+              {taskTickets.slice(0, 4).map((ticket) => (
+                <li key={ticket.id} className="py-3 first:pt-0 last:pb-0">
+                  <Link href={`${href("/app/tickets")}#task-${ticket.id}`} className="group flex items-start justify-between gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown">
+                    <span className="min-w-0">
+                      <span className="block font-semibold leading-relaxed group-hover:text-brown">{ticket.instruction}</span>
+                      <span className="mt-1 block text-sm text-muted">
+                        {ticket.scheduledFor
+                          ? <>{app.overview.taskScheduledPrefix} <time className="ltr-nums" dateTime={ticket.scheduledFor}>{fmt.dateTime(ticket.scheduledFor, { hour: "numeric", minute: "2-digit", hour12: true })}</time> {app.overview.taskScheduledSuffix(workerName)}</>
+                          : app.overview.taskAnyTime(workerName)}
+                      </span>
+                      <span className="mt-1 block text-xs text-muted">{app.overview.created(fmt.relative(ticket.createdAt, now))}</span>
+                    </span>
+                    <CaretRight size={16} className="mt-1.5 shrink-0 text-muted rtl:-scale-x-100" aria-hidden />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="text-muted">{app.overview.noOpenItems}</p>
+        ) : (
+          <ul className="divide-y divide-stone/70">
+            {pendingRelays.slice(0, 5).map((relay) => (
+              <li key={relay.id} className="py-3 first:pt-0 last:pb-0">
+                <p className="font-semibold leading-relaxed">{relay.message}</p>
+                <p className="mt-1 text-xs text-muted">{app.overview.created(fmt.relative(relay.at, now))}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardBody>
+    </Card>
+  );
 
   return (
     <div className="space-y-5 pb-8">
@@ -156,12 +199,28 @@ export default function OverviewPage() {
                 <CardBody className="pt-3">
                   {hasAttention ? (
                     <ul className="divide-y divide-stone/70">
-                      {latestReport?.findings.map((finding) => (
-                        <li key={finding.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                          <WarningCircle className="mt-0.5 shrink-0 text-warn" size={19} weight="fill" aria-hidden />
-                          <p className="font-medium leading-relaxed text-espresso">{t(finding.text)}</p>
-                        </li>
-                      ))}
+                      {latestReport?.findings.map((finding) => {
+                        const herdTarget = findingHerdTarget(ws, finding);
+                        return (
+                          <li key={finding.id} className="py-3 first:pt-0 last:pb-0">
+                            {herdTarget ? (
+                              <Link
+                                href={herdTarget.camelId ? camelHref(herdTarget.camelId) : href("/app/herd")}
+                                className="group flex min-h-11 items-start gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown"
+                              >
+                                <WarningCircle className="mt-0.5 shrink-0 text-warn" size={19} weight="fill" aria-hidden />
+                                <span className="min-w-0 flex-1 font-medium leading-relaxed text-espresso underline decoration-stone underline-offset-4 group-hover:decoration-brown">{t(finding.text)}</span>
+                                <CaretRight size={16} className="mt-1.5 shrink-0 text-muted rtl:-scale-x-100" aria-hidden />
+                              </Link>
+                            ) : (
+                              <div className="flex items-start gap-3">
+                                <WarningCircle className="mt-0.5 shrink-0 text-warn" size={19} weight="fill" aria-hidden />
+                                <p className="font-medium leading-relaxed text-espresso">{t(finding.text)}</p>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
                       {noAnswerTickets.slice(0, 4).map((ticket) => {
                         const info = noAnswerAttemptInfo(ws, ticket);
                         return (
@@ -179,6 +238,8 @@ export default function OverviewPage() {
                   ) : <p className="text-muted">{app.overview.noFindings}</p>}
                 </CardBody>
               </Card>
+
+              {openItemsLead ? openItems : null}
 
               <Card>
                 <CardHeader title={app.overview.resources} />
@@ -235,7 +296,7 @@ export default function OverviewPage() {
                         {attentionCamels.map((camel) => (
                           <li key={camel.id} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
                             <div className="min-w-0">
-                              <p className="font-semibold">{camel.name}</p>
+                              <Link href={camelHref(camel.id)} className="inline-flex min-h-11 items-center font-semibold underline decoration-stone underline-offset-4 hover:decoration-brown">{camel.name}</Link>
                               <p className="mt-1 text-sm leading-relaxed text-muted">{camel.healthNote || app.herd.noHealthNote}</p>
                               <div className="mt-2"><CertaintyBadge certainty={camel.certainty} /></div>
                             </div>
@@ -265,45 +326,13 @@ export default function OverviewPage() {
             </Card>
           )}
 
-          {!hasReport && callSetupIncomplete ? <CallSetupStatus ws={ws} settingsHref={href("/app/settings")} /> : null}
+          {!hasReport && showCallSetup ? <CallSetupStatus ws={ws} settingsHref={href("/app/settings")} /> : null}
 
-          {showTasks ? (
-            <Card>
-              <CardHeader title={app.overview.openItems} action={<ButtonLink href={href("/app/tickets")} variant="ghost" size="sm" className="-me-3 min-h-11 text-brown">{app.overview.viewTickets}</ButtonLink>} />
-              <CardBody className="pt-3">
-                {ws.settings.plan === "ultimate" ? (
-                  taskTickets.length ? (
-                    <ul className="divide-y divide-stone/70">
-                      {taskTickets.slice(0, 4).map((ticket) => (
-                        <li key={ticket.id} className="py-3 first:pt-0 last:pb-0">
-                          <p className="font-semibold leading-relaxed">{ticket.instruction}</p>
-                          <p className="mt-1 text-sm text-muted">
-                            {ticket.scheduledFor
-                              ? <>{app.overview.taskScheduledPrefix} <time className="ltr-nums" dateTime={ticket.scheduledFor}>{fmt.dateTime(ticket.scheduledFor, { hour: "numeric", minute: "2-digit", hour12: true })}</time> {app.overview.taskScheduledSuffix(workerName)}</>
-                              : app.overview.taskAnyTime(workerName)}
-                          </p>
-                          <p className="mt-1 text-xs text-muted">{app.overview.created(fmt.relative(ticket.createdAt, now))}</p>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : <p className="text-muted">{app.overview.noOpenItems}</p>
-                ) : (
-                  <ul className="divide-y divide-stone/70">
-                    {pendingRelays.slice(0, 5).map((relay) => (
-                      <li key={relay.id} className="py-3 first:pt-0 last:pb-0">
-                        <p className="font-semibold leading-relaxed">{relay.message}</p>
-                        <p className="mt-1 text-xs text-muted">{app.overview.created(fmt.relative(relay.at, now))}</p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardBody>
-            </Card>
-          ) : null}
+          {showTasks && !openItemsLead ? openItems : null}
         </div>
 
         <aside className="flex min-w-0 flex-col gap-5 lg:col-span-4">
-          {hasReport && callSetupIncomplete ? <CallSetupStatus ws={ws} settingsHref={href("/app/settings")} /> : null}
+          {hasReport && showCallSetup ? <CallSetupStatus ws={ws} settingsHref={href("/app/settings")} /> : null}
 
           {ws.settings.plan === "basic" ? (
             <Card>

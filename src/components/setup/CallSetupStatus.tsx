@@ -1,9 +1,11 @@
 "use client";
 
+import { WORKER_LANGUAGES } from "@/domain/catalog";
 import type { ReportingWindow, Workspace } from "@/domain/types";
 import { isValidWindow } from "@/domain/clock";
 import { useI18n } from "@/i18n/client";
 import { ButtonLink } from "@/components/ui";
+import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
 import { useId } from "react";
 import { isSaudiMobile } from "./phone";
 
@@ -27,10 +29,16 @@ export function getCallSetupGaps(ws: Workspace): CallSetupGap[] {
   return gaps;
 }
 
+/** The worker's language is saved, but calls will not run in it yet. Not a gap: calls still work. */
+export function hasCallLanguageNote(ws: Workspace): boolean {
+  return !isLiveCallLanguage(ws.settings.worker.language);
+}
+
 /** Keeps saved setup completion separate from call configuration and live-call availability. */
 export function CallSetupStatus({ ws, settingsHref }: { ws: Workspace; settingsHref?: string }) {
-  const { m } = useI18n();
+  const { m, t } = useI18n();
   const gaps = getCallSetupGaps(ws);
+  const workerLanguage = WORKER_LANGUAGES.find((language) => language.id === ws.settings.worker.language);
   const titleId = useId();
 
   return (
@@ -48,6 +56,9 @@ export function CallSetupStatus({ ws, settingsHref }: { ws: Workspace; settingsH
         <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-espresso">
           {gaps.map((gap) => <li key={gap}>{m.onboarding.callSetupItems[gap]}</li>)}
         </ul>
+      ) : null}
+      {workerLanguage && hasCallLanguageNote(ws) ? (
+        <p className="mt-2 text-sm leading-relaxed text-espresso">{m.onboarding.workerLanguageNotLive(t(workerLanguage.label))}</p>
       ) : null}
       <p className="mt-3 text-sm leading-relaxed text-muted">{m.onboarding.liveCallsUnavailable}</p>
       {settingsHref && gaps.length ? (

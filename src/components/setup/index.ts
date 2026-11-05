@@ -1,4 +1,4 @@
-export { CallSetupStatus, getCallSetupGaps, hasCompleteWindow } from "./CallSetupStatus";
+export { CallSetupStatus, getCallSetupGaps, hasCallLanguageNote, hasCompleteWindow } from "./CallSetupStatus";
 export type { CallSetupGap } from "./CallSetupStatus";
 export { EmergencySection } from "./sections/EmergencySection";
 export { OwnerFarmSection } from "./sections/OwnerFarmSection";
@@ -11,8 +11,10 @@ export { WorkerSection } from "./sections/WorkerSection";
 export {
   clearReplacementDraft,
   createOnboardingSample,
+  createReplacementDraft,
   hasOwnSetupData,
   readReplacementDraft,
+  replacementLoss,
   saveReplacementDraft,
   subscribeReplacementDraft,
 } from "./draft";

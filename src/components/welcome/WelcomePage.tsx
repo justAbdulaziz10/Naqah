@@ -24,7 +24,15 @@ export function WelcomePage({ locale }: { locale: Locale }) {
     <div className="grid min-h-svh bg-ivory text-espresso [grid-template-areas:'header'_'image'_'main'_'sig'] [grid-template-rows:auto_auto_1fr_auto] lg:grid-cols-[minmax(0,45fr)_minmax(0,55fr)] lg:[grid-template-areas:'header_image'_'main_image'_'sig_image'] lg:[grid-template-rows:auto_1fr_auto]">
       <header className="flex min-h-16 items-center justify-between gap-3 px-5 [grid-area:header] sm:px-8 lg:px-12 xl:px-20">
         <Logo locale={locale} href={`/${locale}`} className="min-h-11" />
-        <LocaleSwitcher className="min-h-11" />
+        <div className="flex items-center gap-1">
+          <Link
+            href={`/${locale}/login`}
+            className="inline-flex min-h-11 items-center px-2 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso"
+          >
+            {welcome.signIn}
+          </Link>
+          <LocaleSwitcher className="min-h-11" />
+        </div>
       </header>
 
       <div className="relative [grid-area:image]">

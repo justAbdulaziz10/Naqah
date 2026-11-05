@@ -2,12 +2,15 @@
 
 import { ArrowRight, CheckCircle, ClipboardText, WarningCircle } from "@phosphor-icons/react";
 import { useState } from "react";
+import Link from "next/link";
 import { EmptyState, noAnswerAttemptInfo } from "@/components/dashboard/DashboardPrimitives";
+import { useHashTarget } from "@/components/dashboard/useHashTarget";
 import { TaskCalendarLink } from "@/components/integrations/TaskCalendarLink";
 import { Badge, ButtonLink, Card, CardBody, CardHeader, Segmented } from "@/components/ui";
 import { openNoAnswerTickets, openTaskTickets } from "@/domain";
 import type { CallKind } from "@/domain";
 import { useI18n } from "@/i18n/client";
+import { cn } from "@/lib/cn";
 import { useNow, useWorkspace } from "@/store/workspace";
 
 type TicketTab = "active" | "history";
@@ -31,6 +34,7 @@ export default function TicketsPage() {
   const ws = useWorkspace();
   const now = useNow();
   const [tab, setTab] = useState<TicketTab>("active");
+  const linkedTaskId = useHashTarget("task-", Boolean(ws));
   if (!ws) return null;
 
   const active = tab === "active";
@@ -62,7 +66,12 @@ export default function TicketsPage() {
       {ws.settings.plan === "basic" ? (
         <Card className="border-info/20">
           <CardHeader title={m.app.tickets.basicExplainerTitle} icon={<ClipboardText size={19} aria-hidden />} />
-          <CardBody className="pt-3 text-sm leading-relaxed text-muted">{m.app.tickets.basicExplainerBody}</CardBody>
+          <CardBody className="pt-3 text-sm leading-relaxed text-muted">
+            <p>{m.app.tickets.basicExplainerBody}</p>
+            <Link href={`${href("/app/settings")}#settings-plan`} className="mt-1 inline-flex min-h-11 items-center font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
+              {m.app.tickets.comparePlans}
+            </Link>
+          </CardBody>
         </Card>
       ) : null}
 
@@ -81,7 +90,12 @@ export default function TicketsPage() {
             ) : null}
             <ul className="divide-y divide-stone/70">
               {tasks.map((ticket) => (
-                <li key={ticket.id} className="py-4 first:pt-0 last:pb-0">
+                <li
+                  key={ticket.id}
+                  id={`task-${ticket.id}`}
+                  tabIndex={-1}
+                  className={cn("py-4 first:pt-0 last:pb-0 focus:outline-none", linkedTaskId === ticket.id && "border-s-2 border-s-brown ps-3")}
+                >
                   <p className="font-semibold leading-relaxed">{ticket.instruction}</p>
                   <p className="mt-1 text-sm text-muted">
                     {active
