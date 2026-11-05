@@ -111,6 +111,34 @@ npm test           # domain rules (Vitest)
 npm run typecheck && npm run lint && npm run build
 ```
 
+## 5a. Integrations (Settings → Connections)
+
+Each integration has its own guide in `docs/integrations/`. Free ones work today; paid ones are fully coded but
+stay off until their env vars are set (see `.env.example`). Nothing here needs a paid account for the demo.
+
+| Integration | Cost | Where it shows | Code | Guide |
+|---|---|---|---|---|
+| Installable app, offline, notifications | Free | Settings card; app-wide | `src/app/manifest.ts`, `public/sw.js`, `src/components/pwa/`, `src/app/api/push` | `pwa.md` |
+| Calendar feed + per-task "add to calendar" | Free | Settings card; Tickets rows | `src/lib/calendar/`, `src/app/api/calendar` | `calendar.md` |
+| WhatsApp deep links (message worker, order from supplier) | Free | Settings card; dashboard resources + emergency | `src/lib/whatsapp/`, `WhatsAppActions.tsx` | `whatsapp-links.md` |
+| Weather + farm location + heat-day question | Free (Open-Meteo) | Dashboard line; Settings card; setup; Call Lab "Simulate a heat day" | `src/domain/weather.ts`, `src/lib/weather/`, `src/lib/geo/` | `weather.md` |
+| Real phone line (Twilio) + WhatsApp Cloud summary | **Paid** per minute / message | Settings "Phone line" card | `src/server/`, `src/app/api/voice/*`, `src/app/api/integrations/status` | `phone.md` |
+
+Things to know before changing them:
+- **Phone calls are stateless.** Call state travels in the signed `s` query parameter and each turn replays the
+  engine against the server-side sample workspace. Until Supabase is connected, a real call updates the *sample*
+  farm, not the owner's browser data.
+- **Voice locale is per deployment** (`NAQAH_VOICE_LOCALE`). Verify with
+  `node scripts/verify-naqah.mjs voice --locale <same locale as the server>`.
+- **Push:** without VAPID keys, notifications are shown locally by the service worker while the app is open.
+  Server push needs `NEXT_PUBLIC_VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` (`npx web-push generate-vapid-keys`).
+- **Calendar links are snapshots.** The subscription URL encodes the schedule when it is copied; re-add after changes.
+- **Proxy matcher** (`src/proxy.ts`) must exclude every non-locale route: `api`, `icon`, `apple-icon`,
+  `pwa-icons`, and anything with a dot (`manifest.webmanifest`, `sw.js`). A new metadata route without a dot
+  will otherwise be redirected to `/ar/...`.
+- The heat-day finding is passed through `ReportDraft.extraFindings`, so it is counted by `evaluateFindings` like
+  any criterion finding. Use the same field for other conversation-raised findings.
+
 ## 6. Moving from demo to production (for the team)
 
 See §8 for the full roadmap: Supabase schema, telephony (Twilio + a voice model), auth, and where each domain
