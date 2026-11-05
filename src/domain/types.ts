@@ -42,9 +42,32 @@ export interface Owner {
   phone: string;
 }
 
+export interface FarmCoords {
+  lat: number;
+  lon: number;
+}
+
 export interface Farm {
   name: string;
   location: string;
+  /** Optional GPS point for weather. Never required. */
+  coords?: FarmCoords | null;
+}
+
+/** Owner-side contacts used by free deep links (WhatsApp wa.me). */
+export interface Integrations {
+  supplierName?: string;
+  supplierPhone?: string;
+}
+
+/** Latest daily forecast for the farm (Open-Meteo). Stored so rules stay pure. */
+export interface WeatherSnapshot {
+  fetchedAt: string;
+  /** Riyadh calendar date the forecast is for, YYYY-MM-DD. */
+  date: string;
+  maxTempC: number;
+  minTempC: number | null;
+  source: "open-meteo";
 }
 
 export interface Worker {
@@ -273,6 +296,7 @@ export interface Settings {
   emergencies: EmergencyCategory[];
   /** Basic only. */
   window: ReportingWindow | null;
+  integrations?: Integrations;
 }
 
 export interface Workspace {
@@ -294,6 +318,8 @@ export interface Workspace {
   events: PlatformEvent[];
   /** Simulated clock for the investor demo: now = real now + offset. */
   clockOffsetMs: number;
+  /** Latest farm forecast, if the farm has coordinates. Optional: older workspaces lack it. */
+  weather?: WeatherSnapshot | null;
   /**
    * Basic: the owner's one call this week. Set when an answered notification or an
    * owner inquiry consumes it. Week = Sunday 00:00 → Saturday 23:59 Riyadh.

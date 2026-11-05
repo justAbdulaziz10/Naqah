@@ -13,6 +13,7 @@ import {
   WorkerSection,
   type WorkspaceUpdate,
 } from "@/components/setup";
+import { IntegrationsSection } from "@/components/integrations/IntegrationsSection";
 import { useI18n } from "@/i18n/client";
 import { useWorkspaceStore } from "@/store/workspace";
 
@@ -58,6 +59,8 @@ export default function SettingsPage() {
       <div id="settings-schedule" className="scroll-mt-24">
         <ScheduleSection ws={ws} onChange={onChange} showSaved />
       </div>
+
+      <IntegrationsSection />
 
       <Card>
         <CardHeader title={m.onboarding.demoControls} />
