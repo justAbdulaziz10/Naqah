@@ -5,4 +5,5 @@ export * from "./rules";
 export * from "./findings";
 export * from "./actions";
 export * from "./seed";
+export * from "./weather";
 export { uid } from "./id";

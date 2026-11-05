@@ -25,6 +25,8 @@ import {
 } from "../actions";
 import { fromRiyadh, MAX_RETRIES, RETRY_DELAY_MS, riyadhParts, nextWindowStart } from "../clock";
 import { evaluateFindings, ownerBriefing, type ReportDraft } from "../findings";
+import { uid } from "../id";
+import { heatLevel, heatWaterFinding, weatherForToday } from "../weather";
 import {
   applicableQuestions,
   dueTaskVerifications,
@@ -38,6 +40,7 @@ import {
 } from "../rules";
 import type {
   Certainty,
+  Finding,
   HealthStatus,
   Level,
   LocalizedText,
@@ -69,6 +72,7 @@ export interface Reply {
 }
 
 type ReportItem =
+  | { kind: "weather_heat_day"; id: string; question: LocalizedText }
   | { kind: "predefined"; id: string; question: LocalizedText; answerKind: PredefinedQuestion["answerKind"]; resource: ResourceKind | null }
   | { kind: "custom"; id: string; question: LocalizedText }
   | { kind: "task"; id: string; taskId: string; question: LocalizedText };
@@ -94,6 +98,7 @@ interface ConversationData {
   inquiryTopics?: string[];
   callbackTaskIds?: string[];
   callbackTaskIndex?: number;
+  weatherFinding?: Finding;
 }
 
 export interface CallSession {
@@ -238,6 +243,21 @@ export function scenarioAvailability(ws: Workspace, now: Date): ScenarioAvailabi
   };
 }
 
+function heatDayReportItem(ws: Workspace, now: Date): ReportItem | null {
+  if (!ws.settings.farm.coords) return null;
+  const forecast = weatherForToday(ws, now);
+  if (!forecast || heatLevel(forecast.maxTempC) === "none") return null;
+  const maxTemp = Math.round(forecast.maxTempC);
+  return {
+    kind: "weather_heat_day",
+    id: "weather_heat_water",
+    question: copy(
+      `It's a hot day (${maxTemp}°). Do the camels have enough water and shade?`,
+      `الجو حار اليوم (${maxTemp}°). عند النوق ماء وظل كافيين؟`,
+    ),
+  };
+}
+
 export function start(
   ws: Workspace,
   now: Date,
@@ -294,6 +314,8 @@ function startWorkerReport(ws: Workspace, now: Date): EngineResult {
     return { session: completed, commit: commitTo(rejectWorkerReport(ws, now, route.reason)) };
   }
 
+  // Ask the single weather check first, only when today's forecast and farm coordinates exist.
+  const heatQuestion = heatDayReportItem(ws, now);
   const queue: ReportItem[] = applicableQuestions(ws)
     .filter((question) => question.id !== "herd_count" || ws.camels.length > 0)
     .map((question) => ({
@@ -303,6 +325,7 @@ function startWorkerReport(ws: Workspace, now: Date): EngineResult {
       answerKind: question.answerKind,
       resource: question.requires,
     }));
+  if (heatQuestion) queue.unshift(heatQuestion);
   queue.push(
     ...ws.settings.customQuestions.map((question) => ({
       kind: "custom" as const,
@@ -519,6 +542,15 @@ function askReportItem(session: CallSession, ws: Workspace, now: Date): CallSess
   if (!item) return askReportSummary(session, ws, now);
   const data = { ...session.data, currentQuestionId: item.id };
   const current = { ...session, data };
+  if (item.kind === "weather_heat_day") {
+    return ask(
+      current,
+      item.question,
+      now,
+      "report_question",
+      [reply("yes", "Yes", "إيه"), reply("not_enough", "Not enough", "ما يكفي"), reply("unknown", "I don’t know", "ما أدري")],
+    );
+  }
   if (item.kind === "task") {
     return ask(
       current,
@@ -629,6 +661,22 @@ function handleReportQuestion(
   const value = current.value;
   const item = session.data.queue?.[session.data.reportIndex ?? 0];
   if (!item) return { session: session };
+
+  if (item.kind === "weather_heat_day") {
+    const unknown = isUnknown(value, input.text);
+    const notEnough = value === "not_enough";
+    const selected = unknown ? UNKNOWN_ANSWER : notEnough ? copy("Not enough", "ما يكفي") : copy("Yes", "إيه");
+    const recorded = reportAnswer(current.session, item, selected, unknown ? "unknown" : "reported");
+    return {
+      session: nextReportItem({
+        ...recorded,
+        data: {
+          ...recorded.data,
+          ...(notEnough ? { weatherFinding: heatWaterFinding(uid("fnd")) } : {}),
+        },
+      }, ws, now),
+    };
+  }
 
   if (item.kind === "task") {
     const unknown = isUnknown(value, input.text);
@@ -998,7 +1046,10 @@ function handleQuantityConfirm(session: CallSession, ws: Workspace, now: Date, i
 }
 
 function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallSession {
-  const findings = evaluateFindings(ws, session.draft);
+  const findings = [
+    ...evaluateFindings(ws, session.draft),
+    ...(session.data.weatherFinding ? [session.data.weatherFinding] : []),
+  ];
   const factsEn: string[] = [];
   const factsAr: string[] = [];
   for (const update of session.draft.camelUpdates) {
@@ -1036,6 +1087,17 @@ function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallS
 
 function completeReport(session: CallSession, ws: Workspace, now: Date): EngineResult {
   const completed = completeWorkerReport(ws, now, session.draft);
+  if (session.data.weatherFinding) {
+    completed.report.findings.push(session.data.weatherFinding);
+    const reportCall = completed.ws.calls.find((call) => call.id === completed.report.callId);
+    if (reportCall) {
+      const count = completed.report.findings.length;
+      reportCall.summary = {
+        ar: `تحديث مكتمل — ${count} ملاحظة مهمة`,
+        en: `Update completed — ${count} important finding(s)`,
+      };
+    }
+  }
   const next = say(
     {
       ...session,
