@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { updateSession } from "@/lib/supabase/proxy";
 
 const LOCALES = ["ar", "en"];
 
 /** Redirect locale-less paths to /ar or /en (Arabic first unless the browser prefers English). */
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (LOCALES.some((l) => pathname === `/${l}` || pathname.startsWith(`/${l}/`))) return;
+  if (LOCALES.some((l) => pathname === `/${l}` || pathname.startsWith(`/${l}/`))) return updateSession(request);
 
   const cookie = request.cookies.get("naqah-locale")?.value;
   const accept = request.headers.get("accept-language") ?? "";
