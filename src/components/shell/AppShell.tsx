@@ -17,6 +17,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { CamelMark } from "@/components/brand/CamelMark";
+import { EventNotifier } from "@/components/pwa/EventNotifier";
 import { Logo } from "@/components/brand/Logo";
 import { Button, ButtonLink } from "@/components/ui";
 import { openNoAnswerTickets, openTaskTickets } from "@/domain";
@@ -87,6 +88,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[260px_1fr]">
+      <EventNotifier />
       {/* Sidebar (desktop) */}
       <aside className="sticky top-0 hidden h-dvh flex-col border-e border-stone/70 bg-cream/60 px-4 py-6 lg:flex">
         <div className="px-2">

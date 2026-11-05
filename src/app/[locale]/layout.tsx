@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Alexandria, Montserrat } from "next/font/google";
 import { notFound } from "next/navigation";
+import { ServiceWorkerRegistrar } from "@/components/pwa/ServiceWorkerRegistrar";
 import { I18nProvider } from "@/i18n/client";
 import { dirOf, isLocale, LOCALES } from "@/i18n/config";
 import "../globals.css";
@@ -33,11 +34,12 @@ export async function generateMetadata({ params }: LayoutProps<"/[locale]">): Pr
     description: m.description,
     alternates: { languages: { ar: "/ar", en: "/en" } },
     openGraph: { title: m.title, description: m.description, type: "website", locale: locale === "en" ? "en_US" : "ar_SA" },
+    appleWebApp: { capable: true, title: "NAQAH", statusBarStyle: "default" },
   };
 }
 
 export const viewport: Viewport = {
-  themeColor: "#f5f0e8",
+  themeColor: "#29241f",
   width: "device-width",
   initialScale: 1,
 };
@@ -48,7 +50,10 @@ export default async function LocaleLayout({ children, params }: LayoutProps<"/[
   return (
     <html lang={locale} dir={dirOf(locale)} className={`${alexandria.variable} ${montserrat.variable} antialiased`}>
       <body>
-        <I18nProvider locale={locale}>{children}</I18nProvider>
+        <I18nProvider locale={locale}>
+          <ServiceWorkerRegistrar />
+          {children}
+        </I18nProvider>
       </body>
     </html>
   );
