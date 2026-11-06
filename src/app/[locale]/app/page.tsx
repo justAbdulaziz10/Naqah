@@ -40,9 +40,6 @@ export default function OverviewPage() {
     : upcomingWindow;
   const ultimate = ws.settings.plan === "ultimate";
   const worker = ws.settings.worker.name.trim() || app.overview.unnamedWorker;
-  const ownerName = ws.settings.owner.name.trim().split(/\s+/)[0] ?? "";
-  const hour = riyadhParts(now).hours;
-  const greeting = hour < 12 ? app.overview.greetingMorning : hour < 18 ? app.overview.greetingAfternoon : app.overview.greetingEvening;
   const estateName = ws.settings.farm.name.trim() || app.overview.estateFallback;
   const showCallSetup = getCallSetupGaps(ws).length > 0 || hasCallLanguageNote(ws);
 
@@ -112,7 +109,6 @@ export default function OverviewPage() {
     <div className="space-y-4 pb-8">
       <EstateHeader
         name={estateName}
-        greeting={greeting(ownerName)}
         state={state}
         tone={tone}
         worker={worker}

@@ -37,7 +37,7 @@ const readWs = (page) => page.evaluate(() => JSON.parse(localStorage.getItem("na
 
 async function startDemo(page, locale, plan = "ultimate") {
   await page.goto(`${BASE}/${locale}/app`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: locale === "ar" ? "جرّب العرض الحي" : "Explore the live demo" }).first().click();
+  await page.getByRole("button", { name: locale === "ar" ? "جرّب العرض" : "Explore the demo" }).first().click();
   await page.waitForFunction(() => !!localStorage.getItem("naqah-workspace-v1")?.includes('"setupComplete":true'), null, { timeout: 10_000 });
   if (plan !== "ultimate") throw new Error("only the ultimate sample is started by the gate button");
 }

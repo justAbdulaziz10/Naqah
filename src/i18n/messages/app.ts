@@ -4,9 +4,6 @@ import { defineMessages } from "../types";
 export const app = defineMessages({
   en: {
     overview: {
-      greetingMorning: (name: string) => name ? `Good morning, ${name}` : "Good morning",
-      greetingAfternoon: (name: string) => name ? `Good afternoon, ${name}` : "Good afternoon",
-      greetingEvening: (name: string) => name ? `Good evening, ${name}` : "Good evening",
       unnamedWorker: "the worker",
       noUpdate: "No update yet",
       lastUpdate: "Last update:",
@@ -197,9 +194,6 @@ export const app = defineMessages({
   },
   ar: {
     overview: {
-      greetingMorning: (name: string) => name ? `صباح الخير، ${name}` : "صباح الخير",
-      greetingAfternoon: (name: string) => name ? `مساء الخير، ${name}` : "مساء الخير",
-      greetingEvening: (name: string) => name ? `مساء الخير، ${name}` : "مساء الخير",
       unnamedWorker: "العامل",
       noUpdate: "ما وصلنا تحديث بعد",
       lastUpdate: "آخر تحديث:",
