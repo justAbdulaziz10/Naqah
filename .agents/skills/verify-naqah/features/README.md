@@ -2,7 +2,7 @@
 
 Baseline: a production server from `verify-naqah launch` (or `--base https://naqah.vercel.app`), a fresh browser
 context (empty localStorage). Start the sample farm through the real gate: `/{locale}/app` → button
-"Explore the live demo" / «جرّب العرض الحي» (Ultimate plan, worker Ahmed/أحمد, owner Abdullah/عبدالله, 8 camels).
+"Explore the demo" / «جرّب العرض» (Ultimate plan, worker Ahmed/أحمد, owner Abdullah/عبدالله, 8 camels).
 
 Conventions: drive with Playwright via `scripts/verify-naqah.mjs`; prefer role + accessible name; read state back
 from `localStorage["naqah-workspace-v1"].state.workspace` only to *check* results, never to set them up (exception:

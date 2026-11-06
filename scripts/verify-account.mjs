@@ -253,7 +253,7 @@ const farmB = sql(`select id from farms where owner_id = ${q(ownerB.id)}`);
 sql(`update farms set plan = 'ultimate' where id = ${q(farmB)}`); // No billing yet: the service sets a plan.
 await runWizard(B.page, "en", { owner: "Faisal", farm: "Rawdah Farm", worker: "Hamid", ownerPhone: phone(), workerPhone: workerB });
 sql(`update workers set language = 'en' where farm_id = ${q(farmB)}`);
-check("Ultimate farm loads as Ultimate", (await B.page.locator("body").innerText()).includes("Faisal") && sql(`select plan from farms where id = ${q(farmB)}`) === "ultimate", (await B.page.locator("body").innerText()).slice(0, 240) + " :: " + sql(`select plan, owner_name, setup_complete from farms where id = ${q(farmB)}`));
+check("Ultimate farm loads as Ultimate", (await B.page.locator("body").innerText()).includes("Rawdah Farm") && sql(`select plan from farms where id = ${q(farmB)}`) === "ultimate", (await B.page.locator("body").innerText()).slice(0, 240) + " :: " + sql(`select plan, owner_name, setup_complete from farms where id = ${q(farmB)}`));
 const body = await B.page.locator("body").innerText();
 check("owner B sees nothing of owner A", !body.includes(FARM_A) && !body.includes(ANSWER));
 const rest = (path, token) => fetch(`${GATEWAY}/rest/v1/${path}`, { headers: { Authorization: `Bearer ${token}` } }).then((response) => response.json());
@@ -284,7 +284,7 @@ await B.page.screenshot({ path: `${SHOTS}/en-overview-390.png`, fullPage: true }
 // ── A visitor stays in the demo ─────────────────────────────────────────────────────────
 const V = await open();
 await V.page.goto(`${BASE}/en`);
-await V.page.getByRole("button", { name: /live demo/i }).first().click();
+await V.page.getByRole("button", { name: /explore the demo/i }).first().click();
 await V.page.waitForURL("**/en/app");
 await V.page.getByRole("note").first().waitFor();
 check("a signed-out visitor gets the browser demo with its notice", (await storedText(V.page)).includes("naqah-workspace-v1"));
