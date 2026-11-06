@@ -1,0 +1,64 @@
+/*
+ * Opening intro: warp strips on a dark ground, the official mark fading in and out above them, then
+ * the strips drawing apart to reveal the hero. The mark only changes opacity. Pure CSS, so the
+ * overlay clears itself without a script; never shown twice in a session or under reduced motion.
+ */
+.naqah-opening {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  direction: ltr;
+  pointer-events: none;
+  animation: naqah-opening-end 1ms linear 1400ms forwards;
+}
+.naqah-opening-strip {
+  flex: 1 1 0;
+  /* A pixel of overlap, so fractional widths never show the page through a seam. */
+  margin-inline-end: -1px;
+  background: #29241f;
+  transform-origin: 50% 0%;
+  animation: naqah-opening-strip 460ms cubic-bezier(0.76, 0, 0.24, 1) calc(760ms + var(--d) * 45ms) forwards;
+}
+.naqah-opening-strip:nth-child(even) {
+  background: #4e3927;
+  transform-origin: 50% 100%;
+}
+.naqah-opening-mark {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  animation: naqah-opening-mark 760ms linear both;
+}
+html[data-intro-seen] .naqah-opening {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .naqah-opening {
+    display: none;
+  }
+}
+
+@keyframes naqah-opening-end {
+  to {
+    visibility: hidden;
+  }
+}
+@keyframes naqah-opening-strip {
+  to {
+    transform: scaleY(0);
+  }
+}
+@keyframes naqah-opening-mark {
+  0% {
+    opacity: 0;
+  }
+  46%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}

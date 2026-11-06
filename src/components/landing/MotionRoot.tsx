@@ -37,5 +37,40 @@ export function MotionRoot() {
     return () => observer.disconnect();
   }, []);
 
+  // The fixed bar takes its ground once the opening photograph has passed.
+  useEffect(() => {
+    const hero = document.getElementById("hero");
+    if (!hero || !("IntersectionObserver" in window)) return;
+    const html = document.documentElement;
+    const observer = new IntersectionObserver(([entry]) => html.toggleAttribute("data-hero-past", !entry.isIntersecting), {
+      rootMargin: "-72px 0px 0px 0px",
+    });
+    observer.observe(hero);
+    return () => {
+      observer.disconnect();
+      html.removeAttribute("data-hero-past");
+    };
+  }, []);
+
+  // The opening photograph drifts a little slower than the page while it is on screen.
+  useEffect(() => {
+    const picture = document.querySelector<HTMLElement>("[data-parallax]");
+    if (!picture || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const offset = Math.min(window.scrollY, window.innerHeight);
+      picture.style.transform = `translate3d(0, ${(offset * 0.14).toFixed(1)}px, 0)`;
+    };
+    const request = () => {
+      if (!frame) frame = window.requestAnimationFrame(update);
+    };
+    window.addEventListener("scroll", request, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", request);
+      window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
   return null;
 }

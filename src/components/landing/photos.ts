@@ -1,12 +1,6 @@
 import type { LocalizedText } from "@/domain/types";
 
-/**
- * The six colour classes judged at the King Abdulaziz Camel Festival (Camel Club categories, via
- * Saudipedia; Arab News). المغاتير is the umbrella name for the light colours, not a class of its own.
- */
-export type CamelColourId = "wadh" | "shul" | "sufr" | "shaqh" | "humr" | "majaheem";
-
-export type LandingPhotoId = "hero" | "evening" | "heritage" | "herd" | "closing" | "welcome" | CamelColourId;
+export type LandingPhotoId = "hero" | "evening" | "heritage" | "herd" | "closing" | "welcome";
 
 export interface LandingPhoto {
   /** Path under /public, e.g. "/images/landing/hero.jpg". */
@@ -26,37 +20,37 @@ export interface LandingPhoto {
  */
 export const LANDING_PHOTOS: Partial<Record<LandingPhotoId, LandingPhoto>> = {
   hero: {
-    src: "/images/landing/hero-herder.jpg",
-    width: 2400,
-    height: 1598,
+    src: "/images/landing/hero-herd-dusk.jpg",
+    width: 2560,
+    height: 1706,
     alt: {
-      en: "A herder leads a camel across flat desert sand in a dusty haze",
-      ar: "راعٍ يقود جمله عبر رمال صحراء مستوية في غبار خفيف",
+      en: "A line of camels walking across the sand at sunset under a peach sky",
+      ar: "إبل تمشي في صف على الرمل وقت الغروب تحت سماء خوخية",
     },
-    focus: "50% 100%",
+    focus: "44% 62%",
     credit: {
-      title: "راع يقود جمله",
-      creator: "Saudi Press Agency (SPA)",
-      license: "CC BY-SA 4.0",
-      licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/",
-      sourceUrl: "https://commons.wikimedia.org/wiki/File:%D8%B1%D8%A7%D8%B9_%D9%8A%D9%82%D9%88%D8%AF_%D8%AC%D9%85%D9%84%D9%87.jpg",
+      title: "Camels Trekking Through the Desert at Sunset",
+      creator: "Mo Eid",
+      license: "Pexels License",
+      licenseUrl: "https://www.pexels.com/license/",
+      sourceUrl: "https://www.pexels.com/photo/camels-trekking-through-the-desert-at-sunset-28844446/",
     },
   },
   evening: {
-    src: "/images/landing/evening.jpg",
-    width: 1600,
-    height: 1066,
+    src: "/images/landing/call-hisma-sunset.jpg",
+    width: 2400,
+    height: 1600,
     alt: {
-      en: "A dromedary and her newborn calf in low, warm light",
-      ar: "ناقة ومعها حوارها المولود حديثًا في ضوء دافئ منخفض",
+      en: "The sun setting on the horizon of the Hisma Desert, with rock outcrops in silhouette",
+      ar: "الشمس تغرب على أفق صحراء حسمى، والصخور ظلال داكنة",
     },
-    focus: "50% 55%",
+    focus: "62% 58%",
     credit: {
-      title: "Arabian Camel in Kuwait",
-      creator: "Manojkiri photography",
-      license: "CC BY-SA 4.0",
-      licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/",
-      sourceUrl: "https://commons.wikimedia.org/wiki/File:Arabian_Camel_in_Kuwait.jpg",
+      title: "The sun is setting over a desert landscape",
+      creator: "NEOM",
+      license: "Unsplash License",
+      licenseUrl: "https://unsplash.com/license",
+      sourceUrl: "https://unsplash.com/photos/the-sun-is-setting-over-a-desert-landscape-WpOMM4uE-F8",
     },
   },
   heritage: {
@@ -77,37 +71,54 @@ export const LANDING_PHOTOS: Partial<Record<LandingPhotoId, LandingPhoto>> = {
     },
   },
   herd: {
-    src: "/images/landing/herd-profile.jpg",
-    width: 1600,
-    height: 1066,
+    src: "/images/landing/plans-camel-dusk.jpg",
+    width: 1800,
+    height: 1093,
     alt: {
-      en: "Side profile of a dromedary's head and neck against blurred sand",
-      ar: "رأس ورقبة ناقة من الجانب أمام رمال غير واضحة المعالم",
+      en: "A single camel walking across rippled sand, rim-lit by the low sun",
+      ar: "ناقة تمشي على رمل متموج وضوء الشمس المنخفض يحيط بها",
     },
-    focus: "4% 45%",
+    focus: "56% 50%",
     credit: {
-      title: "Dromedary Wahiba Sands 2019 (08)",
-      creator: "Ekrem Canli",
-      license: "CC BY-SA 4.0",
-      licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/",
-      sourceUrl: "https://commons.wikimedia.org/wiki/File:Dromedary_Wahiba_Sands_2019_(08).jpg",
+      title: "Camel on Desert at Sunset",
+      creator: "Mo Eid",
+      license: "Pexels License",
+      licenseUrl: "https://www.pexels.com/license/",
+      sourceUrl: "https://www.pexels.com/photo/camel-on-desert-at-sunset-17887613/",
     },
   },
   closing: {
-    src: "/images/landing/closing.jpg",
+    src: "/images/landing/closing-mountains.jpg",
     width: 2400,
-    height: 1800,
+    height: 1600,
     alt: {
-      en: "Sunset over the dunes of the Rub' al Khali",
-      ar: "غروب الشمس فوق كثبان الربع الخالي",
+      en: "Layered desert mountains in blue shadow under an amber sky just after sunset",
+      ar: "جبال صحراوية متتالية في ظل أزرق تحت سماء كهرمانية بعد الغروب",
     },
-    focus: "50% 55%",
+    focus: "40% 45%",
     credit: {
-      title: "Rub al khali sunset Nov 2007",
-      creator: "Javierblas",
-      license: "CC BY-SA 3.0",
-      licenseUrl: "https://creativecommons.org/licenses/by-sa/3.0/",
-      sourceUrl: "https://commons.wikimedia.org/wiki/File:Rub_al_khali_sunset_Nov_2007.jpg",
+      title: "The sun is setting over the mountains in the desert",
+      creator: "NEOM",
+      license: "Unsplash License",
+      licenseUrl: "https://unsplash.com/license",
+      sourceUrl: "https://unsplash.com/photos/the-sun-is-setting-over-the-mountains-in-the-desert-El92hmAt91o",
+    },
+  },
+  welcome: {
+    src: "/images/landing/hero-herder.jpg",
+    width: 2400,
+    height: 1598,
+    alt: {
+      en: "A herder leads a camel across flat desert sand in a dusty haze",
+      ar: "راعٍ يقود جمله عبر رمال صحراء مستوية في غبار خفيف",
+    },
+    focus: "50% 100%",
+    credit: {
+      title: "راع يقود جمله",
+      creator: "Saudi Press Agency (SPA)",
+      license: "CC BY-SA 4.0",
+      licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/",
+      sourceUrl: "https://commons.wikimedia.org/wiki/File:%D8%B1%D8%A7%D8%B9_%D9%8A%D9%82%D9%88%D8%AF_%D8%AC%D9%85%D9%84%D9%87.jpg",
     },
   },
 };

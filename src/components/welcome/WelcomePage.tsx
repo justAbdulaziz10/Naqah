@@ -1,81 +1,90 @@
 import Link from "next/link";
 import type { Locale } from "@/domain/types";
+import { CamelMark } from "@/components/brand/CamelMark";
 import { Logo } from "@/components/brand/Logo";
-import { WovenFrame, WovenSignature } from "@/components/heritage/Woven";
+import { WovenSignature } from "@/components/heritage/Woven";
 import { EstatePhoto } from "@/components/landing/EstatePhoto";
 import { LANDING_PHOTOS } from "@/components/landing/photos";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
 import { getMessages } from "@/i18n/messages";
 import { WelcomeStart } from "./WelcomeActions";
+import "./welcome.css";
 
-/** Calm, once-only entrance for the reading pane; the finished page is the still state. */
-const rise = "motion-safe:animate-fade-up";
+const headerLink =
+  "inline-flex min-h-11 items-center whitespace-nowrap px-1.5 text-sm font-semibold text-cream transition-colors hover:text-sand-soft sm:px-2 sm:text-[0.9375rem]";
 
 /**
- * First-time Welcome (handoff §04, B + C): split editorial reading pane on Warm Ivory beside one
- * cinematic camel portrait. One photograph serves both layouts through grid areas: a calm band
- * under the header on phones, the full-height column on desktop. No text sits on the photograph.
+ * First-time Welcome (handoff §04): «حيّاك الله» as a printed invitation lying on the desert at
+ * dusk. The photograph fills the screen on desktop and is a band above the card on phones; only the
+ * small header sits on it, over its own scrim. The card holds the one action.
  */
 export function WelcomePage({ locale }: { locale: Locale }) {
   const { welcome, auth } = getMessages(locale);
   const authNext = `?next=${encodeURIComponent(`/${locale}/app`)}`;
   const signupNext = `?next=${encodeURIComponent(`/${locale}/start`)}`;
-  const photoId = LANDING_PHOTOS.welcome ? "welcome" : "herd";
+  const photoId = LANDING_PHOTOS.welcome ? "welcome" : "closing";
 
   return (
-    <div className="grid min-h-svh bg-ivory text-espresso [grid-template-areas:'header'_'image'_'main'_'sig'] [grid-template-rows:auto_auto_1fr_auto] lg:grid-cols-[minmax(0,45fr)_minmax(0,55fr)] lg:[grid-template-areas:'header_image'_'main_image'_'sig_image'] lg:[grid-template-rows:auto_1fr_auto]">
-      <header className="flex min-h-16 items-center justify-between gap-3 px-5 [grid-area:header] sm:px-8 lg:px-12 xl:px-20">
-        <Logo locale={locale} href={`/${locale}`} className="min-h-11" />
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-1">
-          <Link
-            href={`/${locale}/login${authNext}`}
-            className="inline-flex min-h-11 items-center px-2 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso"
-          >
-            {welcome.signIn}
-          </Link>
-          <Link href={`/${locale}/signup${signupNext}`} className="hidden min-h-11 items-center px-2 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso sm:inline-flex">
-            {auth.navSignup}
-          </Link>
-          <LocaleSwitcher className="min-h-11" />
-        </div>
-      </header>
-
-      <div className="relative [grid-area:image]">
+    <div className="relative isolate flex min-h-svh flex-col overflow-x-clip bg-espresso text-espresso">
+      <div className="absolute inset-x-0 top-0 -z-10 h-[max(40svh,16rem)] lg:h-full">
         <EstatePhoto
           id={photoId}
           locale={locale}
           eager
-          sizes="(min-width: 1024px) 55vw, 100vw"
-          className="naqah-settle h-[38svh] min-h-[220px] w-full lg:h-full lg:min-h-svh"
+          sizes="(min-width: 1024px) 100vw, 175vw"
+          ground="bg-brown-deep"
+          className="naqah-welcome-photo h-full w-full"
         />
-        <WovenFrame className="absolute inset-y-0 start-0 max-lg:hidden" />
+        <div
+          aria-hidden="true"
+          className={"absolute inset-x-0 top-0 h-28 bg-linear-to-b from-espresso/70 to-transparent" /* taste-skill-ignore: neutral scrim under the header on the photograph */}
+        />
       </div>
 
-      <main className="naqah-welcome-pane flex flex-col justify-center px-5 py-12 [grid-area:main] sm:px-8 sm:py-16 lg:px-12 lg:py-16 xl:px-20">
-        <div className="max-w-[34rem]">
-          <span aria-hidden="true" className={`block h-1 w-12 bg-crimson-editorial ${rise}`} />
-          <h1
-            className={`mt-8 text-balance text-[clamp(2.5rem,5vw,4.5rem)] font-semibold leading-[1.05] tracking-[-0.03em] [html[lang=ar]_&]:leading-[1.3] [html[lang=ar]_&]:tracking-normal ${rise} [animation-delay:80ms]`}
-          >
-            {welcome.title}
-          </h1>
-          <p className={`mt-6 text-xl leading-9 text-espresso ${rise} [animation-delay:160ms]`}>{welcome.body}</p>
-          <div className={`mt-10 flex flex-col items-start gap-4 ${rise} [animation-delay:240ms]`}>
-            <WelcomeStart label={welcome.cta} pending={welcome.pending} />
+      <header className="flex min-h-16 items-center justify-between gap-2 px-4 sm:px-8 lg:px-12">
+        <Logo locale={locale} tone="light" href={`/${locale}`} className="min-h-11" />
+        <div className="flex min-w-0 items-center justify-end sm:gap-x-1">
+          <Link href={`/${locale}/login${authNext}`} className={headerLink}>
+            {welcome.signIn}
+          </Link>
+          <Link href={`/${locale}/signup${signupNext}`} className={headerLink}>
+            {auth.navSignup}
+          </Link>
+          <LocaleSwitcher tone="light" className="min-h-11 whitespace-nowrap max-sm:px-1.5 max-sm:[&_svg]:hidden" />
+        </div>
+      </header>
+
+      <main className="flex-1 px-4 pb-10 pt-[calc(max(40svh,16rem)-7rem)] sm:px-8 lg:flex lg:items-center lg:px-[clamp(3rem,8vw,8rem)] lg:py-12">
+        <div className="naqah-welcome-pane mx-auto w-full max-w-[30rem] bg-cream lg:mx-0">
+          <WovenSignature />
+          <div className="flex flex-col items-center px-6 pb-5 pt-8 text-center sm:px-12 sm:pb-9 sm:pt-12">
+            <CamelMark className="h-10 w-auto sm:h-12" />
+            <h1 className="mt-4 text-[clamp(3rem,5vw,4.5rem)] font-light leading-[1.1] tracking-[-0.03em] [html[lang=ar]_&]:font-[350] [html[lang=ar]_&]:leading-[1.35] [html[lang=ar]_&]:tracking-normal">
+              {welcome.title}
+            </h1>
+            <p className="mt-2 text-balance text-lg leading-8 sm:mt-3">{welcome.line}</p>
+
+            <ol aria-label={welcome.stepsLabel} className="naqah-welcome-thread relative mt-7 grid w-full grid-cols-4 sm:mt-9">
+              {welcome.steps.map((step) => (
+                <li key={step} className="relative flex flex-col items-center gap-2.5 text-[0.9375rem] leading-6">
+                  <span aria-hidden="true" className="size-[7px] rounded-full bg-brown" />
+                  {step}
+                </li>
+              ))}
+            </ol>
+
+            <div className="mt-7 w-full sm:mt-9">
+              <WelcomeStart label={welcome.cta} pending={welcome.pending} />
+            </div>
             <Link
               href={`/${locale}#call`}
-              className="inline-flex min-h-11 items-center text-base font-semibold text-brown underline decoration-1 underline-offset-[6px] transition-colors hover:text-espresso"
+              className="mt-2 inline-flex min-h-11 items-center text-base font-semibold text-brown underline decoration-1 underline-offset-[6px] transition-colors hover:text-espresso"
             >
               {welcome.how}
             </Link>
           </div>
-          <p className={`mt-8 text-base leading-7 text-muted ${rise} [animation-delay:300ms]`}>{welcome.note}</p>
         </div>
       </main>
-
-      <div className="[grid-area:sig]">
-        <WovenSignature />
-      </div>
     </div>
   );
 }

@@ -14,8 +14,6 @@ export function EstatePhoto({
   sizes,
   className,
   ground = "bg-sand-soft",
-  groundColor,
-  fallbackTone = "light",
   eager = false,
   revealDelay,
 }: {
@@ -24,9 +22,6 @@ export function EstatePhoto({
   sizes: string;
   className?: string;
   ground?: string;
-  /** A literal colour for the ground (e.g. a camel coat swatch); overrides `ground`. */
-  groundColor?: string;
-  fallbackTone?: "light" | "dark";
   eager?: boolean;
   /** Settle in once when scrolled into view (MotionRoot); the value orders it within its section, in ms. */
   revealDelay?: number;
@@ -34,8 +29,7 @@ export function EstatePhoto({
   const photo = LANDING_PHOTOS[id];
   return (
     <div
-      className={cn("relative overflow-hidden", !groundColor && ground, className)}
-      style={groundColor ? { backgroundColor: groundColor } : undefined}
+      className={cn("relative overflow-hidden", ground, className)}
       {...(revealDelay === undefined
         ? {}
         : { "data-reveal": "", "data-reveal-kind": "picture", "data-reveal-delay": String(revealDelay) })}
@@ -52,7 +46,7 @@ export function EstatePhoto({
         />
       ) : (
         <div className="absolute inset-0 grid place-items-center" aria-hidden="true">
-          <WovenFragment tone={fallbackTone} className="size-14 opacity-70" />
+          <WovenFragment className="size-14 opacity-70" />
         </div>
       )}
     </div>

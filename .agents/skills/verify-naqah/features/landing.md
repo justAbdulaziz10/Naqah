@@ -1,8 +1,9 @@
 # Landing page
 
-`/{locale}` public page for investors: hero with animated call transcript, how it works, plans (no prices), principles.
+`/{locale}` public page: full-bleed hero, the call as three paper slips with an Answer control, Sadu and two promises, plans (no prices), invitation card.
 
 ## Sub-features
+- `hero-setup`: "Set up your ranch" «جهّز عزبتك» is the primary action; it opens Welcome, then `/start`.
 - `hero-demo`: "Explore the demo" starts the sample farm and opens `/app`.
 - `plan-demo`: "Try Basic" «جرّب الأساسية» / "Try Ultimate" «جرّب المتكاملة».
 - `locale`: language switch keeps the path.

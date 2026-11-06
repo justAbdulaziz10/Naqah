@@ -1,0 +1,107 @@
+/*
+ * The landing page's own motion and paper. Everything rests in its finished state: only a script
+ * (MotionRoot) marks parts as pending, and reduced motion keeps the still page.
+ */
+
+/*
+ * Fixed bar: espresso ink in the opening sky, then the espresso ground with cream ink once the page
+ * moves on. The open menu keeps its own paper colours.
+ */
+.naqah-bar {
+  transition: background-color 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+html[data-hero-past] .naqah-bar {
+  background-color: #29241f;
+}
+html:not([data-hero-past]) .naqah-bar a.text-cream,
+html:not([data-hero-past]) .naqah-bar a .text-cream,
+html:not([data-hero-past]) .naqah-bar nav > a {
+  color: #29241f;
+}
+html:not([data-hero-past]) .naqah-bar .naqah-bar-action {
+  background-color: #29241f;
+  color: #fffcf8;
+}
+html[data-hero-past] .naqah-bar summary {
+  color: #fffcf8;
+  border-color: rgb(255 252 248 / 0.35);
+}
+
+/* Paper slips sit a touch off square, mirrored in Arabic. Flat on phones, where they stack. */
+@media (min-width: 1024px) {
+  .naqah-slip {
+    rotate: var(--tilt, 0deg);
+    transform-origin: bottom center;
+  }
+  [dir="rtl"] .naqah-slip {
+    rotate: calc(var(--tilt, 0deg) * -1);
+  }
+}
+
+/* The opening title rises once; the still page is what remains. */
+@media (prefers-reduced-motion: no-preference) {
+  .naqah-rise {
+    animation: naqah-rise 1100ms cubic-bezier(0.16, 1, 0.3, 1) var(--rise-delay, 0ms) both;
+  }
+
+  /* Slips are dealt onto the page: they rise from the fold and settle at their tilt. */
+  [data-reveal="pending"][data-reveal-kind="slip"] {
+    opacity: 1;
+    translate: 0 96px;
+    rotate: 0deg;
+  }
+  [data-reveal="shown"][data-reveal-kind="slip"] {
+    transition:
+      translate 1000ms cubic-bezier(0.16, 1, 0.3, 1),
+      rotate 1200ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+
+  /* The Sadu opens like warp threads drawn apart; the strips rest at nothing. */
+  [data-reveal="pending"][data-reveal-kind="warp"] {
+    opacity: 1;
+    translate: none;
+  }
+  [data-reveal="pending"] > .naqah-warp > span {
+    scale: 1 1;
+  }
+  [data-reveal="shown"] > .naqah-warp > span {
+    transition: scale 950ms cubic-bezier(0.76, 0, 0.24, 1);
+    transition-delay: calc(var(--i) * 55ms);
+  }
+
+  .naqah-photo-hover img {
+    transition: scale 900ms cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  .naqah-photo-hover:hover img {
+    scale: 1.025;
+  }
+}
+
+.naqah-warp {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  pointer-events: none;
+}
+.naqah-warp > span {
+  scale: 1 0;
+  transform-origin: top;
+  background: var(--warp-ground, #f5f0e8);
+}
+.naqah-warp > span:nth-child(even) {
+  transform-origin: bottom;
+}
+
+@keyframes naqah-rise {
+  from {
+    opacity: 0;
+    translate: 0 28px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}

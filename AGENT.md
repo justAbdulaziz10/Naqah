@@ -240,7 +240,7 @@ for the demo.
 - Cards have a hairline border and no shadow. Do not nest cards, and do not tint cards with gold or other status colours to call attention.
 - The Overview is the estate ledger: one espresso estate header, the matters row, then one surface divided by hairlines. Camels appear by name. Espresso is the only filled field, and only there. Numbers sit inline with their label, never in separate cells.
 - Calling the worker from NAQAH is not connected, so `EstateHeader` shows it as a disabled control that says so. No `tel:` links on the dashboard: the demo's numbers are samples. Simulation lives only in the demo strip and the Call Lab, and always says it is a simulation.
-- The landing is one editorial page: hero plus the call ledger (`LiveTranscript`), the owner quote (`OwnerCall`), the rules list, the plan table, and the final band. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`.
+- The landing is one evening, told in full-bleed photographs: the hero, the call as three paper slips (`CallSlips`, ending in the `AnswerCall` control), the Sadu with two promises, the plans, and the invitation card. Primary action everywhere: set up your ranch; the demo is secondary. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`.
 - Arabic pages lead with Alexandria (`--font-arabic`). next/font's "Montserrat Fallback" covers every codepoint, so with Montserrat first, Arabic renders in Arial.
 
 ### Known pitfalls (learned the hard way)

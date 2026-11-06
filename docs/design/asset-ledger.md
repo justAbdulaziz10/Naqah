@@ -200,3 +200,17 @@ The six-colour gallery (الوضح، الشعل، الصفر، الشقح، ال
 - Have a camel owner confirm each colour, especially الصفر and الشعل, whose shades the sources describe least consistently.
 - Format: 4:5 portrait (also cropped 4:3 on desktop), calm single animal, plain background, ≥ 1200 px wide, no identifiable people, no branding.
 - Add each as `public/images/landing/colours/<id>.jpg` and an entry in `src/components/landing/photos.ts` under the matching id (`wadh`, `shul`, `sufr`, `shaqh`, `humr`, `majaheem`); the gallery then shows the photograph instead of the plate automatically.
+
+## Landing refresh v2 (2026-11-06)
+
+All rows are **candidates pending owner approval**. They show the region and the animal in general; none is presented as a NAQAH estate, herd, worker or client. Licence wording was read from each source page on 2026-11-06; re-open each page before production. The earlier `evening`, `closing` and `herd-profile` files were removed from the page.
+
+| Slot | File | Shows | Stated location | Creator | Licence | Source |
+|---|---|---|---|---|---|---|
+| `hero` | `hero-herd-dusk.jpg` (2560 × 1706) | Camels walking at sunset | Saudi Arabia, per Pexels | Mo Eid | Pexels License | https://www.pexels.com/photo/camels-trekking-through-the-desert-at-sunset-28844446/ |
+| `evening` | `call-hisma-sunset.jpg` (2400 × 1600) | Sun on the Hisma horizon | Hisma Desert, NEOM, Saudi Arabia | NEOM | Unsplash License | https://unsplash.com/photos/the-sun-is-setting-over-a-desert-landscape-WpOMM4uE-F8 |
+| `herd` | `plans-camel-dusk.jpg` (1800 × 1093) | One camel, rim-lit | Not stated | Mo Eid | Pexels License | https://www.pexels.com/photo/camel-on-desert-at-sunset-17887613/ |
+| `closing` | `closing-mountains.jpg` (2400 × 1600) | Mountains after sunset | NEOM, Saudi Arabia | NEOM | Unsplash License | https://unsplash.com/photos/the-sun-is-setting-over-the-mountains-in-the-desert-El92hmAt91o |
+| `welcome` | `hero-herder.jpg` (unchanged file) | Herder leading a camel | Saudi Arabia | Saudi Press Agency (SPA) | CC BY-SA 4.0 | https://commons.wikimedia.org/wiki/File:%D8%B1%D8%A7%D8%B9_%D9%8A%D9%82%D9%88%D8%AF_%D8%AC%D9%85%D9%84%D9%87.jpg |
+
+Still needed: a sharper full-bleed Sadu to replace `heritage.jpg` (1600 px wide) and a final Welcome portrait.

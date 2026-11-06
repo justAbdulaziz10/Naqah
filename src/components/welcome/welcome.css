@@ -1,0 +1,60 @@
+/*
+ * The Welcome invitation: a printed card lying on the desert, tilted a little against the reading
+ * direction. The tilted, finished card is the still state; it settles into it once on load.
+ */
+.naqah-welcome-pane {
+  --tilt: -0.75deg;
+  rotate: var(--tilt);
+  transition:
+    opacity 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    translate 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+[dir="rtl"] .naqah-welcome-pane {
+  --tilt: 0.75deg;
+}
+@media (min-width: 1024px) {
+  .naqah-welcome-pane {
+    --tilt: -1.5deg;
+  }
+  [dir="rtl"] .naqah-welcome-pane {
+    --tilt: 1.5deg;
+  }
+}
+/* Welcome → onboarding: the card lifts away while navigation is already under way (Handoff §04). */
+html[data-welcome-leaving] .naqah-welcome-pane {
+  opacity: 0;
+  translate: 0 -12px;
+}
+
+/* The thread through the setup preview, from the first dot to the last. */
+.naqah-welcome-thread::before {
+  content: "";
+  position: absolute;
+  inset-inline: 12.5%;
+  top: 0.1875rem;
+  height: 1px;
+  background: #b68a58;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Backwards only: a held animation would pin the card and block the leaving transition. */
+  .naqah-welcome-pane {
+    animation: naqah-card-in 900ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+  .naqah-welcome-photo img {
+    animation: naqah-welcome-settle 1600ms cubic-bezier(0.33, 1, 0.68, 1) backwards;
+  }
+}
+
+@keyframes naqah-card-in {
+  from {
+    opacity: 0;
+    translate: 0 24px;
+    rotate: 0deg;
+  }
+}
+@keyframes naqah-welcome-settle {
+  from {
+    scale: 1.04;
+  }
+}

@@ -86,14 +86,21 @@ export function WelcomeStart({ label, pending: pendingLabel }: { label: string; 
       disabled={pending}
       aria-busy={pending}
       className={cn(
-        "inline-flex min-h-14 items-center justify-center gap-3 rounded-full bg-espresso px-8 text-lg font-semibold text-cream",
+        "group inline-flex min-h-14 w-full items-center justify-center gap-3 bg-espresso px-8 text-lg font-semibold text-cream",
         "transition-[background-color,transform] duration-200 hover:bg-brown active:scale-[0.98] disabled:opacity-80",
         "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-espresso",
       )}
     >
       {pending ? <CircleNotch size={20} className="motion-safe:animate-spin" aria-hidden="true" /> : null}
       {pending ? pendingLabel : label}
-      {pending ? null : <Arrow size={20} weight="regular" aria-hidden="true" />}
+      {pending ? null : (
+        <Arrow
+          size={20}
+          weight="regular"
+          aria-hidden="true"
+          className="transition-transform duration-200 group-hover:translate-x-1 rtl:group-hover:-translate-x-1"
+        />
+      )}
     </button>
   );
 }
