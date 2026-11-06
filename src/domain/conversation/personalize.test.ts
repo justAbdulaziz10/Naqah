@@ -22,6 +22,13 @@ describe("Call Lab personalization", () => {
     expect(tree.n).toBe(3);
   });
 
+  it("doesn't rename a worker who shares the owner's sample name", () => {
+    const ws = createDemoWorkspace("ar", "ultimate");
+    ws.settings.worker.name = "عبدالله";
+    ws.settings.owner.name = "خالد";
+    expect(makePersonalizer(ws)("هلا أحمد، ناقة تتصل بعبدالله")).toBe("هلا عبدالله، ناقة تتصل بخالد");
+  });
+
   it("never doubles a real name that already contains a sample name", () => {
     const ws = createDemoWorkspace("ar", "ultimate");
     ws.settings.worker.name = "أحمد الشمري";

@@ -9,12 +9,14 @@ import { signVoiceState, verifyVoiceState, VOICE_MISS_VALUE } from "./state";
 import { twilioRequestSignature } from "@/server/twilio/signature";
 import * as voiceConversation from "./conversation";
 
+vi.mock("server-only", () => ({}));
 vi.mock("next/server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("next/server")>();
   return { ...actual, connection: vi.fn(async () => {}) };
 });
 
 const envNames = [
+  "NAQAH_VOICE_MODE", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SECRET_KEY", "NAQAH_PUBLIC_BASE_URL",
   "NAQAH_VOICE_SECRET", "NAQAH_WORKER_PHONE", "NAQAH_OWNER_PHONE", "NAQAH_VOICE_LOCALE",
   "NAQAH_VOICE_ARABIC_VOICE", "NAQAH_VOICE_ENGLISH_VOICE", "TWILIO_AUTH_TOKEN", "TWILIO_ACCOUNT_SID",
   "TWILIO_PHONE_NUMBER", "NAQAH_CALL_OWNER", "NEXT_PUBLIC_NAQAH_PHONE_NUMBER", "WHATSAPP_PHONE_NUMBER_ID",
@@ -168,7 +170,7 @@ describe("voice webhook routes", () => {
       turns += 1;
       action = gatherAction(xml);
       if (!action) {
-        completed = xml.includes("<Hangup/>") && /حفظ|saved/i.test(xmlText(xml, "Say") ?? "");
+        completed = xml.includes("<Hangup/>") && /التجريبية|sample call/i.test(xmlText(xml, "Say") ?? "");
         break;
       }
     }
@@ -430,8 +432,23 @@ describe("voice webhook routes", () => {
     expect((await (await status()).json()).voice.signatureValidation).toBe(false);
   });
 
+  it("reports the sample line as sample, and farm mode without paid summaries", async () => {
+    vi.stubEnv("NAQAH_VOICE_SECRET", "secret-value-at-least-32-bytes-long");
+    vi.stubEnv("NAQAH_WORKER_PHONE", "+966500000000");
+    vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", "1");
+    vi.stubEnv("WHATSAPP_TOKEN", "t");
+    vi.stubEnv("NAQAH_OWNER_WHATSAPP", "966500000000");
+    const sample = await (await status()).json();
+    expect(sample.voice).toMatchObject({ mode: "sample", configured: true });
+    expect(sample.whatsapp.configured).toBe(true);
+    vi.stubEnv("NAQAH_VOICE_MODE", "farm");
+    const farm = await (await status()).json();
+    expect(farm.voice).toMatchObject({ mode: "farm", configured: false });
+    expect(farm.whatsapp.configured).toBe(false);
+  });
+
   it("returns 204 to the Twilio status callback", async () => {
-    const response = await voiceStatus();
+    const response = await voiceStatus(request("https://naqah.test/api/voice/status"));
     expect(response.status).toBe(204);
     expect(await response.text()).toBe("");
   });

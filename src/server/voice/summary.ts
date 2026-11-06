@@ -4,6 +4,12 @@ import { summaryCredentials } from "@/server/env";
 import { callOwnerWithSummary } from "@/server/twilio/rest";
 import { sendWhatsAppText } from "@/server/whatsapp/cloud";
 
+/** Only the sample line sends these, so they must not read as a saved farm update. */
+const SAMPLE_HEADLINE = {
+  ar: "تحديث تجريبي من المزرعة النموذجية، ولم يُحفظ لمزرعة حقيقية.",
+  en: "Sample update from the demo farm. It was not saved to a real farm.",
+} as const;
+
 export function buildOwnerSummary(report: FarmReport, locale: Locale): string {
   const findings = report.findings.map((finding) => finding.text[locale]);
   const facts = report.answers.map((item) => {
@@ -11,7 +17,7 @@ export function buildOwnerSummary(report: FarmReport, locale: Locale): string {
     const answer = item.answerText?.[locale] ?? item.answer;
     return `${question}: ${answer}`;
   });
-  const lines = [locale === "ar" ? "حُفظ تحديث المزرعة." : "Farm update saved."];
+  const lines: string[] = [SAMPLE_HEADLINE[locale]];
   if (findings.length) {
     lines.push(locale === "ar" ? "ملاحظات مهمة:" : "Important findings:");
     lines.push(...findings.map((finding) => `• ${finding}`));
@@ -25,7 +31,7 @@ export function buildOwnerSummary(report: FarmReport, locale: Locale): string {
 
 export function buildOwnerCallSummary(report: FarmReport, locale: Locale): string {
   const findings = report.findings.map((finding) => finding.text[locale]);
-  const lines = [locale === "ar" ? "تم حفظ تحديث المزرعة." : "Farm update saved."];
+  const lines: string[] = [SAMPLE_HEADLINE[locale]];
   if (findings.length) {
     lines.push(locale === "ar" ? "أهم الملاحظات:" : "Important findings:");
     lines.push(...findings.map((finding) => `• ${finding}`));

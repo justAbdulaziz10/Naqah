@@ -126,12 +126,13 @@ stay off until their env vars are set (see `.env.example`). Nothing here needs a
 | Calendar feed + per-task "add to calendar" | Free | Settings card; Tickets rows | `src/lib/calendar/`, `src/app/api/calendar` | `calendar.md` |
 | WhatsApp deep links (message worker, order from supplier) | Free | Settings card; dashboard resources + emergency | `src/lib/whatsapp/`, `WhatsAppActions.tsx` | `whatsapp-links.md` |
 | Weather + farm location + heat-day question | Free (Open-Meteo) | Dashboard line; Settings card; setup; Call Lab "Simulate a heat day" | `src/domain/weather.ts`, `src/lib/weather/`, `src/lib/geo/` | `weather.md` |
-| Real phone line (Twilio) + WhatsApp Cloud summary | **Paid** per minute / message | Settings "Phone line" card | `src/server/`, `src/app/api/voice/*`, `src/app/api/integrations/status` | `phone.md` |
+| Real phone line (Twilio) + WhatsApp Cloud summary | **Paid** per minute / message | Settings "Phone line" card | `src/server/`, `src/app/api/voice/*`, `src/app/api/integrations/status` | `phone.md`, `twilio-activation.md` |
 
 Things to know before changing them:
-- **Phone calls are stateless.** Call state travels in the signed `s` query parameter and each turn replays the
-  engine against the server-side sample workspace. Until Supabase is connected, a real call updates the *sample*
-  farm, not the owner's browser data.
+- **Two phone modes.** By default the line is the *sample* line: signed `s` state, each turn replays the engine on the
+  sample workspace, it says it is a sample, and it saves nothing. `NAQAH_VOICE_MODE=farm` is a real call: the caller
+  resolves to a farm in Supabase, `voice_call_sessions` holds the call, and outcomes save through `applyVoiceEvent`.
+  Farm mode never falls back to sample data. See `twilio-activation.md`. The dashboard does not read Supabase yet.
 - **Voice locale is per deployment** (`NAQAH_VOICE_LOCALE`). Verify with
   `node scripts/verify-naqah.mjs voice --locale <same locale as the server>`.
 - **Push:** without VAPID keys, notifications are shown locally by the service worker while the app is open.

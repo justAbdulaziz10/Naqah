@@ -31,7 +31,7 @@ export async function findCaller(client: SupabaseClient, rawPhone: string): Prom
 
 export type FarmActionResult<T> = { status: "saved" | "unchanged" | "replayed"; result: T };
 
-async function recordedOutcome<T>(client: SupabaseClient, farmId: string, eventId: string): Promise<T | null> {
+export async function recordedOutcome<T>(client: SupabaseClient, farmId: string, eventId: string): Promise<T | null> {
   const { data, error } = await client
     .from("voice_events")
     .select("outcome")

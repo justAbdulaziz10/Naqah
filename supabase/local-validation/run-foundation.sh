@@ -7,12 +7,32 @@ cd "$(dirname "$0")"
 DB="${NAQAH_TEST_DB:-naqah_foundation}"
 PSQL="psql -X -q -v ON_ERROR_STOP=1"
 
+# This script drops and recreates DB. Refuse remote PostgreSQL connections before running SQL.
+case "$DB" in
+  ""|[!A-Za-z_]*|*[!A-Za-z0-9_]*) echo "Refusing unsafe database name: $DB" >&2; exit 2 ;;
+esac
+PGHOST="${PGHOST:-127.0.0.1}"
+for host in "$PGHOST" "${PGHOSTADDR:-}"; do
+  case "$host" in
+    ""|localhost|127.*|::1) ;;
+    *) echo "Refusing non-loopback PostgreSQL host: $host" >&2; exit 2 ;;
+  esac
+done
+export PGHOST
+
+SERVER_ADDR=$($PSQL -d postgres -A -t -c "select inet_server_addr()::text")
+case "$SERVER_ADDR" in
+  127.*|::1) ;;
+  *) echo "Refusing non-local PostgreSQL server: $SERVER_ADDR" >&2; exit 2 ;;
+esac
+
 fresh() {
   $PSQL -d postgres -c "drop database if exists $DB" 2>/dev/null
   $PSQL -d postgres -c "create database $DB"
   $PSQL -d "$DB" -f bootstrap.sql
   $PSQL -d "$DB" -1 -f ../migrations/0001_init.sql
   $PSQL -d "$DB" -1 -f ../migrations/0002_backend_foundation.sql
+  $PSQL -d "$DB" -1 -f ../migrations/0003_voice_call_sessions.sql
 }
 
 echo "-- 0002 checks"

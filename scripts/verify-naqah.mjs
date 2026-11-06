@@ -306,9 +306,9 @@ const commands = {
         nextAction = action(turnResult.xml);
         if (!nextAction) {
           const final = sayText(turnResult.xml);
-          reportSaved = /saved/i.test(final) || /حفظ/.test(final);
+          reportSaved = /sample call is finished/i.test(final) || /انتهت المكالمة التجريبية/.test(final);
           if (!/<Hangup\/>/.test(turnResult.xml)) throw new Error("final response did not hang up");
-          if (!reportSaved) throw new Error("final Say did not confirm that the report was saved");
+          if (!reportSaved) throw new Error("final Say did not label the sample call as finished");
           break;
         }
         inbound.xml = turnResult.xml;

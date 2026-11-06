@@ -104,6 +104,12 @@ describe("voice steps follow the domain rules", () => {
     expect(second.result).toEqual({ status: "rejected", reason: "daily_done" });
     expect(second.ws.reports).toHaveLength(1);
   });
+  it("never turns a call refused at the start into an empty report", () => {
+    const refused = event({ type: "worker_report", draft, refusedAtStart: true });
+    const step = voiceStep(createEmptyWorkspace("ultimate"), now, refused);
+    expect(step.result).toEqual({ status: "rejected", reason: "not_allowed" });
+    expect(step.ws.reports).toHaveLength(0);
+  });
   it("refuses Basic reporting without a window", () => {
     expect(voiceStep(createEmptyWorkspace("basic"), now, event({ type: "worker_report", draft })).result).toEqual({ status: "rejected", reason: "no_window" });
   });

@@ -2,6 +2,16 @@ import type { CallSession } from "@/domain/conversation/engine";
 import type { Locale } from "@/domain/types";
 import { voiceConfiguration } from "@/server/env";
 
+/** The sample line answers real phones, so a caller must never think a real farm was updated. */
+export const SAMPLE_CALL_NOTICE = {
+  ar: "هذه مكالمة تجريبية على مزرعة نموذجية، وما تنحفظ إجاباتها. ",
+  en: "This is a sample call on a demo farm. Your answers are not kept. ",
+} as const;
+export const SAMPLE_CALL_ENDED = {
+  ar: "انتهت المكالمة التجريبية. هذا تحديث نموذجي، ولم يصل إلى أي مزرعة حقيقية.",
+  en: "The sample call is finished. This was a demo update and did not reach a real farm.",
+} as const;
+
 export function escapeXml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -37,7 +47,9 @@ export function twimlSay(text: string, locale: Locale, hangup = false): string {
 export function twimlGather(session: CallSession, locale: Locale, actionUrl: string, prefix = ""): string {
   const language = locale === "ar" ? "ar-SA" : "en-US";
   const text = `${prefix}${agentText(session, locale)}`;
-  return `<Response>${sayElement(text, locale)}<Gather input="speech dtmf" language="${language}" speechTimeout="auto" timeout="6" numDigits="1" action="${escapeXml(actionUrl)}" method="POST" actionOnEmptyResult="true"></Gather></Response>`;
+  // A quantity needs several keys, so only a choice ends at the first press.
+  const digits = session.inputMode === "choices" ? ' numDigits="1"' : "";
+  return `<Response>${sayElement(text, locale)}<Gather input="speech dtmf" language="${language}" speechTimeout="auto" timeout="6"${digits} action="${escapeXml(actionUrl)}" method="POST" actionOnEmptyResult="true"></Gather></Response>`;
 }
 
 export function twimlGoodbye(locale: Locale, text?: string): string {

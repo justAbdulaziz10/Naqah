@@ -1,7 +1,9 @@
-import { shouldRefuseUnsignedVoice, voiceConfiguration } from "@/server/env";
+import { shouldRefuseUnsignedVoice, voiceConfiguration, voiceMode } from "@/server/env";
+import { startFarmCall } from "@/server/voice/farm-call";
+import { farmResponse, farmWebhook } from "@/server/voice/farm-webhook";
 import { replayVoiceState, newVoiceState, voiceActionUrl } from "@/server/voice/conversation";
 import { signVoiceState } from "@/server/voice/state";
-import { twimlGather, twimlGoodbye, twimlResponse } from "@/server/voice/twiml";
+import { SAMPLE_CALL_NOTICE, twimlGather, twimlGoodbye, twimlResponse } from "@/server/voice/twiml";
 import { checkTwilioWebhookSignature } from "@/server/twilio/signature";
 import { normalizeSpeech } from "@/server/voice/speech";
 
@@ -19,6 +21,12 @@ function disabledResponse(locale: "ar" | "en") {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  if (voiceMode() === "farm") {
+    const hook = await farmWebhook(request);
+    if (hook instanceof Response) return hook;
+    return farmResponse(startFarmCall(hook.client, { from: hook.form.get("From") ?? "", callSid: hook.callSid, now: new Date() }));
+  }
+
   const config = voiceConfiguration();
   if (!config.secret || !config.workerPhone || shouldRefuseUnsignedVoice()) return disabledResponse(config.locale);
 
@@ -59,5 +67,5 @@ export async function POST(request: Request): Promise<Response> {
   }
   const signed = signVoiceState(state, config.secret);
   const action = voiceActionUrl(request.url, signed);
-  return twimlResponse(twimlGather(replay.session, state.l, action));
+  return twimlResponse(twimlGather(replay.session, state.l, action, SAMPLE_CALL_NOTICE[state.l]));
 }

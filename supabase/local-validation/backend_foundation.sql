@@ -41,6 +41,7 @@ select t.fails('owner cannot write revision', 'update farms set revision = 99', 
 select t.fails('owner cannot run apply_farm_changes',
   format($q$select apply_farm_changes(%L, 0, '{}'::jsonb)$q$, (select id from farms)), '42501');
 select t.fails('owner cannot read voice_events', 'select * from voice_events', '42501');
+select t.fails('owner cannot read voice_call_sessions', 'select * from voice_call_sessions', '42501');
 select t.fails('owner cannot write voice_events',
   format($q$insert into voice_events (farm_id, event_id, outcome) values (%L, 'x', '{}')$q$, (select id from farms)), '42501');
 select t.fails('owner cannot set a malformed owner phone', $q$update farms set owner_phone = '0501234567'$q$, '23514');
@@ -71,6 +72,7 @@ reset role;
 set role anon;
 select t.fails('anon cannot read farms', 'select * from farms', '42501');
 select t.fails('anon cannot read voice_events', 'select * from voice_events', '42501');
+select t.fails('anon cannot read voice_call_sessions', 'select * from voice_call_sessions', '42501');
 select t.fails('anon cannot run apply_farm_changes',
   $q$select apply_farm_changes('00000000-0000-0000-0000-000000000000', 0, '{}'::jsonb)$q$, '42501');
 reset role;

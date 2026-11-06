@@ -1,7 +1,8 @@
 # Supabase backend foundation
 
 Status: code and migrations only. **Nothing here has been applied to a Supabase project**, and
-the app still runs on localStorage. No page or live voice route uses this code yet.
+the app still runs on localStorage. No page uses this code yet. The voice routes use it only when
+`NAQAH_VOICE_MODE=farm`; see `twilio-activation.md`.
 
 Target project: `ydsgmzxqjimwbamnksxe`. Never apply this to any other project.
 
@@ -40,8 +41,13 @@ private helpers, same-farm foreign keys. `0002_backend_foundation.sql` closes wh
 | Free-text phones, no index | Inbound calls could not be matched | E.164 checks and indexes |
 | Unindexed foreign keys | Slow deletes, advisor warnings | Indexes on all of them |
 
+`0003_voice_call_sessions.sql` adds the working state of a live call, deleted when the call ends.
+Replaying the engine from the farm can't work on a real call: a callback or a Basic inquiry changes
+the farm mid-call. It holds the dialogue position and the structured draft, never a transcript.
+
 `apply_farm_changes` is the only function in `public`. It is SECURITY INVOKER and only
-`service_role` can run it. `voice_events` has RLS on with no policy, so owners and anon can't reach it.
+`service_role` can run it. `voice_events` and `voice_call_sessions` have RLS on with no policy, so
+owners and anon can't reach them.
 
 ## Replacing localStorage
 
@@ -72,7 +78,7 @@ Rollback at any step before 7: turn the flag off. The local data is untouched.
 
 **Needs the project owner**
 - [ ] Access to `ydsgmzxqjimwbamnksxe`. The connected Supabase account can't see it today.
-- [ ] Apply `0001` and `0002` (steps in `supabase-preparation.md`; a dry run must now list both).
+- [ ] Apply `0001`, `0002` and `0003` (steps in `supabase-preparation.md`; a dry run must list all three).
 - [ ] Run Security and Performance Advisors and review the results.
 - [ ] Set `SUPABASE_SECRET_KEY` (`sb_secret_…`) on the server only. Legacy `service_role` keys are
       being retired.
@@ -104,8 +110,11 @@ Supabase roles. It covers grants, RLS, cross-farm writes, rollback, both races, 
 flows saved and reloaded through both migrations. The older isolation suite reports one expected
 failure, "no functions in public", which predates `apply_farm_changes`.
 
-**Not verified:** real PostgREST behaviour (repository tests use a stub), real Supabase roles and
-`auth.uid()`, advisors, and any live call. Run these against the real project before relying on them.
+`sh supabase/local-validation/run-voice.sh` runs mocked, signed Twilio webhooks through the route
+handlers, `supabase-js`, a real PostgREST and all migrations.
+
+**Not verified:** real Supabase roles and `auth.uid()` (the stand-ins imitate them), the platform's
+API gateway, advisors, and any live call. Run these against the real project before relying on them.
 
 `supabase-preparation.md` predates this work: its `ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`
 names are out of date, use `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY`.

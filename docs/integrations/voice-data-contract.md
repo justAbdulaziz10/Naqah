@@ -1,7 +1,8 @@
 # Voice data contract (v1)
 
 How the telephony layer (Twilio + voice model) reports to the farm. Code:
-`src/server/voice/contract.ts`. Not connected to the live voice routes yet.
+`src/server/voice/contract.ts`. Used by the live routes when `NAQAH_VOICE_MODE=farm`, through
+`src/server/voice/farm-call.ts`. See `twilio-activation.md`.
 
 ## Flow
 
@@ -41,7 +42,7 @@ How the telephony layer (Twilio + voice model) reports to the farm. Code:
 
 | `type` | Extra fields | Domain function |
 |---|---|---|
-| `worker_report` | `draft` (`ReportDraft`) | `routeWorkerInboundCall`, then `completeWorkerReport` or `rejectWorkerReport` |
+| `worker_report` | `draft` (`ReportDraft`), optional `refusedAtStart` | `routeWorkerInboundCall`, then `completeWorkerReport` or `rejectWorkerReport`. `refusedAtStart` logs a refused call and can never save a report |
 | `worker_callback` | none | `completeWorkerCallback`; not a farm update |
 | `task_confirmation` | `taskId`, `done`, `via` | `confirmTask`; only the worker's confirmation closes a task |
 | `owner_inquiry` | none | `routeOwnerInboundCall`, then `recordOwnerInquiry` or `rejectOwnerInquiry` |
@@ -68,6 +69,9 @@ or `verified`. «ما أدري» is a valid answer with certainty `unknown`.
 
 Errors are `DbError` codes. `invalid_input` means a bad event. `not_found`, `conflict` or
 `unavailable` mean nothing was saved: the agent must not claim it was.
+
+The live routes use one `eventId` per outcome: `<CallSid>:report`, `:callback`, `:inquiry` and
+`:task:<taskId>`.
 
 A retried event returns its first outcome and changes nothing, including an event that changed
 nothing the first time. If a farm changes during a save,

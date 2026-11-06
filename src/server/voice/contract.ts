@@ -22,7 +22,7 @@ export const VOICE_CONTRACT_VERSION = 1;
 
 /** `eventId` is unique per outcome and repeats on a retry; one call can carry several events. */
 export type VoiceEvent = { version: 1; eventId: string; providerCallId: string } & (
-  | { type: "worker_report"; draft: ReportDraft }
+  | { type: "worker_report"; draft: ReportDraft; refusedAtStart?: true }
   | { type: "worker_callback" }
   | { type: "owner_notification"; reportId: string; answered: boolean }
   | { type: "owner_inquiry" }
@@ -52,6 +52,9 @@ const CONFIRMING_CALLS = ["worker_report", "worker_task_verification", "worker_c
 const MAX_ITEMS = 200;
 // "All healthy" sends one update per camel, so this follows the herd, not a call's length.
 const MAX_HERD = 5_000;
+// A task question quotes the instruction, and a herd answer joins every camel's note.
+const MAX_QUESTION = 1_200;
+const MAX_ANSWER = 20_000;
 
 function invalid(field: string) {
   return new DbError("invalid_input", field);
@@ -76,18 +79,18 @@ function optional(value: unknown, field: string): string | null {
   return value === null || value === undefined ? null : text(value, field, 500) || null;
 }
 
-function localized(value: unknown, field: string) {
+function localized(value: unknown, field: string, max = 500) {
   const input = record(value);
-  return { ar: requiredText(input.ar, field, 500), en: requiredText(input.en, field, 500) };
+  return { ar: requiredText(input.ar, field, max), en: requiredText(input.en, field, max) };
 }
 
 function answer(value: unknown): ReportAnswer {
   const input = record(value);
   return {
     questionId: requiredText(input.questionId, "questionId", 100),
-    question: localized(input.question, "question"),
-    answer: text(input.answer, "answer", 2000),
-    ...(input.answerText ? { answerText: localized(input.answerText, "answerText") } : {}),
+    question: localized(input.question, "question", MAX_QUESTION),
+    answer: text(input.answer, "answer", MAX_ANSWER),
+    ...(input.answerText ? { answerText: localized(input.answerText, "answerText", MAX_ANSWER) } : {}),
     certainty: oneOf(input.certainty, CERTAINTIES, "certainty"),
     followUp: input.followUp === true,
   };
@@ -139,7 +142,7 @@ export function parseVoiceEvent(value: unknown): VoiceEvent {
   };
   switch (input.type) {
     case "worker_report":
-      return { ...base, type: "worker_report", draft: draft(input.draft) };
+      return { ...base, type: "worker_report", draft: draft(input.draft), ...(input.refusedAtStart === true ? { refusedAtStart: true as const } : {}) };
     case "worker_callback":
       return { ...base, type: "worker_callback" };
     case "owner_notification":
@@ -218,6 +221,8 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
       if (route.kind === "rejected") {
         return { ws: rejectWorkerReport(ws, now, route.reason), result: { status: "rejected", reason: route.reason } };
       }
+      // The call was refused before any question: never turn that into an empty report.
+      if (event.refusedAtStart) return { ws, result: { status: "rejected", reason: "not_allowed" } };
       return { ws: completeWorkerReport(ws, now, event.draft).ws, result: saved };
     }
     case "worker_callback":

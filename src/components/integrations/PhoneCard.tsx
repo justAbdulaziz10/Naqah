@@ -6,7 +6,7 @@ import { useI18n } from "@/i18n/client";
 
 interface IntegrationStatus {
   ok: true;
-  voice: { configured: boolean; number: string | null; signatureValidation: boolean };
+  voice: { mode: "farm" | "sample"; configured: boolean; number: string | null; signatureValidation: boolean };
   whatsapp: { configured: boolean };
   ownerCall: { configured: boolean };
 }
@@ -14,7 +14,7 @@ interface IntegrationStatus {
 function disconnectedStatus(): IntegrationStatus {
   return {
     ok: true,
-    voice: { configured: false, number: null, signatureValidation: false },
+    voice: { mode: "sample", configured: false, number: null, signatureValidation: false },
     whatsapp: { configured: false },
     ownerCall: { configured: false },
   };
@@ -50,6 +50,7 @@ export function PhoneCard() {
           setStatus({
             ok: true,
             voice: {
+              mode: value.voice.mode === "farm" ? "farm" : "sample",
               configured: value.voice.configured,
               number: typeof value.voice.number === "string" ? value.voice.number : null,
               signatureValidation: value.voice.signatureValidation,
@@ -85,6 +86,9 @@ export function PhoneCard() {
             <span>{m.integrations.phone.callNow}</span>
             <bdi className="ltr-nums">{lineNumber}</bdi>
           </a>
+        ) : null}
+        {status?.voice.configured && status.voice.mode === "sample" ? (
+          <p className="text-sm text-muted">{m.integrations.phone.sampleLine}</p>
         ) : null}
         {status?.voice.configured && !lineNumber ? (
           <p className="text-sm text-muted">{m.integrations.phone.numberMissing}</p>
