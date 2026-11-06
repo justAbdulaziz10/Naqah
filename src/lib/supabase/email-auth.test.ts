@@ -30,9 +30,10 @@ describe('email/password authentication', () => {
     const { client } = setup({ data: { session: { user: { id: 'test-owner' } } }, error: null });
     expect(await authenticateEmail(client, 'signup', 'owner@example.test', 'test-only-password', callback)).toEqual({ status: 'signedIn' });
   });
-  it.each(['user_already_exists', 'email_exists'])('keeps duplicate sign-up neutral (%s)', async (code) => {
-    const { client } = setup({ data: { session: null }, error: { code } });
-    expect(await authenticateEmail(client, 'signup', 'owner@example.test', 'test-only-password', callback)).toEqual({ status: 'confirmEmail' });
+  it.each(['user_already_exists', 'email_exists'])('rejects duplicate sign-up instead of requesting email confirmation (%s)', async (code) => {
+    const { client, auth } = setup({ data: { session: null }, error: { code } });
+    expect(await authenticateEmail(client, 'signup', 'owner@example.test', 'test-only-password', callback)).toEqual({ issue: 'accountExists' });
+    expect(auth.signInWithPassword).not.toHaveBeenCalled();
   });
   it('handles an obfuscated duplicate user exactly like an unconfirmed new user', async () => {
     const { client } = setup({ data: { session: null, user: { id: 'fake', identities: [] } }, error: null });

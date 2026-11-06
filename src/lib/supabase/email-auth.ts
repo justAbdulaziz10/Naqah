@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type EmailIssue = 'credentials' | 'confirmRequired' | 'weakPassword' | 'rateLimit' | 'network' | 'unavailable' | 'captcha' | 'failed';
+export type EmailIssue = 'credentials' | 'accountExists' | 'confirmRequired' | 'weakPassword' | 'rateLimit' | 'network' | 'unavailable' | 'captcha' | 'failed';
 type ErrorDetails = { code?: string; status?: number; name?: string };
 export function emailIssue(error: ErrorDetails): EmailIssue {
   if (error.code === 'captcha_failed') return 'captcha';
@@ -28,9 +28,9 @@ export async function authenticateEmail(
       ? await client.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo, ...(captchaToken ? { captchaToken } : {}) } })
       : await client.auth.signInWithPassword({ email: email.trim(), password, ...(captchaToken ? { options: { captchaToken } } : {}) });
     if (error) {
-      // Supabase may return either an obfuscated user or an explicit duplicate error,
-      // depending on project confirmation settings. Present the same neutral next step.
-      if (mode === 'signup' && ['user_already_exists', 'email_exists'].includes(error.code ?? '')) return { status: 'confirmEmail' };
+      // Only report a duplicate when Supabase explicitly rejects it. Never infer
+      // account existence from an obfuscated user or bypass password verification.
+      if (mode === 'signup' && ['user_already_exists', 'email_exists'].includes(error.code ?? '')) return { issue: 'accountExists' };
       return { issue: emailIssue(error) };
     }
     if (data.session) return { status: 'signedIn' };

@@ -105,7 +105,7 @@ try {
       mode = 'confirm'; const previousSignups = signups;
       await submit(true);
       await page.locator('form').evaluate((form) => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
-      await expect(page.getByRole('heading', { name: ar ? 'راجع بريدك' : 'Check your email', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: ar ? 'تابع حسابك' : 'Continue with your account', exact: true })).toBeVisible();
       expect(signups).toBe(previousSignups + 1);
       expect(new URL(signupCallback).searchParams.get('next')).toBe(`/${locale}/start`);
       await page.screenshot({ path: `${out}/${locale}-${width}-confirmation.png` });
@@ -114,7 +114,10 @@ try {
       expect((await context.cookies()).some(cookie => cookie.name === 'naqah-auth-return')).toBe(false);
       await page.goto(`${base}/${locale}/login/success`); await signedIn(); await logout();
       await page.goto(`${base}/${locale}/signup?method=email`); await fill(); mode = 'duplicate'; await submit(true);
-      await expect(page.getByRole('heading', { name: ar ? 'راجع بريدك' : 'Check your email', exact: true })).toBeVisible();
+      await expect(page.locator('[data-email-error]:visible')).toHaveText(ar ? 'هذا البريد مسجّل مسبقًا، سجّل دخولك.' : 'This email is already registered. Log in instead.');
+      await expect(page.getByRole('heading', { name: ar ? 'إنشاء حسابك' : 'Create your account', exact: true })).toBeVisible();
+      await expect(page.locator('input[name="email"]:visible')).toHaveAttribute('aria-invalid', 'true');
+      await expect(page.getByRole('link', { name: ar ? 'عندك حساب؟ سجّل دخولك' : 'Already have an account? Log in', exact: true })).toHaveAttribute('href', `/${locale}/login?method=email&next=%2F${locale}%2Fapp`);
       await page.goto(`${base}/${locale}/signup?method=email`); await fill(); mode = 'instant'; await submit(true); await expect(page).toHaveURL(`${base}/${locale}/start`);
       await page.goto(`${base}/${locale}/login/success`); await signedIn(); await logout();
       // Google start writes a PKCE verifier; server callback must exchange using that cookie.
