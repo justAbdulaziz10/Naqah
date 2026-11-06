@@ -158,7 +158,7 @@ export const onboarding = defineMessages({
       stepCurrent: "current step",
       browserOnly: "A preview. Nothing is charged, and your details stay in this browser.",
       heads: {
-        plan: { title: "How often should your worker report?", lead: "Choose a reporting rhythm. Change it anytime." },
+        plan: { title: "How often should your worker report?", lead: "Choose a reporting rhythm." },
         ownerFarm: { title: "Who should NAQAH call?", lead: "After each report NAQAH calls you with what matters. Fill in what you have; the rest can wait." },
         worker: { title: "Who reports from the farm?", lead: "Your worker calls NAQAH from an ordinary phone. Nothing to install." },
         details: { title: "What should each call cover?", lead: "NAQAH asks only about what your farm has, and tells you about what you choose." },
@@ -381,7 +381,7 @@ export const onboarding = defineMessages({
       stepCurrent: "الخطوة الحالية",
       browserOnly: "نسخة عرض. ما فيه أي دفع، وبياناتك تبقى في هذا المتصفح.",
       heads: {
-        plan: { title: "كم مرة يبلّغك العامل؟", lead: "اختر إيقاع التحديث، وتقدر تغيّره لاحقًا." },
+        plan: { title: "كم مرة يبلّغك العامل؟", lead: "اختر إيقاع التحديث." },
         ownerFarm: { title: "مين تتصل عليه ناقة؟", lead: "بعد كل تحديث تتصل عليك ناقة بالمهم فقط. عبّ اللي عندك الحين، والباقي بعدين." },
         worker: { title: "مين يبلّغ من المزرعة؟", lead: "العامل يتصل على ناقة من جواله العادي، بدون أي تطبيق." },
         details: { title: "وش تغطي كل مكالمة؟", lead: "ناقة تسأل عن الموجود في مزرعتك فقط، وتبلّغك باللي تختاره." },
