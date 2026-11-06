@@ -1,6 +1,11 @@
 import type { Locale } from '@/domain/types';
 import { safeReturnPath } from './auth-input';
 
+/** Sign-up starts the existing setup wizard; an explicit safe return path still wins. */
+export function authDestination(locale: Locale, mode: 'login' | 'signup', destination: unknown) {
+  return safeReturnPath(destination) ?? `/${locale}/${mode === 'signup' ? 'start' : 'app'}`;
+}
+
 export function successPath(locale: Locale, destination: unknown) {
   const next = safeReturnPath(destination);
   return `/${locale}/login/success${next ? `?next=${encodeURIComponent(next)}` : ''}`;

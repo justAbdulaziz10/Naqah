@@ -6,12 +6,15 @@ import { getSupabaseConfig, sessionCookieOptions } from './config';
 import { withTimeout } from './timeout';
 import { safeReturnPath } from './auth-input';
 import { successPath } from './auth-paths';
+import { AUTH_RETURN_COOKIE, readAuthReturn } from './return-context';
 
 /** Complete a PKCE flow without rendering the code, provider errors, or tokens. */
 export async function completeAuthCallback(request: NextRequest, locale: string) {
   if (!isLocale(locale)) return new NextResponse(null, { status: 404 });
   const params = request.nextUrl.searchParams;
-  const next = params.getAll('next').length === 1 ? safeReturnPath(params.get('next')) : null;
+  const next = params.has('next')
+    ? params.getAll('next').length === 1 ? safeReturnPath(params.get('next')) : null
+    : readAuthReturn(request.cookies.get(AUTH_RETURN_COOKIE)?.value);
   const failure = new URL(`/${locale}/login`, request.url);
   failure.searchParams.set('error', 'callbackFailed');
   if (params.get('method') === 'email') failure.searchParams.set('method', 'email');
@@ -20,6 +23,7 @@ export async function completeAuthCallback(request: NextRequest, locale: string)
   // Relative Location keeps the browser's actual origin, even when Next.js runs
   // behind a proxy or uses a different internal hostname. Never trust forwarded hosts.
   const response = new NextResponse(null, { status: 303, headers: { Location: failure.pathname + failure.search } });
+  response.cookies.set(AUTH_RETURN_COOKIE, '', { ...sessionCookieOptions, maxAge: 0 });
   response.headers.set('Cache-Control', 'private, no-store');
   response.headers.set('Referrer-Policy', 'no-referrer');
   const config = getSupabaseConfig();

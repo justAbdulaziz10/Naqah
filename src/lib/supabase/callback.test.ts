@@ -14,6 +14,20 @@ describe('PKCE callback', () => {
     mock.exchange.mockResolvedValue({ data: { session: { user: { id: 'test-owner' } } }, error: null });
     mock.create.mockReturnValue({ auth: { exchangeCodeForSession: mock.exchange } });
   });
+  it('recovers a safe signup destination if a provider drops the requested callback query', async () => {
+    const request = new NextRequest('https://naqah.test/ar/login/callback?code=test-code', { headers: { cookie: 'naqah-auth-return=%2Far%2Fstart' } });
+    const response = await completeAuthCallback(request, 'ar');
+    expect(response.headers.get('location')).toBe('/ar/login/success?next=%2Far%2Fstart');
+    expect(response.cookies.get('naqah-auth-return')?.maxAge).toBe(0);
+  });
+  it('never trusts a navigation cookie as identity or as an external redirect', async () => {
+    const request = new NextRequest('https://naqah.test/ar/login/callback?code=test-code', { headers: { cookie: 'naqah-auth-return=https%3A%2F%2Fevil.test' } });
+    const response = await completeAuthCallback(request, 'ar');
+    expect(response.headers.get('location')).toBe('/ar/login/success');
+    mock.exchange.mockResolvedValue({ data: { session: null }, error: { code: 'bad_code_verifier' } });
+    const rejected = await completeAuthCallback(new NextRequest('https://naqah.test/ar/login/callback?code=test-code', { headers: { cookie: 'naqah-auth-return=%2Far%2Fstart' } }), 'ar');
+    expect(rejected.headers.get('location')).toBe('/ar/login?error=callbackFailed&next=%2Far%2Fstart');
+  });
   it('exchanges a code with its verifier cookies and forwards session/deletion cookies and cache headers', async () => {
     const request = new NextRequest('https://naqah.test/en/login/callback?code=test-code&next=%2Fen%2Fapp&sb_flow_id=test-flow', { headers: { cookie: 'test-verifier=test-only' } });
     mock.create.mockImplementation((_url, _key, options) => {

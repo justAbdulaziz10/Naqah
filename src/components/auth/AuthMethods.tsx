@@ -9,6 +9,7 @@ import { auth } from '@/i18n/messages/auth';
 import { createClient } from '@/lib/supabase/client';
 import { callbackUrl } from '@/lib/supabase/auth-paths';
 import { emailIssue, type EmailIssue } from '@/lib/supabase/email-auth';
+import { rememberAuthReturn } from '@/lib/supabase/return-context';
 
 export function AuthMethods({ mode, active, next, disabled, onPendingChange }: {
   mode: 'login' | 'signup'; active: 'phone' | 'email'; next: string | null;
@@ -27,6 +28,7 @@ export function AuthMethods({ mode, active, next, disabled, onPendingChange }: {
     try {
       const client = createClient();
       if (!client) { setIssue('unavailable'); return; }
+      rememberAuthReturn(next);
       const { data, error } = await client.auth.signInWithOAuth({
         provider: 'google', options: { redirectTo: callbackUrl(window.location.origin, locale, next, 'google'), skipBrowserRedirect: true },
       });

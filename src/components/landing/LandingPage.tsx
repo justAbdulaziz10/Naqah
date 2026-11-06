@@ -45,6 +45,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
   const { common, landing, auth } = getMessages(locale);
   const prefix = (path: string) => `/${locale}${path === "/" ? "" : path}`;
   const authNext = `?next=${encodeURIComponent(prefix('/app'))}`;
+  const signupNext = `?next=${encodeURIComponent(prefix('/start'))}`;
   const anchorLinks = [
     { href: "#call", label: landing.nav.how },
     { href: "#principles", label: landing.nav.principles },
@@ -85,7 +86,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
               >
                 {landing.nav.signIn}
               </Link>
-              <Link href={prefix('/signup') + authNext} className="inline-flex min-h-11 items-center px-3.5 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso">
+              <Link href={prefix('/signup') + signupNext} className="inline-flex min-h-11 items-center px-3.5 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso">
                 {auth.navSignup}
               </Link>
             </nav>
@@ -95,7 +96,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
             <DemoAction size="md" className={`ms-2 max-sm:hidden ${flat}`}>
               {common.actions.startDemo}
             </DemoAction>
-            <MobileNavigation links={[...anchorLinks, { href: prefix("/login") + authNext, label: landing.nav.signIn }, { href: prefix('/signup') + authNext, label: auth.navSignup }]} menuLabel={landing.nav.menu} menuTitle={landing.nav.menuLabel} />
+            <MobileNavigation links={[...anchorLinks, { href: prefix("/login") + authNext, label: landing.nav.signIn }, { href: prefix('/signup') + signupNext, label: auth.navSignup }]} menuLabel={landing.nav.menu} menuTitle={landing.nav.menuLabel} />
           </div>
         </div>
       </header>

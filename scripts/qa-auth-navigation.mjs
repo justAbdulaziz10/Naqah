@@ -13,11 +13,12 @@ try {
       await context.addInitScript(() => sessionStorage.setItem('naqah-intro-seen', '1'));
       const page = await context.newPage();
       const next = `?next=${encodeURIComponent(`/${locale}/app`)}`;
+      const signupNext = `?next=${encodeURIComponent(`/${locale}/start`)}`;
       for (const path of ['', '/welcome']) {
         await page.goto(`${base}/${locale}${path}`);
         if (!path && width < 1024) await page.locator('header summary').click();
         const login = page.locator(`header a[href="/${locale}/login${next}"]:visible`);
-        const signup = page.locator(`header a[href="/${locale}/signup${next}"]:visible`);
+        const signup = page.locator(`header a[href="/${locale}/signup${signupNext}"]:visible`);
         await expect(login).toBeVisible(); await expect(signup).toBeVisible();
         for (const link of [login, signup]) {
           const box = await link.boundingBox();
@@ -26,7 +27,7 @@ try {
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.screenshot({ path: `${out}/${locale}-${width}-${path ? 'welcome' : 'landing'}.png`, fullPage: false });
         await signup.click();
-        await expect(page).toHaveURL(`${base}/${locale}/signup${next}`);
+        await expect(page).toHaveURL(`${base}/${locale}/signup${signupNext}`);
         await expect(page.locator('input[name="phone"]:visible')).toBeVisible();
       }
       await page.goto(`${base}/${locale}/welcome`);

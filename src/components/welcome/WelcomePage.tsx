@@ -19,6 +19,7 @@ const rise = "motion-safe:animate-fade-up";
 export function WelcomePage({ locale }: { locale: Locale }) {
   const { welcome, auth } = getMessages(locale);
   const authNext = `?next=${encodeURIComponent(`/${locale}/app`)}`;
+  const signupNext = `?next=${encodeURIComponent(`/${locale}/start`)}`;
   const photoId = LANDING_PHOTOS.welcome ? "welcome" : "herd";
 
   return (
@@ -32,7 +33,7 @@ export function WelcomePage({ locale }: { locale: Locale }) {
           >
             {welcome.signIn}
           </Link>
-          <Link href={`/${locale}/signup${authNext}`} className="inline-flex min-h-11 items-center px-2 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso">
+          <Link href={`/${locale}/signup${signupNext}`} className="inline-flex min-h-11 items-center px-2 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso">
             {auth.navSignup}
           </Link>
           <LocaleSwitcher className="min-h-11" />

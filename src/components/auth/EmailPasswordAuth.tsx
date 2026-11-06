@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { getCaptchaSiteKey, getSupabaseConfig } from '@/lib/supabase/config';
 import { callbackUrl, successPath } from '@/lib/supabase/auth-paths';
 import { authenticateEmail, type EmailIssue } from '@/lib/supabase/email-auth';
+import { rememberAuthReturn } from '@/lib/supabase/return-context';
 import { AuthFrame } from './AuthFrame';
 import { AuthMethods } from './AuthMethods';
 import { CaptchaField } from './CaptchaField';
@@ -39,6 +40,7 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
     const client = createClient();
     if (!client) { setIssue('unavailable'); return; }
     locked.current = true; setPending(true); setIssue(null);
+    rememberAuthReturn(next);
     const result = await authenticateEmail(client, mode, email, password, callbackUrl(window.location.origin, locale, next, 'email'), captchaToken || undefined);
     if (captchaKey) { setCaptchaToken(''); setCaptchaReset((count) => count + 1); }
     if ('status' in result) {
@@ -52,8 +54,9 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
     } else { setIssue(result.issue); }
     locked.current = false; setPending(false);
   }
-  const query = new URLSearchParams({ method: 'email' });
-  if (next) query.set('next', next);
+  const query = new URLSearchParams({ method: 'email', next: `/${locale}/app` });
+  const alternateQuery = new URLSearchParams(query);
+  alternateQuery.set('next', `/${locale}/${mode === 'login' ? 'start' : 'app'}`);
   const error = !configured ? 'unavailable' : issue;
   return <AuthFrame>
     <h1 className="text-2xl font-semibold leading-snug">{confirmation ? m.confirmTitle : m[mode]}</h1>
@@ -73,7 +76,7 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
         {captchaKey && configured && <CaptchaField siteKey={captchaKey} resetKey={captchaReset} onToken={setCaptchaToken} onFailed={() => setIssue('captcha')} />}
         <Button type="submit" size="lg" disabled={pending || googlePending || !configured || (!!captchaKey && !captchaToken)}>{pending ? m.emailPending : mode === 'signup' ? m.emailSignup : m.emailLogin}</Button>
       </form>
-      <Link className="mt-5 inline-flex min-h-11 items-center text-sm underline underline-offset-4" href={`${href(mode === 'login' ? '/signup' : '/login')}?${query}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</Link>
+      <Link className="mt-5 inline-flex min-h-11 items-center text-sm underline underline-offset-4" href={`${href(mode === 'login' ? '/signup' : '/login')}?${alternateQuery}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</Link>
     </>}
   </AuthFrame>;
 }

@@ -88,7 +88,8 @@ try {
         mode = state; await submit(); await expect(page.locator('[data-email-error]:visible')).toContainText(text);
       }
       mode = 'ok';
-      await submit(); await signedIn();
+      await submit(); await expect(page).toHaveURL(`${base}/${locale}/app`);
+      await page.goto(`${base}/${locale}/login/success`); await signedIn();
       await page.reload(); await signedIn();
       // Force the stored session expiry to exercise SSR refresh through the real SDK adapters.
       const sessionCookie = (await context.cookies()).find((cookie) => /-auth-token$/.test(cookie.name));
@@ -106,13 +107,16 @@ try {
       await page.locator('form').evaluate((form) => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
       await expect(page.getByRole('heading', { name: ar ? 'راجع بريدك' : 'Check your email', exact: true })).toBeVisible();
       expect(signups).toBe(previousSignups + 1);
-      expect(new URL(signupCallback).searchParams.has('next')).toBe(false);
+      expect(new URL(signupCallback).searchParams.get('next')).toBe(`/${locale}/start`);
       await page.screenshot({ path: `${out}/${locale}-${width}-confirmation.png` });
-      const confirmation = new URL(signupCallback); confirmation.searchParams.set('code', 'qa-email-code');
-      await page.goto(confirmation.toString()); await signedIn(); await logout();
+      // Reproduce a Site URL fallback: the provider returns a code to Login and drops next/method.
+      await page.goto(`${base}/${locale}/login?code=qa-email-code`); await expect(page).toHaveURL(`${base}/${locale}/start`);
+      expect((await context.cookies()).some(cookie => cookie.name === 'naqah-auth-return')).toBe(false);
+      await page.goto(`${base}/${locale}/login/success`); await signedIn(); await logout();
       await page.goto(`${base}/${locale}/signup?method=email`); await fill(); mode = 'duplicate'; await submit(true);
       await expect(page.getByRole('heading', { name: ar ? 'راجع بريدك' : 'Check your email', exact: true })).toBeVisible();
-      await page.goto(`${base}/${locale}/signup?method=email`); await fill(); mode = 'instant'; await submit(true); await signedIn(); await logout();
+      await page.goto(`${base}/${locale}/signup?method=email`); await fill(); mode = 'instant'; await submit(true); await expect(page).toHaveURL(`${base}/${locale}/start`);
+      await page.goto(`${base}/${locale}/login/success`); await signedIn(); await logout();
       // Google start writes a PKCE verifier; server callback must exchange using that cookie.
       await page.goto(`${emailPath}&next=${encodeURIComponent(`/${locale}/app`)}`);
       await page.getByRole('button', { name: ar ? 'المتابعة مع Google' : 'Continue with Google', exact: true }).click();
@@ -122,6 +126,12 @@ try {
       const google = new URL(googleCallback); google.searchParams.set('code', 'qa-google-code');
       await page.goto(google.toString());
       await expect(page).toHaveURL(`${base}/${locale}/app`);
+      await page.goto(`${base}/${locale}/login/success`); await signedIn(); await logout();
+      await page.goto(`${base}/${locale}/signup?method=email`);
+      await page.getByRole('button', { name: ar ? 'المتابعة مع Google' : 'Continue with Google', exact: true }).click();
+      await expect(page.getByText('Mock provider only')).toBeVisible();
+      expect(new URL(googleCallback).searchParams.get('next')).toBe(`/${locale}/start`);
+      await page.goto(`${base}/${locale}/login?code=qa-google-code`); await expect(page).toHaveURL(`${base}/${locale}/start`);
       await page.goto(`${base}/${locale}/login/success`); await signedIn(); await logout();
       // Phone still produces the same SSR session and success behavior.
       await page.locator('input[name="phone"]:visible').fill(phone);
@@ -141,7 +151,15 @@ try {
       await page.locator('input[name="code"]:visible').fill('123456');
       await expect(page.locator('input[name="code"]:visible')).toHaveValue('123456');
       await page.getByRole('button', { name: ar ? 'تحقق وتابع' : 'Verify and continue', exact: true }).click();
-      await signedIn(); await logout();
+      await expect(page).toHaveURL(`${base}/${locale}/app`);
+      await page.goto(`${base}/${locale}/login/success`); await signedIn(); await logout();
+      await page.goto(`${base}/${locale}/signup`);
+      await page.locator('input[name="phone"]:visible').fill(phone);
+      await page.getByRole('button', { name: ar ? 'إرسال الرمز' : 'Send code', exact: true }).click();
+      await page.locator('input[name="code"]:visible').fill('123456');
+      await page.getByRole('button', { name: ar ? 'تحقق وتابع' : 'Verify and continue', exact: true }).click();
+      await expect(page).toHaveURL(`${base}/${locale}/start`);
+      await page.goto(`${base}/${locale}/login/success`); await signedIn(); await logout();
       await page.goto(`${base}/${locale}/login/callback?error=access_denied&error_description=PRIVATE&next=https://evil.test`);
       await expect(page).toHaveURL(`${base}/${locale}/login?error=callbackFailed`);
       await expect(page.getByRole('alert').first()).not.toContainText('PRIVATE');

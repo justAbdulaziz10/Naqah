@@ -7,8 +7,9 @@ import { Button, Input } from '@/components/ui';
 import { useI18n } from '@/i18n/client';
 import { sendOwnerOtp } from '@/app/[locale]/login/actions';
 import { createClient } from '@/lib/supabase/client';
-import { authIssue, latinDigits, normalizeSaudiPhone, safeReturnPath, type AuthIssue } from '@/lib/supabase/auth-input';
+import { authIssue, latinDigits, normalizeSaudiPhone, type AuthIssue } from '@/lib/supabase/auth-input';
 import { getCaptchaSiteKey, getSupabaseConfig } from '@/lib/supabase/config';
+import { authDestination } from '@/lib/supabase/auth-paths';
 import { AuthFrame } from './AuthFrame';
 import { CaptchaField } from './CaptchaField';
 import { AuthMethods } from './AuthMethods';
@@ -34,14 +35,13 @@ function writePending(phone: string | null) {
 }
 
 
-function PhoneAuth({ mode }: { mode: 'login' | 'signup' }) {
-  const { href, m: { auth: m } } = useI18n();
+function PhoneAuth({ mode, next }: { mode: 'login' | 'signup'; next: string | null }) {
+  const { locale, href, m: { auth: m } } = useI18n();
   const id = useId();
   const phoneId = `${id}-phone`;
   const codeId = `${id}-code`;
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
-  const next = safeReturnPath(useSearchParams().get('next'));
   const configured = !!getSupabaseConfig();
   const captchaKey = getCaptchaSiteKey();
   const [phone, setPhone] = useState('');
@@ -136,14 +136,16 @@ function PhoneAuth({ mode }: { mode: 'login' | 'signup' }) {
     </form>
     {!sentPhone && <>
       <p className="mt-4 text-sm text-muted">{m.accountNote}</p>
-      <Link className="mt-3 inline-flex min-h-11 items-center text-sm underline underline-offset-4" href={`${href(mode === 'login' ? '/signup' : '/login')}${next ? `?next=${encodeURIComponent(next)}` : ''}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</Link>
+      <Link className="mt-3 inline-flex min-h-11 items-center text-sm underline underline-offset-4" href={`${href(mode === 'login' ? '/signup' : '/login')}?next=${encodeURIComponent(`/${locale}/${mode === 'login' ? 'start' : 'app'}`)}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</Link>
     </>}
   </AuthFrame>;
 }
 
 export function OwnerAuth({ mode }: { mode: 'login' | 'signup' }) {
   const params = useSearchParams();
+  const { locale } = useI18n();
+  const next = authDestination(locale, mode, params.get('next'));
   return params.get('method') === 'email'
-    ? <EmailPasswordAuth key={mode} mode={mode} next={safeReturnPath(params.get('next'))} />
-    : <PhoneAuth key={mode} mode={mode} />;
+    ? <EmailPasswordAuth key={mode} mode={mode} next={next} />
+    : <PhoneAuth key={mode} mode={mode} next={next} />;
 }
