@@ -11,7 +11,7 @@ import { openNoAnswerTickets, openTaskTickets } from "@/domain";
 import type { CallKind } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
-import { useNow, useWorkspace } from "@/store/workspace";
+import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
 
 type TicketTab = "active" | "history";
 
@@ -52,6 +52,7 @@ function Count({ label, value }: { label: string; value: string }) {
 export default function TicketsPage() {
   const { m, fmt, href } = useI18n();
   const ws = useWorkspace();
+  const account = useIsAccount();
   const now = useNow();
   const [tab, setTab] = useState<TicketTab>("active");
   const linkedTaskId = useHashTarget("task-", Boolean(ws));
@@ -183,7 +184,7 @@ export default function TicketsPage() {
           {ultimate ? (
             <>
               <p className="mt-4 text-sm leading-relaxed text-muted">{m.app.tickets.closeRule}</p>
-              {openTasks.length ? (
+              {openTasks.length && !account ? (
                 <ButtonLink href={href("/app/lab")} variant="secondary" size="sm" className="mt-3 min-h-11 w-full whitespace-normal">
                   {m.app.tickets.verifyNow}
                   <ArrowRight size={16} className="shrink-0 rtl:-scale-x-100" aria-hidden />

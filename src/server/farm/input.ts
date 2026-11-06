@@ -118,6 +118,13 @@ function parseAge(value: unknown) {
   return value as number | null;
 }
 
+/** When a record was last confirmed. Null means never, as on a row nobody has reported yet. */
+function recordedAt(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) throw invalid("updatedAt");
+  return value;
+}
+
 /** The edit form no longer asks for a tag, so a missing tag must keep the stored one. */
 export function parseCamelPatch(value: unknown) {
   const input = record(value);
@@ -128,6 +135,8 @@ export function parseCamelPatch(value: unknown) {
     ...(given(input, "ageYears") && { age_years: parseAge(input.ageYears) }),
     ...(given(input, "health") && { health: oneOf(input.health, HEALTH, "health") }),
     ...(given(input, "healthNote") && { health_note: optionalText(input.healthNote, "healthNote") }),
+    ...(given(input, "certainty") && { certainty: oneOf(input.certainty, CERTAINTIES, "certainty") }),
+    ...(given(input, "updatedAt") && { updated_at: recordedAt(input.updatedAt) }),
   };
 }
 
@@ -145,6 +154,7 @@ export function parseResource(value: unknown) {
     ...(given(input, "quantity") && { quantity: optionalText(input.quantity, "quantity", 120) }),
     ...(given(input, "note") && { note: optionalText(input.note, "note") }),
     ...(given(input, "certainty") && { certainty: oneOf(input.certainty, CERTAINTIES, "certainty") }),
+    ...(given(input, "updatedAt") && { updated_at: recordedAt(input.updatedAt) }),
   };
 }
 

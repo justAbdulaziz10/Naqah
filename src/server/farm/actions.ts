@@ -2,8 +2,10 @@
 
 import { createOwnerRepository, type OwnerRepository } from "@/server/db/owner-repository";
 import { DbError, type DbErrorCode } from "@/server/db/errors";
+import { getSupabaseConfig } from "@/lib/supabase/config";
 import { createWritableClient, getOwner } from "@/lib/supabase/server";
 import { withTimeout } from "@/lib/supabase/timeout";
+import { applyOwnerChanges } from "./changes";
 
 const DB_TIMEOUT_MS = 8_000;
 
@@ -12,8 +14,9 @@ type ActionResult<T> = { ok: true; data: T } | { ok: false; error: DbErrorCode |
 /** Identity comes from the validated session only. No action takes an owner or farm id. */
 async function asOwner<T>(work: (repository: OwnerRepository) => Promise<T>): Promise<ActionResult<T>> {
   try {
-    const { user } = await getOwner();
-    if (!user) return { ok: false, error: "unauthenticated" };
+    const { user, unavailable } = await getOwner();
+    // An outage is not a signed-out owner: treating it as one would show them the demo.
+    if (!user) return { ok: false, error: unavailable ? "unavailable" : "unauthenticated" };
     const client = await createWritableClient();
     if (!client) return { ok: false, error: "unavailable" };
     return { ok: true, data: await withTimeout(work(createOwnerRepository(client, user.id)), DB_TIMEOUT_MS) };
@@ -23,6 +26,27 @@ async function asOwner<T>(work: (repository: OwnerRepository) => Promise<T>): Pr
 }
 
 export async function ensureFarm() { return asOwner((r) => r.ensureFarm()); }
+
+/** Entering the dashboard or setup. Without Supabase configured there is no account to open. */
+export async function openAccount() {
+  if (!getSupabaseConfig()) return { ok: false as const, error: "unauthenticated" as const };
+  return asOwner(async (r) => {
+    await r.ensureFarm();
+    return (await r.load()).workspace;
+  });
+}
+
+/** One save from the screens: validated change by change, then the server's copy of the farm. */
+export async function saveOwnerEdits(changes: unknown, farm: unknown) {
+  return asOwner(async (r) => {
+    // A tab opened by one owner can outlive their session: its edits must not land on the next farm.
+    const { workspace } = await r.load();
+    if (workspace.createdAt !== farm) throw new DbError("conflict");
+    const applied = await applyOwnerChanges(r, changes);
+    return { ...applied, workspace: (await r.load()).workspace };
+  });
+}
+
 export async function loadWorkspace() { return asOwner(async (r) => (await r.load()).workspace); }
 export async function listAlerts() { return asOwner((r) => r.alerts(new Date())); }
 export async function listInstructions() { return asOwner((r) => r.instructions()); }

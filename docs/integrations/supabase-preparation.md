@@ -60,9 +60,9 @@ Run from the repo root. Your friend owns the account: they log in and enter the 
    (it adds `supabase/config.toml`; commit it with the migration later if you keep it).
 4. **Preview, then apply.**
    ```bash
-   npx supabase@latest db push --dry-run   # must list 0001, 0002 and 0003
+   npx supabase@latest db push --dry-run   # must list 0001, 0002, 0003 and 0004
    npx supabase@latest db push
-   npx supabase@latest migration list      # local and remote both show all three
+   npx supabase@latest migration list      # local and remote both show all four
    ```
 5. **Verify in the SQL editor** (read-only):
    ```sql

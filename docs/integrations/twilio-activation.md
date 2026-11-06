@@ -4,8 +4,7 @@ Status: code and local tests only. **No number is bought, no webhook is set, no 
 applied, and nothing is deployed.** Every step below needs the owner's approval first.
 
 Milestone: worker calls → answers configured questions → structured report saves to Supabase →
-owner sees it on the dashboard. Everything up to the save is built. The dashboard step is blocked;
-see "Blocked" below.
+owner sees it on the dashboard. All of it is built and passes locally with Twilio and Auth mocked.
 
 ## How a real call works
 
@@ -31,12 +30,10 @@ It is scripted, not conversational AI: `src/domain/conversation/engine.ts` asks 
 
 ## Blocked
 
-These stop the milestone. None can be worked around with sample data.
+These stop the first real call. None can be worked around with sample data.
 
 | Dependency | Why | Owner |
 |---|---|---|
-| The dashboard doesn't read Supabase | `src/store/workspace.ts` is localStorage only and no page calls `loadWorkspace`. A saved report is in the database but not on screen. Steps 2–3 of `supabase-backend.md`. | Dashboard/account work |
-| Nothing creates a real farm | No page calls `ensureFarm`, `saveWorker`, `saveFarmProfile` or sets `setupComplete`. Until then a farm exists only by hand (step 3). | Onboarding/account work |
 | Access to `ydsgmzxqjimwbamnksxe` | The connected Supabase account lists one other project, and the REST API returns 404 for `farms`, so the migrations are not applied. | Project owner |
 | `SUPABASE_SECRET_KEY` | Not in `.env.local`, which still has the empty legacy name. | Project owner |
 | Twilio credentials | None on this machine, and no Twilio tool is connected, so the account could not be checked. | Project owner |
@@ -85,31 +82,13 @@ Each step is the owner's to approve.
    schema to any other project.
 2. **Apply the schema.** Follow `supabase-preparation.md`. The dry run must list exactly `0001`,
    `0002` and `0003`. Then run Security and Performance Advisors.
-3. **Create one test farm by hand.** Sign up through the site, take the user id from
-   Authentication → Users, and run this in the SQL editor:
-
-   ```sql
-   -- Replace all four values. Ultimate avoids needing a reporting window for the test.
-   with farm as (
-     insert into farms (owner_id, plan, setup_complete, owner_name, owner_phone, name, location)
-     values ('<auth-user-id>', 'ultimate', true, '<owner name>', '<owner E.164, not the test phone>', 'Test farm', 'Test')
-     returning id
-   ), worker as (
-     insert into workers (farm_id, name, phone, language)
-     select id, 'Test worker', '<test phone E.164>', 'ar' from farm
-   ), feed as (
-     insert into resources (farm_id, kind, present)
-     select id, kind, kind in ('feed', 'water') from farm, unnest(enum_range(null::resource_kind)) kind
-   )
-   insert into camels (farm_id, name, tag) select id, 'Test camel', 'T1' from farm;
-   ```
-
-4. **Get a public HTTPS address.** Either run the branch locally behind a tunnel, which needs no
+3. **Get a public HTTPS address.** Either run the branch locally behind a tunnel, which needs no
    deployment, or use a deployment without Vercel Authentication. Twilio can't pass that login.
-5. **Set the server variables** there, never in a `NEXT_PUBLIC_` name:
+4. **Set the server variables** there, never in a `NEXT_PUBLIC_` name:
 
    ```sh
    NAQAH_VOICE_MODE=farm
+   NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1      # build-time: rebuild after setting it
    NAQAH_PUBLIC_BASE_URL=https://<exact public origin>
    TWILIO_AUTH_TOKEN=<primary auth token>
    SUPABASE_SECRET_KEY=<sb_secret_...>
@@ -118,11 +97,15 @@ Each step is the owner's to approve.
    ```
 
    Leave `NAQAH_CALL_OWNER`, `WHATSAPP_TOKEN` and `NAQAH_VOICE_OWNER_INQUIRY` unset.
-6. **Check it refuses strangers.** An unsigned post must return 403:
+5. **Check it refuses strangers.** An unsigned post must return 403:
 
    ```sh
    curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<origin>/api/voice/inbound -d 'From=%2B15550100'
    ```
+
+6. **Create the test farm.** Sign in on the site and finish setup with
+   the test phone as the worker. Use a different phone for the owner. It stays on Basic, so set a
+   reporting window that covers the call, in Settings.
 
 7. **Buy the number and point it here.** Upgrade the account, buy a US voice number, then under
    Voice Configuration set **A call comes in** to `https://<origin>/api/voice/inbound` and
@@ -146,9 +129,10 @@ Each step is the owner's to approve.
 
 10. **Check Twilio's call log** for webhook errors and confirm no recording exists.
 
-Pass: the call completes, one report matches what was said, the working row is gone, and the
-Twilio log is clean. The owner seeing it on the dashboard stays unproven until the block above is
-cleared.
+11. **Check the dashboard.** Signed in as the owner, open Calls. The report must be there.
+
+Pass: the call completes, one report matches what was said, the working row is gone, the Twilio log
+is clean, and the owner sees the report.
 
 Rollback: clear the number's webhook URLs, or unset `NAQAH_VOICE_MODE`. Then release the number to
 stop the monthly charge. Test rows go with `delete from farms where id = '<id>'`, which removes
@@ -175,6 +159,8 @@ that farm's history.
   built, so those outbound calls don't happen yet. Outcomes from worker-initiated calls do save.
 - **Caller ID is not proof.** A valid signature shows the request came through Twilio, not who is
   calling. A spoofed worker number could file that farm's report.
+
+- **Phone numbers aren't verified.** See `supabase-backend.md`. Keep sign-up closed until decided.
 
 ## Testing it locally
 

@@ -132,7 +132,10 @@ Things to know before changing them:
 - **Two phone modes.** By default the line is the *sample* line: signed `s` state, each turn replays the engine on the
   sample workspace, it says it is a sample, and it saves nothing. `NAQAH_VOICE_MODE=farm` is a real call: the caller
   resolves to a farm in Supabase, `voice_call_sessions` holds the call, and outcomes save through `applyVoiceEvent`.
-  Farm mode never falls back to sample data. See `twilio-activation.md`. The dashboard does not read Supabase yet.
+  Farm mode never falls back to sample data. See `twilio-activation.md`.
+- **Two data modes.** With `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1`, a signed-in owner's farm comes from Supabase through
+  `src/store/accountSync.ts`; everyone else keeps the localStorage demo. `update(fn)` works in both, but only
+  owner-writable fields reach the database. Anything demo-only must check `useIsAccount()`. See `supabase-backend.md`.
 - **Voice locale is per deployment** (`NAQAH_VOICE_LOCALE`). Verify with
   `node scripts/verify-naqah.mjs voice --locale <same locale as the server>`.
 - **Push:** without VAPID keys, notifications are shown locally by the service worker while the app is open.

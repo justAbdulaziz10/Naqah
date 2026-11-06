@@ -20,7 +20,8 @@ import {
 import { IntegrationsSection } from "@/components/integrations/IntegrationsSection";
 import type { Plan } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
-import { useSaveStatus, useWorkspaceStore } from "@/store/workspace";
+import { LogoutButton } from "@/components/auth/LogoutButton";
+import { useIsAccount, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
 
 /** Clears the sticky header and demo row when a link jumps to a section. */
 const anchor = "scroll-mt-32";
@@ -35,7 +36,8 @@ export default function SettingsPage() {
   const ws = useWorkspaceStore((state) => state.workspace);
   const startDemo = useWorkspaceStore((state) => state.startDemo);
   const reset = useWorkspaceStore((state) => state.reset);
-  const saveFailed = useSaveStatus((state) => state.status === "failed");
+  const account = useIsAccount();
+  const saveFailed = useSaveStatus((state) => state.status === "failed") && !account; // The account banner covers it.
   const [editedSection, setEditedSection] = useState<string | null>(null);
   const [pendingSample, setPendingSample] = useState<Plan | null>(null);
 
@@ -61,7 +63,7 @@ export default function SettingsPage() {
     { id: "settings-farm", label: m.onboarding.settingsGroups.farm },
     { id: "settings-calls", label: m.onboarding.settingsGroups.calls },
     { id: "settings-connections", label: m.onboarding.settingsGroups.connections },
-    { id: "settings-demo", label: m.onboarding.settingsGroups.demo },
+    { id: "settings-demo", label: account ? m.account.title : m.onboarding.settingsGroups.demo },
   ];
 
   return (
@@ -114,8 +116,8 @@ export default function SettingsPage() {
 
       <div id="settings-connections" className={anchor}><IntegrationsSection /></div>
 
-      <GroupTitle id="settings-demo">{m.onboarding.settingsGroups.demo}</GroupTitle>
-      <Card>
+      <GroupTitle id="settings-demo">{account ? m.account.title : m.onboarding.settingsGroups.demo}</GroupTitle>
+      {account ? <Card><CardBody><LogoutButton /></CardBody></Card> : <Card>
         <CardHeader title={m.onboarding.demoControls} />
         <CardBody className="space-y-4">
           <div className="flex flex-wrap gap-3">
@@ -138,7 +140,7 @@ export default function SettingsPage() {
           </Button>
           <p className="text-sm text-muted">{m.onboarding.browserStorage}</p>
         </CardBody>
-      </Card>
+      </Card>}
       {pendingSample ? (
         <ConfirmDialog
           title={m.common.demo.sampleConfirmTitle}

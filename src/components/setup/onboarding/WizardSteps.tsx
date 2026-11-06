@@ -34,6 +34,7 @@ import { isValidWindow } from "@/domain/clock";
 import { uid } from "@/domain/id";
 import type { CriterionKind, Plan, ReportingWindow, ResourceKind, Weekday, Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
+import { useIsAccount } from "@/store/workspace";
 import { cn } from "@/lib/cn";
 import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
 import { getCallSetupGaps, hasCompleteWindow } from "../CallSetupStatus";
@@ -570,6 +571,7 @@ function Missing() {
 
 export function ReviewStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: WizardStepKey) => void }) {
   const { m, t, locale } = useI18n();
+  const account = useIsAccount();
   const list = (items: string[]) => items.join(locale === "ar" ? "، " : ", ");
   const r = m.onboarding.wizard.review;
   const { owner, farm, worker, plan, window } = ws.settings;
@@ -629,10 +631,10 @@ export function ReviewStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizar
             <ul className="mt-1 list-disc space-y-1 ps-6 text-[1.0625rem] text-espresso">
               {gaps.map((gap) => <li key={gap}>{m.onboarding.callSetupItems[gap]}</li>)}
             </ul>
-            <p className="mt-3 text-[0.9375rem] leading-relaxed text-muted">{m.onboarding.liveCallsUnavailable}</p>
+            {account ? null : <p className="mt-3 text-[0.9375rem] leading-relaxed text-muted">{m.onboarding.liveCallsUnavailable}</p>}
           </>
         ) : (
-          <p className="mt-2 text-[1.0625rem] leading-relaxed text-espresso">{m.onboarding.wizard.readyDone}</p>
+          <p className="mt-2 text-[1.0625rem] leading-relaxed text-espresso">{account ? m.account.callsReady : m.onboarding.wizard.readyDone}</p>
         )}
       </section>
     </div>
