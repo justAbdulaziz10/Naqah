@@ -5,17 +5,37 @@ import { useSearchParams } from 'next/navigation';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button, Input } from '@/components/ui';
 import { useI18n } from '@/i18n/client';
-import { auth } from '@/i18n/messages/auth';
+import { sendOwnerOtp } from '@/app/[locale]/login/actions';
 import { createClient } from '@/lib/supabase/client';
-import { authIssue, latinDigits, normalizeSaudiPhone, safeReturnPath } from '@/lib/supabase/auth-input';
-import { getSupabaseConfig } from '@/lib/supabase/config';
+import { authIssue, latinDigits, normalizeSaudiPhone, safeReturnPath, type AuthIssue } from '@/lib/supabase/auth-input';
+import { getCaptchaSiteKey, getSupabaseConfig } from '@/lib/supabase/config';
 import { AuthFrame } from './AuthFrame';
+import { CaptchaField } from './CaptchaField';
 import { AuthMethods } from './AuthMethods';
 import { EmailPasswordAuth } from './EmailPasswordAuth';
 
+const COOLDOWN_MS = 60_000;
+const PENDING_KEY = 'naqah-owner-otp';
+const PENDING_MS = 10 * 60_000;
+
+/** Keeps the code step across a language switch or reload, which remount this form. */
+function readPending(): { phone: string; sentAt: number } | null {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(PENDING_KEY) ?? 'null');
+    const fresh = typeof saved?.phone === 'string' && typeof saved?.sentAt === 'number' && Date.now() - saved.sentAt < PENDING_MS;
+    return fresh ? saved : null;
+  } catch { return null; }
+}
+function writePending(phone: string | null) {
+  try {
+    if (phone) sessionStorage.setItem(PENDING_KEY, JSON.stringify({ phone, sentAt: Date.now() }));
+    else sessionStorage.removeItem(PENDING_KEY);
+  } catch { /* Private browsing: the code step just won't survive a reload. */ }
+}
+
+
 function PhoneAuth({ mode }: { mode: 'login' | 'signup' }) {
-  const { locale, href } = useI18n();
-  const m = auth[locale];
+  const { href, m: { auth: m } } = useI18n();
   const id = useId();
   const phoneId = `${id}-phone`;
   const codeId = `${id}-code`;
@@ -23,11 +43,14 @@ function PhoneAuth({ mode }: { mode: 'login' | 'signup' }) {
   const errorId = `${id}-error`;
   const next = safeReturnPath(useSearchParams().get('next'));
   const configured = !!getSupabaseConfig();
+  const captchaKey = getCaptchaSiteKey();
   const [phone, setPhone] = useState('');
   const [sentPhone, setSentPhone] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState<'sending' | 'verifying' | null>(null);
-  const [issue, setIssue] = useState<keyof Pick<typeof m, 'invalidPhone' | 'invalidCodeFormat' | 'invalidCode' | 'rateLimit' | 'network' | 'unavailable' | 'failed'> | null>(null);
+  const [issue, setIssue] = useState<AuthIssue | 'invalidPhone' | 'invalidCodeFormat' | null>(null);
+  const [captchaToken, setCaptchaToken] = useState('');
+  const [captchaReset, setCaptchaReset] = useState(0);
   const [notice, setNotice] = useState(false);
   const [googlePending, setGooglePending] = useState(false);
   const [remaining, setRemaining] = useState(0);
@@ -39,25 +62,34 @@ function PhoneAuth({ mode }: { mode: 'login' | 'signup' }) {
     return () => clearInterval(timer);
   }, []);
   useEffect(() => { if (sentPhone) codeInput.current?.focus(); }, [sentPhone]);
+  useEffect(() => {
+    const pending = readPending();
+    if (!pending) return;
+    until.current = pending.sentAt + COOLDOWN_MS;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sessionStorage is unavailable during prerender.
+    setPhone(pending.phone); setSentPhone(pending.phone);
+  }, []);
 
-  function cooldown() { until.current = Date.now() + 60_000; setRemaining(60); }
+  function cooldown() { until.current = Date.now() + COOLDOWN_MS; setRemaining(COOLDOWN_MS / 1000); }
   async function send() {
     if (locked.current || googlePending || Date.now() < until.current) return;
     const normalized = normalizeSaudiPhone(phone);
     if (!normalized) { setIssue('invalidPhone'); return; }
-    const client = createClient();
-    if (!client) { setIssue('unavailable'); return; }
+    if (captchaKey && !captchaToken) { setIssue('captcha'); return; }
     locked.current = true; setBusy('sending'); setIssue(null); setNotice(false);
     try {
-      const { error } = await client.auth.signInWithOtp({ phone: normalized, options: { shouldCreateUser: true, channel: 'sms' } });
-      if (error) {
-        const kind = authIssue(error); setIssue(kind);
-        if (kind === 'rateLimit') cooldown();
+      const { issue: failure } = await sendOwnerOtp({ phone: normalized, captchaToken: captchaToken || undefined });
+      if (failure) {
+        setIssue(failure);
+        if (failure === 'rateLimit') cooldown();
       } else {
-        setNotice(!!sentPhone); setSentPhone(normalized); setCode(''); cooldown();
+        setNotice(!!sentPhone); setSentPhone(normalized); setCode(''); cooldown(); writePending(normalized);
       }
     } catch { setIssue('network'); }
-    finally { locked.current = false; setBusy(null); }
+    finally {
+      locked.current = false; setBusy(null);
+      if (captchaKey) { setCaptchaToken(''); setCaptchaReset((count) => count + 1); }
+    }
   }
   async function verify(event: FormEvent) {
     event.preventDefault();
@@ -70,6 +102,7 @@ function PhoneAuth({ mode }: { mode: 'login' | 'signup' }) {
     try {
       const { data, error } = await client.auth.verifyOtp({ phone: sentPhone, token, type: 'sms' });
       if (error || !data.session) { setIssue(authIssue(error)); return; }
+      writePending(null);
       // A full navigation avoids prefetching before the SSR cookies are written.
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.assign(`${href('/login/success')}${next ? `?next=${encodeURIComponent(next)}` : ''}`);
@@ -91,11 +124,12 @@ function PhoneAuth({ mode }: { mode: 'login' | 'signup' }) {
         <Input id={phoneId} name="phone" type="tel" dir="ltr" className="ltr-nums text-start" inputMode="tel" autoComplete="tel" value={phone} maxLength={32} onChange={(e) => { setPhone(e.target.value); setIssue(null); }} disabled={!!busy || googlePending || !configured} aria-invalid={issue === 'invalidPhone'} aria-describedby={`${hintId} ${errorId}`} />
         <p id={hintId} className="text-sm text-muted">{m.phoneHint}</p>
       </>}
+      {captchaKey && configured && <CaptchaField siteKey={captchaKey} resetKey={captchaReset} onToken={setCaptchaToken} onFailed={() => setIssue('captcha')} />}
       <p id={errorId} data-auth-error role="alert" className="text-sm text-danger" hidden={!error}>{error ? m[error] : ''}</p>
-      <Button type="submit" size="lg" className="w-full" disabled={!!busy || googlePending || !configured || (!sentPhone && remaining > 0)}>{busy ? m[busy] : sentPhone ? m.verify : m.send}</Button>
+      <Button type="submit" size="lg" className="w-full" disabled={!!busy || googlePending || !configured || (!sentPhone && (remaining > 0 || (!!captchaKey && !captchaToken)))}>{busy ? m[busy] : sentPhone ? m.verify : m.send}</Button>
       {sentPhone && <>
-        <Button variant="secondary" size="lg" disabled={!!busy || remaining > 0} onClick={() => void send()}>{remaining ? m.cooldown(remaining) : m.resend}</Button>
-        <Button variant="ghost" size="lg" disabled={!!busy} onClick={() => { setSentPhone(''); setCode(''); setIssue(null); setNotice(false); }}>{m.change}</Button>
+        <Button variant="secondary" size="lg" disabled={!!busy || remaining > 0 || (!!captchaKey && !captchaToken)} onClick={() => void send()}>{remaining ? m.cooldown(remaining) : m.resend}</Button>
+        <Button variant="ghost" size="lg" disabled={!!busy} onClick={() => { setSentPhone(''); setCode(''); setIssue(null); setNotice(false); writePending(null); }}>{m.change}</Button>
       </>}
       {!sentPhone && remaining > 0 && <p role="status" className="text-sm text-muted">{m.cooldown(remaining)}</p>}
       <p role="status" className="text-sm text-muted">{notice ? m.resendSent : ''}</p>

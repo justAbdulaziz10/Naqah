@@ -1,4 +1,6 @@
-export { HerdSection } from "./sections/HerdSection";
+export { CallSetupStatus, getCallSetupGaps, hasCallLanguageNote, hasCompleteWindow } from "./CallSetupStatus";
+export type { CallSetupGap } from "./CallSetupStatus";
+export { EmergencySection } from "./sections/EmergencySection";
 export { OwnerFarmSection } from "./sections/OwnerFarmSection";
 export { PlanSection } from "./sections/PlanSection";
 export { QuestionsSection } from "./sections/QuestionsSection";
@@ -9,8 +11,13 @@ export { WorkerSection } from "./sections/WorkerSection";
 export {
   clearReplacementDraft,
   createOnboardingSample,
+  createReplacementDraft,
+  hasOwnSetupData,
   readReplacementDraft,
+  replacementLoss,
   saveReplacementDraft,
   subscribeReplacementDraft,
 } from "./draft";
 export type { SetupSectionProps, WorkspaceUpdate } from "./types";
+export { formatSaudiMobile, isSaudiMobile, phoneNeedsFixing } from "./phone";
+export { SaveState } from "./SaveState";

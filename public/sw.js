@@ -1,6 +1,7 @@
 /* Hand-written NAQAH service worker. Bump the version to replace cached shells. */
 const CACHE_PREFIX = "naqah-pwa-";
-const CACHE_NAME = "naqah-pwa-v1";
+const CACHE_NAME = "naqah-pwa-v2";
+const AUTH_ROUTE = /^\/(ar|en)\/(login|signup)(\/|$)/;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -37,12 +38,18 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode !== "navigate" || !/^\/(ar|en)(\/|$)/.test(url.pathname)) return;
 
+  // Account pages depend on the live session, so a saved copy would show a stale state.
+  if (AUTH_ROUTE.test(url.pathname)) {
+    event.respondWith(fetch(request).catch(() => offlineResponse(url.pathname.startsWith("/ar"))));
+    return;
+  }
+
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       try {
         const response = await fetch(request);
-        if (response.ok) await cache.put(request, response.clone());
+        if (response.ok && !/no-store/i.test(response.headers.get("Cache-Control") || "")) await cache.put(request, response.clone());
         return response;
       } catch {
         const cached = await cache.match(request);

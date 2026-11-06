@@ -5,6 +5,7 @@ import { CamelMark } from "@/components/brand/CamelMark";
 import { Logo } from "@/components/brand/Logo";
 import { WovenFragment, WovenFrame, WovenSignature } from "@/components/heritage/Woven";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
+import { SetupLink } from "@/components/welcome/WelcomeActions";
 import { getMessages } from "@/i18n/messages";
 import { CamelColours } from "./CamelColours";
 import { EstatePhoto } from "./EstatePhoto";
@@ -41,8 +42,9 @@ function Stage({ lead, body, className, delay = 0 }: { lead: string; body: strin
 }
 
 export function LandingPage({ locale }: { locale: Locale }) {
-  const { common, landing } = getMessages(locale);
+  const { common, landing, auth } = getMessages(locale);
   const prefix = (path: string) => `/${locale}${path === "/" ? "" : path}`;
+  const authNext = `?next=${encodeURIComponent(prefix('/app'))}`;
   const anchorLinks = [
     { href: "#call", label: landing.nav.how },
     { href: "#principles", label: landing.nav.principles },
@@ -77,6 +79,15 @@ export function LandingPage({ locale }: { locale: Locale }) {
                   {link.label}
                 </a>
               ))}
+              <Link
+                href={prefix("/login") + authNext}
+                className="inline-flex min-h-11 items-center px-3.5 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso"
+              >
+                {landing.nav.signIn}
+              </Link>
+              <Link href={prefix('/signup') + authNext} className="inline-flex min-h-11 items-center px-3.5 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso">
+                {auth.navSignup}
+              </Link>
             </nav>
             <div className="hidden lg:block">
               <LocaleSwitcher className="min-h-11" />
@@ -84,7 +95,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
             <DemoAction size="md" className={`ms-2 max-sm:hidden ${flat}`}>
               {common.actions.startDemo}
             </DemoAction>
-            <MobileNavigation links={anchorLinks} menuLabel={landing.nav.menu} menuTitle={landing.nav.menuLabel} />
+            <MobileNavigation links={[...anchorLinks, { href: prefix("/login") + authNext, label: landing.nav.signIn }, { href: prefix('/signup') + authNext, label: auth.navSignup }]} menuLabel={landing.nav.menu} menuTitle={landing.nav.menuLabel} />
           </div>
         </div>
       </header>
@@ -124,12 +135,9 @@ export function LandingPage({ locale }: { locale: Locale }) {
                     {common.actions.startDemo}
                     <Arrow />
                   </DemoAction>
-                  <Link
-                    href={prefix("/start")}
-                    className={`${textLink} text-espresso hover:text-brown lg:text-cream lg:hover:text-gold`}
-                  >
+                  <SetupLink className={`${textLink} text-espresso hover:text-brown lg:text-cream lg:hover:text-gold`}>
                     {common.actions.setUp}
-                  </Link>
+                  </SetupLink>
                 </div>
               </div>
             </div>
@@ -307,9 +315,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
                 {common.actions.startDemo}
                 <Arrow />
               </DemoAction>
-              <Link href={prefix("/start")} className={`${textLink} text-cream hover:text-gold`}>
-                {common.actions.setUp}
-              </Link>
+              <SetupLink className={`${textLink} text-cream hover:text-gold`}>{common.actions.setUp}</SetupLink>
             </div>
           </div>
         </section>

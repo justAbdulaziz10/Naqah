@@ -26,6 +26,10 @@ if (process.env.NAQAH_AUTH_QA === 'mock-only') {
     const json = (body, status = 200) => Response.json(body, { status, headers: { 'x-supabase-api-version': '2024-01-01' } });
     if (url.pathname.endsWith('/user') && validFixtureAuthorization(request)) return json(fixtureUser());
     if (url.pathname.endsWith('/logout') && validFixtureAuthorization(request)) return new Response(null, { status: 204 });
+    if (url.pathname.endsWith('/otp')) {
+      const body = await request.json();
+      if (/^\+9665\d{8}$/.test(body.phone) && body.create_user === true) return json({});
+    }
     if (url.pathname.endsWith('/token')) {
       const body = await request.json();
       if (url.searchParams.get('grant_type') === 'pkce' && ['qa-google-code', 'qa-email-code'].includes(body.auth_code) && body.code_verifier?.length >= 43) return json(fixtureSession(url.origin));

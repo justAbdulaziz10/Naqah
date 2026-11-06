@@ -6,23 +6,24 @@ import type { Camel, HealthStatus } from "@/domain";
 import { Button, Field, IconButton, Input, Select, Textarea } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 
-export type CamelFormValues = Pick<Camel, "name" | "tag" | "sex" | "ageYears" | "health" | "healthNote">;
+export type CamelFormValues = Pick<Camel, "name" | "sex" | "ageYears" | "health" | "healthNote">;
 
 export function CamelEditorDialog({
   open,
   camel,
   onClose,
   onSave,
+  onRemove,
 }: {
   open: boolean;
   camel: Camel | null;
   onClose: () => void;
   onSave: (values: CamelFormValues) => void;
+  onRemove: () => void;
 }) {
   const { m } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState(camel?.name ?? "");
-  const [tag, setTag] = useState(camel?.tag ?? "");
   const [sex, setSex] = useState<Camel["sex"]>(camel?.sex ?? "female");
   const [age, setAge] = useState(camel?.ageYears === null || camel?.ageYears === undefined ? "" : String(camel.ageYears));
   const [health, setHealth] = useState<HealthStatus>(camel?.health ?? "unknown");
@@ -37,9 +38,9 @@ export function CamelEditorDialog({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!name.trim()) return;
     onSave({
       name: name.trim(),
-      tag: tag.trim(),
       sex,
       ageYears: age.trim() ? Number(age) : null,
       health,
@@ -73,9 +74,6 @@ export function CamelEditorDialog({
         <div className="grid gap-4 overflow-y-auto px-5 py-5 sm:grid-cols-2 sm:px-6">
           <Field label={m.app.herd.name}>
             {(id) => <Input id={id} autoFocus required value={name} onChange={(event) => setName(event.target.value)} />}
-          </Field>
-          <Field label={m.app.herd.tag}>
-            {(id) => <Input id={id} className="ltr-nums" required value={tag} onChange={(event) => setTag(event.target.value)} />}
           </Field>
           <Field label={m.app.herd.sex}>
             {(id) => (
@@ -122,6 +120,7 @@ export function CamelEditorDialog({
         </div>
 
         <div className="flex flex-wrap justify-end gap-2 border-t border-stone px-5 py-4 sm:px-6">
+          {camel ? <Button variant="ghost" className="me-auto text-danger!" onClick={onRemove}>{m.app.herd.removeCamel}</Button> : null}
           <Button variant="secondary" onClick={onClose}>{m.common.actions.cancel}</Button>
           <Button type="submit">{m.common.actions.save}</Button>
         </div>

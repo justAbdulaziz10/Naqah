@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 const mock = vi.hoisted(() => ({ create: vi.fn(), exchange: vi.fn(), config: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('@supabase/ssr', () => ({ createServerClient: mock.create }));
-vi.mock('./config', () => ({ getSupabaseConfig: mock.config }));
+vi.mock('./config', () => ({ getSupabaseConfig: mock.config, sessionCookieOptions: { path: '/', sameSite: 'lax', secure: true } }));
 import { completeAuthCallback } from './callback';
 import { callbackUrl, successPath } from './auth-paths';
 
@@ -17,6 +17,7 @@ describe('PKCE callback', () => {
   it('exchanges a code with its verifier cookies and forwards session/deletion cookies and cache headers', async () => {
     const request = new NextRequest('https://naqah.test/en/login/callback?code=test-code&next=%2Fen%2Fapp&sb_flow_id=test-flow', { headers: { cookie: 'test-verifier=test-only' } });
     mock.create.mockImplementation((_url, _key, options) => {
+      expect(options.cookieOptions).toEqual({ path: '/', sameSite: 'lax', secure: true });
       expect(options.cookies.getAll()).toContainEqual({ name: 'test-verifier', value: 'test-only' });
       mock.exchange.mockImplementation(async () => {
         options.cookies.setAll([

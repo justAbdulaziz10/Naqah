@@ -8,6 +8,13 @@ function setup(response: unknown) {
 }
 const callback = 'https://naqah.test/en/login/callback?method=email';
 describe('email/password authentication', () => {
+  it('passes the configured single-use CAPTCHA token to both email methods', async () => {
+    const { client, auth } = setup({ data: { session: null }, error: { code: 'captcha_failed' } });
+    expect(await authenticateEmail(client, 'login', 'owner@example.test', 'test-only-password', callback, 'test-only-captcha')).toEqual({ issue: 'captcha' });
+    expect(auth.signInWithPassword).toHaveBeenCalledWith({ email: 'owner@example.test', password: 'test-only-password', options: { captchaToken: 'test-only-captcha' } });
+    await authenticateEmail(client, 'signup', 'owner@example.test', 'test-only-password', callback, 'test-only-captcha');
+    expect(auth.signUp).toHaveBeenCalledWith({ email: 'owner@example.test', password: 'test-only-password', options: { emailRedirectTo: callback, captchaToken: 'test-only-captcha' } });
+  });
   it('signs in with trimmed email and the exact password and requires a returned session', async () => {
     const { client, auth } = setup({ data: { session: { user: { id: 'test-owner' } } }, error: null });
     expect(await authenticateEmail(client, 'login', ' owner@example.test ', ' keep spaces ', callback)).toEqual({ status: 'signedIn' });

@@ -5,13 +5,14 @@ import { WEEKDAY_LABELS } from "@/domain/catalog";
 import { isValidWindow } from "@/domain/clock";
 import type { ReportingWindow, Weekday } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
+import { SaveState } from "../SaveState";
 import type { SetupSectionProps } from "../types";
 
-export function ScheduleSection({ ws, onChange, showSaved, showErrors }: SetupSectionProps) {
+export function ScheduleSection({ ws, onChange, showSaved, optional = false }: SetupSectionProps & { optional?: boolean }) {
   const { m, t } = useI18n();
   const window = ws.settings.window;
   const hasCompleteTimes = Boolean(window?.start && window.end);
-  const windowValid = Boolean(window && hasCompleteTimes && isValidWindow(window));
+  const invalidTimes = Boolean(window && hasCompleteTimes && !isValidWindow(window));
 
   function updateWindow(patch: Partial<ReportingWindow>) {
     onChange((current) => {
@@ -30,20 +31,20 @@ export function ScheduleSection({ ws, onChange, showSaved, showErrors }: SetupSe
     <Card>
       <CardHeader
         title={m.onboarding.sectionTitles.schedule}
-        action={showSaved ? <span className="text-xs font-medium text-muted">{m.common.actions.saved}</span> : undefined}
+        action={showSaved ? <SaveState /> : undefined}
       />
       <CardBody>
         {ws.settings.plan === "ultimate" ? (
           <p className="max-w-prose leading-relaxed text-muted">{m.onboarding.ultimateSchedule}</p>
         ) : (
           <div className="space-y-4">
-            <p className="text-sm text-muted">{m.onboarding.basicSchedule}</p>
+            <p className="text-sm text-muted">{optional ? m.onboarding.scheduleCanBeSetLater : m.onboarding.basicSchedule}</p>
             <div className="grid gap-4 sm:grid-cols-3">
               <Field label={m.onboarding.weekday}>
                 {(id) => (
                   <Select
                     id={id}
-                    required
+                    required={!optional}
                     value={window ? String(window.day) : ""}
                     onChange={(event) => {
                       if (!event.target.value) {
@@ -65,7 +66,7 @@ export function ScheduleSection({ ws, onChange, showSaved, showErrors }: SetupSe
                   <Input
                     id={id}
                     type="time"
-                    required
+                    required={!optional}
                     className="ltr-nums"
                     value={window?.start ?? ""}
                     disabled={!window}
@@ -78,8 +79,9 @@ export function ScheduleSection({ ws, onChange, showSaved, showErrors }: SetupSe
                   <Input
                     id={id}
                     type="time"
-                    required
-                    className="ltr-nums"
+                    required={!optional}
+                    className={invalidTimes ? "ltr-nums border-danger" : "ltr-nums"}
+                    aria-invalid={invalidTimes || undefined}
                     value={window?.end ?? ""}
                     disabled={!window}
                     onChange={(event) => updateWindow({ end: event.target.value })}
@@ -87,10 +89,10 @@ export function ScheduleSection({ ws, onChange, showSaved, showErrors }: SetupSe
                 )}
               </Field>
             </div>
-            {(showErrors || ws.settings.plan === "basic") && !windowValid ? (
-              <p className="text-sm text-danger" role="alert">
-                {window && hasCompleteTimes ? m.onboarding.windowEndAfterStart : m.onboarding.windowRequired}
-              </p>
+            {invalidTimes ? (
+              <p className="text-sm text-danger" role="alert">{m.onboarding.windowEndAfterStart}</p>
+            ) : window && !hasCompleteTimes ? (
+              <p className="text-sm text-muted">{m.onboarding.windowRequired}</p>
             ) : null}
           </div>
         )}

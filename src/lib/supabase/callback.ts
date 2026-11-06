@@ -2,7 +2,8 @@ import 'server-only';
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { isLocale } from '@/i18n/config';
-import { getSupabaseConfig } from './config';
+import { getSupabaseConfig, sessionCookieOptions } from './config';
+import { withTimeout } from './timeout';
 import { safeReturnPath } from './auth-input';
 import { successPath } from './auth-paths';
 
@@ -27,6 +28,7 @@ export async function completeAuthCallback(request: NextRequest, locale: string)
   if (!config || !code || params.getAll('code').length !== 1 || params.has('error') || params.has('error_code') || params.getAll('sb_flow_id').length > 1) return response;
   try {
     const client = createServerClient(config.url, config.key, {
+      cookieOptions: sessionCookieOptions,
       cookies: {
         getAll: () => request.cookies.getAll(),
         setAll(values, headers) {
@@ -39,7 +41,7 @@ export async function completeAuthCallback(request: NextRequest, locale: string)
       },
     });
     // Newer auth-js can keep a verifier for each flow; never borrow another flow's verifier.
-    const { data, error } = await client.auth.exchangeCodeForSession(code, flowId !== null ? { flowId } : undefined);
+    const { data, error } = await withTimeout(client.auth.exchangeCodeForSession(code, flowId !== null ? { flowId } : undefined), 10_000);
     if (!error && data.session) response.headers.set('Location', successPath(locale, next));
   } catch { /* Fixed translated error on login; do not expose provider details. */ }
   return response;

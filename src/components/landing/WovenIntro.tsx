@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, type CSSProperties } from "react";
 import { CamelMark } from "@/components/brand/CamelMark";
 
 const SEEN_KEY = "naqah-intro-seen";
+const SEEN_CHECK = `<script>try{if(sessionStorage.getItem("${SEEN_KEY}")==="1")document.documentElement.setAttribute("data-intro-seen","")}catch(e){}</script>`;
 /** When the mark leaves for the navbar, in ms from navigation start (CSS draws the threads before). */
 const FLIGHT_AT = 1100;
 /** Threads of the woven reveal: colour class and the side each unweaves to (1 = inline end). */
@@ -93,41 +94,49 @@ export function WovenIntro({ skipLabel }: { skipLabel: string }) {
   }, []);
 
   return (
-    <div
-      ref={overlayRef}
-      className="naqah-intro fixed inset-0 z-[70] grid place-items-center bg-ivory"
-      role="presentation"
-    >
-      <div className="relative grid place-items-center">
-        <div ref={markRef} className="naqah-intro-mark">
-          <CamelMark className="h-24 w-auto sm:h-32" />
-        </div>
-        <svg
-          viewBox="0 0 320 140"
-          className="pointer-events-none absolute w-[min(80vw,26rem)]"
-          aria-hidden="true"
-          focusable="false"
-        >
-          {THREADS.map((thread, index) => (
-            <rect
-              key={index}
-              x="0"
-              y={8 + index * 18}
-              width="320"
-              height="10"
-              className={`naqah-intro-thread ${thread.tone}`}
-              style={{ "--i": index, "--dir": thread.dir } as CSSProperties}
-            />
-          ))}
-        </svg>
-      </div>
-      <button
-        type="button"
-        onClick={() => skipRef.current()}
-        className="absolute bottom-8 inline-flex min-h-11 items-center rounded-full px-5 text-[0.9375rem] font-semibold text-brown underline decoration-1 underline-offset-4 transition-colors hover:text-espresso"
+    <>
+      {/*
+        Before paint on a full load: hide the intro if it already played this session. Delivered as
+        server HTML (not a React <script>), so client navigations neither run nor warn about it;
+        the layout effect above covers those.
+      */}
+      <div hidden dangerouslySetInnerHTML={{ __html: SEEN_CHECK }} />
+      <div
+        ref={overlayRef}
+        className="naqah-intro fixed inset-0 z-[70] grid place-items-center bg-ivory"
+        role="presentation"
       >
-        {skipLabel}
-      </button>
-    </div>
+        <div className="relative grid place-items-center">
+          <div ref={markRef} className="naqah-intro-mark">
+            <CamelMark className="h-24 w-auto sm:h-32" />
+          </div>
+          <svg
+            viewBox="0 0 320 140"
+            className="pointer-events-none absolute w-[min(80vw,26rem)]"
+            aria-hidden="true"
+            focusable="false"
+          >
+            {THREADS.map((thread, index) => (
+              <rect
+                key={index}
+                x="0"
+                y={8 + index * 18}
+                width="320"
+                height="10"
+                className={`naqah-intro-thread ${thread.tone}`}
+                style={{ "--i": index, "--dir": thread.dir } as CSSProperties}
+              />
+            ))}
+          </svg>
+        </div>
+        <button
+          type="button"
+          onClick={() => skipRef.current()}
+          className="absolute bottom-8 inline-flex min-h-11 items-center rounded-full px-5 text-[0.9375rem] font-semibold text-brown underline decoration-1 underline-offset-4 transition-colors hover:text-espresso"
+        >
+          {skipLabel}
+        </button>
+      </div>
+    </>
   );
 }

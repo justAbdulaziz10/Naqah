@@ -1,170 +1,63 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, CheckCircle } from "@phosphor-icons/react";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { ArrowLeft, ArrowRight, Check, CheckCircle, Info } from "@phosphor-icons/react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { CamelMark } from "@/components/brand/CamelMark";
 import { Logo } from "@/components/brand/Logo";
 import {
-  HerdSection,
-  OwnerFarmSection,
-  PlanSection,
-  QuestionsSection,
-  ResourcesSection,
-  ScheduleSection,
-  WhatMattersSection,
-  WorkerSection,
+  getCallSetupGaps,
   clearReplacementDraft,
   createOnboardingSample,
+  createReplacementDraft,
+  hasOwnSetupData,
+  phoneNeedsFixing,
   readReplacementDraft,
+  replacementLoss,
   saveReplacementDraft,
   subscribeReplacementDraft,
+  type CallSetupGap,
   type WorkspaceUpdate,
 } from "@/components/setup";
-import { Button, ButtonLink } from "@/components/ui";
 import {
-  CRITERION_LABELS,
-  EMERGENCY_LABELS,
-  RESOURCE_LABELS,
-  WEEKDAY_LABELS,
-  WORKER_LANGUAGES,
-} from "@/domain/catalog";
-import { uid } from "@/domain/id";
+  DetailsStep,
+  ExistingFarmChoice,
+  OwnerFarmStep,
+  PlanStep,
+  ReviewStep,
+  ScheduleStep,
+  WorkerStep,
+  type WizardStepKey,
+} from "@/components/setup/onboarding/WizardSteps";
+import { StepHead } from "@/components/setup/onboarding/WizardParts";
+import { ConfirmDialog } from "@/components/ui";
 import { isValidWindow } from "@/domain/clock";
-import { applicableQuestions, customQuestionLimit } from "@/domain/rules";
-import type { CriterionKind, EmergencyKind, Plan, Workspace } from "@/domain/types";
-import { createEmptyWorkspace } from "@/domain/seed";
+import { uid } from "@/domain/id";
+import type { Plan, Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { onboarding as onboardingMessages } from "@/i18n/messages/onboarding";
-import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
+import { cn } from "@/lib/cn";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
-import { useWorkspaceStore } from "@/store/workspace";
+import { useSaveStatus, useWorkspaceStore } from "@/store/workspace";
 
-const STEPS = ["plan", "ownerFarm", "herd", "resources", "worker", "criteria", "questions", "schedule", "review"] as const;
+const STEPS = ["plan", "ownerFarm", "worker", "details", "schedule", "review"] as const satisfies readonly WizardStepKey[];
 type StepKey = (typeof STEPS)[number];
 
-function isStepValid(step: number, ws: Workspace): boolean {
-  switch (step) {
-    case 0:
-      return true;
-    case 1:
-      return Boolean(ws.settings.owner.name.trim() && ws.settings.owner.phone.trim() && ws.settings.farm.name.trim() && ws.settings.farm.location.trim());
-    case 2:
-      return ws.camels.length > 0;
-    case 4:
-      return Boolean(ws.settings.worker.name.trim() && ws.settings.worker.phone.trim());
-    case 6:
-      return ws.settings.customQuestions.length <= customQuestionLimit(ws);
-    case 7: {
-      if (ws.settings.plan === "ultimate") return true;
-      const window = ws.settings.window;
-      return Boolean(window?.start && window.end && isValidWindow(window));
-    }
-    default:
-      return true;
-  }
-}
+/** Which call-setup gaps each step can fill; Skip only shows while one of them is still open. */
+const STEP_GAPS: Partial<Record<StepKey, CallSetupGap[]>> = {
+  ownerFarm: ["owner", "farm"],
+  worker: ["worker"],
+  schedule: ["schedule"],
+};
 
-function summaryCriterion(kind: CriterionKind, label: string | null, t: (value: { ar: string; en: string }) => string) {
-  return kind === "custom" ? label ?? "" : t(CRITERION_LABELS[kind]);
-}
-
-function summaryEmergency(kind: EmergencyKind, label: string | null, t: (value: { ar: string; en: string }) => string) {
-  return kind === "custom" ? label ?? "" : t(EMERGENCY_LABELS[kind]);
-}
-
-function ReviewCard({
-  title,
-  step,
-  onEdit,
-  children,
-}: {
-  title: string;
-  step: number;
-  onEdit: (step: number) => void;
-  children: ReactNode;
-}) {
-  const { m } = useI18n();
-  return (
-    <article className="rounded-2xl border border-stone/80 bg-cream px-4 py-4">
-      <div className="flex items-start justify-between gap-3">
-        <h2 className="font-bold text-espresso">{title}</h2>
-        <button
-          type="button"
-          onClick={() => onEdit(step)}
-          className="inline-flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-brown underline decoration-stone underline-offset-4 transition hover:decoration-brown focus-visible:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown"
-        >
-          {m.onboarding.editSection}
-        </button>
-      </div>
-      <div className="mt-2 space-y-1 text-sm leading-relaxed text-muted">{children}</div>
-    </article>
-  );
-}
-
-function Review({ ws, onEdit }: { ws: Workspace; onEdit: (step: number) => void }) {
-  const { m, t } = useI18n();
-  const applicable = applicableQuestions(ws);
-  const workerLanguage = WORKER_LANGUAGES.find((language) => language.id === ws.settings.worker.language) ?? WORKER_LANGUAGES[0];
-  const resources = ws.resources.filter((resource) => resource.present).map((resource) => t(RESOURCE_LABELS[resource.kind]));
-  const criteria = ws.settings.criteria.filter((criterion) => criterion.enabled).map((criterion) => summaryCriterion(criterion.kind, criterion.label, t));
-  const emergencies = ws.settings.emergencies.map((emergency) => summaryEmergency(emergency.kind, emergency.label, t));
-  const customQuestionCount = ws.settings.customQuestions.length;
-
-  return (
-    <div className="space-y-4">
-      <p className="text-muted">{m.onboarding.reviewReady}</p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <ReviewCard title={m.onboarding.planSummary} step={0} onEdit={onEdit}>
-          <p>{m.common.plans[ws.settings.plan]}</p>
-        </ReviewCard>
-        <ReviewCard title={m.onboarding.ownerFarmSummary} step={1} onEdit={onEdit}>
-          <p>{ws.settings.owner.name}</p>
-          <p className="ltr-nums">{ws.settings.owner.phone}</p>
-          <p>{ws.settings.farm.name} · {ws.settings.farm.location}</p>
-        </ReviewCard>
-        <ReviewCard title={m.onboarding.herdSummary} step={2} onEdit={onEdit}>
-          <p>{m.onboarding.camelSummary(ws.camels.length)}</p>
-          <ul className="mt-2 space-y-1">
-            {ws.camels.map((camel) => (
-              <li key={camel.id} className="flex justify-between gap-3">
-                <span>{camel.name}</span><span className="ltr-nums">{camel.tag}</span>
-              </li>
-            ))}
-          </ul>
-        </ReviewCard>
-        <ReviewCard title={m.onboarding.resourcesSummary} step={3} onEdit={onEdit}>
-          <p>{resources.length ? resources.join(" · ") : m.onboarding.noResources}</p>
-        </ReviewCard>
-        <ReviewCard title={m.onboarding.workerSummary} step={4} onEdit={onEdit}>
-          <p>{ws.settings.worker.name} · {workerLanguage.native} ({t(workerLanguage.label)})</p>
-          {isLiveCallLanguage(workerLanguage.id) ? null : <p className="text-sm text-muted">{m.onboarding.notOnLiveCalls}</p>}
-          <p className="ltr-nums">{ws.settings.worker.phone}</p>
-        </ReviewCard>
-        <ReviewCard title={m.onboarding.criteriaSummary} step={5} onEdit={onEdit}>
-          {criteria.length ? <ul>{criteria.map((item) => <li key={item}>{item}</li>)}</ul> : <p>{m.onboarding.noActiveCriteria}</p>}
-        </ReviewCard>
-        <ReviewCard title={m.onboarding.emergencySummary} step={5} onEdit={onEdit}>
-          {emergencies.length ? <ul>{emergencies.map((item) => <li key={item}>{item}</li>)}</ul> : <p>{m.onboarding.noEmergencyCategories}</p>}
-        </ReviewCard>
-        <ReviewCard title={m.onboarding.questionsSummary} step={6} onEdit={onEdit}>
-          <p>{m.onboarding.predefinedSummary(applicable.length)}</p>
-          <p>{m.onboarding.questionSummary(customQuestionCount)}</p>
-          {ws.settings.customQuestions.length ? (
-            <ul className="mt-2 space-y-1">
-              {ws.settings.customQuestions.map((question) => <li key={question.id}>{question.text}</li>)}
-            </ul>
-          ) : null}
-        </ReviewCard>
-        <ReviewCard title={m.onboarding.scheduleSummary} step={7} onEdit={onEdit}>
-          {ws.settings.plan === "basic" && ws.settings.window ? (
-            <p>{t(WEEKDAY_LABELS[ws.settings.window.day])} · <span className="ltr-nums">{ws.settings.window.start}–{ws.settings.window.end}</span></p>
-          ) : (
-            <p>{m.onboarding.ultimateSchedule}</p>
-          )}
-        </ReviewCard>
-      </div>
-    </div>
-  );
+/** Whether this step holds something typed that cannot be used yet. Blank is fine: setup is optional. */
+function stepNeedsFixing(key: StepKey, ws: Workspace) {
+  const { owner, worker, window } = ws.settings;
+  if (key === "ownerFarm") return phoneNeedsFixing(owner.phone);
+  if (key === "worker") return phoneNeedsFixing(worker.phone);
+  if (key === "schedule") return Boolean(window && !isValidWindow(window));
+  return false;
 }
 
 export default function StartPage() {
@@ -173,16 +66,30 @@ export default function StartPage() {
   const hydrated = useWorkspaceStore((state) => state.hydrated);
   const workspace = useWorkspaceStore((state) => state.workspace);
   const startOnboarding = useWorkspaceStore((state) => state.startOnboarding);
+  const saveFailed = useSaveStatus((state) => state.status === "failed");
   const [step, setStep] = useState(0);
+  const [showStepErrors, setShowStepErrors] = useState(false);
+  const [confirmingSample, setConfirmingSample] = useState(false);
+  const [confirmingReplace, setConfirmingReplace] = useState(false);
+  const [startingOver, setStartingOver] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const isReplacing = workspace?.setupComplete === true;
   const sourceCreatedAt = isReplacing ? workspace.createdAt : undefined;
   const getReplacementSnapshot = useCallback(() => readReplacementDraft(sourceCreatedAt), [sourceCreatedAt]);
   const storedReplacementDraft = useSyncExternalStore(subscribeReplacementDraft, getReplacementSnapshot, () => null);
   const [volatileReplacementDraft, setVolatileReplacementDraft] = useState<Workspace | null>(null);
   // Only built client-side when replacing an existing workspace (never during prerender).
-  const emptyReplacementDraft = useMemo(() => (isReplacing ? createEmptyWorkspace("basic") : null), [isReplacing]);
-  const replacementDraft = storedReplacementDraft ?? volatileReplacementDraft;
-  const activeWorkspace = isReplacing ? replacementDraft ?? emptyReplacementDraft : workspace;
+  const emptyReplacementDraft = useMemo(() => {
+    if (!isReplacing || !workspace) return null;
+    return createReplacementDraft(workspace);
+  }, [isReplacing, workspace]);
+  const replacementDraft = volatileReplacementDraft ?? storedReplacementDraft; // Set only when the latest write failed.
+  const replacementBase = replacementDraft ?? emptyReplacementDraft;
+  const activeWorkspace = isReplacing
+    ? replacementBase && workspace
+      ? { ...replacementBase, camels: workspace.camels } // Re-running setup never replaces the real herd.
+      : replacementBase
+    : workspace;
   const hasActiveWorkspace = Boolean(activeWorkspace);
 
   useEffect(() => {
@@ -192,15 +99,36 @@ export default function StartPage() {
   useEffect(() => {
     if (!hasActiveWorkspace) return;
     document.getElementById("current-step-title")?.focus({ preventScroll: true });
-  }, [hasActiveWorkspace, step]);
+  }, [hasActiveWorkspace, step, startingOver]);
 
-  if (!hydrated || !activeWorkspace) {
+  if (!hydrated || !activeWorkspace || finishing) {
     return <div className="flex min-h-dvh items-center justify-center px-6 text-center text-muted">{m.onboarding.loading}</div>;
   }
 
+  // A finished farm never lands in the wizard by accident: starting over is its own choice.
+  if (isReplacing && workspace && !startingOver) {
+    return (
+      <div className="min-h-dvh bg-ivory">
+        <header className="bg-espresso text-cream">
+          <div className="mx-auto flex w-full max-w-[44rem] items-center justify-between gap-3 px-4 py-3 sm:px-6">
+            <Logo locale={locale} href={href("/")} tone="light" />
+            <LocaleSwitcher tone="light" className="px-3" />
+          </div>
+        </header>
+        <main className="mx-auto w-full max-w-[44rem] px-4 pb-12 pt-10 sm:px-6 sm:pt-16">
+          <ExistingFarmChoice
+            ws={workspace}
+            resuming={Boolean(replacementDraft)}
+            onStartOver={() => setStartingOver(true)}
+          />
+        </main>
+      </div>
+    );
+  }
+
   const ws = activeWorkspace;
-  const currentKey: StepKey = STEPS[step];
-  const valid = isStepValid(step, ws);
+  const steps: StepKey[] = ws.settings.plan === "basic" ? [...STEPS] : STEPS.filter((key) => key !== "schedule");
+  const currentKey = steps[Math.min(step, steps.length - 1)];
   const mutateWorkspace = (update: WorkspaceUpdate) => {
     if (isReplacing && workspace) {
       const next = update(ws);
@@ -213,13 +141,34 @@ export default function StartPage() {
     if (isReplacing && workspace) setVolatileReplacementDraft(saveReplacementDraft(workspace.createdAt, sample) ? null : sample);
     else useWorkspaceStore.getState().update(() => sample);
   };
+  const askToFillSample = () => {
+    if (hasOwnSetupData(ws)) setConfirmingSample(true);
+    else fillSample();
+  };
   const editStep = (nextStep: number) => {
-    setStep(nextStep);
+    setShowStepErrors(false);
+    setStep(Math.max(0, Math.min(nextStep, steps.length - 1)));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+  const editStepByKey = (key: StepKey) => editStep(steps.indexOf(key));
+  const callSetupGaps = getCallSetupGaps(ws);
+  const canSkipStep = (STEP_GAPS[currentKey] ?? []).some((gap) => callSetupGaps.includes(gap));
+  const isLast = step === steps.length - 1;
+
+  function skipStep() {
+    editStep(step + 1);
+  }
+
+  function nextStep() {
+    if (stepNeedsFixing(currentKey, ws)) {
+      setShowStepErrors(true);
+      requestAnimationFrame(() => document.querySelector<HTMLElement>("main [aria-invalid='true']")?.focus());
+      return;
+    }
+    editStep(step + 1);
+  }
 
   function confirmSetup() {
-    if (!valid) return;
     const complete = (current: Workspace): Workspace => ({
       ...current,
       setupComplete: true,
@@ -231,6 +180,8 @@ export default function StartPage() {
         text: { ar: onboardingMessages.ar.setupEvent, en: onboardingMessages.en.setupEvent },
       }],
     });
+    setConfirmingReplace(false);
+    setFinishing(true);
     if (isReplacing) {
       useWorkspaceStore.getState().update(() => complete(ws));
       clearReplacementDraft();
@@ -243,92 +194,194 @@ export default function StartPage() {
 
   const content = (() => {
     switch (currentKey) {
-      case "plan": return <PlanSection ws={ws} onChange={mutateWorkspace} />;
-      case "ownerFarm": return <OwnerFarmSection ws={ws} onChange={mutateWorkspace} showErrors />;
-      case "herd": return <HerdSection ws={ws} onChange={mutateWorkspace} showErrors />;
-      case "resources": return <ResourcesSection ws={ws} onChange={mutateWorkspace} />;
-      case "worker": return <WorkerSection ws={ws} onChange={mutateWorkspace} showErrors />;
-      case "criteria": return <WhatMattersSection ws={ws} onChange={mutateWorkspace} />;
-      case "questions": return <QuestionsSection ws={ws} onChange={mutateWorkspace} />;
-      case "schedule": return <ScheduleSection ws={ws} onChange={mutateWorkspace} showErrors />;
-      case "review": return <Review ws={ws} onEdit={editStep} />;
+      case "plan": return <PlanStep ws={ws} onChange={mutateWorkspace} />;
+      case "ownerFarm": return <OwnerFarmStep ws={ws} onChange={mutateWorkspace} showErrors={showStepErrors} />;
+      case "worker": return <WorkerStep ws={ws} onChange={mutateWorkspace} showErrors={showStepErrors} />;
+      case "details": return <DetailsStep ws={ws} onChange={mutateWorkspace} />;
+      case "schedule": return <ScheduleStep ws={ws} onChange={mutateWorkspace} showErrors={showStepErrors} />;
+      case "review": return <ReviewStep ws={ws} onEdit={editStepByKey} />;
     }
   })();
+  const head = m.onboarding.wizard.heads[currentKey];
+  const loss = isReplacing && workspace ? replacementLoss(workspace) : null;
+  const replaceNotice = isReplacing ? (
+    <div className={cn("flex flex-col gap-1 rounded-2xl border border-stone bg-cream px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4", isLast ? "mt-8" : "mb-8")}>
+      <p className="flex items-start gap-2.5 text-[0.975rem] leading-relaxed text-espresso">
+        <Info size={20} className="mt-0.5 shrink-0 text-brown" aria-hidden />
+        {m.onboarding.wizard.replaceNotice}
+      </p>
+      <Link
+        href={href("/app")}
+        className="inline-flex min-h-11 shrink-0 items-center self-start rounded-full px-3 text-[0.9375rem] font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown sm:self-auto"
+      >
+        {m.onboarding.wizard.backToDashboard}
+      </Link>
+    </div>
+  ) : null;
+
 
   return (
-    <div className="flex min-h-dvh flex-col bg-ivory">
-      <header className="border-b border-stone/70 bg-cream/80">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
-          <Logo locale={locale} href={href("/")} />
-          <div className="order-3 w-full sm:order-2 sm:w-auto sm:flex-1 sm:px-6">
-            <div className="flex items-center justify-between gap-4 text-sm font-semibold text-muted">
-              <span>{m.onboarding.stepProgress(step + 1, STEPS.length)}</span>
-              <span className="truncate">{m.onboarding.steps[currentKey]}</span>
-            </div>
-            <div
-              className="mt-2 h-1 overflow-hidden rounded-full bg-stone/70"
-              role="progressbar"
-              aria-label={m.onboarding.progressLabel}
-              aria-valuemin={1}
-              aria-valuemax={STEPS.length}
-              aria-valuenow={step + 1}
-            >
-              <div className="h-full rounded-full bg-gold transition-[width] duration-300" style={{ width: `${((step + 1) / STEPS.length) * 100}%` }} />
-            </div>
-          </div>
-          <div className="order-2 flex items-center gap-1 sm:order-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-10 px-2.5 sm:px-3"
-              onClick={() => fillSample()}
-            >
-              <span className="hidden sm:inline">{m.onboarding.sampleData}</span>
-              <span className="sm:hidden">{m.onboarding.sampleShort}</span>
-            </Button>
-            <LocaleSwitcher className="px-2.5 sm:px-3.5" />
-          </div>
-        </div>
-      </header>
+    <div className="min-h-dvh bg-ivory lg:grid lg:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[25rem_minmax(0,1fr)]">
+      {/* Brand panel (desktop): where you are in the setup, on the estate's dark ground. */}
+      <div className="hidden bg-espresso lg:block">
+      <aside className="relative flex h-dvh flex-col overflow-hidden px-10 py-9 text-cream lg:sticky lg:top-0">
+        <Logo locale={locale} href={href("/")} tone="light" />
+        <nav aria-label={m.onboarding.wizard.stepsNav} className="relative z-10 mt-16">
+          <p className="mb-5 text-[0.9375rem] font-semibold text-sand">{m.onboarding.title}</p>
+          <ol className="space-y-1">
+            {steps.map((key, index) => {
+              const done = index < step;
+              const current = index === step;
+              return (
+                <li key={key}>
+                  <button
+                    type="button"
+                    onClick={() => editStep(index)}
+                    aria-current={current ? "step" : undefined}
+                    className={cn(
+                      "flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-start text-[1.0625rem] transition-colors",
+                      current ? "bg-cream/10 font-bold text-cream" : done ? "text-cream/85 hover:bg-cream/5" : "text-cream/60 hover:bg-cream/5 hover:text-cream/85",
+                    )}
+                  >
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "inline-flex size-6 shrink-0 items-center justify-center rounded-full border",
+                        current ? "border-gold bg-gold text-espresso" : done ? "border-gold/70 text-gold" : "border-cream/30",
+                      )}
+                    >
+                      {done ? <Check size={13} weight="bold" /> : current ? <span className="size-2 rounded-full bg-espresso" /> : null}
+                    </span>
+                    <span>{m.onboarding.steps[key]}</span>
+                    {done ? <span className="sr-only">({m.onboarding.wizard.stepDone})</span> : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
+        <p className="relative z-10 mt-auto max-w-[17rem] text-[0.9375rem] leading-relaxed text-cream/70">{m.onboarding.wizard.browserOnly}</p>
+        {/* The approved mark, unchanged, enlarged and cropped by the panel edge. */}
+        <CamelMark className="pointer-events-none absolute -bottom-10 -end-24 h-auto w-[30rem] opacity-[0.09]" />
+      </aside>
+      </div>
 
-      <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-28 pt-7 sm:px-6 sm:pt-10 lg:pb-10">
-        <h1 id="current-step-title" tabIndex={-1} className="sr-only">{m.onboarding.title}: {m.onboarding.steps[currentKey]}</h1>
-        {isReplacing ? (
-          <div className="mb-5 flex flex-col justify-between gap-2 border-b border-stone/70 pb-4 sm:flex-row sm:items-center">
-            <p className="text-sm font-medium text-espresso">{m.onboarding.existingFarmNotice}</p>
-            <ButtonLink href={href("/app")} variant="ghost" size="sm" className="self-start sm:self-auto">
-              {m.common.actions.openDashboard}
-            </ButtonLink>
+      <div className="flex min-h-dvh flex-col">
+        <header className="bg-espresso text-cream lg:bg-transparent lg:text-espresso">
+          <div className="mx-auto flex w-full max-w-[44rem] items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:max-w-none lg:justify-end lg:px-10 lg:py-6">
+            <span className="lg:hidden"><Logo locale={locale} href={href("/")} tone="light" /></span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={askToFillSample}
+                className="inline-flex h-10 items-center rounded-full px-3 text-sm font-semibold text-cream transition hover:bg-cream/10 lg:px-4 lg:text-espresso lg:hover:bg-espresso/5"
+              >
+                <span className="hidden sm:inline">{m.onboarding.sampleData}</span>
+                <span className="sm:hidden">{m.onboarding.sampleShort}</span>
+              </button>
+              <LocaleSwitcher className="px-3 max-lg:text-cream max-lg:hover:bg-cream/10" />
+            </div>
           </div>
-        ) : null}
-        {content}
-      </main>
+        </header>
 
-      <footer className="fixed inset-x-0 bottom-0 z-30 border-t border-stone/70 bg-cream/95 px-4 pt-3 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm lg:static lg:border-0 lg:bg-transparent lg:px-0 lg:pb-8 lg:pt-0 lg:backdrop-blur-none">
-        <div className="mx-auto flex max-w-2xl items-center justify-between gap-3">
-          <Button
-            variant="secondary"
-            size="md"
-            className="min-w-28"
-            disabled={step === 0}
-            onClick={() => editStep(step - 1)}
+        {/* Progress (phone and tablet). The desktop panel carries the full step list. */}
+        <div className="mx-auto w-full max-w-[44rem] px-4 pt-5 sm:px-6 lg:hidden">
+          <div className="flex items-baseline justify-between gap-4 text-[0.9375rem]">
+            <span className="font-bold text-espresso">{m.onboarding.steps[currentKey]}</span>
+            <span className="text-muted">{m.onboarding.wizard.stepOf(step + 1, steps.length)}</span>
+          </div>
+          <div
+            className="mt-2.5 flex gap-1.5"
+            role="progressbar"
+            aria-label={m.onboarding.progressLabel}
+            aria-valuemin={1}
+            aria-valuemax={steps.length}
+            aria-valuenow={step + 1}
+            aria-valuetext={`${m.onboarding.wizard.stepOf(step + 1, steps.length)} · ${m.onboarding.steps[currentKey]}`}
           >
-            <ArrowLeft size={18} className="rtl:-scale-x-100" aria-hidden />
-            {m.common.actions.back}
-          </Button>
-          {step === STEPS.length - 1 ? (
-            <Button size="md" className="px-3 text-sm sm:px-5" disabled={!valid} onClick={confirmSetup}>
-              <CheckCircle size={19} weight="fill" aria-hidden />
-              {m.onboarding.confirmAndOpen}
-            </Button>
-          ) : (
-            <Button size="lg" disabled={!valid} onClick={() => editStep(step + 1)}>
-              {m.common.actions.next}
-              <ArrowRight size={18} className="rtl:-scale-x-100" aria-hidden />
-            </Button>
-          )}
+            {steps.map((key, index) => (
+              <span key={key} className={cn("h-1.5 flex-1 rounded-full", index <= step ? "bg-brown" : "bg-stone")} />
+            ))}
+          </div>
         </div>
-      </footer>
+
+        <main className="mx-auto w-full max-w-[44rem] flex-1 px-4 pb-12 pt-8 sm:px-6 sm:pt-10 lg:pt-[max(2rem,7vh)]">
+          <StepHead title={head.title} lead={head.lead} />
+          {/* Replacing an existing farm: say so where the choice starts and where it is confirmed. */}
+          {step === 0 ? replaceNotice : null}
+          {content}
+          {isLast ? replaceNotice : null}
+          {saveFailed || volatileReplacementDraft ? (
+            <p className="mt-6 text-[0.975rem] leading-relaxed text-danger" role="alert">{m.onboarding.wizard.notSavedNotice}</p>
+          ) : null}
+
+          {/* Actions sit right under the step, never fixed over fields or the keyboard. */}
+          <div className="mt-10 grid grid-cols-2 items-center gap-3 border-t border-stone/80 pt-6 sm:flex sm:flex-row-reverse">
+            {isLast ? (
+              <button
+                type="button"
+                onClick={isReplacing ? () => setConfirmingReplace(true) : confirmSetup}
+                className="col-span-2 inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-espresso px-7 text-[1.0625rem] font-semibold text-cream transition hover:bg-brown active:scale-[0.98]"
+              >
+                <CheckCircle size={22} weight="fill" aria-hidden />
+                {isReplacing ? m.onboarding.wizard.replaceFinish : m.onboarding.confirmAndOpen}
+              </button>
+            ) : (
+              <button
+                type="button"
+                data-step-next
+                onClick={nextStep}
+                className="col-span-2 inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-espresso px-8 text-[1.0625rem] font-semibold text-cream transition hover:bg-brown active:scale-[0.98]"
+              >
+                {m.common.actions.next}
+                <ArrowRight size={20} className="rtl:-scale-x-100" aria-hidden />
+              </button>
+            )}
+            {canSkipStep ? (
+              <button
+                type="button"
+                onClick={skipStep}
+                className="col-start-2 row-start-2 inline-flex min-h-12 items-center justify-self-end rounded-full px-4 text-[1rem] font-semibold text-brown underline decoration-sand underline-offset-4 transition hover:decoration-brown"
+              >
+                {m.onboarding.wizard.skip}
+              </button>
+            ) : null}
+            {step > 0 ? (
+              <button
+                type="button"
+                onClick={() => editStep(step - 1)}
+                className="col-start-1 row-start-2 inline-flex min-h-12 items-center gap-2 justify-self-start rounded-full px-4 text-[1rem] font-semibold text-espresso transition hover:bg-espresso/5 sm:me-auto"
+              >
+                <ArrowLeft size={18} className="rtl:-scale-x-100" aria-hidden />
+                {m.common.actions.back}
+              </button>
+            ) : null}
+          </div>
+        </main>
+      </div>
+      {confirmingReplace && loss ? (
+        <ConfirmDialog
+          title={m.onboarding.wizard.replaceConfirmTitle}
+          body={loss.reports + loss.calls + loss.tickets ? m.onboarding.wizard.replaceConfirmBody(loss) : m.onboarding.wizard.replaceConfirmEmpty}
+          confirmLabel={m.onboarding.wizard.replaceConfirmAction}
+          cancelLabel={m.onboarding.wizard.replaceConfirmCancel}
+          onConfirm={confirmSetup}
+          onCancel={() => setConfirmingReplace(false)}
+        />
+      ) : null}
+      {confirmingSample ? (
+        <ConfirmDialog
+          title={m.common.demo.sampleConfirmTitle}
+          body={m.common.demo.sampleConfirmSetup}
+          confirmLabel={m.common.demo.sampleConfirmAction}
+          cancelLabel={m.common.demo.sampleConfirmCancel}
+          onConfirm={() => {
+            setConfirmingSample(false);
+            fillSample();
+          }}
+          onCancel={() => setConfirmingSample(false)}
+        />
+      ) : null}
     </div>
   );
 }

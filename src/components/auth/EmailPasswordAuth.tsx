@@ -6,11 +6,12 @@ import { Button, Input } from '@/components/ui';
 import { useI18n } from '@/i18n/client';
 import { auth } from '@/i18n/messages/auth';
 import { createClient } from '@/lib/supabase/client';
-import { getSupabaseConfig } from '@/lib/supabase/config';
+import { getCaptchaSiteKey, getSupabaseConfig } from '@/lib/supabase/config';
 import { callbackUrl, successPath } from '@/lib/supabase/auth-paths';
 import { authenticateEmail, type EmailIssue } from '@/lib/supabase/email-auth';
 import { AuthFrame } from './AuthFrame';
 import { AuthMethods } from './AuthMethods';
+import { CaptchaField } from './CaptchaField';
 
 export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; next: string | null }) {
   const { locale, href } = useI18n();
@@ -20,6 +21,9 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
   const passwordId = `${id}-password`;
   const errorId = `${id}-error`;
   const configured = !!getSupabaseConfig();
+  const captchaKey = getCaptchaSiteKey();
+  const [captchaToken, setCaptchaToken] = useState('');
+  const [captchaReset, setCaptchaReset] = useState(0);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [visible, setVisible] = useState(false);
@@ -31,10 +35,12 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (locked.current || googlePending) return;
+    if (captchaKey && !captchaToken) { setIssue('captcha'); return; }
     const client = createClient();
     if (!client) { setIssue('unavailable'); return; }
     locked.current = true; setPending(true); setIssue(null);
-    const result = await authenticateEmail(client, mode, email, password, callbackUrl(window.location.origin, locale, next, 'email'));
+    const result = await authenticateEmail(client, mode, email, password, callbackUrl(window.location.origin, locale, next, 'email'), captchaToken || undefined);
+    if (captchaKey) { setCaptchaToken(''); setCaptchaReset((count) => count + 1); }
     if ('status' in result) {
       setPassword('');
       if (result.status === 'signedIn') {
@@ -64,7 +70,8 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
         <Input id={passwordId} name="password" type={visible ? 'text' : 'password'} dir="ltr" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} required value={password} onChange={(event) => { setPassword(event.target.value); setIssue(null); }} disabled={pending || googlePending || !configured} aria-invalid={issue === 'credentials' || issue === 'weakPassword'} aria-describedby={errorId} />
         <Button variant="ghost" className="self-start" disabled={pending || googlePending} aria-pressed={visible} onClick={() => setVisible(!visible)}>{visible ? m.hidePassword : m.showPassword}</Button>
         <p id={errorId} data-email-error role="alert" className="text-sm text-danger" hidden={!error}>{error ? m[error] : ''}</p>
-        <Button type="submit" size="lg" disabled={pending || googlePending || !configured}>{pending ? m.emailPending : mode === 'signup' ? m.emailSignup : m.emailLogin}</Button>
+        {captchaKey && configured && <CaptchaField siteKey={captchaKey} resetKey={captchaReset} onToken={setCaptchaToken} onFailed={() => setIssue('captcha')} />}
+        <Button type="submit" size="lg" disabled={pending || googlePending || !configured || (!!captchaKey && !captchaToken)}>{pending ? m.emailPending : mode === 'signup' ? m.emailSignup : m.emailLogin}</Button>
       </form>
       <Link className="mt-5 inline-flex min-h-11 items-center text-sm underline underline-offset-4" href={`${href(mode === 'login' ? '/signup' : '/login')}?${query}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</Link>
     </>}

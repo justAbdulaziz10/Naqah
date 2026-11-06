@@ -11,6 +11,8 @@ try {
   for (const locale of ['ar', 'en']) {
     for (const width of [375, 1440]) {
       const ar = locale === 'ar';
+      // A fresh fixture-only number per visitor preserves main's real per-number send limit.
+      const phone = `05${String(Math.floor(Math.random() * 100_000_000)).padStart(8, '0')}`;
       const context = await browser.newContext({ viewport: { width, height: 1000 }, serviceWorkers: 'block' });
       const page = await context.newPage();
       const errors = [];
@@ -122,9 +124,22 @@ try {
       await expect(page).toHaveURL(`${base}/${locale}/app`);
       await page.goto(`${base}/${locale}/login/success`); await signedIn(); await logout();
       // Phone still produces the same SSR session and success behavior.
-      await page.locator('input[name="phone"]:visible').fill('0501234567');
+      await page.locator('input[name="phone"]:visible').fill(phone);
       await page.getByRole('button', { name: ar ? 'إرسال الرمز' : 'Send code', exact: true }).click();
+      await expect(page.locator('input[name="code"]:visible')).toBeVisible();
+      await page.reload();
+      await expect(page.locator('input[name="code"]:visible')).toBeVisible();
+      await expect(page.getByRole('button', { name: /Send again|تقدر تعيد/ })).toBeDisabled();
+      await page.locator('header a[lang]').click();
+      await expect(page).toHaveURL(`${base}/${ar ? 'en' : 'ar'}/login`);
+      await expect(page.locator('html')).toHaveAttribute('lang', ar ? 'en' : 'ar');
+      await expect(page.locator('input[name="code"]:visible')).toBeVisible();
+      await page.locator('header a[lang]:visible').click();
+      await expect(page).toHaveURL(`${base}/${locale}/login`);
+      await expect(page.locator('html')).toHaveAttribute('lang', locale);
+      await expect(page.locator('input[name="code"]:visible')).toBeVisible();
       await page.locator('input[name="code"]:visible').fill('123456');
+      await expect(page.locator('input[name="code"]:visible')).toHaveValue('123456');
       await page.getByRole('button', { name: ar ? 'تحقق وتابع' : 'Verify and continue', exact: true }).click();
       await signedIn(); await logout();
       await page.goto(`${base}/${locale}/login/callback?error=access_denied&error_description=PRIVATE&next=https://evil.test`);
@@ -135,7 +150,7 @@ try {
       await expect(page.locator('input[name="email"]:visible')).toBeVisible();
       await expect(page.getByRole('textbox', { name: ar ? 'Email address' : 'البريد الإلكتروني', exact: true })).toBeVisible();
       expect(new URL(page.url()).searchParams.get('method')).toBe('email');
-      expect(new URL(page.url()).searchParams.get('next')).toBe(`/${locale}/app`);
+      expect(new URL(page.url()).searchParams.get('next')).toBe(`/${ar ? 'en' : 'ar'}/app`);
       expect(errors).toEqual([]);
       await context.close();
       console.log(`PASS MOCK ONLY ${locale} ${width}: email states, PKCE email/Google cookies, phone success, reload, refresh, logout, callback errors, layout`);

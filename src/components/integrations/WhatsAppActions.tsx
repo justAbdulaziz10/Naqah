@@ -2,7 +2,7 @@
 
 import type { ResourceKind } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
-import { supplierOrderText, waLink, workerMessageText } from "@/lib/whatsapp/links";
+import { isSampleWorkerPhone, supplierOrderText, waLink, workerMessageText } from "@/lib/whatsapp/links";
 import { useWorkspace } from "@/store/workspace";
 
 const linkClass =
@@ -13,6 +13,7 @@ export function MessageWorkerLink() {
   const { locale, m } = useI18n();
   if (!ws) return null;
 
+  if (isSampleWorkerPhone(ws.settings.worker.phone)) return null;
   const href = waLink(ws.settings.worker.phone, workerMessageText(ws, locale));
   if (!href) return null;
 

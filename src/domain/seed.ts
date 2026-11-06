@@ -7,6 +7,9 @@ import { atRiyadhTime, HOUR, MINUTE, nextWindowStart } from "./clock";
 import { uid } from "./id";
 import type { Camel, Criterion, EmergencyCategory, Locale, Plan, Resource, Workspace } from "./types";
 
+/** Made up for the sample farm. It may belong to a real person, so nothing may contact it. */
+export const SAMPLE_WORKER_PHONE = "+966 50 778 2190";
+
 export function defaultCriteria(): Criterion[] {
   return (["sick_camel", "missing_camel", "low_feed", "low_water", "fence_damage", "medicine_low"] as const).map((kind) => ({
     id: uid("crt"),
@@ -104,7 +107,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
     location: ar ? "الخرج، منطقة الرياض" : "Al-Kharj, Riyadh Region",
     coords: { lat: 24.155, lon: 47.334 },
   };
-  ws.settings.worker = { name: ar ? "أحمد" : "Ahmed", phone: "+966 50 778 2190", language: ar ? "ar" : "en" };
+  ws.settings.worker = { name: ar ? "أحمد" : "Ahmed", phone: SAMPLE_WORKER_PHONE, language: ar ? "ar" : "en" };
   ws.settings.customQuestions = [
     {
       id: uid("cq"),
@@ -141,7 +144,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
     const base = { ...r, present: r.kind !== "shelter", certainty: "reported" as const, updatedAt: y };
     switch (r.kind) {
       case "feed":
-        return { ...base, level: "medium" as const, quantity: ar ? "قرابة ٢٠ كيس" : "about 20 bags", certainty: "approximate" as const };
+        return { ...base, level: "medium" as const, quantity: ar ? "قرابة 20 كيس" : "about 20 bags", certainty: "approximate" as const };
       case "water":
         return { ...base, level: "good" as const };
       case "fences":
@@ -181,7 +184,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
       at: y,
       outcome: "completed",
       attempt: null,
-      summary: { ar: "تحديث مكتمل — 1 ملاحظة مهمة", en: "Update completed — 1 important finding(s)" },
+      summary: { ar: "تحديث مكتمل — 1 ملاحظة مهمة", en: "Update completed — 1 important finding" },
       ticketId: null,
       reportId,
     },
@@ -213,7 +216,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
       },
       {
         id: uid("tsk"),
-        instruction: ar ? "اطلب ٣٠ كيس علف من المورد" : "Order 30 bags of feed from the supplier",
+        instruction: ar ? "اطلب 30 كيس علف من المورد" : "Order 30 bags of feed from the supplier",
         createdAt: new Date(yesterday.getTime() - 26 * HOUR).toISOString(),
         scheduledFor: new Date(yesterday.getTime() - 20 * HOUR).toISOString(),
         status: "closed",

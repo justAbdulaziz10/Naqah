@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Alexandria, Montserrat } from "next/font/google";
 import { notFound } from "next/navigation";
-import Script from "next/script";
 import { ServiceWorkerRegistrar } from "@/components/pwa/ServiceWorkerRegistrar";
 import { I18nProvider } from "@/i18n/client";
 import { dirOf, isLocale, LOCALES } from "@/i18n/config";
@@ -49,7 +48,7 @@ export default async function LocaleLayout({ children, params }: LayoutProps<"/[
   const { locale } = await params;
   if (!isLocale(locale)) notFound();
   return (
-    // suppressHydrationWarning: the intro check below may add data-intro-seen to <html> before hydration.
+    // suppressHydrationWarning: the landing intro may add data-intro-seen to <html> before hydration.
     <html
       lang={locale}
       dir={dirOf(locale)}
@@ -57,10 +56,6 @@ export default async function LocaleLayout({ children, params }: LayoutProps<"/[
       suppressHydrationWarning
     >
       <body>
-        {/* Before paint: hide the landing's woven intro when it already played this session. */}
-        <Script id="naqah-intro-seen" strategy="beforeInteractive">
-          {`try{if(sessionStorage.getItem("naqah-intro-seen")==="1")document.documentElement.setAttribute("data-intro-seen","")}catch(e){}`}
-        </Script>
         <I18nProvider locale={locale}>
           <ServiceWorkerRegistrar />
           {children}

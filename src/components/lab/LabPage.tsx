@@ -8,6 +8,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -27,6 +28,7 @@ import {
   setClockTo,
   type Workspace,
 } from "@/domain";
+import { isValidWindow } from "@/domain/clock";
 import { start, answer, hangUp, scenarioAvailability, type AnswerInput, type CallSession, type Scenario } from "@/domain/conversation/engine";
 import { makePersonalizer, personalizeTree } from "@/domain/conversation/personalize";
 import { heatLevel, weatherForToday, withDemoHeat } from "@/domain/weather";
@@ -131,7 +133,14 @@ function availabilityCopy(
   }
   if (scenario === "worker_outbound") {
     const count = availability.pendingWorkerCallCount + availability.dueTaskVerificationCount;
-    if (!count) return { text: m.lab.availability.noCalls, tone: "neutral", jump: false, enabled: false };
+    if (!count) {
+      return {
+        text: ws.settings.plan === "basic" ? m.lab.availability.noCallsBasic : m.lab.availability.noCallsUltimate,
+        tone: "neutral",
+        jump: false,
+        enabled: false,
+      };
+    }
     const due = availability.dueWorkerCallCount + availability.dueTaskVerificationCount;
     return {
       text: due
@@ -211,6 +220,7 @@ function PhoneStage({
   m,
   locale,
   t,
+  blockedReason,
   onStart,
   onAnswer,
   onEnd,
@@ -222,6 +232,7 @@ function PhoneStage({
   m: ReturnType<typeof useI18n>["m"];
   locale: "ar" | "en";
   t: (value: { ar: string; en: string }) => string;
+  blockedReason: string | null;
   onStart: () => void;
   onAnswer: (input: AnswerInput) => void;
   onEnd: () => void;
@@ -346,7 +357,7 @@ function PhoneStage({
         ) : (
           <div className="m-auto max-w-xs py-8 text-center">
             <p className="font-semibold text-espresso">{m.lab.phone.previewReady}</p>
-            <p className="mt-1 text-sm text-muted">{m.lab.phone.noConversation}</p>
+            <p className="mt-1 text-sm text-muted">{blockedReason ?? m.lab.phone.noConversation}</p>
           </div>
         )}
         {typing ? (
@@ -417,7 +428,7 @@ function PhoneStage({
 
         <div className={cn("flex flex-wrap items-center gap-2", session?.replies.length || showTextInput ? "mt-4" : "")}>
           {!session ? (
-            <Button onClick={onStart} size="lg" className="w-full">
+            <Button onClick={onStart} size="lg" className="w-full" disabled={Boolean(blockedReason)}>
               {m.lab.phone.start}
             </Button>
           ) : !session.done && session.scenario !== "emergency" ? (
@@ -641,7 +652,7 @@ const useLabCall = create<LabCallState>()((set) => ({
 }));
 
 export function LabPage() {
-  const { m: baseMessages, t: baseT, locale, fmt } = useI18n();
+  const { m: baseMessages, t: baseT, locale, fmt, href } = useI18n();
   const ws = useWorkspaceStore((state) => state.workspace);
   // Script + copy are written around the sample farm's names; show the real farm's names instead.
   const personalize = useMemo(() => makePersonalizer(ws), [ws]);
@@ -706,7 +717,7 @@ export function LabPage() {
 
   function jumpToWindow() {
     const current = useWorkspaceStore.getState().workspace;
-    if (!current?.settings.window) return;
+    if (!current?.settings.window || !isValidWindow(current.settings.window)) return;
     const startAt = nextWindowStart(now, current.settings.window);
     const target = new Date(startAt.getTime() + 5 * MINUTE);
     update((current) => setClockTo(current, target));
@@ -720,14 +731,21 @@ export function LabPage() {
       <header className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold tracking-[-0.025em] text-espresso">{m.lab.title}</h1>
         <p className="max-w-2xl text-sm leading-relaxed text-muted sm:text-base">{m.lab.subtitle}</p>
+        <div className="max-w-2xl text-sm leading-relaxed text-muted">
+          <p>{m.lab.planNote[ws.settings.plan]}</p>
+          <Link href={`${href("/app/settings")}#settings-plan`} className="inline-flex min-h-11 items-center font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
+            {m.lab.comparePlans}
+          </Link>
+        </div>
       </header>
 
       <section aria-label={m.lab.title} className="space-y-3">
-        <div className="-mx-4 flex gap-6 overflow-x-auto border-b border-stone px-4 sm:mx-0 sm:px-0 lg:grid lg:grid-cols-4 lg:overflow-visible">
+        {/* Every call type stays in view: a 2×2 choice on phones, the underlined row on wide screens. */}
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-6 lg:border-b lg:border-stone">
           {PICKER_SCENARIOS.map((scenario) => {
             const key = scenarioMessageKey(scenario);
             const current = selected === scenario;
-            const disabled = (sessionActive && !current) || (!sessionActive && scenario === "worker_outbound" && !availabilityCopy(scenario, ws, now, availability, fmt, m).enabled);
+            const disabled = sessionActive && !current;
             return (
               <button
                 key={scenario}
@@ -736,17 +754,19 @@ export function LabPage() {
                 disabled={disabled}
                 onClick={() => setSelected(scenario)}
                 className={cn(
-                  "-mb-px min-w-[12rem] border-b-2 pb-3.5 pt-1 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brown lg:min-w-0",
-                  current ? "border-brown text-espresso" : "border-transparent text-muted hover:text-espresso",
+                  "min-h-16 rounded-xl border px-3 py-2.5 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brown lg:-mb-px lg:min-h-0 lg:rounded-none lg:border-0 lg:border-b-2 lg:px-0 lg:pb-3.5 lg:pt-1",
+                  current ? "border-brown bg-cream text-espresso lg:bg-transparent" : "border-stone text-muted hover:text-espresso lg:border-transparent",
                   disabled && "cursor-not-allowed opacity-50",
                 )}
               >
-                <span className="block font-semibold">{m.lab.scenarios[key].title}</span>
-                <span className="mt-1 block text-xs leading-relaxed text-muted">{m.lab.scenarios[key].detail}</span>
+                <span className="block text-sm font-semibold leading-snug lg:text-base">{m.lab.scenarios[key].title}</span>
+                <span className="mt-1 hidden text-xs leading-relaxed text-muted lg:block">{m.lab.scenarios[key].detail}</span>
               </button>
             );
           })}
         </div>
+
+        <p className="text-sm leading-relaxed text-muted lg:hidden">{m.lab.scenarios[scenarioMessageKey(selected)].detail}</p>
 
         <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-2.5">
@@ -776,7 +796,7 @@ export function LabPage() {
           <Button variant="secondary" size="sm" className="min-h-11" onClick={() => advance(20 * MINUTE)}>{m.lab.clock.plus20}</Button>
           <Button variant="secondary" size="sm" className="min-h-11" onClick={() => advance(HOUR)}>{m.lab.clock.plusHour}</Button>
           <Button variant="secondary" size="sm" className="min-h-11" onClick={jumpNextDay}>{m.lab.clock.nextDay}</Button>
-          {ws.settings.plan === "basic" && ws.settings.window ? (
+          {ws.settings.plan === "basic" && ws.settings.window && isValidWindow(ws.settings.window) ? (
             <Button variant="secondary" size="sm" className="min-h-11" onClick={jumpToWindow}>{m.lab.clock.jumpWindow}</Button>
           ) : null}
           {ws.settings.farm.coords && heatLevel(weatherForToday(ws, now)?.maxTempC ?? 0) === "none" ? (
@@ -802,6 +822,7 @@ export function LabPage() {
               m={m}
               locale={locale}
               t={t}
+              blockedReason={selectedAvailability.enabled ? null : selectedAvailability.text}
               onStart={() => begin(selected)}
               onAnswer={respond}
               onEnd={finish}

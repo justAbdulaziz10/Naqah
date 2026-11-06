@@ -1,6 +1,10 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { getSupabaseConfig } from './config';
+import { getSupabaseConfig, sessionCookieOptions } from './config';
+import { withTimeout } from './timeout';
+
+// Only signed-in visitors reach the network here; an outage must not hold every page.
+const SESSION_REFRESH_TIMEOUT_MS = 2_000;
 
 /** Refresh cookies only; existing demo routes remain public. */
 export async function updateSession(request: NextRequest) {
@@ -8,6 +12,7 @@ export async function updateSession(request: NextRequest) {
   const config = getSupabaseConfig();
   if (!config) return response;
   const client = createServerClient(config.url, config.key, {
+    cookieOptions: sessionCookieOptions,
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll(values, headers) {
@@ -18,7 +23,7 @@ export async function updateSession(request: NextRequest) {
       },
     },
   });
-  try { await client.auth.getClaims(); }
+  try { await withTimeout(client.auth.getClaims(), SESSION_REFRESH_TIMEOUT_MS); }
   catch { /* Auth-server outages must not break the public demo. Protected data revalidates separately. */ }
   return response;
 }

@@ -1,8 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type EmailIssue = 'credentials' | 'confirmRequired' | 'weakPassword' | 'rateLimit' | 'network' | 'unavailable' | 'failed';
+export type EmailIssue = 'credentials' | 'confirmRequired' | 'weakPassword' | 'rateLimit' | 'network' | 'unavailable' | 'captcha' | 'failed';
 type ErrorDetails = { code?: string; status?: number; name?: string };
 export function emailIssue(error: ErrorDetails): EmailIssue {
+  if (error.code === 'captcha_failed') return 'captcha';
   if (error.code === 'invalid_credentials') return 'credentials';
   if (error.code === 'email_not_confirmed') return 'confirmRequired';
   if (error.code === 'weak_password') return 'weakPassword';
@@ -20,11 +21,12 @@ export async function authenticateEmail(
   email: string,
   password: string,
   emailRedirectTo: string,
+  captchaToken?: string,
 ): Promise<Result> {
   try {
     const { data, error } = mode === 'signup'
-      ? await client.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo } })
-      : await client.auth.signInWithPassword({ email: email.trim(), password });
+      ? await client.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo, ...(captchaToken ? { captchaToken } : {}) } })
+      : await client.auth.signInWithPassword({ email: email.trim(), password, ...(captchaToken ? { options: { captchaToken } } : {}) });
     if (error) {
       // Supabase may return either an obfuscated user or an explicit duplicate error,
       // depending on project confirmation settings. Present the same neutral next step.

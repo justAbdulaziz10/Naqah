@@ -8,6 +8,7 @@ import { uid } from "@/domain/id";
 import { applicableQuestions, canAddCustomQuestion, customQuestionLimit } from "@/domain/rules";
 import type { QuestionCategory } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
+import { SaveState } from "../SaveState";
 import type { SetupSectionProps } from "../types";
 
 export function QuestionsSection({ ws, onChange, showSaved }: SetupSectionProps) {
@@ -35,7 +36,7 @@ export function QuestionsSection({ ws, onChange, showSaved }: SetupSectionProps)
     <Card>
       <CardHeader
         title={m.onboarding.sectionTitles.questions}
-        action={showSaved ? <span className="text-xs font-medium text-muted">{m.common.actions.saved}</span> : undefined}
+        action={showSaved ? <SaveState /> : undefined}
       />
       <CardBody className="space-y-6">
         <section>

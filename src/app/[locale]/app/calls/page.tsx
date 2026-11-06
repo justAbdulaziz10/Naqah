@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { ArrowsClockwise, PhoneIncoming, PhoneOutgoing, WarningCircle } from "@phosphor-icons/react";
 import { CertaintyBadge, EmptyState, OutcomeBadge } from "@/components/dashboard/DashboardPrimitives";
-import { Badge, Card, CardBody, Segmented } from "@/components/ui";
+import { Badge, ButtonLink, Card, CardBody, Segmented } from "@/components/ui";
 import { dayKey } from "@/domain";
 import type { CallKind, CallLog } from "@/domain";
 import { useI18n } from "@/i18n/client";
@@ -38,7 +38,7 @@ function CallMarker({ call }: { call: CallLog }) {
 }
 
 export default function CallsPage() {
-  const { m, t, fmt } = useI18n();
+  const { m, t, fmt, href } = useI18n();
   const ws = useWorkspace();
   const [filter, setFilter] = useState<CallFilter>("all");
 
@@ -61,7 +61,7 @@ export default function CallsPage() {
   if (!ws) return null;
 
   return (
-    <div className="animate-fade-up space-y-5 pb-8">
+    <div className="space-y-5 pb-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.app.calls.title}</h1>
         <Segmented
@@ -77,27 +77,22 @@ export default function CallsPage() {
         />
       </header>
 
-      <Card className="border-info/20 bg-info-soft/55">
-        <CardBody className="flex items-start gap-3 py-4">
-          <WarningCircle size={20} weight="fill" className="mt-0.5 shrink-0 text-info" aria-hidden />
-          <p className="text-sm font-medium leading-relaxed text-espresso">{m.app.calls.note}</p>
-        </CardBody>
-      </Card>
+      <p className="text-sm leading-relaxed text-muted">{m.app.calls.note}</p>
 
       {calls.length ? (
         <div className="space-y-6">
           {days.map(([day, group]) => (
             <section key={day} aria-labelledby={`calls-day-${day}`}>
               <h2 id={`calls-day-${day}`} className="mb-3 text-sm font-bold text-muted">{fmt.date(group[0].at)}</h2>
-              <ul className="space-y-3">
+              <Card>
+              <ul className="divide-y divide-stone/70">
                 {group.map((call) => {
                   const report = call.reportId ? ws.reports.find((item) => item.id === call.reportId) : null;
                   return (
                     <li key={call.id}>
-                      <Card>
                         <CardBody className="py-4">
                           <div className="flex items-start gap-3">
-                            <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-ivory">
+                            <span className="mt-0.5 shrink-0">
                               <CallMarker call={call} />
                             </span>
                             <div className="min-w-0 flex-1">
@@ -106,7 +101,7 @@ export default function CallsPage() {
                                 <OutcomeBadge outcome={call.outcome} />
                                 {call.attempt !== null ? <span className="text-xs text-muted">{m.app.calls.attempt(fmt.number(call.attempt))}</span> : null}
                               </div>
-                              <p className="mt-1 text-xs text-muted ltr-nums">{fmt.time(call.at)}</p>
+                              <p className="mt-1 text-[0.8125rem] text-muted ltr-nums">{fmt.dateTime(call.at, { hour: "numeric", minute: "2-digit", hour12: true })}</p>
                               <p className="mt-2 text-sm leading-relaxed text-espresso">{t(call.summary)}</p>
 
                               {call.reportId ? (
@@ -153,16 +148,25 @@ export default function CallsPage() {
                             </div>
                           </div>
                         </CardBody>
-                      </Card>
                     </li>
                   );
                 })}
               </ul>
+              </Card>
             </section>
           ))}
         </div>
       ) : (
-        <Card><EmptyState title={m.app.calls.empty} /></Card>
+        <Card>
+          {filter === "all" ? (
+            <EmptyState
+              camel
+              title={m.app.calls.empty}
+              body={m.app.calls.emptyBody}
+              action={<ButtonLink href={href("/app/lab")} variant="secondary">{m.app.overview.simulateCall}</ButtonLink>}
+            />
+          ) : <EmptyState title={m.app.calls.empty} />}
+        </Card>
       )}
     </div>
   );

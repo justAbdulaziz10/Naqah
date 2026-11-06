@@ -3,6 +3,7 @@
 import { Card, CardBody, CardHeader, Switch } from "@/components/ui";
 import { RESOURCE_KINDS, RESOURCE_LABELS } from "@/domain/catalog";
 import { useI18n } from "@/i18n/client";
+import { SaveState } from "../SaveState";
 import type { SetupSectionProps } from "../types";
 
 export function ResourcesSection({ ws, onChange, showSaved }: SetupSectionProps) {
@@ -12,7 +13,7 @@ export function ResourcesSection({ ws, onChange, showSaved }: SetupSectionProps)
     <Card>
       <CardHeader
         title={m.onboarding.sectionTitles.resources}
-        action={showSaved ? <span className="text-xs font-medium text-muted">{m.common.actions.saved}</span> : undefined}
+        action={showSaved ? <SaveState /> : undefined}
       />
       <CardBody>
         <ul className="divide-y divide-stone/70">

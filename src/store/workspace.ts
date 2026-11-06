@@ -29,6 +29,10 @@ interface WorkspaceState {
 
 type Persisted = { workspace: Workspace | null };
 
+/** Outcome of the latest browser write. Kept apart from the workspace store, whose every change is itself written. */
+export type SaveStatus = "idle" | "saved" | "failed";
+export const useSaveStatus = create<{ status: SaveStatus }>(() => ({ status: "idle" }));
+
 const WORKSPACE_ARRAYS = ["camels", "resources", "reports", "calls", "taskTickets", "noAnswerTickets", "pendingWorkerCalls", "relays", "events"] as const;
 
 /** Minimal shape check so stale or hand-edited data can't crash the dashboard. */
@@ -46,8 +50,8 @@ const hasStorage = () => typeof localStorage !== "undefined";
 
 const safeStorage: PersistStorage<Persisted> = {
   getItem: (name) => {
-    if (!hasStorage()) return null; // server prerender: nothing saved yet
     try {
+      if (!hasStorage()) return null; // server prerender: nothing saved yet
       const raw = localStorage.getItem(name);
       if (!raw) return null;
       const parsed = JSON.parse(raw) as StorageValue<Persisted>;
@@ -61,8 +65,14 @@ const safeStorage: PersistStorage<Persisted> = {
     }
   },
   setItem: (name, value) => {
-    if (!hasStorage()) return;
-    try { localStorage.setItem(name, JSON.stringify(value)); } catch (error) { console.warn("[naqah] could not save workspace", error); }
+    try {
+      if (!hasStorage()) return;
+      localStorage.setItem(name, JSON.stringify(value));
+      useSaveStatus.setState({ status: "saved" });
+    } catch (error) {
+      console.warn("[naqah] could not save workspace", error);
+      useSaveStatus.setState({ status: "failed" });
+    }
   },
   removeItem: (name) => {
     try { localStorage.removeItem(name); } catch { /* storage unavailable */ }
