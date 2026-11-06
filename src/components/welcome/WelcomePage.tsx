@@ -33,7 +33,7 @@ export function WelcomePage({ locale }: { locale: Locale }) {
           >
             {welcome.signIn}
           </Link>
-          <Link href={`/${locale}/signup${signupNext}`} className="inline-flex min-h-11 items-center px-2 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso">
+          <Link href={`/${locale}/signup${signupNext}`} className="hidden min-h-11 items-center px-2 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso sm:inline-flex">
             {auth.navSignup}
           </Link>
           <LocaleSwitcher className="min-h-11" />

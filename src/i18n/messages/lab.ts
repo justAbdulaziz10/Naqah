@@ -4,10 +4,10 @@ import { defineMessages } from "../types";
 export const lab = defineMessages({
   en: {
     title: "Call Lab",
-    subtitle: "Simulate the calls NAQAH handles. Nothing is dialed; nothing is recorded.",
+    subtitle: "Practice NAQAH’s calls here. Nothing is dialed or recorded.",
     planNote: {
-      basic: "On Basic: one report a week inside your window, one owner call a week, and messages relayed without tickets.",
-      ultimate: "On Ultimate: a report every day, owner calls at any time, and tasks followed up until the worker confirms.",
+      basic: "Basic: one report a week in your chosen window, one owner call a week. Instructions pass on; no task tickets.",
+      ultimate: "Ultimate: one report a day, unlimited owner calls, and tasks stay open until the worker confirms.",
     },
     comparePlans: "Compare plans",
     scenarios: {
@@ -131,10 +131,10 @@ export const lab = defineMessages({
   },
   ar: {
     title: "مختبر المكالمات",
-    subtitle: "جرّب المكالمات التي تتولاها ناقة. ما فيه اتصال فعلي ولا تسجيل.",
+    subtitle: "جرّب مكالمات ناقة هنا. ما فيه اتصال فعلي أو تسجيل.",
     planNote: {
-      basic: "في الأساسية: تقرير واحد بالأسبوع داخل النافذة، ومكالمة مالك واحدة بالأسبوع، والرسائل توصل بدون تذاكر.",
-      ultimate: "في المتكاملة: تقرير كل يوم، ومكالمات المالك في أي وقت، والمهام تُتابع حتى يأكد العامل إنجازها.",
+      basic: "الأساسية: تقرير أسبوعي في نافذتك، ومكالمة مالك واحدة. التعليمات تُنقل بلا تذاكر مهام.",
+      ultimate: "المتكاملة: تقرير يومي، ومكالمات المالك بلا حد. تبقى المهام مفتوحة حتى يؤكد العامل إنجازها.",
     },
     comparePlans: "قارن الباقات",
     scenarios: {

@@ -49,7 +49,6 @@ export function LandingPage({ locale }: { locale: Locale }) {
   const anchorLinks = [
     { href: "#call", label: landing.nav.how },
     { href: "#principles", label: landing.nav.principles },
-    { href: "#colours", label: landing.nav.colours },
     { href: "#plans", label: landing.nav.plans },
   ];
   const [arrive, ask, callBack] = landing.story.stages;
@@ -119,11 +118,11 @@ export function LandingPage({ locale }: { locale: Locale }) {
             <div className={`${frame} pb-16 pt-10 lg:pb-16 lg:pt-0`}>
               <h1
                 id="landing-title"
-                className={`max-w-[18ch] text-balance text-[clamp(2.6rem,7vw,6.5rem)] font-semibold leading-[1.02] tracking-[-0.035em] text-espresso lg:text-cream ${arabicDisplay}`}
+                className={`max-w-[24ch] text-balance text-[clamp(2.25rem,7vw,6.5rem)] font-semibold leading-[1.02] tracking-[-0.035em] text-espresso lg:text-cream sm:max-w-[18ch] sm:text-[clamp(2.6rem,7vw,6.5rem)] ${arabicDisplay}`}
               >
                 {landing.hero.title}
               </h1>
-              <div className="mt-6 flex flex-col gap-8 lg:mt-8">
+              <div className="mt-5 flex flex-col gap-5 sm:gap-6 lg:mt-8">
                 <p className="max-w-[36rem] text-lg leading-8 text-espresso sm:text-xl sm:leading-9 lg:text-cream/90">
                   {landing.hero.description}
                 </p>

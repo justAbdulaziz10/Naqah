@@ -49,7 +49,6 @@ function CallWorkerUnavailable({ worker }: { worker: string }) {
 
 export function EstateHeader({
   name,
-  greeting,
   state,
   tone,
   worker,
@@ -58,7 +57,6 @@ export function EstateHeader({
   nextUpdate,
 }: {
   name: string;
-  greeting: string;
   state: string;
   tone: EstateTone;
   worker: string;
@@ -75,8 +73,7 @@ export function EstateHeader({
             <h1 id="estate-name" className="min-w-0 text-[2rem] font-semibold leading-tight tracking-[-0.02em] sm:text-[2.25rem]">{name}</h1>
             <CamelMark className="h-8 w-auto shrink-0 sm:h-9" />
           </div>
-          <p className="mt-2 text-cream/75">{greeting}</p>
-          <p className="mt-1 flex items-center gap-2.5 text-lg font-medium leading-snug sm:text-xl">
+          <p className="mt-2 flex items-center gap-2.5 text-lg font-medium leading-snug sm:text-xl">
             <span className={`size-2.5 shrink-0 rounded-full ${toneDot[tone]}`} aria-hidden />
             {state}
           </p>

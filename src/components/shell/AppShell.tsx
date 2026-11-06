@@ -153,7 +153,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="flex min-w-0 flex-col">
         {/* Top bar */}
-        <header className="sticky top-0 z-30 border-b border-stone/60 bg-ivory/85 backdrop-blur-md">
+        <header className="sticky top-0 z-30 border-b border-stone/60 bg-ivory">
           {/* Phones only: on desktop the sidebar names the product and the estate. */}
           <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:px-6 lg:hidden">
             <Logo locale={locale} href={href("/")} className="min-h-11" />
@@ -177,7 +177,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Bottom tabs (mobile) */}
       <nav
         aria-label={m.common.nav.main}
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-stone/70 bg-cream/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-stone/70 bg-cream pb-[env(safe-area-inset-bottom)] lg:hidden"
       >
         <div className={cn("mx-auto grid max-w-lg", account ? "grid-cols-4" : "grid-cols-5")}>
           {nav.filter((n) => n.key !== "settings").map((item) => {
@@ -227,7 +227,7 @@ function DemoNotice({ showSimulate, labHref }: { showSimulate: boolean; labHref:
             <DemoClock />
           </div>
           {showSimulate ? (
-            <Link href={labHref} className="inline-flex min-h-11 items-center gap-1.5 font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
+            <Link href={labHref} className="hidden min-h-11 items-center gap-1.5 font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown sm:inline-flex">
               {m.common.demo.simulateCall}
             </Link>
           ) : null}

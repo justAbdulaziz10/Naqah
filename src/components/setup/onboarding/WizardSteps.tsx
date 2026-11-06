@@ -143,7 +143,6 @@ export function PlanStep({ ws, onChange }: StepProps) {
               <span className="flex items-start justify-between gap-3">
                 <span>
                   <span className="block text-[1.375rem] font-bold text-espresso">{m.common.plans[plan.id]}</span>
-                  <span className="mt-1 block text-[0.975rem] text-muted">{m.onboarding.wizard.planTag[plan.id]}</span>
                 </span>
                 <span
                   aria-hidden
