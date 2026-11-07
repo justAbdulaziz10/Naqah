@@ -32,21 +32,13 @@ function callKindLabel(kind: CallKind, m: ReturnType<typeof useI18n>["m"]) {
   return labels[kind];
 }
 
-function TicketGroup({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+function TicketGroup({ id, title, footer, children }: { id: string; title: string; footer?: ReactNode; children: ReactNode }) {
   return (
     <section aria-labelledby={id} className="px-5 py-5 sm:px-8 sm:py-6">
       <h2 id={id} className="text-lg font-semibold leading-snug text-espresso">{title}</h2>
       <ul className="mt-2 divide-y divide-stone/70">{children}</ul>
+      {footer}
     </section>
-  );
-}
-
-function Count({ label, value }: { label: string; value: string }) {
-  return (
-    <p className="flex min-h-11 items-baseline justify-between gap-3 border-b border-stone/70 py-2 last:border-b-0">
-      <span className="text-muted">{label}</span>
-      <span className="ltr-nums text-lg font-semibold tabular-nums text-espresso">{value}</span>
-    </p>
   );
 }
 
@@ -70,12 +62,13 @@ export default function TicketsPage() {
   const noAnswers = active ? openNoAnswers : ws.noAnswerTickets.filter((ticket) => ticket.status === "closed");
   const relays = ws.relays.filter((relay) => relay.delivered !== active);
   const hasVisibleItems = tasks.length + noAnswers.length + relays.length + (active ? recentlyClosed.length : 0) > 0;
+  const hasAnything = (ultimate ? ws.taskTickets.length : 0) + ws.noAnswerTickets.length + ws.relays.length > 0;
 
   return (
-    <div className="space-y-4 pb-8">
+    <div className="max-w-3xl space-y-4 pb-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.app.tickets.title}</h1>
-        <Segmented
+        {hasAnything ? <Segmented
           value={tab}
           onChange={setTab}
           label={m.app.tickets.tabsLabel}
@@ -84,13 +77,35 @@ export default function TicketsPage() {
             { value: "active", label: m.app.tickets.active },
             { value: "history", label: m.app.tickets.history },
           ]}
-        />
+        /> : null}
       </header>
 
-      <div className="grid items-start gap-4 lg:grid-cols-12">
-        <Card className="min-w-0 divide-y divide-stone/70 lg:col-span-8">
+      {!ultimate ? (
+        <div className="text-sm leading-relaxed text-muted">
+          <p>{m.app.tickets.basicNote}</p>
+          <Link href={`${href("/app/settings")}#settings-plan`} className="inline-flex min-h-11 items-center font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
+            {m.app.tickets.planLink}
+          </Link>
+        </div>
+      ) : null}
+
+        <Card className="min-w-0 divide-y divide-stone/70">
           {tasks.length ? (
-            <TicketGroup id="tickets-tasks" title={m.app.tickets.taskTickets}>
+            <TicketGroup
+              id="tickets-tasks"
+              title={active ? m.app.tickets.taskTickets : m.app.tickets.closedTaskTickets}
+              footer={active ? (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-stone/70 pt-3 text-sm text-muted">
+                  <span>{m.app.tickets.closeRule}</span>
+                  {!account ? (
+                    <Link href={href("/app/lab")} className="inline-flex min-h-11 items-center gap-1.5 font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
+                      {m.app.tickets.verifyNow}
+                      <ArrowRight size={15} className="shrink-0 rtl:-scale-x-100" aria-hidden />
+                    </Link>
+                  ) : null}
+                </div>
+              ) : undefined}
+            >
               {tasks.map((ticket) => (
                 <li
                   key={ticket.id}
@@ -171,38 +186,14 @@ export default function TicketsPage() {
             </TicketGroup>
           ) : null}
 
-          {!hasVisibleItems ? <EmptyState title={active ? m.app.tickets.emptyActive : m.app.tickets.emptyHistory} /> : null}
+          {!hasVisibleItems ? (
+            <EmptyState
+              title={active ? m.app.tickets.emptyActive : m.app.tickets.emptyHistory}
+              body={active && ultimate ? m.app.tickets.emptyActiveBody : undefined}
+              action={active && !account ? <ButtonLink href={href("/app/lab")} variant="secondary">{m.app.overview.simulateCall}</ButtonLink> : undefined}
+            />
+          ) : null}
         </Card>
-
-        <Card className="min-w-0 px-5 py-5 sm:px-8 sm:py-6 lg:col-span-4 lg:px-6">
-          <h2 className="text-lg font-semibold leading-snug text-espresso">{m.app.tickets.summary}</h2>
-          <div className="mt-2">
-            {ultimate ? <Count label={m.app.tickets.openTasks} value={fmt.number(openTasks.length)} /> : null}
-            <Count label={m.app.tickets.unanswered} value={fmt.number(openNoAnswers.length)} />
-            <Count label={m.app.tickets.waiting} value={fmt.number(ws.relays.filter((relay) => !relay.delivered).length)} />
-            {ultimate ? <Count label={m.app.tickets.closedTasks} value={fmt.number(closedTasks.length)} /> : null}
-          </div>
-          {ultimate ? (
-            <>
-              <p className="mt-4 text-sm leading-relaxed text-muted">{m.app.tickets.closeRule}</p>
-              {openTasks.length && !account ? (
-                <ButtonLink href={href("/app/lab")} variant="secondary" size="sm" className="mt-3 min-h-11 w-full whitespace-normal">
-                  {m.app.tickets.verifyNow}
-                  <ArrowRight size={16} className="shrink-0 rtl:-scale-x-100" aria-hidden />
-                </ButtonLink>
-              ) : null}
-            </>
-          ) : (
-            <div className="mt-4">
-              <p className="font-semibold text-espresso">{m.app.tickets.basicExplainerTitle}</p>
-              <p className="mt-1 text-sm leading-relaxed text-muted">{m.app.tickets.basicExplainerBody}</p>
-              <Link href={`${href("/app/settings")}#settings-plan`} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
-                {m.app.tickets.comparePlans}
-              </Link>
-            </div>
-          )}
-        </Card>
-      </div>
     </div>
   );
 }

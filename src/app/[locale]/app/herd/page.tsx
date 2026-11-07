@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { PencilSimple, Plus } from "@phosphor-icons/react";
 import { CamelEditorDialog, type CamelFormValues } from "@/components/dashboard/CamelEditorDialog";
 import { CertaintyBadge, EmptyState, HealthBadge } from "@/components/dashboard/DashboardPrimitives";
@@ -126,6 +126,23 @@ export default function HerdPage() {
     );
   };
 
+  const herdCount = ws.settings.herdCount;
+  const parts = (values: (string | null | false)[]) => values.filter((part): part is string => Boolean(part));
+  const counts = parts([
+    Boolean(herdCount) && m.app.herd.total(fmt.number(herdCount ?? 0)),
+    ws.camels.length > 0 && m.app.herd.count(fmt.number(ws.camels.length)),
+  ]);
+  const source = parts([
+    ws.camels.length > 0 && usualCertainty && t(CERTAINTY_LABELS[usualCertainty]),
+    ws.camels.length > 0 && usualUpdate,
+  ]);
+  const line = (values: string[]) => values.map((part, index) => (
+    <Fragment key={part}>
+      {index ? <span aria-hidden> · </span> : null}
+      <span className="whitespace-nowrap">{part}</span>
+    </Fragment>
+  ));
+
   const editButton = (camel: Camel) => (
     <IconButton
       label={`${m.common.actions.edit} ${camel.name}`}
@@ -145,10 +162,8 @@ export default function HerdPage() {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.app.herd.title}</h1>
-          <p className="mt-1 text-sm text-muted">
-            <span className="whitespace-nowrap">{m.app.herd.count(fmt.number(ws.camels.length))}</span>
-            {usualCertainty && ws.camels.length ? <><span aria-hidden> · </span>{t(CERTAINTY_LABELS[usualCertainty])}<span aria-hidden> · </span>{usualUpdate}</> : null}
-          </p>
+          {counts.length ? <p className="mt-1 text-sm text-espresso">{line(counts)}</p> : null}
+          {source.length ? <p className="mt-0.5 text-sm text-muted">{line(source)}</p> : null}
         </div>
         {ws.camels.length ? (
           <Button ref={addButtonRef} className="w-full sm:w-auto" onClick={openNewCamel}>
@@ -182,8 +197,7 @@ export default function HerdPage() {
           <EmptyState
             camel
             title={m.app.herd.noCamelsTitle}
-            body={m.app.herd.noCamelsBody}
-            action={<Button onClick={openNewCamel}><Plus size={17} weight="fill" aria-hidden />{m.app.herd.addCamel}</Button>}
+            action={<Button ref={addButtonRef} onClick={openNewCamel}><Plus size={17} weight="fill" aria-hidden />{m.app.herd.addCamel}</Button>}
           />
         </Card>
       ) : visibleCamels.length === 0 ? (

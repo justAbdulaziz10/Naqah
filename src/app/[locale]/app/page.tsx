@@ -11,8 +11,9 @@ import { estateMatters } from "@/components/dashboard/matters";
 import { useCallSentence } from "@/components/schedule/ReportCallSection";
 import { lastReportAt, openNoAnswerTickets, openTaskTickets, ownerAllowanceUsed, routeOwnerInboundCall, sameWeek } from "@/domain";
 import { useI18n } from "@/i18n/client";
-import { CallSetupStatus, getCallSetupGaps } from "@/components/setup";
-import { useNow, useWorkspace } from "@/store/workspace";
+import { CallSetupStatus, formatSaudiMobile, getCallSetupGaps } from "@/components/setup";
+import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
+import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
 
 const dateTime = { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" } as const;
 
@@ -23,6 +24,10 @@ export default function OverviewPage() {
   const ws = useWorkspace();
   const now = useNow();
   const call = useCallSentence(ws);
+  const account = useIsAccount();
+  // In a real account, don't promise a scheduled call the deployment won't place.
+  const scheduledCalls = useScheduledCallsOn();
+  const scheduledOff = account && scheduledCalls === false;
   if (!ws) return null;
 
   const reportAt = lastReportAt(ws) ?? ws.lastUpdateAt;
@@ -39,12 +44,13 @@ export default function OverviewPage() {
   const tasks = ultimate ? openTaskTickets(ws) : [];
   const tone: EstateTone = !hasReport ? "quiet" : unanswered.length ? "unanswered" : concerns ? "attention" : "calm";
   const state = !hasReport ? app.overview.noUpdate : concerns ? app.overview.needsYou(concerns) : app.overview.nothingFlagged;
-  // One next step: finish what calls need, then follow open tasks, otherwise the herd.
+  // One next step. While calls still need something, the card below carries it instead.
   const action = gaps.length
-    ? { href: href("/app/settings"), label: m.setup.gaps.title }
+    ? null
     : tasks.length
       ? { href: href("/app/tickets"), label: app.overview.viewTickets }
-      : { href: href("/app/herd"), label: app.overview.viewHerd };
+      : hasReport ? { href: href("/app/herd"), label: app.overview.viewHerd } : null;
+  const workerPhone = ws.settings.worker.phone.trim();
 
   const ownerRoute = routeOwnerInboundCall(ws, now);
   const allowanceUsed = ownerAllowanceUsed(ws, now);
@@ -70,13 +76,13 @@ export default function OverviewPage() {
   }
   facts.push({
     key: "next",
-    label: d.nextCall,
+    label: scheduledOff ? d.plannedCall : d.nextCall,
     content: call ? (
       <>
         <p className="text-lg font-semibold leading-snug">
           <time className="ltr-nums" dateTime={call.next.toISOString()}>{fmt.dateTime(call.next, dateTime)}</time>
         </p>
-        <p className="mt-1 text-sm text-cream/75">{d.callsWorker(call.worker)} · {fmt.relative(call.next, now)}</p>
+        <p className="mt-1 text-sm text-cream/75">{scheduledOff ? d.scheduledOff : `${d.callsWorker(call.worker)} · ${fmt.relative(call.next, now)}`}</p>
         <ReportCallNow ws={ws} worker={worker} now={now} />
       </>
     ) : (
@@ -84,6 +90,18 @@ export default function OverviewPage() {
         <p className="text-lg font-semibold leading-snug">{d.noCallTime}</p>
         <ReportCallNow ws={ws} worker={worker} now={now} />
       </>
+    ),
+  });
+  facts.push({
+    key: "worker",
+    label: app.overview.primaryWorker,
+    content: ws.settings.worker.name.trim() || workerPhone ? (
+      <>
+        <p className="text-lg font-semibold leading-snug">{ws.settings.worker.name.trim() || app.overview.unnamedWorker}</p>
+        {workerPhone ? <p className="mt-1 text-sm text-cream/75"><bdi dir="ltr" className="ltr-nums">{formatSaudiMobile(workerPhone)}</bdi></p> : null}
+      </>
+    ) : (
+      <p className="text-lg font-semibold leading-snug">{app.overview.workerNotSet}</p>
     ),
   });
   facts.push({ key: "herd", label: d.herd, content: <HerdCountFact ws={ws} worker={worker} /> });

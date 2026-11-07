@@ -1,6 +1,7 @@
 "use client";
 
 import { useId } from "react";
+import { ButtonLink } from "@/components/ui";
 import { isCompleteCallSchedule } from "@/domain/schedule";
 import type { Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
@@ -29,7 +30,7 @@ export function hasCallLanguageNote(ws: Workspace): boolean {
 
 /** Shown on the dashboard only while something calls need is missing. The header links to Settings. */
 export function CallSetupStatus({ ws }: { ws: Workspace }) {
-  const { m } = useI18n();
+  const { m, href } = useI18n();
   const gaps = getCallSetupGaps(ws);
   const titleId = useId();
   if (!gaps.length) return null;
@@ -41,6 +42,7 @@ export function CallSetupStatus({ ws }: { ws: Workspace }) {
       <ul className="mt-2 list-disc space-y-1 ps-5 text-espresso">
         {gaps.map((gap) => <li key={gap}>{m.setup.ready.missing[gap]}</li>)}
       </ul>
+      <ButtonLink href={href("/app/settings")} className="mt-5 w-full sm:w-auto">{m.setup.gaps.action}</ButtonLink>
     </section>
   );
 }

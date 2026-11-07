@@ -102,15 +102,13 @@ export function ReportCallFields({ ws, onChange, showErrors = false }: SetupFiel
         </StepField>
       </div>
 
-      <div aria-live="polite" className="border-t border-stone/80 pt-5">
+      <div aria-live="polite" className={complete && summary ? "border-t border-stone/80 pt-5" : undefined}>
         {complete && summary ? (
           <>
             <p className="text-[1.1875rem] font-semibold leading-snug text-espresso">{summary.sentence}</p>
             <p className="mt-1 text-[0.9375rem] text-muted">{s.next(summary.when)}</p>
           </>
-        ) : (
-          <p className="text-[1.0625rem] text-muted">{weekly ? s.chooseWeekly : s.chooseDaily}</p>
-        )}
+        ) : null}
       </div>
     </div>
   );

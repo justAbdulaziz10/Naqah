@@ -35,7 +35,7 @@ export function EstateHeader({
   name: string;
   state: string;
   tone: EstateTone;
-  action: { href: string; label: string };
+  action: { href: string; label: string } | null;
   facts: EstateFact[];
 }) {
   return (
@@ -51,12 +51,12 @@ export function EstateHeader({
             {state}
           </p>
         </div>
-        <ButtonLink href={action.href} variant="light" className="w-full sm:w-auto">{action.label}</ButtonLink>
+        {action ? <ButtonLink href={action.href} variant="light" className="w-full sm:w-auto">{action.label}</ButtonLink> : null}
       </div>
       {facts.length ? (
         <dl className="mt-6 flex flex-wrap gap-x-10 gap-y-5 border-t border-cream/15 pt-5">
           {facts.map((fact) => (
-            <div key={fact.key} className="min-w-0 flex-1 basis-56">
+            <div key={fact.key} className="min-w-0 flex-1 basis-44">
               <dt className="text-sm text-cream/75">{fact.label}</dt>
               <dd className="mt-1">{fact.content}</dd>
             </div>

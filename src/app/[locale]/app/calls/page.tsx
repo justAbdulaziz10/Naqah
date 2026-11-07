@@ -66,7 +66,7 @@ export default function CallsPage() {
     <div className="space-y-5 pb-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.app.calls.title}</h1>
-        <Segmented
+        {ws.calls.length ? <Segmented
           value={filter}
           onChange={setFilter}
           label={m.app.calls.filterLabel}
@@ -76,10 +76,8 @@ export default function CallsPage() {
             { value: "worker", label: m.app.calls.worker },
             { value: "owner", label: m.app.calls.owner },
           ]}
-        />
+        /> : null}
       </header>
-
-      <p className="text-sm leading-relaxed text-muted">{m.app.calls.note}</p>
 
       {calls.length ? (
         <div className="space-y-6">
@@ -160,16 +158,18 @@ export default function CallsPage() {
         </div>
       ) : (
         <Card>
-          {filter === "all" ? (
+          {ws.calls.length === 0 ? (
             <EmptyState
               camel
               title={m.app.calls.empty}
-              body={m.app.calls.emptyBody}
+              body={account ? m.app.calls.emptyBody : undefined}
               action={account ? undefined : <ButtonLink href={href("/app/lab")} variant="secondary">{m.app.overview.simulateCall}</ButtonLink>}
             />
           ) : <EmptyState title={m.app.calls.empty} />}
         </Card>
       )}
+
+      {ws.calls.length ? <p className="text-[0.8125rem] text-muted">{m.app.calls.note}</p> : null}
     </div>
   );
 }
