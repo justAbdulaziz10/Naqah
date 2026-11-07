@@ -1,0 +1,231 @@
+#!/usr/bin/env node
+/**
+ * LOCAL ONLY. The owner flow in a real browser against supabase/local-validation/run-stack.sh and a
+ * production build: sign in, the four setup steps, reload, a Settings edit, then one scheduled report
+ * call through the signed Twilio webhooks (Twilio itself is not called), and the report on the
+ * dashboard. A second owner checks isolation on a 375px Arabic screen.
+ *
+ *   . /tmp/naqah-live-tools/stack.env && NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1 npm run build
+ *   NAQAH_VOICE_MODE=farm NAQAH_VOICE_SECRET=local-only-… TWILIO_AUTH_TOKEN=local-test-auth-token \
+ *     NAQAH_PUBLIC_BASE_URL=http://localhost:3460 npx next start -p 3460
+ *   node scripts/verify-owner-flow.mjs --secret local-only-… --token local-test-auth-token
+ */
+import { execFileSync } from "node:child_process";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { chromium } from "playwright";
+
+const arg = (name, fallback) => {
+  const index = process.argv.indexOf(`--${name}`);
+  return index >= 0 ? process.argv[index + 1] : fallback;
+};
+const BASE = arg("base", "http://localhost:3460");
+const GATEWAY = arg("gateway", "http://127.0.0.1:54352");
+const TOKEN = arg("token", "local-test-auth-token");
+const SECRET = arg("secret", "");
+const DB = arg("db", "naqah_live");
+const SHOTS = arg("shots", "/tmp/naqah-live-tools/shots");
+if (!/^https?:\/\/(127\.0\.0\.1|localhost)/.test(BASE) || !/127\.0\.0\.1|localhost/.test(GATEWAY)) throw new Error("local addresses only");
+if (!SECRET.startsWith("local-only-")) throw new Error("--secret must be the server's local-only NAQAH_VOICE_SECRET");
+mkdirSync(SHOTS, { recursive: true });
+
+let failures = 0;
+const check = (name, passed, detail = "") => {
+  console.log(`${passed ? "PASS" : "FAIL"} ${name}${!passed && detail ? ` :: ${String(detail).slice(0, 400)}` : ""}`);
+  if (!passed) failures += 1;
+};
+const sql = (query) => execFileSync("psql", ["-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", DB], { input: query, encoding: "utf8" }).trim();
+const q = (value) => `'${String(value).replaceAll("'", "''")}'`;
+const phone = () => `05${String(10_000_000 + Math.floor(Math.random() * 89_999_999))}`;
+const e164 = (local) => `+966${local.slice(1)}`;
+const waitFor = async (probe, tries = 60) => {
+  for (let index = 0; index < tries; index += 1) {
+    if (probe()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return false;
+};
+
+async function createOwner() {
+  const email = `owner-${randomBytes(4).toString("hex")}@example.test`;
+  const password = "local-test-password";
+  const made = await fetch(`${GATEWAY}/__test/users`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+  if (made.status !== 201) throw new Error(`user: ${made.status}`);
+  return { ...(await made.json()), email, password };
+}
+
+// ── Signed webhooks, exactly as Twilio would send them ──
+const twilioSignature = (url, fields) => {
+  let value = url;
+  for (const key of Object.keys(fields).sort()) value += key + fields[key];
+  return createHmac("sha1", TOKEN).update(value, "utf8").digest("base64");
+};
+async function webhook(path, fields) {
+  const url = new URL(path, BASE).toString();
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Twilio-Signature": twilioSignature(url, fields) },
+    body: new URLSearchParams(fields),
+  });
+  return { status: response.status, xml: await response.text() };
+}
+const callToken = (token) => {
+  const payload = Buffer.from(JSON.stringify(token), "utf8").toString("base64url");
+  return `${payload}.${createHmac("sha256", SECRET).update(`naqah-call:${payload}`).digest("base64url")}`;
+};
+const decode = (text) => text.replaceAll("&apos;", "'").replaceAll("&quot;", '"').replaceAll("&gt;", ">").replaceAll("&lt;", "<").replaceAll("&amp;", "&");
+const says = (xml) => [...xml.matchAll(/<Say\b[^>]*>([\s\S]*?)<\/Say>/g)].map((m) => decode(m[1])).join(" ");
+const action = (xml) => {
+  const raw = xml.match(/<Gather\b[^>]*\baction="([^"]+)"/)?.[1];
+  return raw ? decode(raw) : null;
+};
+
+/** The worker answers NAQAH's report call. `answer(text)` returns speech or digits for a question. */
+async function reportCall(farmId, runId, answer) {
+  const CallSid = `CA${randomBytes(16).toString("hex")}`;
+  const s = callToken({ k: "report", f: farmId, r: runId, n: 1, l: "ar", t: Date.now() });
+  let reply = await webhook(`/api/voice/outbound?s=${encodeURIComponent(s)}`, { CallSid, CallStatus: "in-progress" });
+  const script = [says(reply.xml)];
+  for (let turn = 0; turn < 30 && action(reply.xml); turn += 1) {
+    reply = await webhook(action(reply.xml), { CallSid, ...answer(says(reply.xml)) });
+    script.push(says(reply.xml));
+  }
+  await webhook(`/api/voice/outbound/status?s=${encodeURIComponent(s)}`, { CallSid, CallStatus: "completed" });
+  return { CallSid, script, status: reply.status };
+}
+
+const browser = await chromium.launch();
+const errors = [];
+const open = async (viewport) => {
+  const context = await browser.newContext({ viewport });
+  const page = await context.newPage();
+  page.on("pageerror", (error) => errors.push(error.message));
+  return { context, page };
+};
+const settled = (page) => page.waitForFunction(() => ![...document.querySelectorAll('[role="status"][aria-label]')].some((el) => el.checkVisibility()), null, { timeout: 20_000 });
+const noSideScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+
+async function signIn(page, locale, owner) {
+  await page.goto(`${BASE}/${locale}/login`);
+  await page.getByRole("link", { name: locale === "ar" ? "البريد" : "Email", exact: true }).first().click();
+  await page.locator('input[type="email"]').fill(owner.email);
+  await page.locator('input[type="password"]').fill(owner.password);
+  await page.locator('form button[type="submit"]').click();
+}
+
+// ── Owner A: English, desktop. New owner → setup → dashboard ──
+const ownerA = await createOwner();
+const A = await open({ width: 1280, height: 900 });
+const RANCH = `Al Nakheel ${randomBytes(2).toString("hex")}`;
+const ownerPhone = phone(), yousefPhone = phone(), ahmedPhone = phone();
+await signIn(A.page, "en", ownerA);
+await A.page.waitForURL("**/en/start", { timeout: 20_000 });
+check("a new owner lands in setup after signing in", true);
+await settled(A.page);
+check("setup offers no sample data to a real owner", await A.page.getByText(/sample/i).count() === 0);
+check("setup has four steps", await A.page.getByRole("button", { name: /^(Ranch|Workers and herd|Report call|Ready)$/ }).count() === 4);
+
+await A.page.getByLabel("Ranch name").fill(RANCH);
+await A.page.getByLabel("Your name").fill("Abdullah");
+await A.page.getByLabel("Your mobile").fill(ownerPhone);
+await A.page.getByRole("button", { name: "Continue" }).click();
+
+await A.page.getByLabel("Name").first().fill("Yousef");
+await A.page.getByLabel("Mobile").first().fill(yousefPhone);
+await A.page.getByRole("button", { name: "Add a worker" }).click();
+await A.page.getByLabel("Name").nth(1).fill("Ahmed");
+await A.page.getByLabel("Mobile").nth(1).fill(ahmedPhone);
+await A.page.getByText("NAQAH calls this worker", { exact: true }).nth(1).click();
+await A.page.getByLabel("Total camels").fill("42");
+await A.page.getByRole("button", { name: "Continue" }).click();
+
+await A.page.getByLabel("Day").selectOption({ label: "Thursday" });
+await A.page.getByLabel("Time").fill("17:30");
+await A.page.getByText("NAQAH will call Ahmed every Thursday at 17:30").first().waitFor({ timeout: 5_000 })
+  .then(() => check("the call time reads as a sentence with the chosen worker", true))
+  .catch(() => check("the call time reads as a sentence with the chosen worker", false));
+const questionBox = A.page.getByPlaceholder("e.g. Did the vet visit today?");
+await questionBox.fill("Did the vet visit today?");
+await questionBox.press("Enter");
+await A.page.getByRole("button", { name: "Continue" }).click();
+await A.page.screenshot({ path: `${SHOTS}/flow-en-ready.png`, fullPage: true });
+await A.page.getByRole("button", { name: "Open dashboard" }).click();
+await A.page.waitForURL("**/en/app", { timeout: 20_000 });
+await settled(A.page);
+
+const farmA = sql(`select id from farms where owner_id = ${q(ownerA.id)}`);
+await waitFor(() => sql(`select setup_complete from farms where id = ${q(farmA)}`) === "t");
+const farmRow = sql(`select name || '|' || owner_name || '|' || owner_phone || '|' || coalesce(herd_count::text, '-') || '|' || coalesce(call_day::text, '-') || '|' || coalesce(to_char(call_time, 'HH24:MI'), '-') || '|' || setup_complete from farms where id = ${q(farmA)}`);
+check("ranch, owner, herd count and call time saved to Supabase", farmRow === `${RANCH}|Abdullah|${e164(ownerPhone)}|42|4|17:30|true`, farmRow);
+const workers = sql(`select string_agg(w.name || ':' || w.phone || ':' || (w.id = f.primary_worker_id), ',' order by w.name) from workers w join farms f on f.id = w.farm_id where f.id = ${q(farmA)}`);
+check("two workers saved, Ahmed is the one NAQAH calls", workers === `Ahmed:${e164(ahmedPhone)}:true,Yousef:${e164(yousefPhone)}:false`, workers);
+check("custom question saved", sql(`select string_agg(text, ',') from custom_questions where farm_id = ${q(farmA)}`) === "Did the vet visit today?");
+
+await A.page.reload();
+await settled(A.page);
+const overview = await A.page.locator("main").innerText();
+check("after a reload the dashboard shows the real ranch", overview.includes(RANCH) || (await A.page.locator("body").innerText()).includes(RANCH));
+check("the dashboard names the next call and the herd count", /Ahmed/.test(overview) && /42/.test(overview), overview.slice(0, 400));
+check("no Call Lab link for a real owner", await A.page.locator('a[href$="/app/lab"]').count() === 0);
+check("the real farm never reaches browser storage", !(await A.page.evaluate(() => JSON.stringify({ ...localStorage }))).includes(RANCH));
+await A.page.screenshot({ path: `${SHOTS}/flow-en-dashboard.png`, fullPage: true });
+
+// Settings: same fields, saved on change.
+await A.page.goto(`${BASE}/en/app/settings`);
+await settled(A.page);
+await A.page.getByLabel("Total camels").fill("45");
+await A.page.getByLabel("Time").first().fill("18:15");
+await A.page.locator("main h1, main h2").first().click(); // Leave the field.
+check("a Settings edit saves", await waitFor(() => sql(`select herd_count || '|' || to_char(call_time, 'HH24:MI') from farms where id = ${q(farmA)}`) === "45|18:15"),
+  sql(`select herd_count || '|' || to_char(call_time, 'HH24:MI') from farms where id = ${q(farmA)}`));
+await A.page.reload();
+await settled(A.page);
+check("a Settings edit survives a reload", await A.page.getByLabel("Total camels").inputValue() === "45");
+
+// ── One report call: the run the scheduler would claim, then the worker answers ──
+const runId = randomUUID();
+const now = new Date().toISOString();
+sql(`insert into report_call_runs (id, farm_id, occurrence, trigger, attempts, state)
+  values (${q(runId)}, ${q(farmA)}, ${q(now)}, 'manual', ${q(JSON.stringify([{ at: now, result: "pending" }]))}::jsonb, 'calling')`);
+const call = await reportCall(farmA, runId, (text) => {
+  if (/اضغط|Press/.test(text)) return { Digits: "1" };
+  if (/كم.*(إجمالي|المجموع|كلها|عدد)|total/i.test(text)) return { SpeechResult: "أربعين" };
+  if (/مريض|تعبان|sick/.test(text)) return { SpeechResult: "لا، ما فيه مريض" };
+  if (/الطبيب|البيطري|vet/i.test(text)) return { SpeechResult: "لا ما جاء" };
+  return { SpeechResult: "نعم" };
+});
+const saved = sql(`select r.herd_count_reported || '|' || run.state || '|' || (run.report_id = r.id) from report_call_runs run join reports r on r.farm_id = run.farm_id where run.id = ${q(runId)}`);
+check("the answered report call saves one report and completes its run", /\|completed\|true$/.test(saved), `${saved}\n${call.script.join("\n")}`);
+check("the worker's herd count is kept as a proposal, not the official count", /^40\|/.test(saved) && sql(`select herd_count from farms where id = ${q(farmA)}`) === "45", saved);
+check("no recording or transcript is stored", !/audio|recording|transcript/.test(sql(`select string_agg(column_name, ',') from information_schema.columns where table_schema = 'public'`)));
+
+await A.page.goto(`${BASE}/en/app`);
+await settled(A.page);
+const afterCall = await A.page.locator("main").innerText();
+check("the dashboard shows the new report", !/no report yet/i.test(afterCall), afterCall.slice(0, 500));
+const use = A.page.getByRole("button", { name: /^Use/ });
+check("the dashboard offers the worker's count to accept", await use.count() > 0, afterCall.slice(0, 500));
+if (await use.count()) {
+  await use.first().click();
+  check("accepting it makes it the official count", await waitFor(() => sql(`select herd_count from farms where id = ${q(farmA)}`) === "40"));
+}
+await A.page.screenshot({ path: `${SHOTS}/flow-en-after-call.png`, fullPage: true });
+
+// ── Owner B: Arabic, 375px. Own empty farm, never A's ──
+const ownerB = await createOwner();
+const B = await open({ width: 375, height: 812 });
+await signIn(B.page, "ar", ownerB);
+await B.page.waitForURL("**/ar/start", { timeout: 20_000 });
+await settled(B.page);
+const bText = await B.page.locator("body").innerText();
+check("a second owner sees none of the first owner's farm", !bText.includes(RANCH) && !bText.includes("Ahmed"));
+check("Arabic setup is right-to-left", await B.page.evaluate(() => document.documentElement.dir) === "rtl");
+check("Arabic setup has no sideways scroll at 375px", await noSideScroll(B.page));
+await B.page.screenshot({ path: `${SHOTS}/flow-ar-375-start.png`, fullPage: true });
+const farmB = sql(`select id from farms where owner_id = ${q(ownerB.id)}`);
+check("each owner has exactly one farm", Boolean(farmB) && farmB !== farmA && sql(`select count(*) from farms where owner_id in (${q(ownerA.id)}, ${q(ownerB.id)})`) === "2");
+
+check("no page errors", errors.length === 0, errors.join(" | "));
+await browser.close();
+console.log(failures ? `${failures} FAILED` : "ALL PASSED");
+process.exit(failures ? 1 : 0);
