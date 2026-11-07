@@ -216,14 +216,16 @@ are recognised by caller ID (`workers.phone`) — an identification signal only,
 ### 8.4 Webhook → domain action map
 The implemented contract is `docs/integrations/voice-data-contract.md`.
 
-| Event | Route handler (suggested) | Domain functions |
+| Event | Route handler | Domain functions |
 |---|---|---|
-| Worker calls in | `POST /api/voice/inbound` (caller = worker) | `routeWorkerInboundCall` → report / `rejectWorkerReport` / callback |
+| Report call due (built) | `GET /api/cron/report-calls` every ~5 min, `Bearer CRON_SECRET` | `claimDueReportCall` → Twilio dial (`src/server/calls`) |
+| Report call answered / ended (built) | `POST /api/voice/outbound`, `/api/voice/outbound/status` (signed token, not caller ID) | report conversation, `resolveReportCallAttempt` (20 min × 2 retries → missed), `endReportCallWithoutReport` |
+| Worker calls in | `POST /api/voice/inbound` (caller = worker) | `routeWorkerInboundCall` → callback / returned missed report call / "NAQAH will call you" |
 | Report finished | tool `save_report` | `evaluateFindings`, `completeWorkerReport` |
 | Notify owner | outbound call right after save | `ownerBriefing`, `recordOwnerNotification(answered)` |
 | Owner gives instruction | tool `submit_instruction` | `submitOwnerInstruction` (Ultimate actionable → task ticket) |
-| Retry scheduler | Vercel Cron every 5 min → `GET /api/cron/worker-calls` | `dueWorkerCalls`, `resolveWorkerCallAttempt` (20 min × 3 → No Answer ticket) |
-| Scheduled task check | same cron | `dueTaskVerifications`, `startTaskVerification`, `confirmTask` |
+| Instruction retries (not dialled yet) | a future cron | `dueWorkerCalls`, `resolveWorkerCallAttempt` (20 min × 3 → No Answer ticket) |
+| Scheduled task check (not dialled yet) | a future cron | `dueTaskVerifications`, `startTaskVerification`, `confirmTask` |
 | Worker returns missed call | `POST /api/voice/inbound` | `completeWorkerCallback` (not a farm update) |
 | Owner calls in | `POST /api/voice/inbound` (caller = owner) | `routeOwnerInboundCall` → `recordOwnerInquiry` / `rejectOwnerInquiry` |
 | Emergency | none: the worker calls the owner directly | — |
