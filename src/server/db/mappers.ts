@@ -1,7 +1,9 @@
 import { RESOURCE_KINDS } from "@/domain/catalog";
-import type { Integrations, ReportingWindow, Weekday, Workspace } from "@/domain/types";
+import type { CallSchedule, Integrations, ReportCallRun, ReportingWindow, Weekday, Worker, Workspace } from "@/domain/types";
 import { toDbId } from "./ids";
-import type { CallRow, FarmRows, FindingRow, ReportAnswerRow, ReportRow, WorkerCallAttemptRow } from "./rows";
+import type {
+  CallRow, FarmRows, FindingRow, ReportAnswerRow, ReportCallRunRow, ReportRow, WorkerCallAttemptRow, WorkerRow,
+} from "./rows";
 
 const byTime = <T>(rows: T[], time: (row: T) => string) =>
   [...rows].sort((a, b) => new Date(time(a)).getTime() - new Date(time(b)).getTime());
@@ -11,6 +13,22 @@ const hhmm = (value: string | null) => value?.slice(0, 5) ?? "";
 function windowFrom(row: FarmRows["farm"]): ReportingWindow | null {
   if (row.window_day === null) return null;
   return { day: row.window_day as Weekday, start: hhmm(row.window_start), end: hhmm(row.window_end) };
+}
+
+function callScheduleFrom(row: FarmRows["farm"]): CallSchedule | null {
+  if (row.call_day === null && row.call_time === null) return null;
+  return { day: row.call_day === null ? null : (row.call_day as Weekday), time: hhmm(row.call_time) };
+}
+
+const workerFrom = (row: WorkerRow): Worker => ({ id: row.id, name: row.name, phone: row.phone, language: row.language });
+
+/** The primary worker is the one NAQAH calls: the farm's choice, or the oldest when none is set. */
+function workersFrom(rows: FarmRows): { worker: Worker; otherWorkers: Worker[] } {
+  const primary = rows.workers.find((w) => w.id === rows.farm.primary_worker_id) ?? rows.workers[0];
+  return {
+    worker: primary ? workerFrom(primary) : { name: "", phone: "", language: "ar" },
+    otherWorkers: rows.workers.filter((w) => w !== primary).map(workerFrom),
+  };
 }
 
 function integrationsFrom(row: FarmRows["farm"]): Integrations | undefined {
@@ -33,17 +51,16 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
         location: farm.location,
         coords: farm.latitude === null || farm.longitude === null ? null : { lat: farm.latitude, lon: farm.longitude },
       },
-      worker: {
-        name: rows.worker?.name ?? "",
-        phone: rows.worker?.phone ?? "",
-        language: rows.worker?.language ?? "ar",
-      },
+      ...workersFrom(rows),
+      herdCount: farm.herd_count,
+      herdCountReviewedAt: farm.herd_count_reviewed_at,
       customQuestions: [...rows.customQuestions]
         .sort((a, b) => a.sort_order - b.sort_order)
         .map((q) => ({ id: q.id, text: q.text, createdAt: q.created_at })),
       criteria: rows.criteria.map((c) => ({ id: c.id, kind: c.kind, label: c.label, enabled: c.enabled })),
       emergencies: rows.emergencies.map((e) => ({ id: e.id, kind: e.kind, label: e.label })),
       window: windowFrom(farm),
+      callSchedule: callScheduleFrom(farm),
       integrations: integrationsFrom(farm),
     },
     camels: rows.camels.map((c) => ({
@@ -73,6 +90,7 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
       id: r.id,
       at: r.at,
       callId: r.call_id ?? "",
+      ...(r.herd_count_reported !== null && r.herd_count_reported !== undefined && { herdCountReported: r.herd_count_reported }),
       answers: [...r.report_answers]
         .sort((a, b) => a.sort_order - b.sort_order)
         .map((a) => ({
@@ -129,6 +147,16 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
       nextAttemptAt: p.next_attempt_at,
       state: p.state,
     })),
+    reportCalls: byTime(rows.reportCallRuns, (r) => r.occurrence).map((r): ReportCallRun => ({
+      id: r.id,
+      // Postgres writes "+00:00"; the domain matches slots by their exact ISO string.
+      occurrence: new Date(r.occurrence).toISOString(),
+      trigger: r.trigger,
+      attempts: r.attempts.map((a) => ({ at: a.at, result: a.result })),
+      nextAttemptAt: r.next_attempt_at,
+      state: r.state,
+      reportId: r.report_id,
+    })),
     relays: byTime(rows.relays, (r) => r.at).map((r) => ({ id: r.id, at: r.at, message: r.message, delivered: r.delivered })),
     events: byTime(rows.events, (e) => e.at).map((e) => ({
       id: e.id,
@@ -151,7 +179,20 @@ export function historyRows(ws: Workspace, farmId: string) {
   const noAnswerIds = new Set(ws.noAnswerTickets.map((t) => t.id));
   const criterionIds = new Set(ws.settings.criteria.map((c) => c.id));
 
-  const reports: ReportRow[] = ws.reports.map((r) => ({ id: id(r.id), farm_id: farmId, call_id: optional(r.callId), at: r.at }));
+  const reports: ReportRow[] = ws.reports.map((r) => ({
+    id: id(r.id), farm_id: farmId, call_id: optional(r.callId), at: r.at, herd_count_reported: r.herdCountReported ?? null,
+  }));
+  const reportCallRuns: ReportCallRunRow[] = (ws.reportCalls ?? []).map((r) => ({
+    id: id(r.id),
+    farm_id: farmId,
+    occurrence: new Date(r.occurrence).toISOString(),
+    trigger: r.trigger,
+    attempts: r.attempts.map((a) => ({ at: a.at, result: a.result })),
+    next_attempt_at: r.nextAttemptAt,
+    state: r.state,
+    report_id: optional(r.reportId),
+    provider_call_id: null,
+  }));
   const reportAnswers: ReportAnswerRow[] = ws.reports.flatMap((r) =>
     r.answers.map((a, index) => ({
       report_id: id(r.id),
@@ -197,6 +238,7 @@ export function historyRows(ws: Workspace, farmId: string) {
 
   return {
     reports,
+    reportCallRuns,
     reportAnswers,
     findings,
     calls,

@@ -19,6 +19,11 @@ describe("service client", () => {
     configure("sb_publishable_test");
     expect(createServiceClient()).toBeNull();
   });
+  it("accepts the legacy service role name for the same key", () => {
+    configure("");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sb_secret_test");
+    expect(createServiceClient()).not.toBeNull();
+  });
   it("starts with a secret key", () => {
     configure("sb_secret_test");
     expect(createServiceClient()).not.toBeNull();

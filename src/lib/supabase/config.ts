@@ -1,6 +1,7 @@
 export function getSupabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+  // The legacy anon key works the same way; older .env files only have that name.
+  const key = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim();
   if (!url || !key) return null;
   try {
     if (!['https:', 'http:'].includes(new URL(url).protocol)) return null;

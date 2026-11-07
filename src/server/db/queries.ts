@@ -36,9 +36,9 @@ export async function loadFarmRows(client: SupabaseClient, farm: FarmRow): Promi
   const from = (table: string, columns = "*") => client.from(table).select(columns).eq("farm_id", farm.id);
   const [
     workers, camels, resources, customQuestions, criteria, emergencies, reports, calls, openTasks, recentTasks,
-    openNoAnswer, recentNoAnswer, pendingCalls, recentCalls, relays, events,
+    openNoAnswer, recentNoAnswer, pendingCalls, recentCalls, activeRuns, recentRuns, relays, events,
   ] = await Promise.all([
-    from("workers").limit(1),
+    from("workers").order("created_at").order("id"),
     allPages<FarmRows["camels"][number]>((start, end) => from("camels").order("created_at").order("id").range(start, end)),
     from("resources"),
     allPages<FarmRows["customQuestions"][number]>((start, end) => from("custom_questions").order("sort_order").order("created_at").order("id").range(start, end)),
@@ -52,12 +52,14 @@ export async function loadFarmRows(client: SupabaseClient, farm: FarmRow): Promi
     from("no_answer_tickets").order("created_at", { ascending: false }).limit(RECENT),
     from("pending_worker_calls", "*, worker_call_attempts(*)").eq("state", "pending"),
     from("pending_worker_calls", "*, worker_call_attempts(*)").order("created_at", { ascending: false }).limit(RECENT),
+    from("report_call_runs").in("state", ["calling", "answered"]),
+    from("report_call_runs").order("occurrence", { ascending: false }).limit(RECENT),
     from("relays").order("at", { ascending: false }).limit(RECENT),
     from("events").order("at", { ascending: false }).limit(RECENT),
   ]);
   return {
     farm,
-    worker: rows<FarmRows["worker"]>(workers)[0] ?? null,
+    workers: rows(workers),
     camels,
     resources: rows(resources),
     customQuestions,
@@ -68,6 +70,7 @@ export async function loadFarmRows(client: SupabaseClient, farm: FarmRow): Promi
     taskTickets: merge(rows<FarmRows["taskTickets"][number]>(openTasks), rows(recentTasks)),
     noAnswerTickets: merge(rows<FarmRows["noAnswerTickets"][number]>(openNoAnswer), rows(recentNoAnswer)),
     pendingWorkerCalls: merge(rows<FarmRows["pendingWorkerCalls"][number]>(pendingCalls), rows(recentCalls)),
+    reportCallRuns: merge(rows<FarmRows["reportCallRuns"][number]>(activeRuns), rows(recentRuns)),
     relays: rows(relays),
     events: rows(events),
   };

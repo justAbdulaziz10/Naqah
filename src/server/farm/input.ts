@@ -76,6 +76,29 @@ function window(value: unknown) {
   return { window_day: input.day as number, window_start: start, window_end: end };
 }
 
+/** NAQAH → worker report call. null clears it; a day or time may be chosen before the other. */
+function callSchedule(value: unknown) {
+  if (value === null) return { call_day: null, call_time: null };
+  const input = record(value);
+  const day = input.day;
+  if (day !== null && day !== undefined && (!Number.isInteger(day) || (day as number) < 0 || (day as number) > 6)) throw invalid("callSchedule.day");
+  const time = input.time;
+  if (time !== "" && time !== null && time !== undefined && (typeof time !== "string" || !TIME.test(time))) throw invalid("callSchedule.time");
+  return { call_day: (day ?? null) as number | null, call_time: (time || null) as string | null };
+}
+
+function herdCount(value: unknown) {
+  if (value === null) return null;
+  if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 100_000) throw invalid("herdCount");
+  return value as number;
+}
+
+function timestamp(value: unknown, field: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) throw invalid(field);
+  return value;
+}
+
 /** Only the keys sent are written, so a partial save can never blank a field. */
 const given = (input: Record<string, unknown>, key: string) => input[key] !== undefined;
 
@@ -84,7 +107,10 @@ function bool(value: unknown, field: string): boolean {
   return value;
 }
 
-/** Every farm column an owner may write (see the column grants in 0001). Plan is not one of them. */
+/**
+ * Every farm column an owner may write (see the column grants in 0001 and 0006). Plan is not one
+ * of them. The primary worker is chosen through the owner repository, which maps its id.
+ */
 export function parseFarmProfile(value: unknown) {
   const input = record(value);
   const coords = input.coords === null ? null : input.coords === undefined ? undefined : record(input.coords);
@@ -100,6 +126,9 @@ export function parseFarmProfile(value: unknown) {
     ...(given(input, "supplierName") && { supplier_name: text(input.supplierName, "supplierName") }),
     ...(given(input, "supplierPhone") && { supplier_phone: phone(input.supplierPhone, "supplierPhone") }),
     ...(given(input, "window") && window(input.window)),
+    ...(given(input, "callSchedule") && callSchedule(input.callSchedule)),
+    ...(given(input, "herdCount") && { herd_count: herdCount(input.herdCount) }),
+    ...(given(input, "herdCountReviewedAt") && { herd_count_reviewed_at: timestamp(input.herdCountReviewedAt, "herdCountReviewedAt") }),
     ...(given(input, "setupComplete") && { setup_complete: bool(input.setupComplete, "setupComplete") }),
   };
 }

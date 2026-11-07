@@ -35,12 +35,39 @@ describe("workspace rows", () => {
     id: farmId, owner_id: "o", plan: "basic", setup_complete: false, owner_name: "", owner_phone: "", name: "", location: "",
     latitude: null, longitude: null, supplier_name: "", supplier_phone: "", window_day: 4, window_start: "17:00:00",
     window_end: null, last_update_at: null, owner_allowance_used_at: null, missed_notification_at: null,
+    call_day: null, call_time: null, herd_count: null, herd_count_reviewed_at: null, primary_worker_id: null,
     created_at: "2026-11-01T00:00:00+00:00", revision: 3,
   };
   const empty: FarmRows = {
-    farm, worker: null, camels: [], resources: [], customQuestions: [], criteria: [], emergencies: [], reports: [], calls: [],
-    taskTickets: [], noAnswerTickets: [], pendingWorkerCalls: [], relays: [], events: [],
+    farm, workers: [], camels: [], resources: [], customQuestions: [], criteria: [], emergencies: [], reports: [], calls: [],
+    taskTickets: [], noAnswerTickets: [], pendingWorkerCalls: [], reportCallRuns: [], relays: [], events: [],
   };
+  const worker = (id: string, name: string, at: string) => ({ id, farm_id: farmId, name, phone: "", language: "ar" as const, created_at: at });
+  it("reads the call schedule, herd count and the chosen primary worker", () => {
+    const ws = workspaceFromRows({
+      ...empty,
+      farm: { ...farm, call_day: 4, call_time: "17:30:00", herd_count: 42, primary_worker_id: "w2" },
+      workers: [worker("w1", "Salem", "2026-11-01T00:00:00Z"), worker("w2", "Ahmed", "2026-11-02T00:00:00Z")],
+    });
+    expect(ws.settings.callSchedule).toEqual({ day: 4, time: "17:30" });
+    expect(ws.settings.herdCount).toBe(42);
+    expect(ws.settings.worker.name).toBe("Ahmed");
+    expect(ws.settings.otherWorkers?.map((w) => w.name)).toEqual(["Salem"]);
+  });
+  it("calls the oldest worker when no primary is chosen", () => {
+    const ws = workspaceFromRows({ ...empty, workers: [worker("w1", "Salem", "2026-11-01T00:00:00Z"), worker("w2", "Ahmed", "2026-11-02T00:00:00Z")] });
+    expect(ws.settings.worker.name).toBe("Salem");
+  });
+  it("matches report-call slots by their exact ISO time", () => {
+    const ws = workspaceFromRows({
+      ...empty,
+      reportCallRuns: [{
+        id: "r1", farm_id: farmId, occurrence: "2026-11-12 14:30:00+00", trigger: "schedule", attempts: [], next_attempt_at: null,
+        state: "missed", report_id: null, provider_call_id: null,
+      }],
+    });
+    expect(ws.reportCalls?.[0].occurrence).toBe("2026-11-12T14:30:00.000Z");
+  });
   it("reads Postgres times and a half-chosen window", () => {
     expect(workspaceFromRows(empty).settings.window).toEqual({ day: 4, start: "17:00", end: "" });
   });

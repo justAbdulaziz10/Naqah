@@ -69,15 +69,15 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
   return {
     /**
      * First sign-in. Safe to repeat after a failure: every step skips what exists, and the
-     * worker row goes last, so it marks a finished setup. Plan stays Basic until billing or the
-     * service changes it; owners cannot grant themselves a plan.
+     * primary worker row goes last, so it marks a finished setup. Plan stays Basic until billing or
+     * the service changes it; owners cannot grant themselves a plan.
      */
     async ensureFarm(): Promise<string> {
       assertOk(await client.from("farms").upsert({ owner_id: ownerId }, { onConflict: "owner_id", ignoreDuplicates: true }));
       const farm = await currentFarmId();
-      const worker = await client.from("workers").select("farm_id").eq("farm_id", farm).maybeSingle();
+      const worker = await client.from("workers").select("id").eq("farm_id", farm).limit(1);
       assertOk(worker);
-      if (worker.data) return farm;
+      if (Array.isArray(worker.data) && worker.data.length) return farm;
 
       const defaults = createEmptyWorkspace("basic");
       const once = { ignoreDuplicates: true };
@@ -94,7 +94,9 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
         defaults.settings.emergencies.map((e) => ({ id: toDbId(farm, `default:${e.kind}`), farm_id: farm, kind: e.kind, label: e.label })),
         { ...once, onConflict: "id" },
       ));
-      assertOk(await client.from("workers").upsert({ farm_id: farm }, { ...once, onConflict: "farm_id" }));
+      const primary = toDbId(farm, "default:primary-worker");
+      assertOk(await client.from("workers").upsert({ id: primary, farm_id: farm }, { ...once, onConflict: "id" }));
+      assertOk(await client.from("farms").update({ primary_worker_id: primary }).eq("id", farm).is("primary_worker_id", null));
       return farm;
     },
 
@@ -115,10 +117,25 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
       const farm = await currentFarmId();
       assertWritten(await client.from("farms").update(values).eq("id", farm).select("id"));
     },
+    /** The primary worker (the one NAQAH calls), for screens that still edit a single worker. */
     async saveWorker(input: unknown) {
       const values = parseWorker(input);
       const farm = await currentFarmId();
-      assertWritten(await client.from("workers").update(values).eq("farm_id", farm).select("farm_id"));
+      const { data, error } = await client.from("farms").select("primary_worker_id").eq("id", farm).single();
+      if (error) throw fromPostgrest(error);
+      const primary = (data as { primary_worker_id: string | null }).primary_worker_id;
+      if (!primary) throw new DbError("not_found");
+      await updateRow("workers", primary, values);
+    },
+
+    addWorker: (input: unknown, localId?: string) => insertRow("workers", parseWorker(input), localId),
+    updateWorker: (id: unknown, input: unknown) => updateRow("workers", id, parseWorker(input)),
+    deleteWorker: (id: unknown) => deleteRow("workers", id),
+    /** A worker added on this screen has a screen id; it maps to the same row id insertRow gave it. */
+    async setPrimaryWorker(id: unknown) {
+      if (typeof id !== "string" || !id || id.length > 64) throw new DbError("invalid_input", "primaryWorker");
+      const farm = await currentFarmId();
+      assertWritten(await client.from("farms").update({ primary_worker_id: toDbId(farm, id) }).eq("id", farm).select("id"));
     },
 
     addCamel: (input: unknown, localId?: string) => insertRow("camels", parseNewCamel(input), localId),

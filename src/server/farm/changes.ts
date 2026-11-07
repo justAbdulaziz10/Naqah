@@ -25,6 +25,8 @@ function listActions(repository: OwnerRepository, kind: ListKind) {
       return { add: repository.addCriterion, update: repository.updateCriterion, remove: repository.deleteCriterion };
     case "emergency":
       return { add: repository.addEmergency, update: repository.updateEmergency, remove: repository.deleteEmergency };
+    case "worker":
+      return { add: repository.addWorker, update: repository.updateWorker, remove: repository.deleteWorker };
     default:
       throw new DbError("invalid_input", "kind");
   }
@@ -32,7 +34,8 @@ function listActions(repository: OwnerRepository, kind: ListKind) {
 
 async function applyOne(repository: OwnerRepository, change: OwnerChange, created: Record<string, string>) {
   if (change.kind === "profile") return repository.saveFarmProfile(change.input);
-  if (change.kind === "worker") return repository.saveWorker(change.input);
+  if (change.kind === "primaryWorker") return repository.setPrimaryWorker(change.id);
+  if (change.kind === "worker" && !("action" in change)) return repository.saveWorker(change.input);
   if (change.kind === "resource") return repository.saveResource(change.input);
   if (!("action" in change)) throw new DbError("invalid_input", "action");
   const list = listActions(repository, change.kind);

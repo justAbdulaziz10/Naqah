@@ -32,7 +32,9 @@ select t.check('ensureFarm: repeating keeps the first resource', (select present
 insert into criteria (id, farm_id, kind, enabled) select '10000000-0000-4000-8000-000000000001', id, 'low_feed', true from farms on conflict (id) do nothing;
 insert into criteria (id, farm_id, kind, enabled) select '10000000-0000-4000-8000-000000000001', id, 'low_feed', false from farms on conflict (id) do nothing;
 select t.check('ensureFarm: repeating adds no second criterion', (select count(*) = 1 and bool_and(enabled) from criteria));
-insert into workers (farm_id) select id from farms on conflict (farm_id) do nothing;
+insert into workers (id, farm_id) select '20000000-0000-4000-8000-000000000001', id from farms on conflict (id) do nothing;
+insert into workers (id, farm_id) select '20000000-0000-4000-8000-000000000001', id from farms on conflict (id) do nothing;
+select t.check('ensureFarm: repeating adds no second worker', (select count(*) = 1 from workers));
 select t.check('new farm starts on Basic', (select plan = 'basic' from farms));
 
 -- ── Owner writes ──

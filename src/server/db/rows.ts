@@ -26,10 +26,16 @@ export interface FarmRow {
   last_update_at: string | null;
   owner_allowance_used_at: string | null;
   missed_notification_at: string | null;
+  /** Report call schedule (0006), Asia/Riyadh. Basic: day + time weekly. Ultimate: time daily. */
+  call_day: number | null;
+  call_time: string | null;
+  herd_count: number | null;
+  herd_count_reviewed_at: string | null;
+  primary_worker_id: string | null;
   created_at: string;
   revision: number;
 }
-export interface WorkerRow { farm_id: string; name: string; phone: string; language: WorkerLanguage }
+export interface WorkerRow { id: string; farm_id: string; name: string; phone: string; language: WorkerLanguage; created_at: string }
 export interface CamelRow {
   id: string;
   farm_id: string;
@@ -75,7 +81,7 @@ export interface FindingRow {
   text_ar: string;
   text_en: string;
 }
-export interface ReportRow { id: string; farm_id: string; call_id: string | null; at: string }
+export interface ReportRow { id: string; farm_id: string; call_id: string | null; at: string; herd_count_reported: number | null }
 export interface ReportWithFacts extends ReportRow { report_answers: ReportAnswerRow[]; findings: FindingRow[] }
 export interface CallRow {
   id: string;
@@ -125,12 +131,24 @@ export interface PendingWorkerCallRow {
 }
 export interface WorkerCallAttemptRow { pending_call_id: string; at: string; answered: boolean }
 export interface PendingCallWithAttempts extends PendingWorkerCallRow { worker_call_attempts: WorkerCallAttemptRow[] }
+export interface ReportCallRunRow {
+  id: string;
+  farm_id: string;
+  occurrence: string;
+  trigger: "schedule" | "manual";
+  attempts: { at: string; result: "pending" | "answered" | "no_answer" }[];
+  next_attempt_at: string | null;
+  state: "calling" | "answered" | "completed" | "missed";
+  report_id: string | null;
+  provider_call_id: string | null;
+}
 export interface RelayRow { id: string; farm_id: string; at: string; message: string; delivered: boolean }
 export interface EventRow { id: string; farm_id: string; at: string; tone: EventTone; text_ar: string; text_en: string }
 
 export interface FarmRows {
   farm: FarmRow;
-  worker: WorkerRow | null;
+  /** Oldest first. The primary is `farm.primary_worker_id`, or the oldest when that is not set. */
+  workers: WorkerRow[];
   camels: CamelRow[];
   resources: ResourceRow[];
   customQuestions: CustomQuestionRow[];
@@ -141,6 +159,7 @@ export interface FarmRows {
   taskTickets: TaskTicketRow[];
   noAnswerTickets: NoAnswerTicketRow[];
   pendingWorkerCalls: PendingCallWithAttempts[];
+  reportCallRuns: ReportCallRunRow[];
   relays: RelayRow[];
   events: EventRow[];
 }

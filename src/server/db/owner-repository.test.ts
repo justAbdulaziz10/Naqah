@@ -16,7 +16,7 @@ function fakeClient(replies: Record<string, Reply>) {
       const chain: Record<string, unknown> = {
         then: (done: (value: Reply) => unknown) => Promise.resolve(reply).then(done),
       };
-      for (const op of ["select", "insert", "update", "delete", "upsert", "eq", "single", "maybeSingle"]) {
+      for (const op of ["select", "insert", "update", "delete", "upsert", "eq", "is", "limit", "single", "maybeSingle"]) {
         chain[op] = (...args: unknown[]) => { calls.push({ table, op, args }); return chain; };
       }
       return chain;
@@ -71,18 +71,31 @@ describe("owner repository", () => {
     await expect(createOwnerRepository(client, "owner").load()).rejects.toMatchObject({ code: "unavailable", message: "XX000" });
   });
   it("skips first-time setup when it already finished", async () => {
-    const { client, calls } = fakeClient({ farms, workers: { data: { farm_id: farmId }, error: null } });
+    const { client, calls } = fakeClient({ farms, workers: { data: [{ id: "w" }], error: null } });
     await createOwnerRepository(client, "owner").ensureFarm();
     expect(calls.some((c) => c.table === "criteria")).toBe(false);
   });
-  it("creates defaults with stable ids and the worker last", async () => {
-    const { client, calls } = fakeClient({ farms, workers: { data: null, error: null } });
+  it("creates defaults with stable ids and the primary worker last", async () => {
+    const { client, calls } = fakeClient({ farms, workers: { data: [], error: null } });
     await createOwnerRepository(client, "owner").ensureFarm();
     const upserts = calls.filter((c) => c.op === "upsert");
     expect(upserts.map((c) => c.table)).toEqual(["farms", "resources", "criteria", "emergency_categories", "workers"]);
     expect(upserts[0].args[0]).toEqual({ owner_id: "owner" });
-    const repeat = fakeClient({ farms, workers: { data: null, error: null } });
+    expect(calls.at(-2)).toMatchObject({ table: "farms", op: "eq", args: ["id", farmId] });
+    expect(calls.at(-1)).toEqual({ table: "farms", op: "is", args: ["primary_worker_id", null] });
+    const repeat = fakeClient({ farms, workers: { data: [], error: null } });
     await createOwnerRepository(repeat.client, "owner").ensureFarm();
-    expect(repeat.calls.filter((c) => c.op === "upsert")[2].args[0]).toEqual(upserts[2].args[0]);
+    const again = repeat.calls.filter((c) => c.op === "upsert");
+    expect(again[2].args[0]).toEqual(upserts[2].args[0]);
+    expect(again[4].args[0]).toEqual(upserts[4].args[0]); // Same primary worker id: a retry adds no second worker.
+  });
+  it("makes a worker added in the same save the primary, by the id it was stored under", async () => {
+    const { client, calls } = fakeClient({ farms });
+    const repository = createOwnerRepository(client, "owner");
+    const id = await repository.addWorker({ name: "Ahmed", phone: "0501234567", language: "ar" }, "wkr_new");
+    // The fake answers every farms query with one object, so the written-row check can't pass here.
+    await repository.setPrimaryWorker("wkr_new").catch(() => undefined);
+    expect(calls.find((c) => c.table === "farms" && c.op === "update")?.args[0]).toEqual({ primary_worker_id: id });
+    expect(calls.find((c) => c.table === "workers" && c.op === "upsert")?.args[0]).toMatchObject({ phone: "+966501234567" });
   });
 });

@@ -59,7 +59,8 @@ function adopt(fresh: Workspace) {
   if (typing()) {
     Object.assign(settings, {
       owner: local.settings.owner, farm: local.settings.farm, worker: local.settings.worker,
-      window: local.settings.window, integrations: local.settings.integrations,
+      otherWorkers: local.settings.otherWorkers, herdCount: local.settings.herdCount,
+      window: local.settings.window, callSchedule: local.settings.callSchedule, integrations: local.settings.integrations,
       customQuestions: fresh.settings.customQuestions.map((question) => ({
         ...question, text: local.settings.customQuestions.find((item) => item.id === question.id)?.text ?? question.text,
       })),
@@ -67,6 +68,10 @@ function adopt(fresh: Workspace) {
   } else {
     if (halfTyped(local.settings.owner.phone)) settings.owner = { ...settings.owner, phone: local.settings.owner.phone };
     if (halfTyped(local.settings.worker.phone)) settings.worker = { ...settings.worker, phone: local.settings.worker.phone };
+    settings.otherWorkers = settings.otherWorkers?.map((worker) => {
+      const mine = local.settings.otherWorkers?.find((item) => item.id === worker.id);
+      return mine && halfTyped(mine.phone) ? { ...worker, phone: mine.phone } : worker;
+    });
   }
   setWorkspace({ ...fresh, settings, weather });
 }

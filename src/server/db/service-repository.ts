@@ -29,6 +29,31 @@ export async function findCaller(client: SupabaseClient, rawPhone: string): Prom
   return matches.length === 1 ? matches[0] : { kind: "unknown" };
 }
 
+/**
+ * Farms the report-call scheduler should look at: set up with a call time, or with a report call
+ * still ringing or waiting for a retry. The domain decides what is actually due (reportCalls.ts).
+ */
+export async function listScheduledFarmIds(client: SupabaseClient): Promise<string[]> {
+  const [scheduled, active] = await Promise.all([
+    client.from("farms").select("id").eq("setup_complete", true).not("call_time", "is", null).limit(5000),
+    client.from("report_call_runs").select("farm_id").in("state", ["calling", "answered"]).limit(5000),
+  ]);
+  if (scheduled.error) throw fromPostgrest(scheduled.error);
+  if (active.error) throw fromPostgrest(active.error);
+  return [...new Set([
+    ...(scheduled.data ?? []).map((row) => row.id as string),
+    ...(active.data ?? []).map((row) => row.farm_id as string),
+  ])];
+}
+
+/** The report-call run a provider call belongs to, so a status callback never trusts caller ID. */
+export async function findReportCallRun(client: SupabaseClient, providerCallId: string): Promise<{ farmId: string; runId: string } | null> {
+  if (!providerCallId || providerCallId.length > 128) return null;
+  const { data, error } = await client.from("report_call_runs").select("id, farm_id").eq("provider_call_id", providerCallId).limit(2);
+  if (error) throw fromPostgrest(error);
+  return data && data.length === 1 ? { farmId: data[0].farm_id as string, runId: data[0].id as string } : null;
+}
+
 export type FarmActionResult<T> = { status: "saved" | "unchanged" | "replayed"; result: T };
 
 export async function recordedOutcome<T>(client: SupabaseClient, farmId: string, eventId: string): Promise<T | null> {
@@ -51,9 +76,9 @@ export async function runFarmAction<T>(
   client: SupabaseClient,
   farmId: string,
   action: (ws: Workspace) => { ws: Workspace; result: T },
-  options: { eventId?: string; providerCallId?: string } = {},
+  options: { eventId?: string; providerCallId?: string; reportCallProviderIds?: Record<string, string> } = {},
 ): Promise<FarmActionResult<T>> {
-  const { eventId, providerCallId } = options;
+  const { eventId, providerCallId, reportCallProviderIds } = options;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     // Checked on every pass: a conflict can mean this same event was saved in the meantime.
@@ -63,7 +88,7 @@ export async function runFarmAction<T>(
     }
     const { revision, workspace } = requireFarm(await loadFarm(client, { id: farmId }));
     const { ws, result } = action(workspace);
-    const changes = diffWorkspace(workspace, ws, farmId, { providerCallId });
+    const changes = diffWorkspace(workspace, ws, farmId, { providerCallId, reportCallProviderIds });
     const changed = hasChanges(changes);
     // An event still goes through when nothing changed: a retry must get this same answer,
     // not a new decision on whatever the farm looks like by then.

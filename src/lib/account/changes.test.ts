@@ -82,3 +82,32 @@ describe("owner changes", () => {
     expect(withServerIds(ws, { [id]: "stored" }).camels[0].id).toBe("stored");
   });
 });
+
+describe("owner flow changes", () => {
+  it("adds a new worker before making it the primary, and removals come first", async () => {
+    const { newWorker } = await import("@/domain/workers");
+    const ws = base();
+    const old = { ...newWorker("ar"), name: "Salem", phone: "+966507654321" };
+    const before: Workspace = { ...ws, settings: { ...ws.settings, otherWorkers: [old] } };
+    const added = { ...newWorker("en"), name: "Ahmed", phone: "0501234567" };
+    const after: Workspace = { ...before, settings: { ...before.settings, worker: added, otherWorkers: [before.settings.worker] } };
+    const changes = ownerChanges(before, after);
+    expect(changes.map((c) => ("action" in c ? `${c.kind}:${c.action}` : c.kind))).toEqual(["worker:delete", "worker:add", "primaryWorker"]);
+    expect(changes[1]).toMatchObject({ input: { name: "Ahmed", phone: "+966501234567", language: "en" } });
+    expect(changes[2]).toEqual({ kind: "primaryWorker", id: added.id });
+  });
+
+  it("sends the call time and herd count, but not a half-typed time", () => {
+    const ws = base();
+    const next = (time: string): Workspace => ({ ...ws, settings: { ...ws.settings, callSchedule: { day: 4, time }, herdCount: 50 } });
+    expect(ownerChanges(ws, next("17:30"))).toEqual([{ kind: "profile", input: { callSchedule: { day: 4, time: "17:30" }, herdCount: 50 } }]);
+    expect(ownerChanges(ws, next("17:"))).toEqual([{ kind: "profile", input: { herdCount: 50 } }]);
+  });
+
+  it("does not send a blank new worker row until it has a name or number", async () => {
+    const { newWorker } = await import("@/domain/workers");
+    const ws = base();
+    const blank: Workspace = { ...ws, settings: { ...ws.settings, otherWorkers: [...(ws.settings.otherWorkers ?? []), newWorker()] } };
+    expect(ownerChanges(ws, blank)).toEqual([]);
+  });
+});

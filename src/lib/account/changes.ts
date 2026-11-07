@@ -4,14 +4,18 @@
  * actions. Only fields owners may write appear here, so a simulated report or ticket can never
  * reach a real farm: anything else in the document is ignored and replaced on the next load.
  */
-import type { Workspace } from "@/domain/types";
+import type { Settings, Worker, Workspace } from "@/domain/types";
 import { normalizePhone } from "@/server/farm/input";
 
 type Input = Record<string, unknown>;
-export type ListKind = "camel" | "question" | "criterion" | "emergency";
+export type ListKind = "camel" | "question" | "criterion" | "emergency" | "worker";
 
 export type OwnerChange =
-  | { kind: "profile" | "worker" | "resource"; input: Input }
+  | { kind: "profile" | "resource"; input: Input }
+  /** Older clients: edits the primary worker. */
+  | { kind: "worker"; input: Input }
+  /** NAQAH calls this worker for the report. A screen id of a worker added in the same save is fine. */
+  | { kind: "primaryWorker"; id: string }
   | { kind: ListKind; action: "add"; localId: string; input: Input }
   | { kind: ListKind; action: "update"; id: string; input: Input }
   | { kind: ListKind; action: "delete"; id: string };
@@ -41,6 +45,35 @@ function windowChange(base: Workspace, next: Workspace): Input {
   if (same(base.settings.window, value)) return {};
   if (value?.start && value.end && value.end <= value.start) return {};
   return { window: value };
+}
+
+function callScheduleChange(base: Workspace, next: Workspace): Input {
+  const value = next.settings.callSchedule ?? null;
+  if (same(base.settings.callSchedule ?? null, value)) return {};
+  if (value && value.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(value.time)) return {}; // Still typing.
+  return { callSchedule: value };
+}
+
+function herdChange(base: Workspace, next: Workspace): Input {
+  const from = base.settings;
+  const to = next.settings;
+  const count = to.herdCount ?? null;
+  return {
+    ...(same(from.herdCount ?? null, count) || (count !== null && (!Number.isInteger(count) || count < 0 || count > 100_000)) ? {} : { herdCount: count }),
+    ...(same(from.herdCountReviewedAt ?? null, to.herdCountReviewedAt ?? null) ? {} : { herdCountReviewedAt: to.herdCountReviewedAt ?? null }),
+  };
+}
+
+/** Primary first. Every account worker has an id (from the server, or a screen id until saved). */
+const workerList = (settings: Pick<Settings, "worker" | "otherWorkers">) =>
+  [settings.worker, ...(settings.otherWorkers ?? [])].filter((w): w is Worker & { id: string } => Boolean(w.id));
+
+function workerDiff(old: Worker, worker: Worker): Input {
+  return {
+    ...textChange("name", old.name, worker.name),
+    ...phoneChange("phone", old.phone, worker.phone),
+    ...(old.language === worker.language ? {} : { language: worker.language }),
+  };
 }
 
 function coordsChange(base: Workspace, next: Workspace): Input {
@@ -85,16 +118,19 @@ export function ownerChanges(base: Workspace, next: Workspace): OwnerChange[] {
     ...textChange("supplierName", from.integrations?.supplierName, to.integrations?.supplierName),
     ...phoneChange("supplierPhone", from.integrations?.supplierPhone, to.integrations?.supplierPhone),
     ...windowChange(base, next),
-  };
-  const worker = {
-    ...textChange("name", from.worker.name, to.worker.name),
-    ...phoneChange("phone", from.worker.phone, to.worker.phone),
-    ...(from.worker.language === to.worker.language ? {} : { language: to.worker.language }),
+    ...callScheduleChange(base, next),
+    ...herdChange(base, next),
   };
 
   const changes: OwnerChange[] = [];
   if (Object.keys(profile).length) changes.push({ kind: "profile", input: profile });
-  if (Object.keys(worker).length) changes.push({ kind: "worker", input: worker });
+  // Removals first, so swapping a worker at the plan limit frees the place before the new one.
+  changes.push(
+    ...listChanges("worker", workerList(from), workerList(to),
+      (worker) => ({ name: trimmed(worker.name), phone: normalizePhone(trimmed(worker.phone)) ?? "", language: worker.language }),
+      (worker) => Boolean(trimmed(worker.name) || normalizePhone(trimmed(worker.phone))),
+      workerDiff),
+  );
   for (const resource of next.resources) {
     const old = base.resources.find((item) => item.kind === resource.kind);
     if (!old) continue;
@@ -119,6 +155,12 @@ export function ownerChanges(base: Workspace, next: Workspace): OwnerChange[] {
       (emergency) => emergency.kind !== "custom" || Boolean(trimmed(emergency.label ?? "")),
       (old, emergency) => (same(old, emergency) ? {} : { kind: emergency.kind, label: emergency.label })),
   );
+  // After the workers, so a worker added in this save exists before it becomes the primary.
+  const primary = to.worker.id;
+  if (primary && primary !== from.worker.id && workerList(to).some((w) => w.id === primary)) {
+    const ready = Boolean(trimmed(to.worker.name) || normalizePhone(trimmed(to.worker.phone))) || workerList(from).some((w) => w.id === primary);
+    if (ready) changes.push({ kind: "primaryWorker", id: primary });
+  }
   // Last, so a farm is only marked ready once everything before it has been sent.
   if (base.setupComplete !== next.setupComplete) changes.push({ kind: "profile", input: { setupComplete: next.setupComplete } });
   return changes;
@@ -148,6 +190,14 @@ function mergeList<T extends object>(before: T[], local: T[], fresh: T[], key: (
   ];
 }
 
+/** Workers merge as a list; the primary is the owner's pick if they changed it here, else the server's. */
+function mergeWorkers(before: Settings, local: Settings, fresh: Settings): Pick<Settings, "worker" | "otherWorkers"> {
+  const merged = mergeList(workerList(before), workerList(local), workerList(fresh), (w) => w.id);
+  const primaryId = before.worker.id === local.worker.id ? fresh.worker.id : local.worker.id;
+  const worker = merged.find((w) => w.id === primaryId) ?? merged[0] ?? fresh.worker;
+  return { worker, otherWorkers: merged.filter((w) => w !== worker) };
+}
+
 /**
  * Takes a newer server copy without losing edits still on their way, and without letting an old
  * screen count as an edit: a report that landed meanwhile keeps its values.
@@ -165,7 +215,11 @@ export function mergeEdits(before: Workspace, local: Workspace, fresh: Workspace
       ...fresh.settings,
       owner: scalars((ws) => ws.settings.owner),
       farm: scalars((ws) => ws.settings.farm),
-      worker: scalars((ws) => ws.settings.worker),
+      ...mergeWorkers(before.settings, local.settings, fresh.settings),
+      callSchedule: same(before.settings.callSchedule, local.settings.callSchedule) ? fresh.settings.callSchedule : local.settings.callSchedule,
+      herdCount: same(before.settings.herdCount, local.settings.herdCount) ? fresh.settings.herdCount : local.settings.herdCount,
+      herdCountReviewedAt: same(before.settings.herdCountReviewedAt, local.settings.herdCountReviewedAt)
+        ? fresh.settings.herdCountReviewedAt : local.settings.herdCountReviewedAt,
       window: same(before.settings.window, local.settings.window) ? fresh.settings.window : local.settings.window,
       integrations: same(before.settings.integrations, local.settings.integrations) ? fresh.settings.integrations : local.settings.integrations,
       customQuestions: mergeList(before.settings.customQuestions, local.settings.customQuestions, fresh.settings.customQuestions, byId),
@@ -183,6 +237,8 @@ export function withServerIds(ws: Workspace, created: Record<string, string>): W
     camels: remap(ws.camels),
     settings: {
       ...ws.settings,
+      worker: ws.settings.worker.id && created[ws.settings.worker.id] ? { ...ws.settings.worker, id: created[ws.settings.worker.id] } : ws.settings.worker,
+      otherWorkers: ws.settings.otherWorkers && remap(ws.settings.otherWorkers as (Worker & { id: string })[]),
       customQuestions: remap(ws.settings.customQuestions),
       criteria: remap(ws.settings.criteria),
       emergencies: remap(ws.settings.emergencies),
