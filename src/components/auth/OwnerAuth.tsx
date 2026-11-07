@@ -1,16 +1,16 @@
 'use client';
 
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button, Input } from '@/components/ui';
 import { useI18n } from '@/i18n/client';
+import { cn } from '@/lib/cn';
 import { sendOwnerOtp } from '@/app/[locale]/login/actions';
 import { createClient } from '@/lib/supabase/client';
 import { authIssue, latinDigits, normalizeSaudiPhone, type AuthIssue } from '@/lib/supabase/auth-input';
 import { getCaptchaSiteKey, getSupabaseConfig } from '@/lib/supabase/config';
 import { authDestination } from '@/lib/supabase/auth-paths';
-import { AuthFrame } from './AuthFrame';
+import { AuthFrame, AuthHeading, AuthSwitch } from './AuthFrame';
 import { CaptchaField } from './CaptchaField';
 import { AuthMethods } from './AuthMethods';
 import { AuthOptions, chooseMethod } from './auth-options';
@@ -69,7 +69,7 @@ function PhoneAuth({ mode, next }: { mode: 'login' | 'signup'; next: string | nu
     if (!pending) return;
     until.current = pending.sentAt + COOLDOWN_MS;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- sessionStorage is unavailable during prerender.
-    setPhone(pending.phone); setSentPhone(pending.phone);
+    setPhone(pending.phone.replace(/^\+966/, '')); setSentPhone(pending.phone);
   }, []);
 
   function cooldown() { until.current = Date.now() + COOLDOWN_MS; setRemaining(COOLDOWN_MS / 1000); }
@@ -113,35 +113,41 @@ function PhoneAuth({ mode, next }: { mode: 'login' | 'signup'; next: string | nu
   }
   const error = !configured ? 'unavailable' : issue;
   const form = (
-    <form className="mt-6 flex flex-col gap-4" onSubmit={sentPhone ? verify : (event) => { event.preventDefault(); void send(); }} aria-busy={!!busy}>
-      {sentPhone ? <>
+    <form className="mt-7 flex flex-col gap-5" onSubmit={sentPhone ? verify : (event) => { event.preventDefault(); void send(); }} aria-busy={!!busy}>
+      {sentPhone ? <div className="flex flex-col gap-2">
         <label htmlFor={codeId} className="text-sm font-semibold">{m.code}</label>
         <Input ref={codeInput} id={codeId} name="code" type="text" dir="ltr" className="ltr-nums text-start text-xl tracking-widest" inputMode="numeric" autoComplete="one-time-code" value={code} maxLength={6} onChange={(e) => { setCode(latinDigits(e.target.value)); setIssue(null); }} disabled={!!busy} aria-invalid={!!issue} aria-describedby={`${hintId} ${errorId}`} />
         <p id={hintId} className="text-sm text-muted">{m.codeHint}</p>
-      </> : <>
+      </div> : <div className="flex flex-col gap-2">
         <label htmlFor={phoneId} className="text-sm font-semibold">{m.phone}</label>
-        <Input id={phoneId} name="phone" type="tel" dir="ltr" className="ltr-nums text-start" inputMode="tel" autoComplete="tel" value={phone} maxLength={32} onChange={(e) => { setPhone(e.target.value); setIssue(null); }} disabled={!!busy || googlePending || !configured} aria-invalid={issue === 'invalidPhone'} aria-describedby={`${hintId} ${errorId}`} />
+        <div dir="ltr" className={cn('flex h-12 w-full items-stretch overflow-hidden rounded-xl border bg-white/70 transition focus-within:border-brown focus-within:bg-white focus-within:ring-4 focus-within:ring-brown/15',
+          issue === 'invalidPhone' ? 'border-danger' : 'border-stone', (!!busy || googlePending || !configured) && 'opacity-60')}>
+          <span className="ltr-nums flex items-center border-e border-stone bg-ivory px-3.5 font-medium text-muted">
+            <span className="sr-only">{m.phoneCountry}</span><span aria-hidden>+966</span>
+          </span>
+          <input id={phoneId} name="phone" type="tel" dir="ltr" className="ltr-nums min-w-0 flex-1 bg-transparent px-3.5 text-start text-[0.95rem] tracking-wide text-espresso placeholder:text-muted/70 focus:outline-none" inputMode="tel" autoComplete="tel-national" placeholder={m.phonePlaceholder} value={phone} maxLength={32} onChange={(e) => { setPhone(e.target.value); setIssue(null); }} disabled={!!busy || googlePending || !configured} aria-invalid={issue === 'invalidPhone'} aria-describedby={`${hintId} ${errorId}`} />
+        </div>
         <p id={hintId} className="text-sm text-muted">{m.phoneHint}</p>
-      </>}
+      </div>}
       {captchaKey && configured && <CaptchaField siteKey={captchaKey} resetKey={captchaReset} onToken={setCaptchaToken} onFailed={() => setIssue('captcha')} />}
-      <p id={errorId} data-auth-error role="alert" className="text-sm text-danger" hidden={!error}>{error ? m[error] : ''}</p>
+      <p id={errorId} data-auth-error role="alert" className="-mt-1 text-sm leading-relaxed text-danger" hidden={!error}>{error ? m[error] : ''}</p>
       <Button type="submit" size="lg" className="w-full" disabled={!!busy || googlePending || !configured || (!sentPhone && (remaining > 0 || (!!captchaKey && !captchaToken)))}>{busy ? m[busy] : sentPhone ? m.verify : m.send}</Button>
-      {sentPhone && <>
-        <Button variant="secondary" size="lg" disabled={!!busy || remaining > 0 || (!!captchaKey && !captchaToken)} onClick={() => void send()}>{remaining ? m.cooldown(remaining) : m.resend}</Button>
-        <Button variant="ghost" size="lg" disabled={!!busy} onClick={() => { setSentPhone(''); setCode(''); setIssue(null); setNotice(false); writePending(null); }}>{m.change}</Button>
-      </>}
-      {!sentPhone && remaining > 0 && <p role="status" className="text-sm text-muted">{m.cooldown(remaining)}</p>}
-      <p role="status" className="text-sm text-muted">{notice ? m.resendSent : ''}</p>
+      {sentPhone && <div className="-mt-1 flex flex-col gap-2">
+        <Button variant="secondary" size="lg" className="w-full" disabled={!!busy || remaining > 0 || (!!captchaKey && !captchaToken)} onClick={() => void send()}>{remaining ? <span className="ltr-nums">{m.cooldown(remaining)}</span> : m.resend}</Button>
+        <Button variant="ghost" size="lg" className="w-full" disabled={!!busy} onClick={() => { setSentPhone(''); setCode(''); setIssue(null); setNotice(false); writePending(null); }}>{m.change}</Button>
+      </div>}
+      {!sentPhone && remaining > 0 && <p role="status" className="ltr-nums text-sm text-muted">{m.cooldown(remaining)}</p>}
+      <p role="status" className={notice ? 'text-sm text-muted' : 'sr-only'}>{notice ? m.resendSent : ''}</p>
     </form>
   );
   return <AuthFrame>
-    <h1 className="text-2xl font-semibold leading-snug">{sentPhone ? m.codeTitle : m[mode]}</h1>
     {sentPhone ? <>
-      <p className="mt-3 text-muted leading-relaxed">{m.sentTo} <bdi dir="ltr" className="ltr-nums block text-espresso">{sentPhone}</bdi></p>
+      <AuthHeading title={m.codeTitle} lead={<>{m.sentTo} <bdi dir="ltr" className="ltr-nums text-espresso">{sentPhone}</bdi></>} />
       {form}
     </> : <>
+      <AuthHeading title={m[mode]} lead={mode === 'signup' ? m.signupLead : m.loginLead} />
       <AuthMethods mode={mode} active="phone" next={next} disabled={!!busy || !configured} onPendingChange={setGooglePending}>{form}</AuthMethods>
-      <Link className="mt-4 inline-flex min-h-11 items-center text-sm underline underline-offset-4" href={`${href(mode === 'login' ? '/signup' : '/login')}?next=${encodeURIComponent(`/${locale}/${mode === 'login' ? 'start' : 'app'}`)}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</Link>
+      <AuthSwitch href={`${href(mode === 'login' ? '/signup' : '/login')}?next=${encodeURIComponent(`/${locale}/${mode === 'login' ? 'start' : 'app'}`)}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</AuthSwitch>
     </>}
   </AuthFrame>;
 }
