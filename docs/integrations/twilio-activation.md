@@ -1,11 +1,39 @@
 # Twilio activation: one authorized test call
 
-Status: code and local tests only. **No number is bought, no webhook is set, no migration is
-applied, and nothing is deployed.** Every step below needs the owner's approval first.
+Status (2026-11-08): the NAQAH **Twilio subaccount** is connected in the local preview (git-ignored
+`.env.local` of the `NAQAH-owner-flow` worktree; never in git). **No call has been placed.** Webhooks are
+verified over HTTPS through an ngrok tunnel. Unattended scheduled calls are off.
 
-Milestone: NAQAH calls the worker at the owner's report time → the worker answers the configured
-questions → the structured report saves to Supabase → the owner sees it on the dashboard. All of it
-is built and passes locally against real PostgREST and every migration, with Twilio mocked.
+| Item | State |
+|---|---|
+| Account | NAQAH subaccount, active, full (not trial). Bills to the parent account's balance. |
+| Caller ID | `+447447199952` (UK, voice-capable), `TWILIO_PHONE_NUMBER` |
+| Saudi (+966) | Allowed: the subaccount inherits the parent's voice geo permissions (Saudi low-risk on) |
+| Credentials | The subaccount's own SID and auth token (Twilio signs its webhooks with that token) |
+| Public origin | `https://breastless-nonfraudulently-marquetta.ngrok-free.dev` → `next start -p 3300` |
+| Number's own Voice URL | Not set (only needed for workers phoning in; outbound calls carry their own URLs) |
+
+## Controlled test switches (all server-side, all off unless set)
+
+| Variable | Effect |
+|---|---|
+| `NAQAH_MANUAL_REPORT_CALLS=1` | Shows the owner's **Call {worker} now** on the dashboard. The farm comes from the owner's session (RLS) and the number from that farm's saved primary worker; nothing in the request chooses who is called. |
+| `NAQAH_CALL_ALLOWLIST=+9665…` | Only these E.164 numbers can ring (scheduled, manual and owner calls). Unset = no extra limit. Set to anything invalid (e.g. `none-yet`) = nothing can ring. |
+| `NAQAH_SCHEDULED_CALLS=1` | Lets `/api/cron/report-calls` dial. Without it the route answers `skipped: scheduled_calls_off` even with the right `CRON_SECRET`. |
+| `NAQAH_CALL_OWNER=1` | After a saved report, calls the farm's `owner_phone` with the findings (paid). |
+
+`GET /api/integrations/status` reports `outbound.configured`, `manualCalls`, `scheduledCalls` and the
+number of allowlisted numbers (never the numbers or secrets).
+
+### One controlled call
+
+1. The owner signs in on the preview, finishes setup with the consenting worker's mobile (`+9665…`) as
+   the worker NAQAH calls, and a call time.
+2. Put exactly that number in `NAQAH_CALL_ALLOWLIST` and restart `next start` (server env is read at start).
+3. Dashboard → **Call {worker} now**. NAQAH places one call; status shows on the dashboard every 5 s.
+4. The worker answers the scripted questions (Twilio speech recognition, `ar-SA`; keypad works too).
+5. The report appears on the dashboard; the run is `completed`. Unanswered → retried twice, 20 min apart.
+6. Afterwards set the allowlist back to `none-yet` (or remove `NAQAH_MANUAL_REPORT_CALLS`).
 
 ## Report calls: NAQAH calls the worker
 

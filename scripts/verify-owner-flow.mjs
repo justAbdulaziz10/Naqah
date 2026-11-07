@@ -225,6 +225,30 @@ await B.page.screenshot({ path: `${SHOTS}/flow-ar-375-start.png`, fullPage: true
 const farmB = sql(`select id from farms where owner_id = ${q(ownerB.id)}`);
 check("each owner has exactly one farm", Boolean(farmB) && farmB !== farmA && sql(`select count(*) from farms where owner_id in (${q(ownerA.id)}, ${q(ownerB.id)})`) === "2");
 
+// ── Unanswered, busy, then failed: two retries 20 minutes apart, then the run is missed ──
+const missedRun = randomUUID();
+const startedAt = new Date();
+sql(`insert into report_call_runs (id, farm_id, occurrence, trigger, attempts, state)
+  values (${q(missedRun)}, ${q(farmB)}, ${q(startedAt.toISOString())}, 'manual', ${q(JSON.stringify([{ at: startedAt.toISOString(), result: "pending" }]))}::jsonb, 'calling')`);
+const attemptStatus = async (n, status) => {
+  const CallSid = `CA${randomBytes(16).toString("hex")}`;
+  const s = encodeURIComponent(callToken({ k: "report", f: farmB, r: missedRun, n, l: "ar", t: Date.now() }));
+  const first = await webhook(`/api/voice/outbound/status?s=${s}`, { CallSid, CallStatus: status });
+  const again = await webhook(`/api/voice/outbound/status?s=${s}`, { CallSid, CallStatus: status }); // Twilio may retry.
+  return [first.status, again.status];
+};
+const runRow = () => sql(`select state || '|' || jsonb_array_length(attempts) || '|' || coalesce(extract(epoch from next_attempt_at - now())::int / 60, -1) from report_call_runs where id = ${q(missedRun)}`);
+const placeNext = (n) => sql(`update report_call_runs set attempts = attempts || ${q(JSON.stringify([{ at: new Date().toISOString(), result: "pending" }]))}::jsonb, next_attempt_at = null where id = ${q(missedRun)} and jsonb_array_length(attempts) = ${n - 1}`);
+check("an unanswered call is accepted once, even when Twilio repeats the callback", (await attemptStatus(1, "no-answer")).every((code) => code === 204));
+check("no answer → retry in 20 minutes", /^calling\|1\|(19|20)$/.test(runRow()), runRow());
+placeNext(2);
+await attemptStatus(2, "busy");
+check("busy → second retry in 20 minutes", /^calling\|2\|(19|20)$/.test(runRow()), runRow());
+placeNext(3);
+await attemptStatus(3, "failed");
+check("after the second retry the run is missed, with no further call", /^missed\|3\|-1$/.test(runRow()), runRow());
+check("each missed attempt is logged once", sql(`select count(*) from calls where farm_id = ${q(farmB)} and kind = 'worker_report_missed'`) === "3");
+
 check("no page errors", errors.length === 0, errors.join(" | "));
 await browser.close();
 console.log(failures ? `${failures} FAILED` : "ALL PASSED");

@@ -21,7 +21,7 @@ const SECRET = "unit-test-voice-secret-at-least-32-bytes";
 const FARM = "11111111-1111-4111-8111-111111111111";
 const RUN = "22222222-2222-4222-8222-222222222222";
 const CALL = `CA${"b".repeat(32)}`;
-const config = { accountSid: "AC123", authToken: "token", from: "+15550100", baseUrl: "https://naqah.test" };
+const config = { accountSid: "AC123", authToken: "token", from: "+15550100", baseUrl: "https://naqah.test", allowlist: null };
 
 function farmEnv() {
   vi.stubEnv("NAQAH_VOICE_MODE", "farm");
@@ -36,7 +36,7 @@ function farmEnv() {
 }
 
 beforeEach(() => {
-  for (const name of ["NAQAH_VOICE_MODE", "TWILIO_AUTH_TOKEN", "TWILIO_ACCOUNT_SID", "TWILIO_PHONE_NUMBER", "NAQAH_PUBLIC_BASE_URL", "NAQAH_VOICE_SECRET", "CRON_SECRET", "SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"]) {
+  for (const name of ["NAQAH_VOICE_MODE", "TWILIO_AUTH_TOKEN", "TWILIO_ACCOUNT_SID", "TWILIO_PHONE_NUMBER", "NAQAH_PUBLIC_BASE_URL", "NAQAH_VOICE_SECRET", "CRON_SECRET", "SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY", "NAQAH_SCHEDULED_CALLS", "NAQAH_CALL_ALLOWLIST"]) {
     vi.stubEnv(name, "");
   }
   mock.client.mockReturnValue({});
@@ -93,6 +93,35 @@ describe("Twilio outbound client", () => {
   });
 });
 
+describe("controlled-test allowlist", () => {
+  const request = (to: string) => ({ to, url: "https://naqah.test/x", statusCallback: "https://naqah.test/y" });
+  const ok = () => vi.fn(async () => Response.json({ sid: `CA${"a".repeat(32)}` }));
+  it("dials only numbers on the allowlist, and never reaches Twilio otherwise", async () => {
+    const fetchMock = ok();
+    const caller = createTwilioCaller({ ...config, allowlist: ["+966501234567"] }, fetchMock as unknown as typeof fetch);
+    expect(await caller.place(request("+966509999999"))).toEqual({ placed: false, reason: "not_allowed" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await caller.place(request("+966501234567"))).toMatchObject({ placed: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("reads the allowlist from the environment and fails closed on a typo", () => {
+    farmEnv();
+    vi.stubEnv("NAQAH_CALL_ALLOWLIST", "+966 50 123 4567, +44 7700 900123");
+    expect(outboundConfig()?.allowlist).toEqual(["+966501234567", "+447700900123"]);
+    vi.stubEnv("NAQAH_CALL_ALLOWLIST", "0501234567");
+    expect(outboundConfig()?.allowlist).toEqual([]);
+    vi.stubEnv("NAQAH_CALL_ALLOWLIST", "");
+    expect(outboundConfig()?.allowlist).toBeNull();
+  });
+  it("always asks Twilio not to record", async () => {
+    const fetchMock = ok();
+    await createTwilioCaller(config, fetchMock as unknown as typeof fetch).place(request("+966501234567"));
+    const body = (fetchMock.mock.calls[0] as unknown as [string, { body: URLSearchParams }])[1].body;
+    expect(body.get("Record")).toBe("false");
+    expect(body.get("StatusCallback")).toBe("https://naqah.test/y");
+  });
+});
+
 describe("signed call tokens", () => {
   const now = Date.parse("2026-11-08T06:00:00.000Z");
   const token = { k: "report" as const, f: FARM, r: RUN, n: 2, l: "ar" as const, t: now };
@@ -142,9 +171,16 @@ describe("report-call scheduler route", () => {
     expect(await response.json()).toEqual({ ok: false, placed: 0, reason: "not_configured", missing: ["TWILIO_ACCOUNT_SID"] });
     expect(mock.scheduler).not.toHaveBeenCalled();
   });
+  it("places nothing until unattended calls are switched on", async () => {
+    farmEnv();
+    vi.stubEnv("CRON_SECRET", "cron-secret");
+    expect(await (await get("Bearer cron-secret")).json()).toEqual({ ok: true, placed: 0, skipped: "scheduled_calls_off" });
+    expect(mock.scheduler).not.toHaveBeenCalled();
+  });
   it("runs the scheduler with the public origin when everything is set", async () => {
     farmEnv();
     vi.stubEnv("CRON_SECRET", "cron-secret");
+    vi.stubEnv("NAQAH_SCHEDULED_CALLS", "1");
     const response = await get("Bearer cron-secret");
     expect(await response.json()).toEqual({ ok: true, farms: 1, placed: 1, failed: 0, errors: 0 });
     expect(mock.scheduler).toHaveBeenCalledWith({}, expect.anything(), expect.objectContaining({ baseUrl: "https://naqah.test" }));
@@ -173,6 +209,17 @@ describe("outbound answer and status webhooks", () => {
     const response = await outbound(hook(`/api/voice/outbound?s=${signed()}`, { CallSid: CALL, From: "+15550100", To: "+966500000009" }));
     expect(await response.text()).toContain("questions");
     expect(mock.answer).toHaveBeenCalledWith({}, expect.objectContaining({ callSid: CALL, token: expect.objectContaining({ f: FARM, r: RUN, n: 1 }) }));
+  });
+  it("refuses a request whose Twilio signature doesn't match", async () => {
+    farmEnv();
+    const url = `https://naqah.test/api/voice/outbound?s=${signed()}`;
+    const forged = new Request(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Twilio-Signature": twilioRequestSignature(url, { CallSid: CALL }, "another-token") },
+      body: new URLSearchParams({ CallSid: CALL }),
+    });
+    expect((await outbound(forged)).status).toBe(403);
+    expect(mock.answer).not.toHaveBeenCalled();
   });
   it("refuses an owner-call token or a missing token on the report-call webhook", async () => {
     farmEnv();

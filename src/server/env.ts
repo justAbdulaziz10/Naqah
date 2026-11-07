@@ -1,4 +1,5 @@
 import type { Locale } from "@/domain/types";
+import { callAllowlist, manualCallsEnabled, outboundCallMissing, scheduledCallsEnabled } from "@/server/calls/config";
 
 const value = (name: string) => process.env[name]?.trim() ?? "";
 
@@ -75,6 +76,13 @@ export function integrationsStatus() {
     },
     ownerCall: {
       configured: mode === "sample" && value("NAQAH_CALL_OWNER") === "1" && twilioReady,
+    },
+    // Calls NAQAH places to workers. Flags and counts only, never numbers or secrets.
+    outbound: {
+      configured: mode === "farm" && !farmVoiceMissing().length && !outboundCallMissing().length,
+      manualCalls: manualCallsEnabled(),
+      scheduledCalls: scheduledCallsEnabled(),
+      allowlistedNumbers: callAllowlist()?.length ?? null,
     },
   };
 }

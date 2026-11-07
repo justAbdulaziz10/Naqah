@@ -18,7 +18,7 @@ export interface OutboundCallRequest {
 
 export type OutboundCallResult =
   | { placed: true; sid: string }
-  | { placed: false; reason: "not_configured" | "invalid_number" | "rejected" | "network_error"; status?: number };
+  | { placed: false; reason: "not_configured" | "invalid_number" | "not_allowed" | "rejected" | "network_error"; status?: number };
 
 export interface OutboundCaller {
   place(request: OutboundCallRequest): Promise<OutboundCallResult>;
@@ -32,6 +32,11 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
     async place(request) {
       if (!config) return { placed: false, reason: "not_configured" };
       if (!E164.test(request.to) || (!request.url && !request.twiml)) return { placed: false, reason: "invalid_number" };
+      // Controlled tests: only the consenting numbers on the allowlist can ring.
+      if (config.allowlist && !config.allowlist.includes(request.to)) {
+        console.info("[NAQAH] outbound call refused: number is not on NAQAH_CALL_ALLOWLIST");
+        return { placed: false, reason: "not_allowed" };
+      }
       const body = new URLSearchParams({
         To: request.to,
         From: config.from,

@@ -10,7 +10,27 @@ export interface OutboundConfig {
   from: string;
   /** Public HTTPS origin Twilio fetches the call's TwiML and status callback from. */
   baseUrl: string;
+  /** When set, NAQAH dials only these E.164 numbers, whatever a farm has saved. For controlled tests. */
+  allowlist: string[] | null;
 }
+
+const E164 = /^\+[1-9]\d{7,14}$/;
+
+/**
+ * NAQAH_CALL_ALLOWLIST: comma-separated E.164 numbers. Unset → no extra limit (production).
+ * Set but with no valid number → nothing can be dialled, so a typo fails closed.
+ */
+export function callAllowlist(): string[] | null {
+  const raw = value("NAQAH_CALL_ALLOWLIST");
+  if (!raw) return null;
+  return raw.split(",").map((item) => item.replace(/[\s-]/g, "")).filter((item) => E164.test(item));
+}
+
+/** Unattended scheduled calls. Off unless NAQAH_SCHEDULED_CALLS=1, even when the cron secret is right. */
+export const scheduledCallsEnabled = () => value("NAQAH_SCHEDULED_CALLS") === "1";
+
+/** The owner's "Call now" for one controlled report call. Off unless NAQAH_MANUAL_REPORT_CALLS=1. */
+export const manualCallsEnabled = () => value("NAQAH_MANUAL_REPORT_CALLS") === "1";
 
 const REQUIRED = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "NAQAH_PUBLIC_BASE_URL", "NAQAH_VOICE_SECRET"] as const;
 
@@ -31,7 +51,13 @@ function publicOrigin(): string | null {
 
 export function outboundConfig(): OutboundConfig | null {
   if (outboundCallMissing().length) return null;
-  return { accountSid: value("TWILIO_ACCOUNT_SID"), authToken: value("TWILIO_AUTH_TOKEN"), from: value("TWILIO_PHONE_NUMBER"), baseUrl: publicOrigin()! };
+  return {
+    accountSid: value("TWILIO_ACCOUNT_SID"),
+    authToken: value("TWILIO_AUTH_TOKEN"),
+    from: value("TWILIO_PHONE_NUMBER"),
+    baseUrl: publicOrigin()!,
+    allowlist: callAllowlist(),
+  };
 }
 
 /** The farm owner's update call after a saved report: paid, so off unless NAQAH_CALL_OWNER=1. */

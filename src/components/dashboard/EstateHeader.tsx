@@ -22,8 +22,8 @@ export interface EstateFact {
 
 /**
  * The estate at a glance: its name, how it is, one next step, and the few facts the owner checks
- * every visit (last report, next report call, herd). Calling the worker on demand is not offered:
- * it needs the real phone line.
+ * every visit (last report, next report call, herd). "Call now" appears inside the next-call fact
+ * only where the deployment has real calls switched on (see ReportCallNow).
  */
 export function EstateHeader({
   name,

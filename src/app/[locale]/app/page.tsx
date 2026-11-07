@@ -6,6 +6,7 @@ import { EstateHeader, type EstateFact, type EstateTone } from "@/components/das
 import { EstateLedger } from "@/components/dashboard/EstateLedger";
 import { EstateMatters } from "@/components/dashboard/EstateMatters";
 import { HerdCountFact } from "@/components/dashboard/HerdCountFact";
+import { ReportCallNow } from "@/components/dashboard/ReportCallNow";
 import { estateMatters } from "@/components/dashboard/matters";
 import { useCallSentence } from "@/components/schedule/ReportCallSection";
 import { lastReportAt, openNoAnswerTickets, openTaskTickets, ownerAllowanceUsed, routeOwnerInboundCall, sameWeek } from "@/domain";
@@ -76,9 +77,13 @@ export default function OverviewPage() {
           <time className="ltr-nums" dateTime={call.next.toISOString()}>{fmt.dateTime(call.next, dateTime)}</time>
         </p>
         <p className="mt-1 text-sm text-cream/75">{d.callsWorker(call.worker)} · {fmt.relative(call.next, now)}</p>
+        <ReportCallNow ws={ws} worker={worker} now={now} />
       </>
     ) : (
-      <p className="text-lg font-semibold leading-snug">{d.noCallTime}</p>
+      <>
+        <p className="text-lg font-semibold leading-snug">{d.noCallTime}</p>
+        <ReportCallNow ws={ws} worker={worker} now={now} />
+      </>
     ),
   });
   facts.push({ key: "herd", label: d.herd, content: <HerdCountFact ws={ws} worker={worker} /> });

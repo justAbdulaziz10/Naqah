@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { connection } from "next/server";
-import { cronSecret, outboundCallMissing, outboundConfig } from "@/server/calls/config";
+import { cronSecret, outboundCallMissing, outboundConfig, scheduledCallsEnabled } from "@/server/calls/config";
 import { runReportCallScheduler } from "@/server/calls/scheduler";
 import { createTwilioCaller } from "@/server/calls/twilio";
 import { createServiceClient } from "@/server/db/service-client";
@@ -17,7 +17,8 @@ function authorized(request: Request, secret: string): boolean {
 /**
  * Places due report calls. Call it every ~5 minutes with `Authorization: Bearer $CRON_SECRET`
  * (Vercel Pro cron, Supabase pg_cron + pg_net, or any external scheduler). Refuses everything
- * while CRON_SECRET is unset, and never places a call unless farm mode and Twilio are configured.
+ * while CRON_SECRET is unset, and never places a call unless farm mode, NAQAH_SCHEDULED_CALLS=1
+ * and Twilio are all configured.
  */
 export async function GET(request: Request): Promise<Response> {
   await connection();
@@ -30,6 +31,8 @@ export async function GET(request: Request): Promise<Response> {
   const config = outboundConfig();
   const client = createServiceClient();
   if (missing.length || !config || !client) return json({ ok: false, placed: 0, reason: "not_configured", missing }, 503);
+  // Unattended calls cost money and reach real people: a separate switch, off by default.
+  if (!scheduledCallsEnabled()) return json({ ok: true, placed: 0, skipped: "scheduled_calls_off" });
 
   try {
     const summary = await runReportCallScheduler(client, createTwilioCaller(config), { baseUrl: config.baseUrl, now: new Date() });
