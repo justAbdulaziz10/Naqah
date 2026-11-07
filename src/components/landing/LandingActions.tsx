@@ -76,10 +76,12 @@ export function MobileNavigation({
   links,
   menuLabel,
   menuTitle,
+  authControls,
 }: {
   links: { href: string; label: string }[];
   menuLabel: string;
   menuTitle: string;
+  authControls?: ReactNode;
 }) {
   return (
     <div className="flex items-center lg:hidden">
@@ -104,6 +106,7 @@ export function MobileNavigation({
               {link.label}
             </Link>
           ))}
+          {authControls}
           <div className="mt-1 pt-1">
             <LocaleSwitcher className="min-h-11 w-full justify-start rounded-xl px-3.5" />
           </div>

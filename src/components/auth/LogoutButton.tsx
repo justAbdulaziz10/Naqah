@@ -7,12 +7,11 @@ import { Button } from '@/components/ui';
 import { useI18n } from '@/i18n/client';
 import { accountSync } from '@/store/account';
 
-export function LogoutButton() {
+export function LogoutButton({ navigationClassName }: { navigationClassName?: string } = {}) {
   const { locale, m: { auth: m } } = useI18n();
   const [pending, start] = useTransition();
   const [failed, setFailed] = useState(false);
-  return <div>
-    <Button variant="secondary" className="w-full" disabled={pending} size="lg" onClick={() => start(async () => {
+  const onClick = () => start(async () => {
       setFailed(false);
       try { const result = await logout(locale); setFailed(!!result?.failed); }
       // A successful logout rejects with the redirect, which Next must handle.
@@ -20,7 +19,11 @@ export function LogoutButton() {
         try { unstable_rethrow(error); } catch (redirect) { accountSync.close(); throw redirect; }
         setFailed(true);
       }
-    })}>{pending ? m.loggingOut : m.logout}</Button>
+    });
+  const label = pending ? m.loggingOut : m.logout;
+  return <div>
+    {navigationClassName ? <button type="button" className={navigationClassName} disabled={pending} onClick={onClick}>{label}</button>
+      : <Button variant="secondary" className="w-full" disabled={pending} size="lg" onClick={onClick}>{label}</Button>}
     {failed && <p role="alert" className="mt-3 text-danger">{m.failed}</p>}
   </div>;
 }

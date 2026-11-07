@@ -1,3 +1,4 @@
+import { AuthNavigation } from '@/components/auth/AuthNavigation';
 import Link from "next/link";
 import type { Locale } from "@/domain/types";
 import { Logo } from "@/components/brand/Logo";
@@ -17,9 +18,7 @@ const rise = "motion-safe:animate-fade-up";
  * under the header on phones, the full-height column on desktop. No text sits on the photograph.
  */
 export function WelcomePage({ locale }: { locale: Locale }) {
-  const { welcome, auth } = getMessages(locale);
-  const authNext = `?next=${encodeURIComponent(`/${locale}/app`)}`;
-  const signupNext = `?next=${encodeURIComponent(`/${locale}/start`)}`;
+  const { welcome } = getMessages(locale);
   const photoId = LANDING_PHOTOS.welcome ? "welcome" : "herd";
 
   return (
@@ -27,15 +26,7 @@ export function WelcomePage({ locale }: { locale: Locale }) {
       <header className="flex min-h-16 items-center justify-between gap-3 px-5 [grid-area:header] sm:px-8 lg:px-12 xl:px-20">
         <Logo locale={locale} href={`/${locale}`} className="min-h-11" />
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-1">
-          <Link
-            href={`/${locale}/login${authNext}`}
-            className="inline-flex min-h-11 items-center px-2 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso"
-          >
-            {welcome.signIn}
-          </Link>
-          <Link href={`/${locale}/signup${signupNext}`} className="hidden min-h-11 items-center px-2 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso sm:inline-flex">
-            {auth.navSignup}
-          </Link>
+          <AuthNavigation appearance="welcome" />
           <LocaleSwitcher className="min-h-11" />
         </div>
       </header>
