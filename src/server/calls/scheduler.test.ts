@@ -66,6 +66,17 @@ describe("owner's Call now", () => {
     expect(requests).toHaveLength(1);
   });
 
+  it("places exactly one call when two requests arrive together", async () => {
+    const { caller, requests } = recordingCaller();
+    const results = await Promise.all([
+      requestReportCallNow({} as never, caller, FARM, options),
+      requestReportCallNow({} as never, caller, FARM, { ...options, now: new Date(now.getTime() + 5) }),
+    ]);
+    expect(results.filter((r) => r.status === "placed")).toHaveLength(1);
+    expect(results.filter((r) => r.status === "blocked")).toHaveLength(1);
+    expect(requests).toHaveLength(1);
+  });
+
   it("never dials without a saved, dialable worker number", async () => {
     store.ws = { ...store.ws, settings: { ...store.ws.settings, worker: { ...store.ws.settings.worker, phone: "0501234567x" } } };
     const { caller, requests } = recordingCaller();

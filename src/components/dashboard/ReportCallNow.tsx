@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui";
 import { dialableWorkerPhone, latestReportCall } from "@/domain/reportCalls";
 import { REPORT_CALL_RETRIES } from "@/domain/clock";
@@ -24,6 +24,8 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // A double click on "Call now" must send one request; state updates arrive too late to stop the second.
+  const sending = useRef(false);
   const phone = dialableWorkerPhone(ws); // Shown isolated (U+2066…U+2069) so it reads left to right in Arabic.
 
   const run = latestReportCall(ws);
@@ -55,6 +57,8 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   }
 
   async function call() {
+    if (sending.current) return;
+    sending.current = true;
     setConfirming(false);
     setPending(true);
     setNotice(null);
@@ -67,6 +71,7 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
     } catch {
       setNotice(d.callNowResult.failed);
     } finally {
+      sending.current = false;
       setPending(false);
     }
   }
