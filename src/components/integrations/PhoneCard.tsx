@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardBody, CardHeader } from "@/components/ui";
+import { SettingsDisclosure } from "@/components/setup/sections/SettingsDisclosure";
 import { useI18n } from "@/i18n/client";
 import { useIsAccount } from "@/store/workspace";
 
@@ -72,43 +72,35 @@ export function PhoneCard() {
   const account = useIsAccount();
   const lineNumber = status?.voice.number;
   const dialNumber = lineNumber?.replace(/[^+\d]/g, "");
+  const phone = m.integrations.phone;
+  const summary = !status
+    ? phone.checking
+    : !status.voice.configured
+      ? phone.notConnectedShort
+      : status.voice.mode === "sample"
+        ? phone.sampleShort
+        : lineNumber
+          ? phone.connected
+          : phone.almostReady;
   return (
-    <Card>
-      <CardHeader title={m.integrations.phone.title} />
-      <CardBody className="space-y-4">
-        {!status ? <p className="text-sm text-muted">{m.integrations.phone.checking}</p> : null}
-        {status && !status.voice.configured ? (
-          <p className="text-sm text-muted">{account ? m.integrations.phone.notConnectedAccount : m.integrations.phone.notConnected}</p>
-        ) : null}
+    <SettingsDisclosure id="settings-phone" title={phone.title} summary={summary}>
+      <div className="space-y-3 text-sm leading-relaxed text-muted">
+        {status && !status.voice.configured ? <p>{account ? phone.notConnectedAccount : phone.notConnected}</p> : null}
         {status?.voice.configured && lineNumber && dialNumber ? (
           <a
             href={`tel:${dialNumber}`}
-            className="inline-flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold text-brown underline decoration-1 underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+            className="inline-flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown"
           >
-            <span>{m.integrations.phone.callNow}</span>
+            <span>{phone.callNow}</span>
             <bdi className="ltr-nums">{lineNumber}</bdi>
           </a>
         ) : null}
-        {status?.voice.configured && status.voice.mode === "sample" ? (
-          <p className="text-sm text-muted">{m.integrations.phone.sampleLine}</p>
-        ) : null}
-        {status?.voice.configured && !lineNumber ? (
-          <p className="text-sm text-muted">{m.integrations.phone.numberMissing}</p>
-        ) : null}
-        {status?.voice.configured && !status.voice.signatureValidation ? (
-          <p className="text-sm text-muted">{m.integrations.phone.signatureValidationOff}</p>
-        ) : null}
-        {status ? (
-          <div className="space-y-1.5 border-t border-stone/60 pt-3 text-sm text-muted">
-            <p>
-              {m.integrations.phone.whatsapp}: {status.whatsapp.configured ? m.integrations.phone.connected : m.integrations.phone.notConnectedShort}
-            </p>
-            <p>
-              {m.integrations.phone.ownerCall}: {status.ownerCall.configured ? m.integrations.phone.connected : m.integrations.phone.notConnectedShort}
-            </p>
-          </div>
-        ) : null}
-      </CardBody>
-    </Card>
+        {status?.voice.configured && status.voice.mode === "sample" ? <p>{phone.sampleLine}</p> : null}
+        {status?.voice.configured && !lineNumber ? <p>{phone.numberMissing}</p> : null}
+        {status?.voice.configured && !status.voice.signatureValidation ? <p>{phone.signatureValidationOff}</p> : null}
+        {status?.voice.configured && status.ownerCall.configured ? <p>{phone.ownerCall}</p> : null}
+        {status?.voice.configured && status.whatsapp.configured ? <p>{phone.whatsapp}</p> : null}
+      </div>
+    </SettingsDisclosure>
   );
 }

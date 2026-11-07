@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Card, CardBody, CardHeader, Switch } from "@/components/ui";
+import { Button, Switch } from "@/components/ui";
+import { SettingsDisclosure } from "@/components/setup/sections/SettingsDisclosure";
 import { useI18n } from "@/i18n/client";
 import {
   notify,
@@ -123,9 +124,12 @@ export function PwaCard() {
   }
 
   return (
-    <Card>
-      <CardHeader title={m.integrations.pwa.title} />
-      <CardBody className="space-y-5">
+    <SettingsDisclosure
+      id="settings-app"
+      title={m.integrations.pwa.title}
+      summary={notificationsEnabled ? m.integrations.pwa.summaryOn : installPrompt.isInstalled ? m.integrations.pwa.installed : m.integrations.pwa.summary}
+    >
+      <div className="space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="font-medium text-espresso">{m.integrations.pwa.installTitle}</p>
@@ -140,7 +144,7 @@ export function PwaCard() {
             </p>
           </div>
           {!installPrompt.isInstalled && !installPrompt.isIOS && installPrompt.canInstall ? (
-            <Button onClick={installApp} disabled={busy} className="min-h-11 rounded-md" style={{ borderRadius: "0.75rem" }}>
+            <Button onClick={installApp} disabled={busy} variant="secondary" className="min-h-11 shrink-0">
               {m.integrations.pwa.installAction}
             </Button>
           ) : null}
@@ -161,22 +165,18 @@ export function PwaCard() {
             />
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <Button
-              variant="secondary"
-              onClick={sendTestNotification}
-              disabled={!notificationsEnabled || busy}
-              className="min-h-11 rounded-md"
-              style={{ borderRadius: "0.75rem" }}
-            >
-              {m.integrations.pwa.testNotification}
-            </Button>
-            <p aria-live="polite" className="min-h-6 text-sm text-muted">
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            {notificationsEnabled ? (
+              <Button variant="ghost" onClick={sendTestNotification} disabled={busy} className="min-h-11">
+                {m.integrations.pwa.testNotification}
+              </Button>
+            ) : null}
+            <p aria-live="polite" className="text-sm text-muted">
               {feedback || (!notificationSupported ? m.integrations.pwa.notificationUnsupported : "")}
             </p>
           </div>
         </div>
-      </CardBody>
-    </Card>
+      </div>
+    </SettingsDisclosure>
   );
 }

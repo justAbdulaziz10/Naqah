@@ -1,11 +1,13 @@
 import { defineMessages } from "../../types";
 
-/** Strings for the "Connections" integration. Keep both locales in lockstep. */
+/** Strings for the "Connections" integration and the secondary Settings rows. Keep both locales in lockstep. */
 export const section = defineMessages({
   en: {
     title: "Connections",
+    none: "None chosen",
   },
   ar: {
     title: "الربط",
+    none: "ما اخترت شي",
   },
 });

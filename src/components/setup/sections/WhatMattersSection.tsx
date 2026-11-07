@@ -2,13 +2,14 @@
 
 import { Plus, Trash } from "@phosphor-icons/react";
 import { useState } from "react";
-import { Card, CardBody, CardHeader, Field, IconButton, Input, Switch } from "@/components/ui";
+import { Field, IconButton, Input, Switch } from "@/components/ui";
 import { CRITERION_LABELS } from "@/domain/catalog";
 import { uid } from "@/domain/id";
 import type { CriterionKind } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { SaveState } from "../SaveState";
 import type { SetupSectionProps } from "../types";
+import { SettingsDisclosure } from "./SettingsDisclosure";
 
 type StandardCriterion = Exclude<CriterionKind, "custom">;
 
@@ -16,6 +17,10 @@ export function WhatMattersSection({ ws, onChange, showSaved }: SetupSectionProp
   const { m, t } = useI18n();
   const [customLabel, setCustomLabel] = useState("");
   const criteria = Object.keys(CRITERION_LABELS) as StandardCriterion[];
+  const enabledLabels = ws.settings.criteria
+    .filter((item) => item.enabled)
+    .map((item) => item.kind === "custom" ? item.label ?? "" : t(CRITERION_LABELS[item.kind]))
+    .filter(Boolean);
 
   function toggleCriterion(kind: CriterionKind, enabled: boolean) {
     onChange((current) => {
@@ -46,19 +51,19 @@ export function WhatMattersSection({ ws, onChange, showSaved }: SetupSectionProp
   }
 
   return (
-    <Card>
-      <CardHeader
-        title={m.onboarding.sectionTitles.whatMatters}
-        action={showSaved ? <SaveState /> : undefined}
-      />
-      <CardBody>
+    <SettingsDisclosure
+      id="settings-criteria"
+      title={m.onboarding.sectionTitles.whatMatters}
+      summary={enabledLabels.length ? enabledLabels.join(" · ") : m.integrations.section.none}
+      status={showSaved ? <SaveState /> : undefined}
+    >
         <section aria-label={m.onboarding.criteriaTitle}>
           <ul className="divide-y divide-stone/70">
             {criteria.map((kind) => {
               const criterion = ws.settings.criteria.find((item) => item.kind === kind);
               const label = t(CRITERION_LABELS[kind]);
               return (
-                <li key={kind} className="flex min-h-16 items-center justify-between gap-4 py-3">
+                <li key={kind} className="flex min-h-14 items-center justify-between gap-4 py-2.5">
                   <span className="font-medium text-espresso">{label}</span>
                   <Switch
                     className="after:absolute after:inset-y-[-8px] after:inset-x-[-4px] after:content-['']"
@@ -72,7 +77,7 @@ export function WhatMattersSection({ ws, onChange, showSaved }: SetupSectionProp
             {ws.settings.criteria.filter((item) => item.kind === "custom").map((criterion) => {
               const label = criterion.label ?? "";
               return (
-                <li key={criterion.id} className="flex min-h-16 items-center justify-between gap-3 py-3">
+                <li key={criterion.id} className="flex min-h-14 items-center justify-between gap-3 py-2.5">
                   <span className="min-w-0 flex-1 font-medium text-espresso">{label}</span>
                   <Switch
                     className="after:absolute after:inset-y-[-8px] after:inset-x-[-4px] after:content-['']"
@@ -103,7 +108,7 @@ export function WhatMattersSection({ ws, onChange, showSaved }: SetupSectionProp
               );
             })}
           </ul>
-          <div className="mt-3 flex items-end gap-2">
+          <div className="mt-3 flex max-w-xl items-end gap-2">
             <Field label={m.onboarding.customCriterion} className="min-w-0 flex-1">
               {(id) => <Input id={id} value={customLabel} onChange={(event) => setCustomLabel(event.target.value)} />}
             </Field>
@@ -118,7 +123,6 @@ export function WhatMattersSection({ ws, onChange, showSaved }: SetupSectionProp
             </button>
           </div>
         </section>
-      </CardBody>
-    </Card>
+    </SettingsDisclosure>
   );
 }

@@ -6,9 +6,8 @@ export const whatsapp = defineMessages({
     title: "WhatsApp",
     supplierName: "Supplier name",
     supplierPhone: "Supplier mobile",
-    supplierNameHint: "Used in the prefilled order message.",
-    supplierPhoneHint: "Enter a Saudi mobile number, such as 05XXXXXXXX.",
-    invalidSaudiMobile: "Enter a valid Saudi mobile number.",
+    summary: "Add your supplier",
+    lead: "When feed or water runs low, the overview offers a ready WhatsApp order to your supplier.",
     messageWorker: "Message the worker",
     orderSupplier: "Order from supplier",
     supplierOrderIntro: (supplier: string, farm: string) =>
@@ -22,9 +21,8 @@ export const whatsapp = defineMessages({
     title: "واتساب",
     supplierName: "اسم المورّد",
     supplierPhone: "جوال المورّد",
-    supplierNameHint: "يظهر في رسالة الطلب الجاهزة.",
-    supplierPhoneHint: "أدخل رقم جوال سعودي، مثل 05XXXXXXXX.",
-    invalidSaudiMobile: "أدخل رقم جوال سعودي صحيح.",
+    summary: "أضف المورّد",
+    lead: "إذا قلّ العلف أو الماء، تجهّز لك الصفحة الرئيسية طلب واتساب للمورّد.",
     messageWorker: "راسل العامل",
     orderSupplier: "اطلب من المورّد",
     supplierOrderIntro: (supplier: string, farm: string) =>

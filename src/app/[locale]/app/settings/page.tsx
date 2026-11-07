@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type ReactNode } from "react";
-import { Button, Card, CardBody, CardHeader, ConfirmDialog, Segmented } from "@/components/ui";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { Button, Card, CardBody, ConfirmDialog, Segmented } from "@/components/ui";
 import {
   EmergencySection,
   QuestionsFields,
@@ -16,32 +16,83 @@ import {
 } from "@/components/setup";
 import { IntegrationsSection } from "@/components/integrations/IntegrationsSection";
 import { ReportCallFields } from "@/components/schedule/ReportCallSection";
+import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { PLAN_LIMITS } from "@/domain/catalog";
 import type { Plan } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
+import { cn } from "@/lib/cn";
 import { useIsAccount, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
 
-/** Clears the sticky header and demo row when a link jumps to a section. */
-const anchor = "scroll-mt-32";
+/** Jump targets clear the app's sticky header and the section nav (measured below). */
+const anchor = "scroll-mt-[var(--settings-offset,9rem)]";
 
 function GroupTitle({ id, title, lead }: { id: string; title: string; lead?: string }) {
   return (
-    <div id={id} className={`${anchor} pt-6`}>
-      <h2 className="text-xl font-semibold text-espresso">{title}</h2>
-      {lead ? <p className="mt-1 text-muted">{lead}</p> : null}
+    <div className="space-y-1">
+      <h2 id={id} className="text-lg font-semibold text-espresso">{title}</h2>
+      {lead ? <p className="text-sm text-muted">{lead}</p> : null}
     </div>
   );
 }
 
-/** A Settings section: the same field group the onboarding step shows, in a card with its save state. */
+/** An essential Settings section: the same field group the onboarding step shows, with its save state. */
 function SettingsCard({ id, title, saved, children }: { id?: string; title: string; saved: boolean; children: ReactNode }) {
+  const titleId = `${id ?? title}-title`;
   return (
-    <Card id={id} className={anchor}>
-      <CardHeader title={title} action={saved ? <SaveState /> : undefined} />
+    <Card id={id} aria-labelledby={titleId} role="region" className={anchor}>
+      <div className="flex min-h-11 items-center justify-between gap-3 px-5 pt-5 sm:px-6">
+        <h2 id={titleId} className="text-lg font-semibold text-espresso">{title}</h2>
+        {saved ? <SaveState /> : null}
+      </div>
       <CardBody>{children}</CardBody>
     </Card>
   );
+}
+
+/** Height of the app's sticky top bar, so the section nav can sit right under it. */
+function useHeaderHeight() {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    const header = document.querySelector<HTMLElement>("header.sticky");
+    if (!header) return;
+    const measure = () => setHeight(Math.round(header.getBoundingClientRect().height));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+  return height;
+}
+
+/** The group currently under the section nav. */
+function useCurrentGroup(ids: string[], offset: number) {
+  const [current, setCurrent] = useState(ids[0]);
+  const key = ids.join(",");
+  useEffect(() => {
+    const list = key.split(",");
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+      let next = list[0];
+      for (const id of list) {
+        const element = document.getElementById(id);
+        if (element && element.getBoundingClientRect().top <= offset + 24) next = id;
+      }
+      setCurrent(atBottom ? list[list.length - 1] : next);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [key, offset]);
+  return current;
 }
 
 export default function SettingsPage() {
@@ -52,9 +103,20 @@ export default function SettingsPage() {
   const startDemo = useWorkspaceStore((state) => state.startDemo);
   const reset = useWorkspaceStore((state) => state.reset);
   const account = useIsAccount();
+  const scheduledCalls = useScheduledCallsOn();
   const saveFailed = useSaveStatus((state) => state.status === "failed") && !account; // The account banner covers it.
   const [edited, setEdited] = useState<string | null>(null);
   const [confirmingSample, setConfirmingSample] = useState(false);
+  const headerHeight = useHeaderHeight();
+  const navHeight = 52;
+  const groups = [
+    { id: "settings-ranch", label: s.groups.ranch },
+    { id: "settings-report-call", label: s.groups.call },
+    { id: "settings-more", label: s.more },
+    { id: "connections", label: s.groups.connections },
+    { id: "settings-account", label: account ? s.groups.account : s.groups.demo },
+  ];
+  const currentGroup = useCurrentGroup(groups.map((group) => group.id), headerHeight + navHeight);
 
   if (!ws) return null;
 
@@ -73,79 +135,103 @@ export default function SettingsPage() {
     if (plan === ws.settings.plan || (plan === "basic" && tooManyForBasic)) return;
     section("demo").onChange((current) => ({ ...current, settings: { ...current.settings, plan } }));
   };
-  const groups = [
-    { id: "settings-ranch", label: s.groups.ranch },
-    { id: "settings-report-call", label: s.groups.call },
-    { id: "settings-more", label: s.groups.more },
-    { id: "connections", label: s.groups.connections },
-    { id: "settings-account", label: account ? s.groups.account : s.groups.demo },
-  ];
 
   return (
-    <div className="space-y-5 pb-8">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-espresso">{s.title}</h1>
-        <nav aria-label={s.title} className="mt-2 flex flex-wrap gap-x-5">
-          {groups.map((group) => (
-            <a key={group.id} href={`#${group.id}`} className="inline-flex min-h-11 items-center font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
-              {group.label}
-            </a>
-          ))}
+    <div
+      className="max-w-3xl space-y-8 pb-8"
+      style={{ "--settings-offset": `${headerHeight + navHeight + 16}px` } as CSSProperties}
+    >
+      <h1 className="mb-3! text-2xl font-bold tracking-tight text-espresso sm:text-[1.8rem]">{s.title}</h1>
+        <nav
+          aria-label={s.title}
+          className="sticky z-20 -mx-4 overflow-x-auto border-b border-stone/60 bg-ivory px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8"
+          style={{ top: headerHeight }}
+        >
+          <ul className="flex gap-x-6 whitespace-nowrap">
+            {groups.map((group) => {
+              const current = group.id === currentGroup;
+              return (
+                <li key={group.id}>
+                  <a
+                    href={`#${group.id}`}
+                    aria-current={current ? "location" : undefined}
+                    className={cn(
+                      "-mb-px inline-flex min-h-12 items-center border-b-2 text-sm font-semibold transition-colors focus-visible:rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brown",
+                      current ? "border-brown text-espresso" : "border-transparent text-muted hover:text-espresso",
+                    )}
+                  >
+                    {group.label}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
         </nav>
-      </div>
 
       {saveFailed ? (
-        <p role="alert" className="sticky top-24 z-20 rounded-xl border border-danger bg-cream px-4 py-3 text-sm leading-relaxed text-danger lg:top-20">
+        <p role="alert" className="rounded-xl border border-danger bg-cream px-4 py-3 text-sm leading-relaxed text-danger">
           {m.setup.flow.notSaved}
         </p>
       ) : null}
 
-      <SettingsCard id="settings-ranch" title={m.setup.ranch.title} saved={edited === "ranch"}>
-        <RanchFields {...fields("ranch")} />
-      </SettingsCard>
-      <SettingsCard id="settings-team" title={m.setup.team.title} saved={edited === "team"}>
-        <TeamFields {...fields("team")} />
-      </SettingsCard>
-      <SettingsCard id="settings-report-call" title={m.setup.call.title} saved={edited === "call"}>
-        <ReportCallFields {...fields("call")} />
-        <p className="mt-4 text-sm leading-relaxed text-muted">{account ? m.setup.call.notConnected : m.setup.ready.demoCalls}</p>
-      </SettingsCard>
-      <SettingsCard id="settings-questions" title={m.setup.questions.title} saved={edited === "questions"}>
-        <QuestionsFields {...fields("questions")} />
-      </SettingsCard>
+      <div id="settings-ranch" className={cn(anchor, "space-y-5")}>
+        <SettingsCard title={m.setup.ranch.title} saved={edited === "ranch"}>
+          <RanchFields {...fields("ranch")} />
+        </SettingsCard>
+        <SettingsCard id="settings-team" title={m.setup.team.title} saved={edited === "team"}>
+          <TeamFields {...fields("team")} />
+        </SettingsCard>
+      </div>
 
-      <GroupTitle id="settings-more" title={s.more} lead={s.moreLead} />
-      <ResourcesSection {...section("resources")} />
-      <div id="settings-criteria" className={anchor}><WhatMattersSection {...section("criteria")} /></div>
-      <div id="settings-emergencies" className={anchor}><EmergencySection {...section("emergencies")} /></div>
+      <div id="settings-report-call" className={cn(anchor, "space-y-5")}>
+        <SettingsCard title={m.setup.call.title} saved={edited === "call"}>
+          <ReportCallFields {...fields("call")} />
+          {account && scheduledCalls !== false ? null : (
+            <p className="mt-4 text-sm leading-relaxed text-muted">{account ? m.setup.call.notConnected : m.setup.ready.demoCalls}</p>
+          )}
+        </SettingsCard>
+        <SettingsCard id="settings-questions" title={m.setup.questions.title} saved={edited === "questions"}>
+          <QuestionsFields {...fields("questions")} />
+        </SettingsCard>
+      </div>
+
+      <section id="settings-more" aria-labelledby="settings-more-title" className={cn(anchor, "space-y-3")}>
+        <GroupTitle id="settings-more-title" title={s.more} lead={s.moreLead} />
+        <Card className="divide-y divide-stone/70 overflow-hidden">
+          <ResourcesSection {...section("resources")} />
+          <WhatMattersSection {...section("criteria")} />
+          <EmergencySection {...section("emergencies")} />
+        </Card>
+      </section>
 
       <IntegrationsSection />
 
       {account ? (
-        <>
-          <GroupTitle id="settings-account" title={s.groups.account} />
+        <section id="settings-account" aria-labelledby="settings-account-title" className={cn(anchor, "space-y-3")}>
+          <GroupTitle id="settings-account-title" title={s.groups.account} />
           <Card>
-            <CardBody className="space-y-5">
-              <div>
+            <CardBody className="flex flex-col gap-5 pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div id="settings-plan" className={anchor}>
                 <p className="text-sm text-muted">{s.plan}</p>
                 <p className="mt-0.5 text-lg font-semibold text-espresso">{m.common.plans[ws.settings.plan]}</p>
                 <p className="mt-1 text-sm text-muted">{s.planNote}</p>
               </div>
-              <div className="max-w-xs"><LogoutButton /></div>
+              <div className="sm:w-56 sm:shrink-0"><LogoutButton /></div>
             </CardBody>
           </Card>
-        </>
+        </section>
       ) : (
-        <>
-          <GroupTitle id="settings-account" title={s.demoTitle} lead={s.demoNote} />
+        <section id="settings-account" aria-labelledby="settings-account-title" className={cn(anchor, "space-y-3")}>
+          <GroupTitle id="settings-account-title" title={s.demoTitle} lead={s.demoNote} />
           <Card>
-            <CardBody className="space-y-5">
-              <div>
+            <CardBody className="space-y-5 pt-5">
+              <div id="settings-plan" className={anchor}>
                 <p className="mb-2 text-sm font-semibold text-espresso">{s.demoPlan}</p>
                 <Segmented
                   value={ws.settings.plan}
                   onChange={choosePlan}
                   label={s.demoPlan}
+                  className="[&>button]:min-h-11"
                   options={[
                     { value: "basic", label: m.common.plans.basic },
                     { value: "ultimate", label: m.common.plans.ultimate },
@@ -153,7 +239,7 @@ export default function SettingsPage() {
                 />
                 {tooManyForBasic && ws.settings.plan === "ultimate" ? <p className="mt-2 text-sm text-muted">{s.demoPlanBasicBlocked}</p> : null}
               </div>
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-3 border-t border-stone/70 pt-4">
                 <Button variant="secondary" onClick={() => (hasOwnSetupData(ws) ? setConfirmingSample(true) : startDemo(locale, ws.settings.plan))}>
                   {s.loadSample}
                 </Button>
@@ -171,7 +257,7 @@ export default function SettingsPage() {
               </div>
             </CardBody>
           </Card>
-        </>
+        </section>
       )}
       {confirmingSample ? (
         <ConfirmDialog
