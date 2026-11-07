@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { latestReportCall } from "@/domain/reportCalls";
+import { ConfirmDialog } from "@/components/ui";
+import { dialableWorkerPhone, latestReportCall } from "@/domain/reportCalls";
 import { REPORT_CALL_RETRIES } from "@/domain/clock";
 import type { Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
-import { callNowAvailable, callWorkerNow } from "@/server/farm/actions";
-import { accountSync } from "@/store/account";
+import { accountSync, reportCallNow } from "@/store/account";
 import { useIsAccount } from "@/store/workspace";
 
 const RECENT_MS = 24 * 60 * 60 * 1000;
@@ -23,6 +23,8 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   const [available, setAvailable] = useState(false);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const phone = dialableWorkerPhone(ws); // Shown isolated (U+2066…U+2069) so it reads left to right in Arabic.
 
   const run = latestReportCall(ws);
   const active = run?.state === "calling" || run?.state === "answered";
@@ -30,7 +32,7 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   useEffect(() => {
     if (!account) return;
     let live = true;
-    void callNowAvailable().then((result) => { if (live) setAvailable(result.ok && result.data === true); }).catch(() => undefined);
+    void reportCallNow.available().then((result) => { if (live) setAvailable(result.ok && result.data === true); }).catch(() => undefined);
     return () => { live = false; };
   }, [account]);
 
@@ -53,10 +55,11 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   }
 
   async function call() {
+    setConfirming(false);
     setPending(true);
     setNotice(null);
     try {
-      const result = await callWorkerNow();
+      const result = await reportCallNow.call();
       if (!result.ok) setNotice(d.callNowResult.failed);
       else if (result.data.status === "placed") setNotice(d.callNowResult.placed(worker));
       else setNotice(d.callNowResult[result.data.reason]);
@@ -72,10 +75,10 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   return (
     <div className="mt-3 space-y-2">
       {status ? <p className="text-sm font-medium text-cream" role="status">{status}</p> : null}
-      {available && !active ? (
+      {available && !active && phone ? (
         <button
           type="button"
-          onClick={() => void call()}
+          onClick={() => setConfirming(true)}
           disabled={pending}
           className="min-h-11 rounded-full border border-cream/40 px-4 text-sm font-semibold text-cream transition hover:bg-cream/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:opacity-60"
         >
@@ -83,6 +86,16 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
         </button>
       ) : null}
       {notice ? <p className="text-sm text-cream/80" role="status">{notice}</p> : null}
+      {confirming && phone ? (
+        <ConfirmDialog
+          title={d.confirmTitle(worker)}
+          body={d.confirmBody(`\u2066${phone}\u2069`)}
+          confirmLabel={d.confirmCall}
+          cancelLabel={d.cancel}
+          onConfirm={() => void call()}
+          onCancel={() => setConfirming(false)}
+        />
+      ) : null}
     </div>
   );
 }

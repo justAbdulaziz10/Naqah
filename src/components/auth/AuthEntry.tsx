@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { isLocale } from '@/i18n/config';
+import { getAuthMethods } from '@/lib/supabase/auth-methods';
 import { OwnerAuth } from './OwnerAuth';
 
 type Query = Record<string, string | string[] | undefined>;
@@ -19,5 +20,5 @@ export async function AuthEntry({ params, searchParams, mode }: AuthEntryProps &
     }
     redirect(`/${locale}/login/callback?${forwarded}`);
   }
-  return <OwnerAuth mode={mode} />;
+  return <OwnerAuth mode={mode} methods={await getAuthMethods()} />;
 }

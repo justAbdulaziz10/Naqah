@@ -7,7 +7,7 @@ export const common = defineMessages({
     switchLanguageLabel: "Switch to Arabic",
     plans: { basic: "Basic", ultimate: "Ultimate" },
     actions: {
-      startDemo: "See the demo",
+      startDemo: "Explore the demo",
       getStarted: "Get started",
       openDashboard: "Open dashboard",
       back: "Back",
@@ -57,7 +57,7 @@ export const common = defineMessages({
     switchLanguageLabel: "التبديل إلى الإنجليزية",
     plans: { basic: "الأساسية", ultimate: "المتكاملة" },
     actions: {
-      startDemo: "شوف العرض التجريبي",
+      startDemo: "استكشف العرض التجريبي",
       getStarted: "ابدأ الآن",
       openDashboard: "افتح لوحة التحكم",
       back: "رجوع",

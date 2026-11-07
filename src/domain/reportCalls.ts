@@ -211,7 +211,14 @@ export function claimDueReportCall(input: Workspace, now: Date): { ws: Workspace
  * The provider refused or never got the call: the attempt didn't happen, so it is not logged as
  * "no answer". It is tried again after the retry delay, until the slot is too old.
  */
-export function abandonReportCallAttempt(input: Workspace, now: Date, runId: string, attempt: number): Workspace {
+export function abandonReportCallAttempt(
+  input: Workspace,
+  now: Date,
+  runId: string,
+  attempt: number,
+  /** false for the owner's "Call now": it ends instead of blocking the next try for hours. */
+  retry = true,
+): Workspace {
   const current = reportCallRuns(input).find((r) => r.id === runId);
   if (!current || current.state !== "calling" || current.attempts.length !== attempt || current.attempts[attempt - 1].result !== "pending") {
     return input;
@@ -220,7 +227,7 @@ export function abandonReportCallAttempt(input: Workspace, now: Date, runId: str
   const run = reportCallRuns(ws).find((r) => r.id === runId)!;
   run.attempts.pop();
   const name = ws.settings.worker.name;
-  if (now.getTime() - new Date(run.occurrence).getTime() > REPORT_CALL_GIVE_UP_MS) {
+  if (!retry || now.getTime() - new Date(run.occurrence).getTime() > REPORT_CALL_GIVE_UP_MS) {
     run.state = "missed";
     run.nextAttemptAt = null;
     pushEvent(ws, now, "attention", {

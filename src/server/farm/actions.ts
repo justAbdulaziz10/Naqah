@@ -110,6 +110,6 @@ export async function callWorkerNow(): Promise<ActionResult<CallNowResult>> {
     const service = createServiceClient();
     const config = outboundConfig();
     if (!service || !config) throw new DbError("unavailable");
-    return requestReportCallNow(service, createTwilioCaller(config), farmId, { baseUrl: config.baseUrl, now: new Date() });
+    return requestReportCallNow(service, createTwilioCaller(config), farmId, { baseUrl: config.baseUrl, now: new Date(), allowlist: config.allowlist });
   });
 }

@@ -13,6 +13,8 @@ import { authDestination } from '@/lib/supabase/auth-paths';
 import { AuthFrame } from './AuthFrame';
 import { CaptchaField } from './CaptchaField';
 import { AuthMethods } from './AuthMethods';
+import { AuthOptions, chooseMethod } from './auth-options';
+import type { AuthMethodsAvailable } from '@/lib/supabase/auth-methods';
 import { EmailPasswordAuth } from './EmailPasswordAuth';
 
 const COOLDOWN_MS = 60_000;
@@ -144,11 +146,13 @@ function PhoneAuth({ mode, next }: { mode: 'login' | 'signup'; next: string | nu
   </AuthFrame>;
 }
 
-export function OwnerAuth({ mode }: { mode: 'login' | 'signup' }) {
+export function OwnerAuth({ mode, methods }: { mode: 'login' | 'signup'; methods: AuthMethodsAvailable }) {
   const params = useSearchParams();
   const { locale } = useI18n();
   const next = authDestination(locale, mode, params.get('next'));
-  return params.get('method') === 'email'
-    ? <EmailPasswordAuth key={mode} mode={mode} next={next} />
-    : <PhoneAuth key={mode} mode={mode} next={next} />;
+  return <AuthOptions.Provider value={methods}>
+    {chooseMethod(params.get('method'), methods) === 'email'
+      ? <EmailPasswordAuth key={mode} mode={mode} next={next} />
+      : <PhoneAuth key={mode} mode={mode} next={next} />}
+  </AuthOptions.Provider>;
 }

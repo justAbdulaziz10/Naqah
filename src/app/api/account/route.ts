@@ -1,4 +1,4 @@
-import { loadWorkspace, openAccount, saveOwnerEdits } from "@/server/farm/actions";
+import { callNowAvailable, callWorkerNow, loadWorkspace, openAccount, saveOwnerEdits } from "@/server/farm/actions";
 import { isAccountDataEnabled } from "@/server/farm/account-mode";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -27,6 +27,9 @@ export async function POST(request: Request): Promise<Response> {
     body?.op === "open" ? await openAccount()
     : body?.op === "load" ? await loadWorkspace()
     : body?.op === "save" ? await saveOwnerEdits(body.changes, body.farm)
+    : body?.op === "callNowAvailable" ? await callNowAvailable()
+    // One real report call to this owner's own saved primary worker; see callWorkerNow.
+    : body?.op === "callNow" ? await callWorkerNow()
     : null;
   if (!result) return Response.json({ ok: false, error: "invalid_input" }, { status: 400, headers: NO_STORE });
   return Response.json(result, { headers: NO_STORE });

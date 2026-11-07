@@ -55,6 +55,29 @@ afterEach(() => {
 });
 
 describe("account mode", () => {
+  it("keeps this owner's farm on screen while a new screen checks it again", async () => {
+    const { sync, api, useAccountState, useWorkspaceStore } = await setup(farm());
+    await sync.open();
+    expect(useAccountState.getState().status).toBe("ready");
+    let finish!: () => void;
+    api.open.mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ ok: true, data: farm() }); }));
+    const reopening = sync.open();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useAccountState.getState().status).toBe("ready");
+    expect(useWorkspaceStore.getState().workspace).not.toBeNull();
+    finish();
+    await reopening;
+    expect(useAccountState.getState().status).toBe("ready");
+  });
+
+  it("still blanks the screen at once when another owner signs in meanwhile", async () => {
+    const { sync, useAccountState, useWorkspaceStore, setIdentity } = await setup(farm());
+    await sync.open();
+    setIdentity(OWNER_B);
+    expect(useAccountState.getState().status).toBe("checking");
+    expect(useWorkspaceStore.getState().workspace).toBeNull();
+  });
+
   it("does not merge or flush between two farms with identical createdAt and the same owner hint", async () => {
     const { sync, api, useWorkspaceStore, setServer } = await setup(farm());
     await sync.open();

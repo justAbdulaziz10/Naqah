@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ redirect: vi.fn() }));
 vi.mock('next/navigation', () => ({ redirect: mock.redirect }));
 vi.mock('./OwnerAuth', () => ({ OwnerAuth: () => null }));
+vi.mock('server-only', () => ({}));
+vi.mock('@/lib/supabase/auth-methods', () => ({ getAuthMethods: async () => ({ phone: false, email: true, google: false }) }));
 import { AuthEntry } from './AuthEntry';
 
 describe('callback recovery at auth entry pages', () => {

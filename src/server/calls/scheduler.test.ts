@@ -80,9 +80,21 @@ describe("owner's Call now", () => {
     expect(requests).toHaveLength(0);
   });
 
-  it("frees the slot when Twilio refuses, so nothing is left ringing", async () => {
-    const { caller } = recordingCaller(() => ({ placed: false, reason: "not_allowed" }));
+  it("ends a call Twilio refused instead of retrying, so the owner can try again at once", async () => {
+    const { caller } = recordingCaller(() => ({ placed: false, reason: "rejected", status: 400 }));
     expect(await requestReportCallNow({} as never, caller, FARM, options)).toEqual({ status: "failed", reason: "not_placed" });
-    expect(store.ws.reportCalls![0].attempts).toHaveLength(0);
+    expect(store.ws.reportCalls![0]).toMatchObject({ state: "missed", nextAttemptAt: null, attempts: [] });
+    const { caller: second, requests } = recordingCaller();
+    const later = { ...options, now: new Date(now.getTime() + 60_000) };
+    expect(await requestReportCallNow({} as never, second, FARM, later)).toEqual({ status: "placed" });
+    expect(requests).toHaveLength(1);
+  });
+
+  it("refuses a number outside the test allowlist before any run exists", async () => {
+    const { caller, requests } = recordingCaller();
+    expect(await requestReportCallNow({} as never, caller, FARM, { ...options, allowlist: ["+966500000001"] })).toEqual({ status: "blocked", reason: "not_allowed" });
+    expect(requests).toHaveLength(0);
+    expect(store.ws.reportCalls).toEqual([]);
+    expect(store.saves).toBe(0);
   });
 });

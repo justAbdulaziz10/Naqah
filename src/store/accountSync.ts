@@ -264,7 +264,11 @@ export function createAccountSync(api: AccountApi, identity: AccountIdentity) {
   /** Runs on every entry, so a session that ended or changed never shows the last owner's farm. */
   async function reopen() {
     const attempt = ++opening;
-    useAccountState.setState({ status: "checking" });
+    // Entering another account screen with this owner's farm already showing: check again in the
+    // background instead of blanking it. Another owner can't slip in meanwhile: an auth change
+    // discards the farm synchronously (changeIdentity), and a different farm below replaces it.
+    const showing = accountLink.active && base !== null && useAccountState.getState().status === "ready";
+    if (!showing) useAccountState.setState({ status: "checking" });
     const initiatingIdentity = await identityNow(false);
     if (attempt !== opening) return;
     if (!initiatingIdentity) return useAccountState.setState({ status: "error" });

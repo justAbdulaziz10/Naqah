@@ -2,6 +2,7 @@ import type { AccountWorkspace } from "@/lib/account/types";
 import { browserOwnerId, observeAccountAuth } from "@/lib/account/auth-observer";
 import { createClient } from "@/lib/supabase/client";
 import type { OwnerChange } from "@/lib/account/changes";
+import type { CallNowResult } from "@/server/calls/scheduler";
 import { createAccountSync, type SavedChanges } from "./accountSync";
 import { accountLink, useSaveStatus } from "./workspace";
 
@@ -16,6 +17,12 @@ async function call<T>(op: string, changes?: OwnerChange[], farm?: string): Prom
   });
   return response.json();
 }
+
+/** The owner's controlled "Call now" (route handler, not a Server Action: see /api/account). */
+export const reportCallNow = {
+  available: () => call<boolean>("callNowAvailable"),
+  call: () => call<CallNowResult>("callNow"),
+};
 
 export const accountSync = createAccountSync({
   open: () => call<AccountWorkspace>("open"),
