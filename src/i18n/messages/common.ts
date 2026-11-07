@@ -10,8 +10,8 @@ export const common = defineMessages({
     switchLanguageLabel: "Switch to Arabic",
     plans: { basic: "Basic", ultimate: "Ultimate" },
     actions: {
-      startDemo: "Explore the demo",
-      setUp: "Set up your farm",
+      startDemo: "See the demo",
+      getStarted: "Get started",
       openDashboard: "Open dashboard",
       back: "Back",
       next: "Continue",
@@ -72,8 +72,8 @@ export const common = defineMessages({
     switchLanguageLabel: "التبديل إلى الإنجليزية",
     plans: { basic: "الأساسية", ultimate: "المتكاملة" },
     actions: {
-      startDemo: "جرّب العرض",
-      setUp: "جهّز مزرعتك",
+      startDemo: "شوف العرض التجريبي",
+      getStarted: "ابدأ الآن",
       openDashboard: "افتح لوحة التحكم",
       back: "رجوع",
       next: "متابعة",

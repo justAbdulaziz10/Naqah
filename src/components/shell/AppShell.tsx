@@ -27,7 +27,7 @@ import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useIsAccount, useNow, useWorkspaceStore } from "@/store/workspace";
 import { LocaleSwitcher } from "./LocaleSwitcher";
-import { useSetupHref } from "@/components/welcome/WelcomeActions";
+import { getStartedPath } from "@/components/entry/paths";
 
 type NavKey = "overview" | "herd" | "lab" | "tickets" | "calls" | "settings";
 
@@ -52,7 +52,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const hydrated = useWorkspaceStore((s) => s.hydrated);
   const ws = useWorkspaceStore((s) => s.workspace);
   const startDemo = useWorkspaceStore((s) => s.startDemo);
-  const setupHref = useSetupHref();
   const account = useIsAccount();
   const nav = account ? NAV.filter((item) => item.key !== "lab") : NAV; // The Call Lab simulates, so a real farm never sees it.
   const [confirmingDemo, setConfirmingDemo] = useState(false);
@@ -82,8 +81,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Button onClick={() => (hasOwnSetupData(ws) ? setConfirmingDemo(true) : startDemo(locale))} size="lg">
             {m.common.actions.startDemo}
           </Button>
-          <ButtonLink href={setupHref} variant="secondary" size="lg">
-            {m.common.actions.setUp}
+          <ButtonLink href={getStartedPath(locale)} variant="secondary" size="lg">
+            {m.common.actions.getStarted}
           </ButtonLink>
         </div>
         <LocaleSwitcher />

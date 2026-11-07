@@ -15,10 +15,12 @@ import { buttonClass, type ButtonStyleProps } from "@/components/ui/Button";
 type DemoActionProps = ButtonStyleProps & {
   children: ReactNode;
   plan?: Plan;
+  /** Use `className` as-is instead of a button style (a text link). */
+  plain?: boolean;
 };
 
-/** Starts the sample farm when needed, then opens the owner dashboard. Disabled while it opens. */
-export function DemoAction({ children, plan, ...style }: DemoActionProps) {
+/** Starts the sample farm when needed, then opens the demo dashboard. Disabled while it opens. */
+export function DemoAction({ children, plan, plain = false, ...style }: DemoActionProps) {
   const { locale, href, m } = useI18n();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -44,7 +46,7 @@ export function DemoAction({ children, plan, ...style }: DemoActionProps) {
 
   return (
     <>
-      <button type="button" onClick={start} disabled={pending} aria-busy={pending} className={buttonClass(style)}>
+      <button type="button" onClick={start} disabled={pending} aria-busy={pending} className={plain ? style.className : buttonClass(style)}>
         {pending ? (
           <>
             <CircleNotch size={18} className="motion-safe:animate-spin" aria-hidden="true" />

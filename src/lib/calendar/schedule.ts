@@ -1,4 +1,5 @@
-import { isValidWindow } from "@/domain/clock";
+import { isValidWindow, toMinutes } from "@/domain/clock";
+import { isCompleteCallSchedule } from "@/domain/schedule";
 import type { Locale, Plan, ReportingWindow, TaskTicket, Workspace } from "@/domain/types";
 
 export interface CalendarTask {
@@ -13,6 +14,7 @@ export interface CalendarSchedule {
   l: Locale;
   f: string;
   p: Plan;
+  /** The report call slot: `start` is the call time, `end` 30 minutes later. Ultimate ignores `day`. */
   w: ReportingWindow | null;
   t: CalendarTask[];
 }
@@ -158,6 +160,18 @@ export function scheduleForTask(
   };
 }
 
+const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+/** The scheduled report call as a 30-minute calendar slot, kept within the day. */
+function reportSlot(ws: Workspace): ReportingWindow | null {
+  const { plan, callSchedule } = ws.settings;
+  if (!callSchedule || !isCompleteCallSchedule(plan, callSchedule)) return null;
+  const start = toMinutes(callSchedule.time);
+  const end = Math.min(start + 30, 23 * 60 + 59);
+  if (end <= start) return null;
+  return { day: callSchedule.day ?? 0, start: callSchedule.time, end: clock(end) };
+}
+
 /** Snapshot the weekly/daily report rhythm and currently open scheduled tasks. */
 export function scheduleFromWorkspace(ws: Workspace, locale: Locale): CalendarSchedule {
   const tasks = ws.taskTickets
@@ -165,7 +179,7 @@ export function scheduleFromWorkspace(ws: Workspace, locale: Locale): CalendarSc
     .filter((task): task is CalendarTask => task !== null)
     .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
     .slice(0, MAX_SCHEDULE_TASKS);
-  const window = ws.settings.plan === "basic" ? ws.settings.window : null;
+  const window = reportSlot(ws);
 
   return {
     v: 1,

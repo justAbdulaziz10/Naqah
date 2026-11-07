@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDemoWorkspace, createEmptyWorkspace } from "@/domain/seed";
 import { getCallSetupGaps } from "./CallSetupStatus";
-import { createOnboardingSample, createReplacementDraft, hasOwnSetupData, replacementLoss } from "./draft";
+import { createOnboardingSample, hasOwnSetupData } from "./draft";
 import { formatSaudiMobile, isSaudiMobile, phoneNeedsFixing } from "./phone";
 
 describe("Saudi mobile numbers", () => {
@@ -34,40 +34,27 @@ describe("Saudi mobile numbers", () => {
   });
 });
 
-describe("starting over on an existing farm", () => {
-  it("keeps the plan, settings and herd, and leaves the history behind", () => {
-    const ws = createDemoWorkspace("en", "ultimate");
-    const draft = createReplacementDraft(ws);
-    expect(draft.settings).toEqual(ws.settings);
-    expect(draft.settings.plan).toBe("ultimate");
-    expect(draft.camels).toEqual(ws.camels);
-    expect(draft.setupComplete).toBe(false);
-    expect(replacementLoss(draft)).toEqual({ reports: 0, calls: 0, tickets: 0 });
-    expect(draft.resources.map((resource) => resource.present)).toEqual(ws.resources.map((resource) => resource.present));
-    expect(draft.resources.every((resource) => resource.level === "unknown" && resource.updatedAt === null)).toBe(true);
-  });
-
-  it("counts everything the owner would lose", () => {
-    const ws = createDemoWorkspace("en", "ultimate");
-    expect(replacementLoss(ws)).toEqual({
-      reports: ws.reports.length,
-      calls: ws.calls.length,
-      tickets: ws.taskTickets.length + ws.noAnswerTickets.length,
-    });
-  });
-});
-
 describe("call setup gaps", () => {
-  it("counts a wrong number or an unfinished window as missing", () => {
+  it("counts a wrong number or an unfinished call time as missing", () => {
     const ws = createDemoWorkspace("en", "basic");
     expect(getCallSetupGaps(ws)).toEqual([]);
     ws.settings.worker.phone = "123";
-    ws.settings.window = { day: 4, start: "", end: "18:00" };
+    ws.settings.callSchedule = { day: null, time: "18:00" };
     expect(getCallSetupGaps(ws)).toEqual(["worker", "schedule"]);
   });
 
-  it("Ultimate needs no reporting window", () => {
-    expect(getCallSetupGaps(createDemoWorkspace("en", "ultimate"))).toEqual([]);
+  it("Ultimate needs only a time, never a day", () => {
+    const ws = createDemoWorkspace("en", "ultimate");
+    ws.settings.callSchedule = { day: null, time: "18:00" };
+    expect(getCallSetupGaps(ws)).toEqual([]);
+    ws.settings.callSchedule = { day: null, time: "" };
+    expect(getCallSetupGaps(ws)).toEqual(["schedule"]);
+  });
+
+  it("ignores the retired window", () => {
+    const ws = createDemoWorkspace("en", "basic");
+    ws.settings.window = null;
+    expect(getCallSetupGaps(ws)).toEqual([]);
   });
 });
 
@@ -82,7 +69,8 @@ describe("loading sample data", () => {
 
   it.each([
     ["a typed name", (ws: ReturnType<typeof createEmptyWorkspace>) => { ws.settings.owner.name = "Sara"; }],
-    ["a day with no times", (ws: ReturnType<typeof createEmptyWorkspace>) => { ws.settings.window = { day: 2, start: "", end: "" }; }],
+    ["a call day with no time", (ws: ReturnType<typeof createEmptyWorkspace>) => { ws.settings.callSchedule = { day: 2, time: "" }; }],
+    ["a herd count", (ws: ReturnType<typeof createEmptyWorkspace>) => { ws.settings.herdCount = 40; }],
     ["an unticked resource", (ws: ReturnType<typeof createEmptyWorkspace>) => { ws.resources[0].present = false; }],
   ])("asks before replacing %s", (_label, edit) => {
     const ws = createEmptyWorkspace("basic");

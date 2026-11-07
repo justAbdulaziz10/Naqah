@@ -24,9 +24,11 @@ async function VerifiedOwner({ params, searchParams }: Props) {
   if (unavailable) return <AuthFrame><p role="alert">{m.unavailable}</p><ButtonLink href={`/${locale}/login`} className="mt-6">{m.login}</ButtonLink></AuthFrame>;
   if (!user) redirect(`/${locale}/login${next ? `?next=${encodeURIComponent(next)}` : ''}`);
   if (next) redirect(next);
+  // With account data on, the dashboard decides between setup and the farm: no extra stop here.
+  if (process.env.NEXT_PUBLIC_NAQAH_ACCOUNT_DATA === '1') redirect(`/${locale}/app`);
   return <AuthFrame>
     <h1 className="text-2xl font-semibold">{m.signedIn}</h1>
-    {process.env.NEXT_PUBLIC_NAQAH_ACCOUNT_DATA === '1' ? null : <p className="mt-3 leading-relaxed text-muted">{m.successBody}</p>}
+    <p className="mt-3 leading-relaxed text-muted">{m.successBody}</p>
     <div className="mt-7 flex flex-col gap-4"><ButtonLink size="lg" href={`/${locale}/app`}>{m.continue}</ButtonLink><LogoutButton /><ButtonLink variant="ghost" href={`/${locale}`}>{m.home}</ButtonLink></div>
   </AuthFrame>;
 }

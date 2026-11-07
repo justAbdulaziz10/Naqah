@@ -5,12 +5,12 @@ import { CamelMark } from "@/components/brand/CamelMark";
 import { Logo } from "@/components/brand/Logo";
 import { WovenFragment, WovenFrame, WovenSignature } from "@/components/heritage/Woven";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
-import { SetupLink } from "@/components/welcome/WelcomeActions";
 import { getMessages } from "@/i18n/messages";
 import { CamelColours } from "./CamelColours";
 import { EstatePhoto } from "./EstatePhoto";
 import { JourneyScene } from "./JourneyScene";
-import { DemoAction, MobileNavigation, OwnerCall } from "./LandingActions";
+import { EntryActions } from "./EntryActionsServer";
+import { MobileNavigation, OwnerCall } from "./LandingActions";
 import { LiveTranscript } from "./LiveTranscript";
 import { MotionRoot } from "./MotionRoot";
 import { LANDING_PHOTOS } from "./photos";
@@ -77,15 +77,15 @@ export function LandingPage({ locale }: { locale: Locale }) {
                   {link.label}
                 </a>
               ))}
-              <AuthNavigation />
+              <AuthNavigation signup={false} />
             </nav>
             <div className="hidden lg:block">
               <LocaleSwitcher className="min-h-11" />
             </div>
-            <DemoAction size="md" className={`ms-2 max-sm:hidden ${flat}`}>
-              {common.actions.startDemo}
-            </DemoAction>
-            <MobileNavigation links={anchorLinks} authControls={<AuthNavigation appearance="mobile" />} menuLabel={landing.nav.menu} menuTitle={landing.nav.menuLabel} />
+            <div className="ms-2 max-sm:hidden">
+              <EntryActions primary={{ size: "md", className: flat }} />
+            </div>
+            <MobileNavigation links={anchorLinks} authControls={<AuthNavigation appearance="mobile" signup={false} />} menuLabel={landing.nav.menu} menuTitle={landing.nav.menuLabel} />
           </div>
         </div>
       </header>
@@ -116,18 +116,11 @@ export function LandingPage({ locale }: { locale: Locale }) {
                 <p className="max-w-[36rem] text-lg leading-8 text-espresso sm:text-xl sm:leading-9 lg:text-cream/90">
                   {landing.hero.description}
                 </p>
-                <div className="flex shrink-0 flex-wrap items-center gap-x-8 gap-y-4">
-                  <DemoAction size="lg" className={`lg:hidden ${flat}`}>
-                    {common.actions.startDemo}
-                    <Arrow />
-                  </DemoAction>
-                  <DemoAction size="lg" variant="gold" className={`max-lg:hidden ${flat}`}>
-                    {common.actions.startDemo}
-                    <Arrow />
-                  </DemoAction>
-                  <SetupLink className={`${textLink} text-espresso hover:text-brown lg:text-cream lg:hover:text-gold`}>
-                    {common.actions.setUp}
-                  </SetupLink>
+                <div className="flex shrink-0 flex-wrap items-center gap-x-8 gap-y-4 lg:hidden">
+                  <EntryActions primary={{ size: "lg", className: flat }} arrow={<Arrow />} demoClassName={`${textLink} text-espresso hover:text-brown`} />
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-x-8 gap-y-4 max-lg:hidden">
+                  <EntryActions primary={{ size: "lg", variant: "gold", className: flat }} arrow={<Arrow />} demoClassName={`${textLink} text-cream hover:text-gold`} />
                 </div>
               </div>
             </div>
@@ -267,13 +260,6 @@ export function LandingPage({ locale }: { locale: Locale }) {
                         </div>
                       ))}
                     </dl>
-                    <DemoAction
-                      plan={plan}
-                      variant={plan === "ultimate" ? "primary" : "secondary"}
-                      className={`mt-10 w-full ${flat}`}
-                    >
-                      {copy.cta}
-                    </DemoAction>
                   </section>
                 );
               })}
@@ -301,11 +287,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
               {landing.final.body}
             </p>
             <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4">
-              <DemoAction variant="gold" size="lg" className={flat}>
-                {common.actions.startDemo}
-                <Arrow />
-              </DemoAction>
-              <SetupLink className={`${textLink} text-cream hover:text-gold`}>{common.actions.setUp}</SetupLink>
+              <EntryActions primary={{ size: "lg", variant: "gold", className: flat }} arrow={<Arrow />} demoClassName={`${textLink} text-cream hover:text-gold`} />
             </div>
           </div>
         </section>

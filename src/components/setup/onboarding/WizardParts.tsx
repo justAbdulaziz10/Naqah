@@ -81,12 +81,15 @@ export function PhoneField({
   onChange,
   autoComplete = "tel",
   showError = false,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   autoComplete?: string;
   showError?: boolean;
+  /** Replaces the format hint; `null` shows none (e.g. on repeated rows). */
+  hint?: ReactNode | null;
 }) {
   const { m } = useI18n();
   const [touched, setTouched] = useState(() => phoneNeedsFixing(value));
@@ -95,11 +98,11 @@ export function PhoneField({
     <StepField
       label={label}
       error={invalid ? <>{m.onboarding.wizard.phoneCheck} <bdi className="ltr-nums whitespace-nowrap">{m.onboarding.wizard.phoneExample}</bdi></> : undefined}
-      hint={
+      hint={hint === undefined ? (
         <>
           {m.onboarding.wizard.phoneHint} <bdi className="ltr-nums whitespace-nowrap font-medium text-espresso">{m.onboarding.wizard.phoneExample}</bdi>
         </>
-      }
+      ) : hint ?? undefined}
     >
       {({ id, describedBy }) => (
         <StepInput

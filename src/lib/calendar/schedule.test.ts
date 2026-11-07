@@ -34,7 +34,8 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
       customQuestions: [],
       criteria: [],
       emergencies: [],
-      window: { day: 4, start: "16:00", end: "17:00" },
+      window: null,
+      callSchedule: { day: 4, time: "16:00" },
     },
     camels: [],
     resources: [],
@@ -54,7 +55,7 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
 }
 
 describe("calendar schedule", () => {
-  it("snapshots the Basic window and only open scheduled tasks", () => {
+  it("snapshots the Basic call slot and only open scheduled tasks", () => {
     const ws = workspace({
       taskTickets: [
         ticket("later", "2026-11-09T10:00:00.000Z"),
@@ -69,7 +70,7 @@ describe("calendar schedule", () => {
       l: "ar",
       f: "مزرعة النخيل",
       p: "basic",
-      w: { day: 4, start: "16:00", end: "17:00" },
+      w: { day: 4, start: "16:00", end: "16:30" },
       t: [
         { id: "sooner", title: "أعطِ الناقة ماءً", at: "2026-11-06T10:00:00.000Z" },
         { id: "later", title: "أعطِ الناقة ماءً", at: "2026-11-09T10:00:00.000Z" },
@@ -77,14 +78,15 @@ describe("calendar schedule", () => {
     });
   });
 
-  it("uses no report window for Ultimate and creates a single-task snapshot", () => {
+  it("uses the daily call time for Ultimate and creates a single-task snapshot", () => {
     const basic = workspace();
     const ws = workspace({
-      settings: { ...basic.settings, plan: "ultimate", window: null },
+      settings: { ...basic.settings, plan: "ultimate", callSchedule: { day: null, time: "18:00" } },
     });
     const scheduled = ticket("one", "2026-11-09T10:00:00.000Z");
 
-    expect(scheduleFromWorkspace(ws, "en").w).toBeNull();
+    expect(scheduleFromWorkspace(ws, "en").w).toEqual({ day: 0, start: "18:00", end: "18:30" });
+    expect(scheduleFromWorkspace(workspace({ settings: { ...basic.settings, callSchedule: { day: null, time: "18:00" } } }), "en").w).toBeNull();
     expect(scheduleForTask(ws, scheduled, "en")?.t).toEqual([
       { id: "one", title: "أعطِ الناقة ماءً", at: "2026-11-09T10:00:00.000Z" },
     ]);

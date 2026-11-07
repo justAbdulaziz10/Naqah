@@ -31,19 +31,30 @@ export function AuthNavigationLoading({ appearance }: { appearance: AuthNavigati
   </span>;
 }
 
-/** Observed session hints trigger server validation; workspace/demo state is never consulted. */
-export function AuthNavigationClient({ initialIdentity, appearance }: { initialIdentity: NavigationIdentity; appearance: AuthNavigationStyle }) {
-  const { href, m } = useI18n();
+/** The validated owner identity, kept current by observed session hints. Shared by every auth-aware control. */
+export function useNavigationIdentity(initialIdentity: NavigationIdentity): NavigationIdentity {
   const [identity, setIdentity] = useState(initialIdentity);
   useEffect(() => {
     return navigationObserver.subscribe(initialIdentity, setIdentity);
   }, [initialIdentity]);
+  return identity;
+}
+
+/** Observed session hints trigger server validation; workspace/demo state is never consulted. */
+export function AuthNavigationClient({ initialIdentity, appearance, signup = true }: {
+  initialIdentity: NavigationIdentity;
+  appearance: AuthNavigationStyle;
+  /** Off where the page's own primary action already starts sign-up. */
+  signup?: boolean;
+}) {
+  const { href, m } = useI18n();
+  const identity = useNavigationIdentity(initialIdentity);
   const className = styles[appearance];
   if (identity.status === 'unknown') return <AuthNavigationLoading appearance={appearance} />;
   if (identity.status === 'signedIn') return <LogoutButton navigationClassName={className} />;
   const closeMenu = (event: React.MouseEvent<HTMLAnchorElement>) => event.currentTarget.closest('details')?.removeAttribute('open');
   return <>
     <Link className={className} href={`${href('/login')}?next=${encodeURIComponent(href('/app'))}`} onClick={closeMenu}>{appearance === 'welcome' ? m.welcome.signIn : m.landing.nav.signIn}</Link>
-    <Link className={className} href={`${href('/signup')}?next=${encodeURIComponent(href('/start'))}`} onClick={closeMenu}>{m.auth.navSignup}</Link>
+    {signup ? <Link className={className} href={`${href('/signup')}?next=${encodeURIComponent(href('/start'))}`} onClick={closeMenu}>{m.auth.navSignup}</Link> : null}
   </>;
 }

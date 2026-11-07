@@ -15,7 +15,7 @@ export const landing = defineMessages({
     hero: {
       title: "Peace of mind for your herd",
       description:
-        "Your worker calls NAQAH from an ordinary phone. It asks your questions, keeps the facts, and calls you with the update.",
+        "NAQAH calls your worker at the time you choose, asks your questions, keeps the facts, and calls you with the update.",
     },
     example: "Illustrative example",
     intro: { skip: "Skip intro" },
@@ -25,11 +25,11 @@ export const landing = defineMessages({
     },
     pending: "Opening the demo…",
     story: {
-      title: "The worker’s call",
+      title: "The report call",
       stages: [
         {
-          lead: "When it’s time to report,",
-          body: "your worker calls NAQAH from an ordinary phone. No app or forms. Basic: once a week in your chosen window. Ultimate: once a day after work.",
+          lead: "At the time you choose,",
+          body: "NAQAH calls your worker on an ordinary phone. No app or forms. Basic: once a week. Ultimate: every day.",
         },
         {
           lead: "Your questions, one at a time.",
@@ -75,7 +75,7 @@ export const landing = defineMessages({
       statement: "Rooted in heritage. Clear in detail.",
       items: [
         { label: "Recordings", value: "None. Only the facts drawn from the call are kept." },
-        { label: "If the worker misses a call", value: "NAQAH tries three more times, 20 minutes apart, then opens a No Answer ticket." },
+        { label: "If the worker misses a call", value: "NAQAH tries again, 20 minutes apart, then tells you." },
         { label: "Your instructions", value: "On Ultimate, a task stays open until the worker confirms it is done." },
         { label: "Emergencies", value: "They never wait for NAQAH. The worker calls you directly." },
       ],
@@ -104,20 +104,18 @@ export const landing = defineMessages({
       },
       basic: {
         name: "Basic",
-        summary: "Once a week, in a window you choose.",
-        cta: "Try Basic",
+        summary: "Once a week, on the day and time you choose.",
         rows: { cadence: "Weekly", questions: "Up to 5", update: "After every report", calls: "One a week", tickets: "Not included" },
       },
       ultimate: {
         name: "Ultimate",
-        summary: "Every day, at the end of the workday.",
-        cta: "Try Ultimate",
+        summary: "Every day, at the time you choose.",
         rows: { cadence: "Daily", questions: "Unlimited", update: "After every report", calls: "Unlimited", tickets: "Open until confirmed" },
       },
     },
     final: {
       title: "See a quieter day",
-      body: "Explore a sample ranch, then set up your own.",
+      body: "Set up your ranch in a few minutes.",
     },
     credits: "Photography",
   },
@@ -134,7 +132,7 @@ export const landing = defineMessages({
     hero: {
       title: "اطمئنان على حلالك",
       description:
-        "يتصل العامل بناقة من جواله. تسأله عن اللي يهمك، وتحفظ المعلومات، وتتصل بك بملخص التحديث.",
+        "ناقة تتصل على عاملك في الوقت اللي تختاره، تسأله عن اللي يهمك، تحفظ المعلومات، وتتصل فيك بملخص التحديث.",
     },
     example: "مثال توضيحي",
     intro: { skip: "تخطّي" },
@@ -144,11 +142,11 @@ export const landing = defineMessages({
     },
     pending: "جاري فتح العرض…",
     story: {
-      title: "مكالمة العامل لناقة",
+      title: "مكالمة التقرير",
       stages: [
         {
-          lead: "وقت التحديث،",
-          body: "يتصل العامل بناقة من جواله، بلا تطبيق ولا نماذج. في الأساسية مرة بالأسبوع ضمن نافذتك، وفي المتكاملة كل يوم بعد الدوام.",
+          lead: "في الوقت اللي تختاره،",
+          body: "ناقة تتصل على العامل على جواله العادي، بلا تطبيق ولا نماذج. في الأساسية مرة بالأسبوع، وفي المتكاملة كل يوم.",
         },
         {
           lead: "أسئلتك، سؤال بعد سؤال.",
@@ -193,7 +191,7 @@ export const landing = defineMessages({
       statement: "أصالة في الجذور. وضوح في التفاصيل.",
       items: [
         { label: "التسجيل", value: "ما فيه تسجيل. تُحفظ المعلومات المستخرجة من المكالمة فقط." },
-        { label: "إذا فاتت العامل مكالمة", value: "تعيد ناقة المحاولة ثلاث مرات، بين كل وحدة 20 دقيقة، ثم تفتح تذكرة عدم رد." },
+        { label: "إذا فاتت العامل مكالمة", value: "ناقة تعيد المحاولة كل 20 دقيقة، وبعدها تبلغك." },
         { label: "تعليماتك", value: "في المتكاملة، تبقى المهمة مفتوحة حتى يؤكد العامل إنه أنجزها." },
         { label: "الطوارئ", value: "ما تنتظر ناقة. العامل يتصل بك مباشرة." },
       ],
@@ -222,20 +220,18 @@ export const landing = defineMessages({
       },
       basic: {
         name: "الأساسية",
-        summary: "مرة في الأسبوع، في وقت تختاره.",
-        cta: "جرّب الأساسية",
+        summary: "مرة في الأسبوع، في اليوم والوقت اللي تختاره.",
         rows: { cadence: "أسبوعي", questions: "حتى 5", update: "بعد كل تقرير", calls: "مرة في الأسبوع", tickets: "غير متاحة" },
       },
       ultimate: {
         name: "المتكاملة",
-        summary: "كل يوم، في نهاية دوام العامل.",
-        cta: "جرّب المتكاملة",
+        summary: "كل يوم، في الوقت اللي تختاره.",
         rows: { cadence: "يومي", questions: "بلا حد", update: "بعد كل تقرير", calls: "بلا حد", tickets: "مفتوحة حتى التأكيد" },
       },
     },
     final: {
       title: "شوف يوماً أهدأ",
-      body: "ابدأ بعزبة نموذجية، ثم جهّز مزرعتك.",
+      body: "جهّز مزرعتك في دقائق.",
     },
     credits: "التصوير",
   },

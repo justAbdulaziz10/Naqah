@@ -1,141 +1,114 @@
 "use client";
 
-import { Info } from "@phosphor-icons/react";
-import { useId } from "react";
-import { Card, CardBody, CardHeader, Field, Input } from "@/components/ui";
-import { SaveState } from "@/components/setup/SaveState";
-import type { SetupSectionProps } from "@/components/setup/types";
 import { WEEKDAY_LABELS } from "@/domain/catalog";
+import { sameDay, sameWeek } from "@/domain/clock";
+import { reportDoneThisPeriod } from "@/domain/rules";
 import { isCompleteCallSchedule, nextScheduledCall } from "@/domain/schedule";
-import type { CallSchedule, Weekday } from "@/domain/types";
+import type { CallSchedule, Weekday, Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
-import { useAccountState, useIsAccount, useNow, useSaveStatus } from "@/store/workspace";
+import { useNow } from "@/store/workspace";
+import { StepField, StepInput, StepSelect } from "@/components/setup/onboarding/WizardParts";
+import type { SetupFieldsProps } from "@/components/setup/types";
 
 /**
- * When NAQAH calls the worker for the farm report. Basic: one day and time a week. Ultimate: one time every day.
- * Saved with the browser workspace only; an account cannot store it yet, so the controls stay off there.
+ * The next report call NAQAH will actually place. A period whose report is already in is not called
+ * again, so its remaining slot is skipped.
  */
-export function ReportCallSection({ ws, onChange, showSaved }: SetupSectionProps) {
-  const { m, t, fmt } = useI18n();
-  const s = m.schedule;
-  const now = useNow();
-  const account = useIsAccount();
-  const checking = useAccountState((state) => state.status === "checking");
-  const saveFailed = useSaveStatus((state) => state.status === "failed");
-  const dayGroupId = useId();
+export function upcomingReportCall(ws: Workspace, now: Date): Date | null {
+  const { plan, callSchedule } = ws.settings;
+  const next = nextScheduledCall(now, plan, callSchedule);
+  if (!next || !reportDoneThisPeriod(ws, now)) return next;
+  const samePeriod = plan === "basic" ? sameWeek(next, now) : sameDay(next, now);
+  return samePeriod ? nextScheduledCall(next, plan, callSchedule) : next;
+}
 
-  const { plan, worker } = ws.settings;
-  const basic = plan === "basic";
+/**
+ * The scheduled report call in one plain sentence, e.g. "NAQAH will call Ahmed every Thursday at 5:00 PM."
+ * null while the schedule is unfinished. Used by setup, Settings and the dashboard.
+ */
+export function useCallSentence(ws: Workspace | null): { sentence: string; next: Date; worker: string; when: string } | null {
+  const { m, t, fmt, locale } = useI18n();
+  const now = useNow();
+  if (!ws) return null;
+  const { plan, worker, callSchedule } = ws.settings;
+  const next = upcomingReportCall(ws, now);
+  if (!next || !callSchedule) return null;
+  const name = worker.name.trim() || m.setup.call.workerFallback;
+  const time = fmt.time(next);
+  const sentence = plan === "basic" && callSchedule.day !== null
+    ? m.setup.call.sentenceWeekly(name, t(WEEKDAY_LABELS[callSchedule.day]), time)
+    : m.setup.call.sentenceDaily(name, time);
+  return { sentence, next, worker: name, when: `${fmt.date(next)}${locale === "ar" ? "، " : ", "}${fmt.relative(next, now)}` };
+}
+
+/**
+ * When NAQAH calls the primary worker. Basic: a weekday and a time. Ultimate: a time, every day.
+ * Asia/Riyadh. Writes `settings.callSchedule` through `update`, in the demo and in an account alike.
+ */
+export function ReportCallFields({ ws, onChange, showErrors = false }: SetupFieldsProps) {
+  const { m, t } = useI18n();
+  const s = m.setup.call;
+  const { plan } = ws.settings;
+  const weekly = plan === "basic";
   const schedule = ws.settings.callSchedule ?? null;
-  const next = nextScheduledCall(now, plan, schedule);
-  const workerName = worker.name.trim() || s.workerFallback;
-  const locked = account;
   const complete = isCompleteCallSchedule(plan, schedule);
-  const missing = schedule && !complete ? (basic && schedule.day === null ? s.needDay : s.needTime) : null;
+  const summary = useCallSentence(ws);
+  // Only an owner who has started choosing sees what is missing.
+  const needsDay = weekly && Boolean(schedule?.time) && schedule?.day === null;
 
   function updateSchedule(patch: Partial<CallSchedule>) {
     onChange((current) => {
       const previous = current.settings.callSchedule;
-      const nextSchedule: CallSchedule = { day: previous?.day ?? null, time: previous?.time ?? "", ...patch };
-      return { ...current, settings: { ...current.settings, callSchedule: nextSchedule } };
+      const next: CallSchedule = { day: previous?.day ?? null, time: previous?.time ?? "", ...patch };
+      return { ...current, settings: { ...current.settings, callSchedule: next } };
     });
   }
 
   return (
-    <Card>
-      <CardHeader title={s.title} action={showSaved && !locked ? <SaveState /> : undefined} />
-      <CardBody className="space-y-6">
-        <p className="max-w-prose leading-relaxed text-muted">{basic ? s.leadBasic(workerName) : s.leadUltimate(workerName)}</p>
-
-        <div aria-live="polite" className="border-y border-stone/70 py-4">
-          <p className="text-sm font-semibold text-muted">{s.nextCall}</p>
-          {checking ? (
-            <p className="mt-1 text-lg text-muted">{s.loading}</p>
-          ) : next && !locked ? (
-            <>
-              <p className="mt-1 text-xl font-semibold text-espresso">{fmt.date(next)}</p>
-              <p className="mt-0.5 text-espresso">
-                <bdi>{fmt.time(next)}</bdi>
-                <span className="text-muted"> · {fmt.relative(next, now)}</span>
-              </p>
-              <p className="mt-1 text-sm text-muted">
-                {basic && schedule?.day !== null && schedule ? s.everyWeekday(t(WEEKDAY_LABELS[schedule.day])) : s.everyDay}
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="mt-1 text-xl font-semibold text-espresso">{s.noCallYet}</p>
-              {locked ? null : <p className="mt-0.5 text-sm text-muted">{basic ? s.chooseBasic : s.chooseUltimate}</p>}
-            </>
-          )}
-        </div>
-
-        <div className="space-y-5">
-          {basic ? (
-            <fieldset disabled={locked} aria-describedby={missing === s.needDay ? `${dayGroupId}-error` : undefined}>
-              <legend className="text-sm font-semibold text-espresso">{s.day}</legend>
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
-                {WEEKDAY_LABELS.map((label, index) => {
-                  const checked = schedule?.day === index;
-                  return (
-                    <label key={index} className="relative">
-                      <input
-                        type="radio"
-                        name={`${dayGroupId}-day`}
-                        className="peer sr-only"
-                        checked={checked}
-                        onChange={() => updateSchedule({ day: index as Weekday })}
-                      />
-                      <span
-                        className={cn(
-                          "flex min-h-11 cursor-pointer items-center justify-center rounded-xl border px-3 text-sm font-semibold transition",
-                          "peer-focus-visible:ring-2 peer-focus-visible:ring-brown peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-cream peer-disabled:cursor-not-allowed peer-disabled:opacity-60",
-                          checked ? "border-brown bg-ivory text-espresso" : "border-stone bg-white/70 text-muted hover:border-brown/50 hover:text-espresso",
-                        )}
-                      >
-                        {t(label)}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </fieldset>
-          ) : (
-            <div>
-              <p className="text-sm font-semibold text-espresso">{s.frequency}</p>
-              <p className="mt-1 text-espresso">{s.daily}</p>
-            </div>
-          )}
-
-          <Field label={s.time} hint={s.timeHint} className="max-w-xs">
-            {(id) => (
-              <Input
+    <div className="space-y-6">
+      <div className={cn("grid gap-x-5 gap-y-5", weekly ? "grid-cols-2" : "sm:grid-cols-2")}>
+        {weekly ? (
+          <StepField label={s.day} error={needsDay && showErrors ? s.needDay : undefined}>
+            {({ id, describedBy }) => (
+              <StepSelect
                 id={id}
-                type="time"
-                className="ltr-nums"
-                disabled={locked}
-                value={schedule?.time ?? ""}
-                aria-invalid={missing === s.needTime || undefined}
-                onChange={(event) => updateSchedule({ time: event.target.value })}
-              />
+                aria-describedby={describedBy}
+                aria-invalid={(needsDay && showErrors) || undefined}
+                value={schedule?.day ?? ""}
+                onChange={(event) => updateSchedule({ day: Number(event.target.value) as Weekday })}
+              >
+                <option value="" disabled>{s.chooseDay}</option>
+                {WEEKDAY_LABELS.map((label, index) => <option key={index} value={index}>{t(label)}</option>)}
+              </StepSelect>
             )}
-          </Field>
+          </StepField>
+        ) : null}
+        <StepField label={s.time} hint={s.timeHint}>
+          {({ id, describedBy }) => (
+            <StepInput
+              id={id}
+              type="time"
+              dir="ltr"
+              className="ltr-nums"
+              aria-describedby={describedBy}
+              value={schedule?.time ?? ""}
+              onChange={(event) => updateSchedule({ time: event.target.value })}
+            />
+          )}
+        </StepField>
+      </div>
 
-          {missing && !locked ? (
-            <p id={`${dayGroupId}-error`} className="text-sm text-danger" role="alert">{missing}</p>
-          ) : null}
-          {saveFailed && showSaved && !locked ? <p className="text-sm text-danger" role="alert">{s.saveFailed}</p> : null}
-        </div>
-
-        <div className="flex gap-3 border-t border-stone/70 pt-4">
-          <Info size={20} className="mt-0.5 shrink-0 text-info" aria-hidden />
-          <div className="text-sm leading-relaxed">
-            <p className="font-semibold text-espresso">{s.notActiveTitle}</p>
-            <p className="mt-0.5 text-muted">{locked ? s.accountUnavailable : s.notActiveBody(workerName)}</p>
-          </div>
-        </div>
-      </CardBody>
-    </Card>
+      <div aria-live="polite" className="border-t border-stone/80 pt-5">
+        {complete && summary ? (
+          <>
+            <p className="text-[1.1875rem] font-semibold leading-snug text-espresso">{summary.sentence}</p>
+            <p className="mt-1 text-[0.9375rem] text-muted">{s.next(summary.when)}</p>
+          </>
+        ) : (
+          <p className="text-[1.0625rem] text-muted">{weekly ? s.chooseWeekly : s.chooseDaily}</p>
+        )}
+      </div>
+    </div>
   );
 }

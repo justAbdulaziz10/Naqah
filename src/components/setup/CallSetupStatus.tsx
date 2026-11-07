@@ -1,31 +1,23 @@
 "use client";
 
-import { WORKER_LANGUAGES } from "@/domain/catalog";
-import type { ReportingWindow, Workspace } from "@/domain/types";
-import { isValidWindow } from "@/domain/clock";
-import { useI18n } from "@/i18n/client";
-import { ButtonLink } from "@/components/ui";
-import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
-import { useIsAccount } from "@/store/workspace";
 import { useId } from "react";
+import { isCompleteCallSchedule } from "@/domain/schedule";
+import type { Workspace } from "@/domain/types";
+import { useI18n } from "@/i18n/client";
+import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
 import { isSaudiMobile } from "./phone";
 
 export type CallSetupGap = "owner" | "farm" | "worker" | "schedule";
 
-/** A window counts only once it has both times; a day alone, or an end with no start, is a draft. */
-export function hasCompleteWindow(window: ReportingWindow | null): window is ReportingWindow {
-  return Boolean(window && isValidWindow(window));
-}
-
-/** Configuration needed before a live call integration could use this farm. */
+/** What NAQAH still needs before it could call: the owner, the ranch name, the called worker and the call time. */
 export function getCallSetupGaps(ws: Workspace): CallSetupGap[] {
   const gaps: CallSetupGap[] = [];
-  const { owner, farm, worker, plan, window } = ws.settings;
+  const { owner, farm, worker, plan, callSchedule } = ws.settings;
 
   if (!owner.name.trim() || !isSaudiMobile(owner.phone)) gaps.push("owner");
   if (!farm.name.trim()) gaps.push("farm");
   if (!worker.name.trim() || !isSaudiMobile(worker.phone)) gaps.push("worker");
-  if (plan === "basic" && !hasCompleteWindow(window)) gaps.push("schedule");
+  if (!isCompleteCallSchedule(plan, callSchedule)) gaps.push("schedule");
 
   return gaps;
 }
@@ -35,39 +27,20 @@ export function hasCallLanguageNote(ws: Workspace): boolean {
   return !isLiveCallLanguage(ws.settings.worker.language);
 }
 
-/** Keeps saved setup completion separate from call configuration and live-call availability. */
-export function CallSetupStatus({ ws, settingsHref }: { ws: Workspace; settingsHref?: string }) {
-  const { m, t } = useI18n();
-  const account = useIsAccount();
+/** Shown on the dashboard only while something calls need is missing. The header links to Settings. */
+export function CallSetupStatus({ ws }: { ws: Workspace }) {
+  const { m } = useI18n();
   const gaps = getCallSetupGaps(ws);
-  const workerLanguage = WORKER_LANGUAGES.find((language) => language.id === ws.settings.worker.language);
   const titleId = useId();
+  if (!gaps.length) return null;
 
   return (
-    <section
-      aria-labelledby={titleId}
-      className="rounded-2xl border border-stone/80 bg-cream px-4 py-4 sm:px-5"
-    >
-      <h2 id={titleId} className="font-bold text-espresso">
-        {m.onboarding.callSetupTitle}
-      </h2>
-      <p className="mt-1 text-sm leading-relaxed text-muted">
-        {gaps.length ? m.onboarding.callSetupIncomplete : m.onboarding.callSetupConfigured}
-      </p>
-      {gaps.length ? (
-        <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-espresso">
-          {gaps.map((gap) => <li key={gap}>{m.onboarding.callSetupItems[gap]}</li>)}
-        </ul>
-      ) : null}
-      {workerLanguage && hasCallLanguageNote(ws) ? (
-        <p className="mt-2 text-sm leading-relaxed text-espresso">{m.onboarding.workerLanguageNotLive(t(workerLanguage.label))}</p>
-      ) : null}
-      {account ? null : <p className="mt-3 text-sm leading-relaxed text-muted">{m.onboarding.liveCallsUnavailable}</p>}
-      {settingsHref && gaps.length ? (
-        <ButtonLink href={settingsHref} variant="secondary" className="mt-3 w-full sm:w-auto">
-          {m.onboarding.completeSetupInSettings}
-        </ButtonLink>
-      ) : null}
+    <section aria-labelledby={titleId} className="rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-5 sm:px-8">
+      <h2 id={titleId} className="text-lg font-semibold text-espresso">{m.setup.gaps.title}</h2>
+      <p className="mt-1 text-muted">{m.setup.gaps.lead}</p>
+      <ul className="mt-2 list-disc space-y-1 ps-5 text-espresso">
+        {gaps.map((gap) => <li key={gap}>{m.setup.ready.missing[gap]}</li>)}
+      </ul>
     </section>
   );
 }

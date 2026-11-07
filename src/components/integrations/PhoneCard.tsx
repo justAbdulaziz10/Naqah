@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Card, CardBody, CardHeader } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
+import { useIsAccount } from "@/store/workspace";
 
 interface IntegrationStatus {
   ok: true;
@@ -68,6 +69,7 @@ export function PhoneCard() {
     };
   }, []);
 
+  const account = useIsAccount();
   const lineNumber = status?.voice.number;
   const dialNumber = lineNumber?.replace(/[^+\d]/g, "");
   return (
@@ -76,7 +78,7 @@ export function PhoneCard() {
       <CardBody className="space-y-4">
         {!status ? <p className="text-sm text-muted">{m.integrations.phone.checking}</p> : null}
         {status && !status.voice.configured ? (
-          <p className="text-sm text-muted">{m.integrations.phone.notConnected}</p>
+          <p className="text-sm text-muted">{account ? m.integrations.phone.notConnectedAccount : m.integrations.phone.notConnected}</p>
         ) : null}
         {status?.voice.configured && lineNumber && dialNumber ? (
           <a
