@@ -64,7 +64,7 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
     setNotice(null);
     try {
       const result = await reportCallNow.call();
-      if (!result.ok) setNotice(d.callNowResult.failed);
+      if (!result.ok) setNotice(result.error === "unauthenticated" ? d.callNowResult.signedOut : result.error === "unavailable" ? d.callNowResult.unavailable : d.callNowResult.failed);
       else if (result.data.status === "placed") setNotice(d.callNowResult.placed(worker));
       else setNotice(d.callNowResult[result.data.reason]);
       void accountSync.refresh();

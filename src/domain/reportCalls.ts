@@ -139,7 +139,8 @@ export function resolveReportCallAttempt(
     reportId: null,
   });
 
-  if (attempt <= REPORT_CALL_RETRIES) {
+  // A manual confirmation authorizes one call. Only scheduled runs may retry unattended.
+  if (run.trigger === "schedule" && attempt <= REPORT_CALL_RETRIES) {
     run.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
     pushEvent(ws, now, "neutral", {
       ar: `لم يرد ${name} — ناقة تعيد الاتصال بعد ٢٠ دقيقة (${attempt}/${REPORT_CALL_RETRIES + 1})`,
@@ -151,8 +152,12 @@ export function resolveReportCallAttempt(
   run.state = "missed";
   run.nextAttemptAt = null;
   pushEvent(ws, now, "attention", {
-    ar: `لم يرد ${name} على مكالمة التقرير بعد ${attempt} محاولات. لا يوجد تقرير لهذه الفترة بعد.`,
-    en: `${name} didn't answer the report call after ${attempt} attempts. There is no report for this period yet.`,
+    ar: run.trigger === "manual"
+      ? `لم يرد ${name} على مكالمة التقرير. لا يوجد تقرير لهذه الفترة بعد.`
+      : `لم يرد ${name} على مكالمة التقرير بعد ${attempt} محاولات. لا يوجد تقرير لهذه الفترة بعد.`,
+    en: run.trigger === "manual"
+      ? `${name} didn't answer the report call. There is no report for this period yet.`
+      : `${name} didn't answer the report call after ${attempt} attempts. There is no report for this period yet.`,
   });
   return { ws, outcome: "missed" };
 }

@@ -85,6 +85,17 @@ describe("scheduled report calls", () => {
     expect(ws.events.at(-1)?.tone).toBe("attention");
   });
 
+  it("ends an unanswered manual call after one attempt without an unattended retry", () => {
+    const started = startReportCall(farm(), THU_1700, "manual");
+    const id = started.run!.id;
+    const ringing = placeReportCallAttempt(started.ws, THU_1700, id).ws;
+    const result = resolveReportCallAttempt(ringing, THU_1700, id, false);
+    expect(result.outcome).toBe("missed");
+    expect(result.ws.reportCalls?.[0]).toMatchObject({ trigger: "manual", state: "missed", nextAttemptAt: null });
+    expect(dueReportCallAttempts(result.ws, new Date(THU_1700.getTime() + RETRY_DELAY_MS))).toHaveLength(0);
+    expect(startReportCall(result.ws, new Date(THU_1700.getTime() + RETRY_DELAY_MS), "manual").run).not.toBeNull();
+  });
+
   it("answered → the saved report completes the run once", () => {
     const started = startReportCall(farm(), THU_1700, "manual");
     const run = started.run;

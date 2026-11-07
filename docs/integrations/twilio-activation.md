@@ -1,7 +1,7 @@
 # Twilio activation: one authorized test call
 
 Status (2026-11-08): the NAQAH **Twilio subaccount** is connected in the local preview (git-ignored
-`.env.local` of the `NAQAH-owner-flow` worktree; never in git). **No call has been placed.** Webhooks are
+`.env.local` of the `NAQAH-owner-flow` worktree; never in git). One manual test reached Twilio and ended `no-answer`. Webhooks are
 verified over HTTPS through an ngrok tunnel. Unattended scheduled calls are off.
 
 | Item | State |
@@ -41,7 +41,7 @@ On plain-http loopback the session cookies are not `Secure` (Safari drops Secure
 2. Put exactly that number in `NAQAH_CALL_ALLOWLIST` and restart `next start` (server env is read at start).
 3. Dashboard → **Call {worker} now**. NAQAH places one call; status shows on the dashboard every 5 s.
 4. The worker answers the scripted questions (Twilio speech recognition, `ar-SA`; keypad works too).
-5. The report appears on the dashboard; the run is `completed`. Unanswered → retried twice, 20 min apart.
+5. The report appears on the dashboard; the run is `completed`. An unanswered manual call ends after one attempt. A new attempt requires another owner confirmation.
 6. Afterwards set the allowlist back to `none-yet` (or remove `NAQAH_MANUAL_REPORT_CALLS`).
 
 ## Report calls: NAQAH calls the worker
