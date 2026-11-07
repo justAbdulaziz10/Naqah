@@ -207,7 +207,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
         <section id="plans" aria-labelledby="plans-title" className="scroll-mt-20 py-20 sm:py-24 lg:py-28">
           <div className={`${frame} grid gap-12 lg:grid-cols-12 lg:gap-x-10`}>
             <div className="lg:col-span-3">
-              <h2 id="plans-title" data-reveal="" className={sectionTitle}>
+              <h2 id="plans-title" data-reveal="" className={`${sectionTitle} lg:text-[clamp(2rem,2.6vw,2.75rem)]`}>
                 {landing.plans.title}
               </h2>
               <p className="mt-4 max-w-xs text-base leading-7 text-muted">{landing.plans.pricing}</p>

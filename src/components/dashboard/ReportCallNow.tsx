@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { formatSaudiMobile } from "@/components/setup/phone";
 import { ConfirmDialog } from "@/components/ui";
 import { dialableWorkerPhone, latestReportCall } from "@/domain/reportCalls";
 import { REPORT_CALL_RETRIES } from "@/domain/clock";
@@ -94,11 +95,12 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
       {confirming && phone ? (
         <ConfirmDialog
           title={d.confirmTitle(worker)}
-          body={d.confirmBody(`\u2066${phone}\u2069`)}
+          body={d.confirmBody(`\u2066${formatSaudiMobile(phone)}\u2069`)}
           confirmLabel={d.confirmCall}
           cancelLabel={d.cancel}
           onConfirm={() => void call()}
           onCancel={() => setConfirming(false)}
+          tone="primary"
         />
       ) : null}
     </div>

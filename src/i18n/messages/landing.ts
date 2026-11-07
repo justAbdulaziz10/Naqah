@@ -59,8 +59,8 @@ export const landing = defineMessages({
       review: "Something to review",
       quiet: "Nothing to flag",
       reviewQuote:
-        "The farm update is in. Ahmed reports feed is running low, and Wadha needs a look. The details are on the website.",
-      quietQuote: "The farm update is in. Nothing important to flag today. The details are on the website.",
+        "The ranch update is in. Ahmed reports feed is running low, and Wadha needs a look. The details are on the website.",
+      quietQuote: "The ranch update is in. Nothing important to flag today. The details are on the website.",
       listen: "Listen",
       stop: "Stop",
     },
@@ -79,7 +79,7 @@ export const landing = defineMessages({
       title: "Choose your rhythm",
       pricing: "Pricing hasn’t been set yet.",
       labels: {
-        cadence: "Farm report",
+        cadence: "Ranch report",
         questions: "Your own questions",
         update: "NAQAH calls you",
         calls: "Your calls to NAQAH",
@@ -137,7 +137,7 @@ export const landing = defineMessages({
       ],
     },
     call: {
-      label: "تحديث الخميس، عزبة الصفراء",
+      label: "تحديث الخميس، مزرعة الصفراء",
       worker: "أحمد",
       naqah: "ناقة",
       saved: "حُفظ",
@@ -165,7 +165,7 @@ export const landing = defineMessages({
     },
     principles: {
       title: "ما تلتزم به ناقة",
-      lead: "مصممة للعزبة مثل ما تمشي فعلاً: مالك واحد، وعامل تثق فيه، وحلال تعرفه بالاسم.",
+      lead: "مصممة للمزرعة مثل ما تمشي فعلاً: مالك واحد، وعامل تثق فيه، وحلال تعرفه بالاسم.",
       statement: "أصالة في الجذور. وضوح في التفاصيل.",
       items: [
         { label: "التسجيل", value: "المكالمة ما تتسجل. ناقة تحفظ المعلومات بس." },

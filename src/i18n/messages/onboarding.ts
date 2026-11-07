@@ -4,12 +4,12 @@ import { defineMessages } from "../types";
 export const onboarding = defineMessages({
   en: {
     sectionTitles: {
-      resources: "Farm resources",
+      resources: "Ranch resources",
       whatMatters: "What matters to you",
     },
-    hasResource: "We have this on the farm",
-    presentOnFarm: "On the farm",
-    absentFromFarm: "Not on the farm",
+    hasResource: "We have this on the ranch",
+    presentOnFarm: "On the ranch",
+    absentFromFarm: "Not on the ranch",
     absentResourcesSkipped: "Questions about resources you do not have are skipped.",
     criteriaTitle: "Information you want to hear about",
     customCriterion: "Custom keyword or phrase",

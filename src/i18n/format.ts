@@ -11,12 +11,13 @@ export function formatDateTime(iso: string | Date, locale: Locale, opts: Intl.Da
     month: "short",
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
     ...opts,
   }).format(new Date(iso));
 }
 
 export function formatTime(iso: string | Date, locale: Locale) {
-  return new Intl.DateTimeFormat(INTL_LOCALE[locale], { timeZone: TIME_ZONE, hour: "numeric", minute: "2-digit" }).format(
+  return new Intl.DateTimeFormat(INTL_LOCALE[locale], { timeZone: TIME_ZONE, hour: "numeric", minute: "2-digit", hour12: true }).format(
     new Date(iso),
   );
 }

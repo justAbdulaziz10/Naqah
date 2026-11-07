@@ -219,7 +219,7 @@ function DemoNotice({ showSimulate, labHref }: { showSimulate: boolean; labHref:
         <Flask size={16} className="shrink-0 text-brown" aria-hidden />
         <span className="shrink-0 font-semibold text-brown">{m.common.demo.label}</span>
         <span aria-hidden className="text-muted">·</span>
-        <span className="min-w-0 truncate text-muted xl:hidden">{m.common.demo.noticeShort}</span>
+        <span className="min-w-0 py-1.5 text-muted max-sm:leading-snug sm:truncate xl:hidden">{m.common.demo.noticeShort}</span>
         <span className="hidden min-w-0 truncate text-muted xl:inline">{m.common.demo.notice}</span>
         <div className="ms-auto flex shrink-0 items-center gap-1">
           <div className="max-sm:hidden">

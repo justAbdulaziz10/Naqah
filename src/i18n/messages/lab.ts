@@ -14,7 +14,7 @@ export const lab = defineMessages({
       reportCall: { title: "NAQAH calls Ahmed for the report", short: "Report call", detail: "The scheduled call, simulated. Ahmed answers, or it rings out." },
       workerInbound: { title: "Ahmed calls NAQAH", short: "Ahmed calls in", detail: "A missed message, a missed report call, or “we’ll call you”." },
       workerOutbound: { title: "NAQAH calls Ahmed with a message", short: "Message to Ahmed", detail: "Deliver an instruction or verify a task." },
-      ownerInquiry: { title: "Owner calls NAQAH", short: "Owner inquiry", detail: "Ask about the latest stored farm data." },
+      ownerInquiry: { title: "Owner calls NAQAH", short: "Owner inquiry", detail: "Ask about the latest stored ranch data." },
       emergency: { title: "Emergency", short: "Emergency", detail: "The worker calls the owner directly." },
     },
     availability: {
@@ -96,13 +96,13 @@ export const lab = defineMessages({
       ticket: "No Answer Tickets",
       ticketOpen: "Open",
       ticketClosed: "Closed",
-      callbackNote: "This callback delivers a missed message. It is not a farm update.",
+      callbackNote: "This callback delivers a missed message. It is not a ranch update.",
       questionAnswer: "Answer",
       herd: "Herd",
       resource: "Resource",
       task: "Task",
       noAnswer: "No Answer Ticket",
-      report: "Farm update",
+      report: "Ranch update",
     },
     certainty: {
       reported: "Reported",
@@ -133,7 +133,7 @@ export const lab = defineMessages({
       detail: (owner: string) => "Ahmed calls " + owner + " directly. NAQAH never dispatches an emergency response.",
     },
     empty: {
-      workspaceTitle: "Set up the demo farm first",
+      workspaceTitle: "Set up the demo ranch first",
       workspaceBody: "The Call Lab uses the worker, owner, herd, and plan saved in the demo workspace.",
       workspaceAction: "Open overview",
     },

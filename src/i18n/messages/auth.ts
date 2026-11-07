@@ -3,7 +3,7 @@ import { defineMessages } from '../types';
 export const auth = defineMessages({
   en: {
     login: 'Open your ranch', signup: 'Create your account',
-    loginLead: 'Log in to see the latest from your farm.', signupLead: 'The owner account for your ranch. Farm setup comes next.',
+    loginLead: 'Log in to see the latest from your ranch.', signupLead: 'The owner account for your ranch. Ranch setup comes next.',
     phone: 'Mobile number', phoneHint: 'We will text you a sign-in code.', phoneCountry: 'Saudi Arabia, +966', phonePlaceholder: '5X XXX XXXX',
     send: 'Send code', sending: 'Sending…', codeTitle: 'Enter the code', code: 'Verification code', codeHint: 'The 6-digit code from the text message.',
     sentTo: 'Code sent to', verify: 'Verify and continue', verifying: 'Verifying…', change: 'Change number', resend: 'Send a new code',

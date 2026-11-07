@@ -11,6 +11,7 @@ export function ConfirmDialog({
   cancelLabel,
   onConfirm,
   onCancel,
+  tone = "danger",
 }: {
   title: string;
   body: string;
@@ -18,6 +19,8 @@ export function ConfirmDialog({
   cancelLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** "danger" for replacing or deleting; "primary" for a deliberate action like placing a call. */
+  tone?: "danger" | "primary";
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -44,7 +47,7 @@ export function ConfirmDialog({
       <div className="mt-6 flex flex-wrap justify-end gap-2">
         {/* showModal() focuses the first control, so the safe choice comes first. */}
         <Button variant="secondary" className="max-sm:w-full" onClick={onCancel}>{cancelLabel}</Button>
-        <Button variant="danger" className="max-sm:w-full" onClick={onConfirm}>{confirmLabel}</Button>
+        <Button variant={tone} className="max-sm:w-full" onClick={onConfirm}>{confirmLabel}</Button>
       </div>
     </dialog>
   );

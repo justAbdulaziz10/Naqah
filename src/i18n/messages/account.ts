@@ -3,8 +3,8 @@ import { defineMessages } from "../types";
 /** A signed-in owner's real farm. Keep both locales in lockstep. */
 export const account = defineMessages({
   en: {
-    loading: "Loading your farm",
-    loadFailed: "We couldn't load your farm. Your data is safe.",
+    loading: "Loading your ranch",
+    loadFailed: "We couldn't load your ranch. Your data is safe.",
     notSaved: "Your latest change isn't saved yet.",
     refused: "Something you entered is too long or out of range. Change it and it will save.",
     planLocked: "Your plan can't be changed here yet.",
