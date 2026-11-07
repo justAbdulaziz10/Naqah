@@ -6,6 +6,7 @@ import { getSupabaseConfig } from "@/lib/supabase/config";
 import { createWritableClient, getOwner } from "@/lib/supabase/server";
 import { withTimeout } from "@/lib/supabase/timeout";
 import { applyOwnerChanges } from "./changes";
+import { isAccountDataEnabled } from "./account-mode";
 
 const DB_TIMEOUT_MS = 8_000;
 
@@ -13,6 +14,7 @@ type ActionResult<T> = { ok: true; data: T } | { ok: false; error: DbErrorCode |
 
 /** Identity comes from the validated session only. No action takes an owner or farm id. */
 async function asOwner<T>(work: (repository: OwnerRepository) => Promise<T>): Promise<ActionResult<T>> {
+  if (!isAccountDataEnabled()) return { ok: false, error: "unavailable" };
   try {
     const { user, unavailable } = await getOwner();
     // An outage is not a signed-out owner: treating it as one would show them the demo.
@@ -29,6 +31,7 @@ export async function ensureFarm() { return asOwner((r) => r.ensureFarm()); }
 
 /** Entering the dashboard or setup. Without Supabase configured there is no account to open. */
 export async function openAccount() {
+  if (!isAccountDataEnabled()) return { ok: false as const, error: "unavailable" as const };
   if (!getSupabaseConfig()) return { ok: false as const, error: "unauthenticated" as const };
   return asOwner(async (r) => {
     await r.ensureFarm();

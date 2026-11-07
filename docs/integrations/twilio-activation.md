@@ -34,8 +34,8 @@ These stop the first real call. None can be worked around with sample data.
 
 | Dependency | Why | Owner |
 |---|---|---|
-| Access to `ydsgmzxqjimwbamnksxe` | The connected Supabase account lists one other project, and the REST API returns 404 for `farms`, so the migrations are not applied. | Project owner |
-| `SUPABASE_SECRET_KEY` | Not in `.env.local`, which still has the empty legacy name. | Project owner |
+| Application schema on `ydsgmzxqjimwbamnksxe` | The latest team report says the project exists with Auth test users but no application migrations (issue #6). Confirm access/history and obtain activation approval first; Task A does not query or change live data. | Project owner |
+| `SUPABASE_SECRET_KEY` | Reported set in production/preview; still verify service-only scope and the intended activation environment without exposing it. Local readiness tests require no live key. | Project owner |
 | Twilio credentials | None on this machine, and no Twilio tool is connected, so the account could not be checked. | Project owner |
 
 Decisions needed from the owner:
@@ -80,8 +80,11 @@ Each step is the owner's to approve.
 
 1. **Confirm the project.** Check that you can open `ydsgmzxqjimwbamnksxe`. Never apply this
    schema to any other project.
-2. **Apply the schema.** Follow `supabase-preparation.md`. The dry run must list exactly `0001`,
-   `0002` and `0003`. Then run Security and Performance Advisors.
+2. **Apply the schema only in a separately authorized activation phase.** Follow `supabase-preparation.md`.
+   The complete order is `0001_init.sql`, `0002_backend_foundation.sql`, `0003_voice_call_sessions.sql`,
+   `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql`. An empty application's dry run must
+   list all five; otherwise reconcile migration history first. Then run Security and Performance Advisors.
+   Task A's readiness PR does not apply them or enable voice/account flags. Issue #6 remains an activation dependency.
 3. **Get a public HTTPS address.** Either run the branch locally behind a tunnel, which needs no
    deployment, or use a deployment without Vercel Authentication. Twilio can't pass that login.
 4. **Set the server variables** there, never in a `NEXT_PUBLIC_` name:

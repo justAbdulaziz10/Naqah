@@ -39,6 +39,107 @@ afterEach(() => {
 });
 
 describe("account mode", () => {
+  it("drops conflicted edits and opens once even if every save would conflict", async () => {
+    const { sync, api, useWorkspaceStore, setServer, useAccountState } = await setup(farm());
+    await sync.open();
+    api.save.mockImplementation(async () => {
+      // Bound the old regression instead of allowing an infinite microtask loop in a failing test.
+      if (api.save.mock.calls.length > 5) return { ok: false, error: "unavailable" };
+      return { ok: false, error: "conflict" };
+    });
+    const other = { ...rename("Owner B")(farm()), createdAt: "2026-11-05T00:00:00.000Z" };
+    setServer(other);
+    useWorkspaceStore.getState().update(rename("Owner A pending edit"));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(api.save).toHaveBeenCalledTimes(1);
+    expect(api.open).toHaveBeenCalledTimes(2);
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+    expect(useAccountState.getState()).toMatchObject({ status: "ready", notice: null });
+    expect(sync.hasUnsaved()).toBe(false);
+  });
+
+  it("discovers a changed owner before flushing a scheduled retry", async () => {
+    const { sync, api, useWorkspaceStore, setServer } = await setup(farm());
+    await sync.open();
+    api.save.mockResolvedValueOnce({ ok: false, error: "unavailable" });
+    useWorkspaceStore.getState().update(rename("Owner A pending edit"));
+    await vi.advanceTimersByTimeAsync(1_000);
+    const other = { ...farm(), createdAt: "2026-11-05T00:00:00.000Z" };
+    setServer(other);
+    await sync.open();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(api.save).toHaveBeenCalledTimes(1);
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+  });
+
+  it.each(["saved", "conflict", "unavailable", "unauthenticated"] as const)("ignores an old owner's in-flight %s result after loading the new owner", async (reply) => {
+    const { sync, api, useWorkspaceStore, setServer } = await setup(farm());
+    await sync.open();
+    let finish!: (result: Awaited<ReturnType<AccountApi["save"]>>) => void;
+    api.save.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    useWorkspaceStore.getState().update(rename("Owner A pending edit"));
+    await vi.advanceTimersByTimeAsync(1_000);
+    const other = { ...rename("Owner B")(farm()), createdAt: "2026-11-05T00:00:00.000Z" };
+    setServer(other);
+    await sync.open();
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+    finish(reply === "saved"
+      ? { ok: true, data: { workspace: rename("Old response")(farm()), created: { old: "wrong-id" }, failed: [] } }
+      : { ok: false, error: reply });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(api.save).toHaveBeenCalledTimes(1);
+    expect(api.open).toHaveBeenCalledTimes(2);
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+  });
+
+  it("ignores an obsolete open response that arrives after another account opens", async () => {
+    const { sync, api, useWorkspaceStore, setServer } = await setup(farm());
+    await sync.open();
+    let finish!: (result: Awaited<ReturnType<AccountApi["open"]>>) => void;
+    api.open.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const obsolete = sync.open();
+    const other = { ...farm(), createdAt: "2026-11-05T00:00:00.000Z" };
+    setServer(other);
+    await sync.open();
+    finish({ ok: true, data: rename("Old A")(farm()) });
+    await obsolete;
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+    expect(api.save).not.toHaveBeenCalled();
+  });
+
+  it("cancels a queued flush waiting on an old owner's save", async () => {
+    const { sync, api, useWorkspaceStore, setServer } = await setup(farm());
+    await sync.open();
+    let finish!: (result: Awaited<ReturnType<AccountApi["save"]>>) => void;
+    api.save.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    useWorkspaceStore.getState().update(rename("A pending"));
+    const inFlight = sync.flush();
+    const queued = sync.flush();
+    const other = { ...farm(), createdAt: "2026-11-05T00:00:00.000Z" };
+    setServer(other);
+    await sync.open();
+    finish({ ok: false, error: "unavailable" });
+    await Promise.all([inFlight, queued]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(api.save).toHaveBeenCalledTimes(1);
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+  });
+
+  it("invalidates a pending refresh across close and a different owner opening", async () => {
+    const { sync, api, useWorkspaceStore, setServer } = await setup(farm());
+    await sync.open();
+    let finish!: (result: Awaited<ReturnType<AccountApi["load"]>>) => void;
+    api.load.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const refresh = sync.refresh();
+    sync.close();
+    const other = { ...farm(), createdAt: "2026-11-05T00:00:00.000Z" };
+    setServer(other);
+    await sync.open();
+    finish({ ok: true, data: rename("Stale A")(farm()) });
+    await refresh;
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+  });
+
   it("never writes a real farm to this browser", async () => {
     const { sync, useWorkspaceStore } = await setup(farm());
     await sync.open();

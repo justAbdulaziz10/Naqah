@@ -1,4 +1,5 @@
 import { loadWorkspace, openAccount, saveOwnerEdits } from "@/server/farm/actions";
+import { isAccountDataEnabled } from "@/server/farm/account-mode";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -19,6 +20,7 @@ function sameOrigin(request: Request): boolean {
  * one in flight when a page changes, which would lose the save that finishes setup.
  */
 export async function POST(request: Request): Promise<Response> {
+  if (!isAccountDataEnabled()) return Response.json({ ok: false, error: "unavailable" }, { status: 404, headers: NO_STORE });
   if (!sameOrigin(request)) return Response.json({ ok: false, error: "forbidden" }, { status: 403, headers: NO_STORE });
   const body = (await request.json().catch(() => null)) as { op?: unknown; changes?: unknown; farm?: unknown } | null;
   const result =

@@ -1,15 +1,27 @@
 # Supabase database handoff
 
-Status (2026-11-05): `supabase/migrations/0001_init.sql` is reviewed, revised and validated on a
-throwaway local Postgres 17.6 with a Supabase-like stand-in for roles and `auth`. It has **not**
-been applied to any Supabase project. No account settings, keys or secrets were touched.
+Status (2026-11-07): Auth, account-data integration and farm-mode call storage already exist in code.
+The latest team report says the existing project has Auth test users but no NAQAH application migrations
+(issue #6). This is not a new live inspection. No live migration, account/settings change or deployment is
+authorized during code-readiness work. Local tests use disposable Postgres 17.6 and stand-in roles/Auth.
 
-The app still uses localStorage and has no Supabase SDK. Applying this schema does not connect
-the app or the phone line; that is later integration work (see "After the schema is live").
+The browser demo remains separate. The exact build-time `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` enables
+account UI and server access together; disabled `/api/account` returns 404 without database operations.
+Farm-mode voice has its own flag and team ownership. Applying SQL alone activates neither path.
 
-## What changed in the migration
+## Complete migration sequence
 
-The migration was never applied anywhere, so it was revised in place as one initial migration.
+1. `0001_init.sql`: initial tables, grants, RLS, parent constraints and plan limits.
+2. `0002_backend_foundation.sql`: revisions, atomic service writes, event idempotency and same-farm links.
+3. `0003_voice_call_sessions.sql`: structured in-progress call state, no recordings/transcripts.
+4. `0004_owner_write_limits.sql`: owner write constraints and no direct farm deletion.
+5. `0005_custom_question_retry.sql`: same-farm fifth-question upsert retries without weakening the Basic cap.
+
+Keep historical migrations intact. Add forward fixes; an existing migration history determines which are pending.
+
+## Historical review of 0001
+
+The initial pre-activation review revised 0001 in place. That is historical context, not guidance to rewrite it now.
 
 | Area | Change |
 |---|---|
@@ -20,7 +32,7 @@ The migration was never applied anywhere, so it was revised in place as one init
 | Optional setup | Removed `basic_needs_window`: owners may finish or skip setup without a schedule; Basic reporting without a valid window is still rejected by `src/domain/rules.ts`. A window draft may hold the day before the times; times require a day and the end must follow the start. Worker name/phone default to empty. Added nullable farm coordinates (both or neither) and supplier contact columns so existing optional settings have somewhere to live. |
 | Camels | `tag` stays (`not null default ''`): new camels get an empty tag; existing tags are kept when the edit form omits them. |
 
-## Validation results (local only)
+## Historical 0001 validation results (local only)
 
 `sh supabase/local-validation/run.sh` against a disposable Postgres 17.6:
 
@@ -42,9 +54,12 @@ Not verified (needs the real project): Supabase's actual roles, default privileg
 generated types, phone OTP. The scripts under `supabase/local-validation/` are **local only**:
 `bootstrap.sql` creates roles and an `auth` schema and must never run on a Supabase project.
 
-## Apply once the project exists
+## Manual next phase: apply to the existing project only after authorization
 
-Run from the repo root. Your friend owns the account: they log in and enter the database password.
+These commands are a future checklist, **not commands run in the readiness phase**. The project owner must
+authorize and perform activation on the existing `ydsgmzxqjimwbamnksxe`. Do not create another project or
+alter existing Auth test users to make application migrations work. Never run `local-validation/bootstrap.sql`
+or any local-validation runner against hosted Supabase.
 
 1. **Check the project.** Dashboard → Database → Migrations is empty, Table Editor shows no
    tables in `public`, and Settings → Infrastructure shows Postgres 15 or newer. If anything is
@@ -54,15 +69,15 @@ Run from the repo root. Your friend owns the account: they log in and enter the 
 3. **Link.**
    ```bash
    npx supabase@latest login
-   npx supabase@latest link --project-ref <project-ref>
+   npx supabase@latest link --project-ref ydsgmzxqjimwbamnksxe
    ```
    If the CLI reports that the project is not initialised, run `npx supabase@latest init` first
    (it adds `supabase/config.toml`; commit it with the migration later if you keep it).
 4. **Preview, then apply.**
    ```bash
-   npx supabase@latest db push --dry-run   # must list 0001, 0002, 0003 and 0004
+   npx supabase@latest db push --dry-run   # empty application schema/history: must list 0001 through 0005
    npx supabase@latest db push
-   npx supabase@latest migration list      # local and remote both show all four
+   npx supabase@latest migration list      # local and remote both show all five
    ```
 5. **Verify in the SQL editor** (read-only):
    ```sql
@@ -75,28 +90,33 @@ Run from the repo root. Your friend owns the account: they log in and enter the 
    ```
 6. **Advisors.** Dashboard → Advisors → Security and Performance. Expect no findings for NAQAH
    objects; note any that remain and send them back for review.
-7. **Isolation on the real project.** After owner login exists, create two test owners and repeat
-   the owner checks with real sessions (A cannot read or write B; anon reads nothing). Delete the
-   test users afterwards.
+7. **Isolation on the real project.** Use two explicitly approved test owners and real sessions (A cannot
+   read or write B; anon reads nothing). Confirm account setup/edit/reload, cross-tab owner switch and
+   fifth-question retry. Do not delete or change existing Auth users without separate approval.
+8. **Separate activation.** Verify required providers/redirects and obtain approval before setting
+   `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` and rebuilding/deploying. SMS, voice and schedulers remain separate,
+   disabled until their owners authorize them. Rollback limitations are in `supabase-backend.md`.
 
 ## After the schema is live
 
 - Environment names (values stay out of git and chat; `.env.local` is ignored):
   ```dotenv
   NEXT_PUBLIC_SUPABASE_URL=
-  NEXT_PUBLIC_SUPABASE_ANON_KEY=
-  SUPABASE_SERVICE_ROLE_KEY=
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+  NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=
+  SUPABASE_SECRET_KEY=
   ```
-  If the project issues a publishable key instead of an anon key, rename the variable and its
-  consumers together. The service key is server-only: never `NEXT_PUBLIC_`, never in logs.
-- The app integration should map empty optional strings to `''`, window times not yet chosen to
+  Auth and owner CRUD use the publishable key with the validated session/RLS. The secret key is for the
+  service/voice path only: never `NEXT_PUBLIC_`, never in logs. `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is the optional
+  public CAPTCHA site key; provider settings and secrets are separate manual configuration.
+- The existing app integration maps empty optional strings to `''`, window times not yet chosen to
   `null`, and delete (not save) a custom question whose text is cleared, because blank question
   text is rejected.
 - `report_answers.question_id` is a text snapshot, not a foreign key; the voice service must only
   write ids from the same farm.
-- `src/domain/types.ts` has no field for `weather`; it is a refreshable forecast cache and is not
-  stored. The new `latitude`/`longitude` and `supplier_*` columns map to `Farm.coords` and
+- `Workspace.weather` is a refreshable browser forecast cache and is not stored. The
+  `latitude`/`longitude` and `supplier_*` columns map to `Farm.coords` and
   `Settings.integrations`.
-- AGENT.md §8.1 still says "validated on Postgres 14"; the schema now needs Postgres 15+.
+- The schema requires Postgres 15+; local validation does not verify Supabase's real gateway/Auth configuration.
 - Phone OTP needs an SMS provider and charges on the account; do not claim it works until a test
   the owner authorised succeeds. Set exact auth redirect URLs; no wildcard production redirects.

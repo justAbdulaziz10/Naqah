@@ -70,6 +70,7 @@ export function createAccountSync(api: AccountApi) {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let saving: Promise<void> | null = null;
   let opening = 0;
+  let generation = 0;
 
   const clearTimer = () => {
     if (timer) clearTimeout(timer);
@@ -81,6 +82,8 @@ export function createAccountSync(api: AccountApi) {
   };
 
   function close(status: "demo" | "signedOut" = "demo") {
+    generation++;
+    opening++;
     const wasActive = accountLink.active;
     if (wasActive) setWorkspace(null); // Still in account mode here, so this can't blank the demo's copy.
     accountLink.active = false;
@@ -99,6 +102,7 @@ export function createAccountSync(api: AccountApi) {
     const local = current();
     base = fresh;
     if (before && before.createdAt !== fresh.createdAt) {
+      generation++;
       clearTimer();
       setSave("idle");
       useAccountState.setState({ notice: null });
@@ -109,6 +113,7 @@ export function createAccountSync(api: AccountApi) {
   }
 
   async function send() {
+    const epoch = generation;
     const sent = current();
     if (!base || !sent) return;
     const before = base;
@@ -119,10 +124,19 @@ export function createAccountSync(api: AccountApi) {
       return;
     }
     const result = await api.save(changes, base.createdAt).catch(() => ({ ok: false, error: "unavailable" }) as const);
-    if (!accountLink.active) return;
+    if (!accountLink.active || epoch !== generation) return;
     if (!result.ok) {
       if (result.error === "unauthenticated") return close("signedOut");
-      if (result.error === "conflict") return void reopen();
+      if (result.error === "conflict") {
+        // These edits belong to a previous farm. Never flush them while discovering the
+        // current owner, and invalidate any queued flush/refresh from that generation.
+        base = null;
+        clearTimer();
+        setWorkspace(null);
+        setSave("idle");
+        useAccountState.setState({ notice: null });
+        return void reopen();
+      }
       setSave("failed");
       return schedule(RETRY_DELAY_MS);
     }
@@ -147,9 +161,10 @@ export function createAccountSync(api: AccountApi) {
   }
 
   async function flush(): Promise<void> {
+    const epoch = generation;
     clearTimer();
     while (saving) await saving;
-    if (!accountLink.active) return;
+    if (!accountLink.active || epoch !== generation) return;
     saving = send().finally(() => { saving = null; });
     return saving;
   }
@@ -169,19 +184,29 @@ export function createAccountSync(api: AccountApi) {
   /** Runs on every entry, so a session that ended or changed never shows the last owner's farm. */
   async function reopen() {
     const attempt = ++opening;
+    const epoch = ++generation;
+    clearTimer();
     useAccountState.setState({ status: "checking" });
-    if (accountLink.active) await flush();
+    // Discover whose farm this is BEFORE saving. A session can change in another tab.
+    // Existing in-flight saves may finish, but their old-generation results are ignored.
     const result = await api.open().catch(() => ({ ok: false, error: "unavailable" }) as const);
-    if (attempt !== opening) return;
+    if (attempt !== opening || epoch !== generation) return;
     if (!result.ok) {
       if (result.error === "unauthenticated" || !hasSession()) return close();
       return useAccountState.setState({ status: "error" });
     }
-    if (accountLink.active) receive(result.data);
-    else {
+    const sameFarm = accountLink.active && base?.createdAt === result.data.createdAt;
+    if (sameFarm) {
+      receive(result.data);
+      // Keep normal setup/navigation saves, but only after confirming the same farm.
+      await flush();
+      if (attempt !== opening || epoch !== generation) return;
+    } else {
       accountLink.active = true;
       base = result.data;
       setWorkspace(result.data);
+      setSave("idle");
+      useAccountState.setState({ notice: null });
     }
     useAccountState.setState({ active: true, status: "ready" });
   }
@@ -197,10 +222,11 @@ export function createAccountSync(api: AccountApi) {
 
     /** Calls change the farm while the page is open, so screens pick that up here. */
     async refresh() {
-      if (!accountLink.active || saving || timer) return;
+      if (!accountLink.active || saving || timer || useAccountState.getState().status !== "ready") return;
+      const epoch = generation;
       const before = current();
       const result = await api.load().catch(() => null);
-      if (!result || !accountLink.active) return;
+      if (!result || !accountLink.active || epoch !== generation) return;
       if (!result.ok) {
         if (result.error === "unauthenticated") close("signedOut");
         return;
