@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createDemoWorkspace, createEmptyWorkspace } from "@/domain/seed";
 import { getCallSetupGaps } from "./CallSetupStatus";
 import { createOnboardingSample, hasOwnSetupData } from "./draft";
-import { formatSaudiMobile, isSaudiMobile, phoneNeedsFixing } from "./phone";
+import { formatSaudiMobile, fromLocalSaudiPart, isSaudiMobile, localSaudiPart, phoneNeedsFixing } from "./phone";
 
 describe("Saudi mobile numbers", () => {
   it.each([
@@ -31,6 +31,30 @@ describe("Saudi mobile numbers", () => {
   it("does not flag an empty optional field", () => {
     expect(phoneNeedsFixing("  ")).toBe(false);
     expect(phoneNeedsFixing("123")).toBe(true);
+  });
+});
+
+describe("the +966 phone field", () => {
+  it("adds the country code to a local number and keeps full numbers as typed", () => {
+    expect(fromLocalSaudiPart("50 123 4567")).toBe("+966 50 123 4567");
+    expect(fromLocalSaudiPart("٥٠١٢٣٤٥٦٧")).toBe("+966 501234567");
+    expect(fromLocalSaudiPart("0501234567")).toBe("0501234567");
+    expect(fromLocalSaudiPart("+966501234567")).toBe("+966501234567");
+    expect(fromLocalSaudiPart("  ")).toBe("");
+  });
+
+  it("shows only the part after +966", () => {
+    expect(localSaudiPart("+966 50 123 4567")).toBe("50 123 4567");
+    expect(localSaudiPart("0501234567")).toBe("50 123 4567");
+    expect(localSaudiPart("+966 50 12")).toBe("50 12");
+    expect(localSaudiPart("")).toBe("");
+  });
+
+  it("round-trips: what is shown and typed back stores the same number", () => {
+    const stored = formatSaudiMobile(fromLocalSaudiPart("501234567"));
+    expect(stored).toBe("+966 50 123 4567");
+    expect(formatSaudiMobile(fromLocalSaudiPart(localSaudiPart(stored)))).toBe(stored);
+    expect(phoneNeedsFixing(fromLocalSaudiPart("40 123 4567"))).toBe(true);
   });
 });
 

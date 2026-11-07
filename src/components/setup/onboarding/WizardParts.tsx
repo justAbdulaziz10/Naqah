@@ -5,7 +5,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { useId, useState } from "react";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
-import { formatSaudiMobile, phoneNeedsFixing } from "../phone";
+import { formatSaudiMobile, fromLocalSaudiPart, localSaudiPart, phoneNeedsFixing } from "../phone";
 
 /**
  * Onboarding-only form pieces. They are set larger than the shared Field/Input (17px text, 56px
@@ -74,54 +74,65 @@ export function StepSelect({ className, children, ...props }: ComponentProps<"se
   );
 }
 
-/** Phone input that always reads left-to-right, and tidies or flags the number once the owner leaves it. */
+/**
+ * Saudi mobile input: a fixed +966 and the local number, always left-to-right, with the phone keypad.
+ * Stored as +966 5X XXX XXXX once it is a valid mobile; anything else stays as typed and is flagged.
+ */
 export function PhoneField({
   label,
   value,
   onChange,
-  autoComplete = "tel",
+  autoComplete = "tel-national",
   showError = false,
   hint,
+  className,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   autoComplete?: string;
   showError?: boolean;
-  /** Replaces the format hint; `null` shows none (e.g. on repeated rows). */
-  hint?: ReactNode | null;
+  hint?: ReactNode;
+  className?: string;
 }) {
   const { m } = useI18n();
+  const w = m.onboarding.wizard;
   const [touched, setTouched] = useState(() => phoneNeedsFixing(value));
   const invalid = (touched || showError) && phoneNeedsFixing(value);
   return (
-    <StepField
-      label={label}
-      error={invalid ? <>{m.onboarding.wizard.phoneCheck} <bdi className="ltr-nums whitespace-nowrap">{m.onboarding.wizard.phoneExample}</bdi></> : undefined}
-      hint={hint === undefined ? (
-        <>
-          {m.onboarding.wizard.phoneHint} <bdi className="ltr-nums whitespace-nowrap font-medium text-espresso">{m.onboarding.wizard.phoneExample}</bdi>
-        </>
-      ) : hint ?? undefined}
-    >
+    <StepField label={label} className={className} error={invalid ? w.phoneCheck : undefined} hint={hint}>
       {({ id, describedBy }) => (
-        <StepInput
-          id={id}
-          type="tel"
-          inputMode="tel"
-          autoComplete={autoComplete}
+        <div
           dir="ltr"
-          className={cn("text-left tracking-wide rtl:text-right", invalid && "border-danger")}
-          aria-describedby={describedBy}
-          aria-invalid={invalid || undefined}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          onBlur={() => {
-            setTouched(true);
-            const formatted = formatSaudiMobile(value);
-            if (formatted !== value) onChange(formatted);
-          }}
-        />
+          className={cn(
+            "flex h-14 w-full items-stretch overflow-hidden rounded-xl border bg-white transition focus-within:border-brown focus-within:ring-4 focus-within:ring-brown/15",
+            invalid ? "border-danger" : "border-stone",
+          )}
+        >
+          <span className="ltr-nums flex items-center border-e border-stone bg-ivory px-3.5 text-[1.0625rem] font-medium text-muted">
+            <span className="sr-only">{w.phoneCountry}</span>
+            <span aria-hidden>+966</span>
+          </span>
+          <input
+            id={id}
+            type="tel"
+            inputMode="tel"
+            autoComplete={autoComplete}
+            dir="ltr"
+            maxLength={20}
+            placeholder={w.phonePlaceholder}
+            className="ltr-nums min-w-0 flex-1 bg-transparent px-3.5 text-left text-[1.0625rem] tracking-wide text-espresso placeholder:text-muted/70 focus:outline-none"
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            value={localSaudiPart(value)}
+            onChange={(event) => onChange(fromLocalSaudiPart(event.target.value))}
+            onBlur={() => {
+              setTouched(true);
+              const formatted = formatSaudiMobile(value);
+              if (formatted !== value) onChange(formatted);
+            }}
+          />
+        </div>
       )}
     </StepField>
   );
