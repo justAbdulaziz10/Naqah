@@ -176,6 +176,17 @@ export interface ReportingWindow {
   end: string;
 }
 
+/**
+ * When NAQAH calls the worker for the farm report. Basic: once a week on `day` at `time`.
+ * Ultimate: every day at `time` (`day` is ignored). Not yet stored in Supabase: see docs/integrations/call-schedule.md.
+ */
+export interface CallSchedule {
+  /** Basic only. null until the owner chooses a day. */
+  day: Weekday | null;
+  /** "HH:MM", 24h, Asia/Riyadh. "" until the owner chooses a time. */
+  time: string;
+}
+
 export interface ReportAnswer {
   questionId: string;
   question: LocalizedText;
@@ -296,6 +307,8 @@ export interface Settings {
   emergencies: EmergencyCategory[];
   /** Basic only. */
   window: ReportingWindow | null;
+  /** NAQAH → worker report call time. Optional: older workspaces lack it. Browser demo only for now. */
+  callSchedule?: CallSchedule | null;
   integrations?: Integrations;
 }
 

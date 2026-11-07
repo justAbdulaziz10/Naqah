@@ -6,4 +6,5 @@ export * from "./findings";
 export * from "./actions";
 export * from "./seed";
 export * from "./weather";
+export * from "./schedule";
 export { uid } from "./id";

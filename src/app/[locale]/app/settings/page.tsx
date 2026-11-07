@@ -18,6 +18,7 @@ import {
   type WorkspaceUpdate,
 } from "@/components/setup";
 import { IntegrationsSection } from "@/components/integrations/IntegrationsSection";
+import { ReportCallSection } from "@/components/schedule/ReportCallSection";
 import type { Plan } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { LogoutButton } from "@/components/auth/LogoutButton";
@@ -108,6 +109,8 @@ export default function SettingsPage() {
       <div id="settings-questions" className={anchor}><QuestionsSection {...section("questions")} /></div>
       <div id="settings-criteria" className={anchor}><WhatMattersSection {...section("criteria")} /></div>
       <div id="settings-emergencies" className={anchor}><EmergencySection {...section("emergencies")} /></div>
+      <div id="settings-report-call" className={anchor}><ReportCallSection {...section("reportCall")} /></div>
+      {/* Legacy Basic window: Overview, Call Lab, calendar and setup gaps still read it. See docs/integrations/call-schedule.md. */}
       {ws.settings.plan === "basic" ? (
         <div id="settings-schedule" className={anchor}>
           <ScheduleSection {...section("schedule")} />
