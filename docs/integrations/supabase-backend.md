@@ -156,6 +156,11 @@ requests or disable `NAQAH_VOICE_MODE=farm`/service jobs. Those require separate
       farms, which blocks that worker's calls; an unclaimed number can be squatted. Fine for a
       closed test, not for open sign-up. Needs service-only verified columns, and `findCaller`
       matching verified numbers only.
+      Seen on live (2026-11-08): two QA farms saved the same worker number. It affects inbound
+      routing only (`findCaller` treats the caller as unknown); outbound report calls still go to
+      each farm's own stored number. Decision: no global unique index on `workers.phone` for now.
+      Until verification exists, consider telling the owner when a saved number is already
+      registered elsewhere, without revealing the other farm.
 - [ ] Unregistered callers (open decision 4), and instructions during inquiry calls (6).
 - [ ] Whether, and how often, an unconfirmed task is called about again. Today it gets one
       automatic call, then is asked about during the worker's own calls.
