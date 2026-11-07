@@ -54,8 +54,9 @@ export function ReportCallFields({ ws, onChange, showErrors = false }: SetupFiel
   const schedule = ws.settings.callSchedule ?? null;
   const complete = isCompleteCallSchedule(plan, schedule);
   const summary = useCallSentence(ws);
-  // Only an owner who has started choosing sees what is missing.
-  const needsDay = weekly && Boolean(schedule?.time) && schedule?.day === null;
+  // Shown once the owner tries to continue (or has started choosing and left the day out).
+  const needsDay = weekly && (schedule?.day ?? null) === null && (showErrors || Boolean(schedule?.time));
+  const needsTime = showErrors && !schedule?.time;
 
   function updateSchedule(patch: Partial<CallSchedule>) {
     onChange((current) => {
@@ -84,13 +85,15 @@ export function ReportCallFields({ ws, onChange, showErrors = false }: SetupFiel
             )}
           </StepField>
         ) : null}
-        <StepField label={s.time} hint={s.timeHint}>
+        <StepField label={s.time} hint={s.timeHint} error={needsTime ? s.needTime : undefined}>
           {({ id, describedBy }) => (
             <StepInput
               id={id}
               type="time"
               dir="ltr"
-              className="ltr-nums"
+              required
+              className={cn("ltr-nums", needsTime && "border-danger")}
+              aria-invalid={needsTime || undefined}
               aria-describedby={describedBy}
               value={schedule?.time ?? ""}
               onChange={(event) => updateSchedule({ time: event.target.value })}

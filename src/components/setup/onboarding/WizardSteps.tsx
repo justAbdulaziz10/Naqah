@@ -3,15 +3,17 @@
 import { PencilSimple } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { ReportCallFields, useCallSentence } from "@/components/schedule/ReportCallSection";
+import { isCompleteCallSchedule } from "@/domain/schedule";
 import type { Workspace } from "@/domain/types";
 import { allWorkers } from "@/domain/workers";
 import { useI18n } from "@/i18n/client";
 import { useIsAccount } from "@/store/workspace";
+import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { getCallSetupGaps } from "../CallSetupStatus";
 import { QuestionsFields } from "../fields/QuestionsFields";
 import { RanchFields } from "../fields/RanchFields";
 import { TeamFields } from "../fields/TeamFields";
-import { phoneNeedsFixing } from "../phone";
+import { formatSaudiMobile, phoneNeedsFixing } from "../phone";
 import type { SetupFieldsProps } from "../types";
 import { FieldGroup } from "./WizardParts";
 
@@ -19,10 +21,16 @@ import { FieldGroup } from "./WizardParts";
 export const WIZARD_STEPS = ["ranch", "team", "call", "ready"] as const;
 export type WizardStepKey = (typeof WIZARD_STEPS)[number];
 
-/** Something typed that can't be used yet. Blank is fine: every detail can be finished later. */
+/** Required: the ranch name, the primary worker (name and mobile) and the call time. Anything typed must be usable. */
 export function stepNeedsFixing(key: WizardStepKey, ws: Workspace): boolean {
-  if (key === "ranch") return phoneNeedsFixing(ws.settings.owner.phone);
-  if (key === "team") return allWorkers(ws.settings).some((worker) => phoneNeedsFixing(worker.phone));
+  if (key === "ranch") return !ws.settings.farm.name.trim() || phoneNeedsFixing(ws.settings.owner.phone);
+  if (key === "team") {
+    const { worker } = ws.settings;
+    // NAQAH needs someone to call: the primary worker's name and a usable mobile.
+    return !worker.name.trim() || !worker.phone.trim() || allWorkers(ws.settings).some((item) => phoneNeedsFixing(item.phone));
+  }
+  // The scheduler only calls farms with a complete schedule, so setup doesn't finish without one.
+  if (key === "call") return !isCompleteCallSchedule(ws.settings.plan, ws.settings.callSchedule);
   return false;
 }
 
@@ -76,6 +84,7 @@ function SummaryRow({ label, step, onEdit, children }: { label: string; step?: W
 export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: WizardStepKey) => void }) {
   const { m, fmt } = useI18n();
   const account = useIsAccount();
+  const scheduledCalls = useScheduledCallsOn();
   const r = m.setup.ready;
   const call = useCallSentence(ws);
   const { owner, farm, plan, worker, herdCount, customQuestions } = ws.settings;
@@ -86,7 +95,7 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
     name || phone ? (
       <>
         {name || notSet}
-        {phone ? <> · <bdi className="ltr-nums">{phone}</bdi></> : null}
+        {phone ? <> · <bdi dir="ltr" className="ltr-nums">{formatSaudiMobile(phone)}</bdi></> : null}
         {phoneNeedsFixing(phone) ? <span className="block text-[0.9375rem] text-danger">{r.checkNumber}</span> : null}
       </>
     ) : notSet;
@@ -120,7 +129,11 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
           </ul>
         </section>
       ) : null}
-      <p className="text-[0.9375rem] leading-relaxed text-muted">{account ? m.setup.call.notConnected : r.demoCalls}</p>
+      {account ? (
+        scheduledCalls === false ? <p className="text-[1.0625rem] leading-relaxed text-espresso">{m.setup.call.notConnected}</p> : null
+      ) : (
+        <p className="text-[0.9375rem] leading-relaxed text-muted">{r.demoCalls}</p>
+      )}
     </div>
   );
 }

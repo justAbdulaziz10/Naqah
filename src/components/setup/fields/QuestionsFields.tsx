@@ -99,7 +99,7 @@ export function QuestionsFields({ ws, onChange }: SetupFieldsProps) {
         ) : null}
         {canAdd ? (
           <form
-            className="mt-4 flex items-end gap-2"
+            className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-2"
             onSubmit={(event) => {
               event.preventDefault();
               add();
@@ -111,7 +111,7 @@ export function QuestionsFields({ ws, onChange }: SetupFieldsProps) {
             <button
               type="submit"
               disabled={!draft.trim()}
-              className="inline-flex h-14 shrink-0 items-center justify-center gap-2 rounded-full border border-stone bg-white px-5 font-semibold text-espresso transition hover:border-sand disabled:cursor-not-allowed disabled:text-muted"
+              className="inline-flex h-12 shrink-0 items-center justify-center gap-2 self-start rounded-full border border-stone bg-white px-5 font-semibold sm:h-14 sm:self-auto text-espresso transition hover:border-sand disabled:cursor-not-allowed disabled:text-muted"
             >
               <Plus size={18} weight="bold" aria-hidden />
               {m.common.actions.add}

@@ -86,6 +86,7 @@ export function PhoneField({
   showError = false,
   hint,
   className,
+  requiredMessage,
 }: {
   label: string;
   value: string;
@@ -94,13 +95,16 @@ export function PhoneField({
   showError?: boolean;
   hint?: ReactNode;
   className?: string;
+  /** Makes the number required: shown when blank and errors are on. */
+  requiredMessage?: string;
 }) {
   const { m } = useI18n();
   const w = m.onboarding.wizard;
   const [touched, setTouched] = useState(() => phoneNeedsFixing(value));
-  const invalid = (touched || showError) && phoneNeedsFixing(value);
+  const missing = Boolean(requiredMessage) && showError && !value.trim();
+  const invalid = missing || ((touched || showError) && phoneNeedsFixing(value));
   return (
-    <StepField label={label} className={className} error={invalid ? w.phoneCheck : undefined} hint={hint}>
+    <StepField label={label} className={className} error={missing ? requiredMessage : invalid ? w.phoneCheck : undefined} hint={hint}>
       {({ id, describedBy }) => (
         <div
           dir="ltr"

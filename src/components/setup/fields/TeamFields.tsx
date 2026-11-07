@@ -10,7 +10,7 @@ import { useI18n } from "@/i18n/client";
 import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
 import { latinDigits } from "@/lib/supabase/auth-input";
 import type { SetupFieldsProps } from "../types";
-import { ChoiceRow, FieldGroup, PhoneField, StepField, StepInput, StepSelect } from "../onboarding/WizardParts";
+import { FieldGroup, PhoneField, StepField, StepInput, StepSelect } from "../onboarding/WizardParts";
 
 /**
  * Puts the list back as primary + others, each with an id. Unlike `setWorkers` it never drops a row:
@@ -55,6 +55,9 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
   const liveLanguages = WORKER_LANGUAGES.filter((language) => isLiveCallLanguage(language.id));
   const laterLanguages = WORKER_LANGUAGES.filter((language) => !isLiveCallLanguage(language.id));
 
+  const many = workers.length > 1;
+  const optional = <span className="font-normal text-muted"> ({m.setup.ranch.optional})</span>;
+
   return (
     <div className="space-y-10">
       <FieldGroup title={s.workers}>
@@ -62,16 +65,24 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
           {workers.map((worker, index) => {
             const label = worker.name.trim() || s.worker(index + 1);
             const language = WORKER_LANGUAGES.find((item) => item.id === worker.language) ?? WORKER_LANGUAGES[0];
+            const primary = index === 0;
             return (
               <li key={worker.id ?? `worker-${index}`} className="py-5">
                 <fieldset className="min-w-0">
                   <legend className="sr-only">{label}</legend>
-                  <div className="flex min-h-11 items-center justify-between gap-3">
-                    <p aria-hidden className="min-w-0 truncate text-[1.0625rem] font-semibold text-espresso">
-                      {label}
-                      {index === 0 && workers.length > 1 ? <span className="ms-2 text-[0.9375rem] font-normal text-muted">· {s.primaryNote}</span> : null}
-                    </p>
-                    {workers.length > 1 ? (
+                  {many ? (
+                    <div className="mb-3 flex min-h-11 items-center justify-between gap-3">
+                      <label className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3">
+                        <input
+                          type="radio"
+                          name="primary-worker"
+                          checked={primary}
+                          onChange={() => editList((list) => list, index)}
+                          className="size-5 shrink-0 accent-brown"
+                        />
+                        <span className="min-w-0 truncate text-[1.0625rem] font-semibold text-espresso">{label}</span>
+                        <span className={primary ? "shrink-0 text-[0.9375rem] font-medium text-brown" : "sr-only"}>{s.primary}</span>
+                      </label>
                       <button
                         type="button"
                         aria-label={s.remove(label)}
@@ -81,18 +92,29 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
                       >
                         <Trash size={20} aria-hidden />
                       </button>
-                    ) : null}
-                  </div>
-                  <div className="mt-3 grid gap-x-5 gap-y-5 sm:grid-cols-2">
-                    <StepField label={s.name}>
-                      {({ id }) => <StepInput id={id} dir="auto" autoComplete="off" value={worker.name} onChange={(event) => editWorker(index, { name: event.target.value })} />}
+                    </div>
+                  ) : null}
+                  <div className="grid gap-x-5 gap-y-5 sm:grid-cols-2">
+                    <StepField label={s.name} error={primary && showErrors && !worker.name.trim() ? m.setup.call.needWorkerName : undefined}>
+                      {({ id, describedBy, invalid }) => (
+                        <StepInput
+                          id={id}
+                          dir="auto"
+                          autoComplete="off"
+                          aria-describedby={describedBy}
+                          aria-invalid={invalid || undefined}
+                          className={invalid ? "border-danger" : undefined}
+                          value={worker.name}
+                          onChange={(event) => editWorker(index, { name: event.target.value })}
+                        />
+                      )}
                     </StepField>
                     <PhoneField
                       label={s.phone}
                       autoComplete="off"
                       value={worker.phone}
                       showError={showErrors}
-                      hint={index === 0 ? undefined : null}
+                      requiredMessage={primary ? m.setup.call.needWorkerPhone : undefined}
                       onChange={(phone) => editWorker(index, { phone })}
                     />
                     <StepField
@@ -111,17 +133,6 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
                         </StepSelect>
                       )}
                     </StepField>
-                    {workers.length > 1 ? (
-                      <div className="flex flex-col justify-end">
-                        <ChoiceRow
-                          type="radio"
-                          name="primary-worker"
-                          checked={index === 0}
-                          label={s.primary}
-                          onChange={() => editList((list) => list, index)}
-                        />
-                      </div>
-                    ) : null}
                   </div>
                 </fieldset>
               </li>
@@ -145,7 +156,7 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
 
       <FieldGroup title={s.herd}>
         <StepField
-          label={s.herdCount}
+          label={<>{s.herdCount}{optional}</>}
           className="sm:max-w-[calc(50%-0.625rem)]"
           hint={s.herdHint}
           error={herdInvalid ? s.herdInvalid : undefined}
@@ -156,6 +167,7 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
               inputMode="numeric"
               autoComplete="off"
               dir="ltr"
+              placeholder="0"
               className="ltr-nums text-left rtl:text-right"
               aria-describedby={describedBy}
               aria-invalid={herdInvalid || undefined}

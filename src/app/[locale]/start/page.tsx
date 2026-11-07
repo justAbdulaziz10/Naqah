@@ -1,8 +1,8 @@
 "use client";
 
 import { ArrowLeft, ArrowRight, Check, CheckCircle } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CamelMark } from "@/components/brand/CamelMark";
 import { Logo } from "@/components/brand/Logo";
 import type { WorkspaceUpdate } from "@/components/setup";
@@ -30,9 +30,20 @@ import { useIsAccount, useSaveStatus, useWorkspaceStore } from "@/store/workspac
  * Owner onboarding: Ranch → Workers and herd → Report call → Ready. Every field saves as it is
  * typed through `update`, so leaving and coming back loses nothing. A finished farm never lands
  * here: the account boundary (or, in the demo, this page) sends it to the dashboard.
+ * The step lives in the URL (`?step=2`), so refresh keeps it and the browser's Back goes one step back.
  */
 export default function StartPage() {
+  return <Suspense fallback={null}><Onboarding /></Suspense>;
+}
+
+function stepFromQuery(value: string | null): number {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 && n <= WIZARD_STEPS.length ? n - 1 : 0;
+}
+
+function Onboarding() {
   const router = useRouter();
+  const params = useSearchParams();
   const { locale, m, href } = useI18n();
   const f = m.setup.flow;
   const hydrated = useWorkspaceStore((state) => state.hydrated);
@@ -40,7 +51,7 @@ export default function StartPage() {
   const startOnboarding = useWorkspaceStore((state) => state.startOnboarding);
   const account = useIsAccount();
   const saveFailed = useSaveStatus((state) => state.status === "failed") && !account; // The account banner covers it.
-  const [step, setStep] = useState(0);
+  const step = stepFromQuery(params.get("step"));
   const [showErrors, setShowErrors] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const finished = ws?.setupComplete === true;
@@ -69,8 +80,10 @@ export default function StartPage() {
   const change = (update: WorkspaceUpdate) => useWorkspaceStore.getState().update(update);
 
   function go(next: number) {
+    const target = Math.max(0, Math.min(next, steps.length - 1));
     setShowErrors(false);
-    setStep(Math.max(0, Math.min(next, steps.length - 1)));
+    if (target === step) return;
+    router.push(target === 0 ? href("/start") : `${href("/start")}?step=${target + 1}`, { scroll: false });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -85,6 +98,13 @@ export default function StartPage() {
   }
 
   function finish() {
+    // The step list lets an owner jump ahead; the ranch name is still required.
+    const missing = steps.findIndex((key) => stepNeedsFixing(key, ws!));
+    if (missing >= 0) {
+      go(missing);
+      requestAnimationFrame(() => setShowErrors(true));
+      return;
+    }
     setFinishing(true);
     useWorkspaceStore.getState().update((latest: Workspace) => ({
       ...latest,
@@ -96,7 +116,7 @@ export default function StartPage() {
         text: { ar: setupMessages.ar.flow.setupEvent, en: setupMessages.en.flow.setupEvent },
       }],
     }));
-    router.push(href("/app"));
+    router.replace(href("/app"));
   }
 
   const content = (() => {
@@ -120,7 +140,7 @@ export default function StartPage() {
             <p className="mb-5 text-[0.9375rem] font-semibold text-sand">{f.title}</p>
             <ol className="space-y-1">
               {steps.map((key, index) => {
-                const done = index < step;
+                const done = index < step && !stepNeedsFixing(key, ws);
                 const here = index === step;
                 return (
                   <li key={key}>
