@@ -8,6 +8,7 @@ import {
   ClipboardText,
   Drop,
   FirstAidKit,
+  Flask,
   Grains,
   Heartbeat,
   MagnifyingGlass,
@@ -85,6 +86,41 @@ export function ExistingFarmChoice({ ws, resuming, onStartOver }: { ws: Workspac
         </button>
         <p className="mt-1 max-w-[52ch] text-[0.9375rem] leading-relaxed text-muted">{existing.startOverNote}</p>
       </div>
+    </div>
+  );
+}
+
+/** A completed browser preview is not an owner farm. Keep its sample status visible. */
+export function ExistingDemoChoice({ resuming, onStartOver }: { resuming: boolean; onStartOver: () => void }) {
+  const { m, href } = useI18n();
+  const demo = m.onboarding.wizard.existingDemo;
+
+  return (
+    <div>
+      <StepHead title={demo.title} lead={demo.lead} />
+      <div role="note" className="flex items-start gap-3 rounded-2xl border border-stone bg-cream px-4 py-4 sm:px-5">
+        <Flask size={21} className="mt-0.5 shrink-0 text-brown" aria-hidden />
+        <div>
+          <p className="font-semibold text-espresso">{demo.noticeTitle}</p>
+          <p className="mt-1 text-[0.9375rem] leading-relaxed text-muted">{demo.noticeBody}</p>
+        </div>
+      </div>
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+        <Link
+          href={href("/app")}
+          className="inline-flex min-h-14 items-center justify-center rounded-full bg-espresso px-8 text-[1.0625rem] font-semibold text-cream transition hover:bg-brown active:scale-[0.98]"
+        >
+          {demo.open}
+        </Link>
+        <button
+          type="button"
+          onClick={onStartOver}
+          className="inline-flex min-h-14 items-center justify-center rounded-full border border-stone bg-white px-7 text-[1.0625rem] font-semibold text-espresso transition hover:border-sand"
+        >
+          {resuming ? demo.continue : demo.startOver}
+        </button>
+      </div>
+      <p className="mt-4 max-w-[52ch] text-[0.9375rem] leading-relaxed text-muted">{demo.startOverNote}</p>
     </div>
   );
 }
@@ -179,6 +215,9 @@ export function PlanStep({ ws, onChange }: StepProps) {
         <p className="mt-4 text-[0.975rem] text-danger" role="alert">
           {m.onboarding.tooManyQuestionsForBasic}
         </p>
+      ) : null}
+      {ws.settings.plan === "ultimate" ? (
+        <p className="mt-4 text-[0.9375rem] leading-relaxed text-muted">{m.onboarding.ultimateSchedule}</p>
       ) : null}
       <p className="mt-5 text-[0.9375rem] text-muted">{m.onboarding.investorNote}</p>
     </div>

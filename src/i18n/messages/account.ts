@@ -11,7 +11,7 @@ export const account = defineMessages({
     retry: "Try again",
     dismiss: "Dismiss",
     title: "Account",
-    callsReady: "Everything calls need is here.",
+    callsReady: "Your farm details are saved. Outbound calling must be connected before NAQAH can call your worker.",
   },
   ar: {
     loading: "جارٍ تحميل مزرعتك",
@@ -22,6 +22,6 @@ export const account = defineMessages({
     retry: "حاول مرة ثانية",
     dismiss: "إغلاق",
     title: "الحساب",
-    callsReady: "كل اللي تحتاجه المكالمات موجود.",
+    callsReady: "حُفظت بيانات مزرعتك. يلزم ربط المكالمات الصادرة قبل ما تتصل ناقة على العامل.",
   },
 });

@@ -22,6 +22,7 @@ import {
 } from "@/components/setup";
 import {
   DetailsStep,
+  ExistingDemoChoice,
   ExistingFarmChoice,
   OwnerFarmStep,
   PlanStep,
@@ -38,10 +39,11 @@ import type { Plan, Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { onboarding as onboardingMessages } from "@/i18n/messages/onboarding";
 import { cn } from "@/lib/cn";
+import { isAccountWorkspace } from "@/lib/account/types";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
 import { useIsAccount, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
 
-const STEPS = ["plan", "ownerFarm", "worker", "details", "schedule", "review"] as const satisfies readonly WizardStepKey[];
+const STEPS = ["ownerFarm", "worker", "plan", "schedule", "details", "review"] as const satisfies readonly WizardStepKey[];
 type StepKey = (typeof STEPS)[number];
 
 /** Which call-setup gaps each step can fill; Skip only shows while one of them is still open. */
@@ -75,6 +77,8 @@ export default function StartPage() {
   const [startingOver, setStartingOver] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const isReplacing = workspace?.setupComplete === true;
+  const hasExistingOwnerFarm = Boolean(account && workspace && isAccountWorkspace(workspace) && workspace.setupComplete);
+  const isReplacingDemo = isReplacing && !hasExistingOwnerFarm;
   const sourceCreatedAt = isReplacing ? workspace.createdAt : undefined;
   const getReplacementSnapshot = useCallback(() => readReplacementDraft(sourceCreatedAt), [sourceCreatedAt]);
   const storedReplacementDraft = useSyncExternalStore(subscribeReplacementDraft, getReplacementSnapshot, () => null);
@@ -117,11 +121,18 @@ export default function StartPage() {
           </div>
         </header>
         <main className="mx-auto w-full max-w-[44rem] px-4 pb-12 pt-10 sm:px-6 sm:pt-16">
-          <ExistingFarmChoice
-            ws={workspace}
-            resuming={Boolean(replacementDraft)}
-            onStartOver={() => setStartingOver(true)}
-          />
+          {hasExistingOwnerFarm ? (
+            <ExistingFarmChoice
+              ws={workspace}
+              resuming={Boolean(replacementDraft)}
+              onStartOver={() => setStartingOver(true)}
+            />
+          ) : (
+            <ExistingDemoChoice
+              resuming={Boolean(replacementDraft)}
+              onStartOver={() => setStartingOver(true)}
+            />
+          )}
         </main>
       </div>
     );
@@ -209,7 +220,7 @@ export default function StartPage() {
     <div className={cn("flex flex-col gap-1 rounded-2xl border border-stone bg-cream px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4", isLast ? "mt-8" : "mb-8")}>
       <p className="flex items-start gap-2.5 text-[0.975rem] leading-relaxed text-espresso">
         <Info size={20} className="mt-0.5 shrink-0 text-brown" aria-hidden />
-        {m.onboarding.wizard.replaceNotice}
+        {isReplacingDemo ? m.onboarding.wizard.demoReplaceNotice : m.onboarding.wizard.replaceNotice}
       </p>
       <Link
         href={href("/app")}
@@ -327,7 +338,7 @@ export default function StartPage() {
                 className="col-span-2 inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-espresso px-7 text-[1.0625rem] font-semibold text-cream transition hover:bg-brown active:scale-[0.98]"
               >
                 <CheckCircle size={22} weight="fill" aria-hidden />
-                {isReplacing ? m.onboarding.wizard.replaceFinish : m.onboarding.confirmAndOpen}
+                {isReplacing ? isReplacingDemo ? m.onboarding.wizard.demoReplaceFinish : m.onboarding.wizard.replaceFinish : account ? m.onboarding.createRanch : m.onboarding.confirmAndOpen}
               </button>
             ) : (
               <button
@@ -364,10 +375,12 @@ export default function StartPage() {
       </div>
       {confirmingReplace && loss ? (
         <ConfirmDialog
-          title={m.onboarding.wizard.replaceConfirmTitle}
-          body={loss.reports + loss.calls + loss.tickets ? m.onboarding.wizard.replaceConfirmBody(loss) : m.onboarding.wizard.replaceConfirmEmpty}
-          confirmLabel={m.onboarding.wizard.replaceConfirmAction}
-          cancelLabel={m.onboarding.wizard.replaceConfirmCancel}
+          title={isReplacingDemo ? m.onboarding.wizard.demoReplaceConfirmTitle : m.onboarding.wizard.replaceConfirmTitle}
+          body={isReplacingDemo
+            ? m.onboarding.wizard.demoReplaceConfirmBody(loss)
+            : loss.reports + loss.calls + loss.tickets ? m.onboarding.wizard.replaceConfirmBody(loss) : m.onboarding.wizard.replaceConfirmEmpty}
+          confirmLabel={isReplacingDemo ? m.onboarding.wizard.demoReplaceConfirmAction : m.onboarding.wizard.replaceConfirmAction}
+          cancelLabel={isReplacingDemo ? m.onboarding.wizard.demoReplaceConfirmCancel : m.onboarding.wizard.replaceConfirmCancel}
           onConfirm={confirmSetup}
           onCancel={() => setConfirmingReplace(false)}
         />

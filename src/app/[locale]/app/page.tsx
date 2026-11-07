@@ -41,7 +41,8 @@ export default function OverviewPage() {
   const ultimate = ws.settings.plan === "ultimate";
   const worker = ws.settings.worker.name.trim() || app.overview.unnamedWorker;
   const estateName = ws.settings.farm.name.trim() || app.overview.estateFallback;
-  const showCallSetup = getCallSetupGaps(ws).length > 0 || hasCallLanguageNote(ws);
+  const callSetupGaps = getCallSetupGaps(ws);
+  const showCallSetup = !hasReport || callSetupGaps.length > 0 || hasCallLanguageNote(ws);
 
   const unanswered = openNoAnswerTickets(ws);
   const matters = estateMatters(ws, latestReport);
@@ -49,9 +50,11 @@ export default function OverviewPage() {
   const tasks = ultimate ? openTaskTickets(ws) : [];
   const tone: EstateTone = !hasReport ? "quiet" : unanswered.length ? "unanswered" : concerns ? "attention" : "calm";
   const state = !hasReport ? app.overview.noUpdate : concerns ? app.overview.needsYou(concerns) : app.overview.nothingFlagged;
-  const action = tasks.length
-    ? { href: href("/app/tickets"), label: app.overview.viewTickets }
-    : { href: href("/app/herd"), label: app.overview.viewHerd };
+  const action = !hasReport
+    ? { href: href("/app/settings"), label: app.overview.prepareFirstCall }
+    : tasks.length
+      ? { href: href("/app/tickets"), label: app.overview.viewTickets }
+      : { href: href("/app/herd"), label: app.overview.viewHerd };
 
   const ownerRoute = routeOwnerInboundCall(ws, now);
   const allowanceUsed = ownerAllowanceUsed(ws, now);
@@ -69,7 +72,7 @@ export default function OverviewPage() {
     </>
   ) : null;
 
-  const nextUpdate = (
+  const nextUpdate = hasReport ? (
     <>
       <p className="text-lg font-semibold leading-snug">
         {ultimate
@@ -89,7 +92,7 @@ export default function OverviewPage() {
         </p>
       ) : null}
     </>
-  );
+  ) : null;
 
   const allowance = ultimate ? null : (
     <div className="mt-3 border-t border-stone/70 pt-3">
@@ -115,6 +118,7 @@ export default function OverviewPage() {
         action={action}
         lastUpdate={lastUpdate}
         nextUpdate={nextUpdate}
+        showCallAction={hasReport}
       />
 
       {hasReport ? (
@@ -130,9 +134,11 @@ export default function OverviewPage() {
         </Card>
       )}
 
-      {showCallSetup ? <CallSetupStatus ws={ws} settingsHref={href("/app/settings")} /> : null}
+      {showCallSetup ? <CallSetupStatus ws={ws} settingsHref={hasReport ? href("/app/settings") : undefined} /> : null}
 
-      <EstateLedger ws={ws} worker={worker} now={now} hasReport={hasReport} allowance={allowance} />
+      {hasReport || ws.camels.length > 0 ? (
+        <EstateLedger ws={ws} worker={worker} now={now} hasReport={hasReport} allowance={allowance} />
+      ) : null}
     </div>
   );
 }

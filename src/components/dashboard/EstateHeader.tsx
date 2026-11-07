@@ -55,6 +55,7 @@ export function EstateHeader({
   action,
   lastUpdate,
   nextUpdate,
+  showCallAction = true,
 }: {
   name: string;
   state: string;
@@ -62,7 +63,8 @@ export function EstateHeader({
   worker: string;
   action: { href: string; label: string };
   lastUpdate: ReactNode;
-  nextUpdate: ReactNode;
+  nextUpdate: ReactNode | null;
+  showCallAction?: boolean;
 }) {
   const { m } = useI18n();
   return (
@@ -80,14 +82,16 @@ export function EstateHeader({
         </div>
         <div className="flex w-full flex-col gap-2.5 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center lg:w-72 lg:flex-col lg:items-stretch">
           <ButtonLink href={action.href} variant="light" className="w-full sm:w-auto lg:w-full">{action.label}</ButtonLink>
-          <CallWorkerUnavailable worker={worker} />
+          {showCallAction ? <CallWorkerUnavailable worker={worker} /> : null}
         </div>
       </div>
-      <div className="mt-6 flex flex-wrap gap-x-10 gap-y-4 border-t border-cream/15 pt-5">
-        {lastUpdate ? <Fact label={m.app.overview.lastUpdateLabel}>{lastUpdate}</Fact> : null}
-        <Fact label={m.app.overview.nextExpected}>{nextUpdate}</Fact>
-        <WeatherLine className="min-w-0 flex-1 basis-56 self-end leading-relaxed text-cream/75" />
-      </div>
+      {lastUpdate || nextUpdate ? (
+        <div className="mt-6 flex flex-wrap gap-x-10 gap-y-4 border-t border-cream/15 pt-5">
+          {lastUpdate ? <Fact label={m.app.overview.lastUpdateLabel}>{lastUpdate}</Fact> : null}
+          {nextUpdate ? <Fact label={m.app.overview.nextExpected}>{nextUpdate}</Fact> : null}
+          <WeatherLine className="min-w-0 flex-1 basis-56 self-end leading-relaxed text-cream/75" />
+        </div>
+      ) : null}
     </section>
   );
 }
