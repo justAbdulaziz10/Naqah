@@ -257,7 +257,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
       id: uid("evt"),
       at: new Date(yesterday.getTime() + 2 * MINUTE).toISOString(),
       tone: "success",
-      text: { ar: "اتصل المساعد بالمالك وأبلغه بالتحديث", en: "The agent called the owner with the update" },
+      text: { ar: "اتصلت ناقة بالمالك وأبلغته بالتحديث", en: "NAQAH called the owner with the update" },
     },
   );
 

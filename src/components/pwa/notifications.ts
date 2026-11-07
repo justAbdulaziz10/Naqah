@@ -45,9 +45,12 @@ export function syncNotificationPreference(enabled: boolean): void {
   runtimePreference = enabled;
 }
 
+/** Current wording plus the older one still in saved history. */
+const OWNER_CALL_EN = ["NAQAH called the owner with the update", "The agent called the owner with the update"];
+const OWNER_CALL_AR = ["اتصلت ناقة بالمالك وأبلغته بالتحديث", "اتصل المساعد بالمالك وأبلغه بالتحديث"];
+
 function isOwnerCallSummary(event: PlatformEvent): boolean {
-  return event.text.en === "The agent called the owner with the update"
-    || event.text.ar === "اتصل المساعد بالمالك وأبلغه بالتحديث";
+  return OWNER_CALL_EN.includes(event.text.en) || OWNER_CALL_AR.includes(event.text.ar);
 }
 
 function isNoAnswerTicket(event: PlatformEvent): boolean {

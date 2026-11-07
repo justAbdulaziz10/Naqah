@@ -159,7 +159,7 @@ export function recordOwnerNotification(input: Workspace, now: Date, reportId: s
   });
   if (answered) {
     if (ws.settings.plan === "basic") ws.ownerAllowanceUsedAt = iso(now);
-    pushEvent(ws, now, "success", { ar: "اتصل المساعد بالمالك وأبلغه بالتحديث", en: "The agent called the owner with the update" });
+    pushEvent(ws, now, "success", { ar: "اتصلت ناقة بالمالك وأبلغته بالتحديث", en: "NAQAH called the owner with the update" });
   } else {
     ws.missedNotificationAt = iso(now);
     pushEvent(ws, now, "neutral", {
