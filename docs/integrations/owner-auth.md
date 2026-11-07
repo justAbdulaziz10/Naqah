@@ -1,6 +1,8 @@
 # Owner authentication
 
-Branch: `feature/owner-auth`. Integrated `origin/main` at `a3a1a66b8ef4c1d9f326559bf60c7456596a9f53` into feature tip `4e9709630637df431abc3a09239492b91264a484`. No teammate product changes were rewritten.
+Auth is merged into main alongside account-data integration. The original auth integration used main
+`a3a1a66b8ef4c1d9f326559bf60c7456596a9f53`; the verification history below describes that earlier local work.
+Current Task A is code readiness only: no live migrations, account configuration, merge or deployment.
 
 ## Sign-in methods
 
@@ -19,12 +21,14 @@ Main's pending phone/code-step recovery is preserved for 10 minutes using `sessi
 - New GET route: `/ar/login/callback` and `/en/login/callback`. It calls `exchangeCodeForSession(code)` using the request's verifier cookies, also forwarding an optional `sb_flow_id` to support the installed auth-js version's per-flow verifier behavior.
 - The callback writes session/deletion cookies and Supabase's cache headers onto the same redirect response. It sets `Cache-Control: private, no-store` and `Referrer-Policy: no-referrer`. Missing/ambiguous codes, denied providers, invalid/expired codes, missing verifiers, configuration outages, and fetch failures return to localized login with a fixed translated error. Codes, provider errors, passwords, and tokens are not logged or forwarded to the success URL.
 - Callback response `Location` headers are relative. This retains the browser's actual origin behind proxies or when Next uses an internal hostname. No `x-forwarded-host` value is trusted.
-- Every successful method goes through the existing `/{locale}/login/success` route, which freshly validates with `getOwner()` -> `auth.getUser()` on the server. It shows a generic signed-in confirmation and logout by default; it redirects to a validated `next` only after validation. The confirmation explains that the platform still uses the browser workspace and account farm persistence is not connected. Main’s explicit Continue button remains, pointing to `/{locale}/app`; it is labelled Open platform rather than implying a real account farm.
+- Every successful method goes through `/{locale}/login/success`, which freshly validates with `getOwner()` -> `auth.getUser()` on the server. It follows a validated `next` only after validation. A manually visited success page shows a confirmation, logout and Open platform button; its browser-workspace explanation is hidden when account mode is enabled.
 - Main’s `getOwner()` waits for a request with `connection()` before starting session SDK work. This keeps the SDK's time-dependent background work outside prerendering with Next Cache Components.
 - `safeReturnPath` remains the shared validator: only `/ar` or `/en` paths, no external/protocol-relative URLs, backslashes, controls/whitespace, malformed encoding, traversal outside locale paths, API paths, or login/signup/callback loops. The code exchange uses main’s secure cookie options and a 10-second server timeout. `next` is revalidated when building outgoing provider URLs, inside the callback, and on the success route.
 - Auth language switches retain the selected email method and use main’s `searchForLocale` to move a validated `next` to the selected language; only known UI/error parameters are copied. Callback codes/tokens are not carried into language links.
 - Existing proxy refresh and logout are unchanged. The proxy calls `getClaims()` without gating demo routes; protected data must independently validate identity. Logout calls `signOut({ scope: 'local' })`, clears cookies, and returns to localized login. JWT lifetime/revocation limitations remain as documented by Supabase; never authorize from localStorage, `setupComplete`, or a client flag.
-- No farm, profile, workspace, or identity-linking mutation was added.
+- Auth callbacks/redirects themselves do not create farms or change linking. Existing account mode separately
+  calls `/api/account` on entry, which creates the validated owner's missing farm/defaults and saves allowed edits
+  through the owner repository with RLS. This path is gated on both client and server; it never imports browser demo data.
 
 ## Abuse protection: required before real SMS is enabled
 
@@ -93,11 +97,16 @@ No `linkIdentity`, `unlinkIdentity`, `updateUser`, account merging, phone matchi
 - Authorized minimal edits: `src/components/landing/LandingPage.tsx` and `src/components/welcome/WelcomePage.tsx`. Existing Login links remain; Sign Up links were added using existing styles, including the landing mobile menu. Login passes `next=/{locale}/app`; Sign Up passes `next=/{locale}/start`. Welcome/onboarding primary actions, sample confirmation and Dashboard behavior are unchanged.
 - Exact behavior: Sign Up -> chosen auth method -> server-validated session -> same-locale `/start` (existing setup wizard). Login -> chosen auth method -> server-validated session -> same-locale `/app` (platform). Email confirmation, if required, completes first. No farm data is created, loaded, imported, or attached by these redirects.
 - Direct signup with no safe `next` defaults to `/start`; direct login defaults to `/app`. Explicit validated internal return paths remain supported. Generic New account / Already have an account links select the appropriate setup/platform destination instead of carrying the opposite intent. Language switches retain and localize the validated destination. The success route still verifies the session before any redirect.
-- `/app` currently displays browser workspace/demo state. This is **not real account/farm integration**. No farm existence is inferred from browser storage, and no authenticated-route gate is added.
-- Exact unfinished dependency: `docs/integrations/supabase-backend.md`, the account-mode migration plan steps 2–6. The teammate must wire account-mode loading through `src/server/farm/actions.ts::loadWorkspace` into `src/store/workspace.ts`, move Setup/Settings/Herd writes to owner actions, and isolate simulation. Any future import requires a separate explicit owner choice. Auth does not call `ensureFarm`, `loadWorkspace`, or change `AppShell`/the store.
-- Backend migrations, RLS, real-project readiness, account identity/farm association, and live calls remain owner/teammate work. No additional teammate-file edits are awaiting approval.
+- Without the exact build-time `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1`, `/app` and `/start` keep the browser demo
+  and `/api/account` is 404. Enabled account mode loads the signed-in owner's real farm through `AccountBoundary`
+  and `accountSync`; missing farms get existing Basic defaults, incomplete setup routes to `/start`, and completed
+  setup routes to `/app`. Signed-out visitors keep the demo; signed-in outages show an error instead of demo data.
+- Account loading and Setup/Settings/Herd persistence are already implemented. Remaining activation dependency:
+  apply the reviewed **0001–0005** sequence on the existing project with separate permission (issue #6), run advisors
+  and two-real-owner/provider checks, then authorize flag/build/deployment. Farm existence comes from the database,
+  not browser storage. No demo import or new identity-linking rule is introduced.
 
-## Verification and test-only fixtures
+## Historical auth verification and test-only fixtures
 
 - `npm test`: 468 tests passed; 7 database integration tests skipped by the repository, including existing phone/session/logout tests plus email states, duplicate handling, callback cookie/cache-header forwarding, PKCE flow IDs, unsafe destinations, provider denial, missing configuration/verifiers, and callback failures.
 - `npx next typegen`, `npm run typecheck`, `npm run lint`, `npm run build`: passed. No dependency or shared routing configuration edits beyond main’s imported changes were needed.
@@ -120,6 +129,8 @@ Use shell-appropriate environment assignment (PowerShell: `$env:NAQAH_AUTH_QA='m
 
 For stub-only builds, explicitly leave `NEXT_PUBLIC_TURNSTILE_SITE_KEY` blank. Unit tests cover configured CAPTCHA requirements and email token forwarding; live Turnstile acceptance is a separate owner-coordinated provider check and was not performed.
 
-Remaining steps: review the merge and auth-only diff; configure the providers/redirects/templates; run coordinated real provider tests; decide identity/farm association; integrate product links and persistence separately. No merge or deployment is authorized by this change.
+Remaining steps: review Task A's PR and local evidence, then separately authorize migration/provider/real-owner
+checks and activation using `supabase-preparation.md`. Existing product links and persistence are implemented;
+additional identity/farm association is not introduced. This readiness phase authorizes no merge or deployment.
 
 References: [Supabase Google PKCE](https://supabase.com/docs/guides/auth/social-login/auth-google), [email/password](https://supabase.com/docs/guides/auth/passwords), [email templates](https://supabase.com/docs/guides/auth/auth-email-templates), [identity linking](https://supabase.com/docs/guides/auth/auth-identity-linking), [SSR clients](https://supabase.com/docs/guides/auth/server-side/creating-a-client?framework=nextjs). Installed Next.js 16.4.5 docs reviewed: route handlers, cookies, authentication with Cache Components, and connection. Installed Supabase source/JSDoc reviewed: signUp, signInWithPassword, signInWithOAuth, exchangeCodeForSession, SSR clients/cookies, and PKCE redirect allow-list/flow-ID behavior.

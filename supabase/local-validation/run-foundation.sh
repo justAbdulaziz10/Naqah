@@ -1,5 +1,5 @@
 #!/bin/sh
-# LOCAL ONLY. Rebuilds a throwaway database with both migrations and runs the 0002 checks,
+# LOCAL ONLY. Rebuilds a throwaway database with all migrations and runs the 0002 checks,
 # then the original isolation suite on the combined schema, then the domain round trip.
 # Needs a disposable local Postgres 15+ through the usual PG* variables (see run.sh).
 set -eu
@@ -30,10 +30,7 @@ fresh() {
   $PSQL -d postgres -c "drop database if exists $DB" 2>/dev/null
   $PSQL -d postgres -c "create database $DB"
   $PSQL -d "$DB" -f bootstrap.sql
-  $PSQL -d "$DB" -1 -f ../migrations/0001_init.sql
-  $PSQL -d "$DB" -1 -f ../migrations/0002_backend_foundation.sql
-  $PSQL -d "$DB" -1 -f ../migrations/0003_voice_call_sessions.sql
-  $PSQL -d "$DB" -1 -f ../migrations/0004_owner_write_limits.sql
+  for migration in ../migrations/*.sql; do $PSQL -d "$DB" -1 -f "$migration"; done
 }
 
 echo "-- 0002 checks"
@@ -68,4 +65,13 @@ $PSQL -d "$DB" -A -t -c "select 'revision=' || revision || ' events=' || (select
 echo "-- domain round trip"
 fresh
 cd ../..
-NAQAH_TEST_DB="$DB" npx vitest run src/server/db/round-trip.pg.test.ts 2>&1 | grep -E "FAIL|AssertionError|Error:|Test Files|Tests "
+# psql process startup is slower on Windows. Keep a bounded DB-test timeout and preserve
+# Vitest's exit status (a grep pipeline would otherwise hide test failures).
+LOG=$(mktemp)
+trap 'rm -f "$LOG"' EXIT
+if NAQAH_TEST_DB="$DB" npx vitest run src/server/db/round-trip.pg.test.ts --testTimeout=30000 >"$LOG" 2>&1; then
+  grep -E "Test Files|Tests " "$LOG"
+else
+  cat "$LOG"
+  exit 1
+fi

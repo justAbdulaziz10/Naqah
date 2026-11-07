@@ -1,7 +1,10 @@
 # Supabase backend foundation
 
-Status: built and tested locally. **Nothing here has been applied to a Supabase project.** Until
-`NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` is set, everyone stays on the browser demo. The voice routes use
+Status: code exists in main; readiness fixes are locally validated separately from activation. The latest team
+report (issue #6) says the existing Supabase project contains Auth test users but no NAQAH application migrations.
+This readiness phase does not inspect or mutate live data, apply migrations, configure accounts, merge or deploy.
+Until the exact build-time `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` is set, everyone stays on the browser demo and
+`/api/account` returns 404 without reading or writing farm data. The voice routes use
 this code only when `NAQAH_VOICE_MODE=farm`; see `twilio-activation.md`.
 
 Target project: `ydsgmzxqjimwbamnksxe`. Never apply this to any other project.
@@ -45,6 +48,12 @@ private helpers, same-farm foreign keys. `0002_backend_foundation.sql` closes wh
 Replaying the engine from the farm can't work on a real call: a callback or a Basic inquiry changes
 the farm mid-call. It holds the dialogue position and the structured draft, never a transcript.
 
+`0004_owner_write_limits.sql` removes owners' farm deletion privilege and enforces field length/shape checks.
+`0005_custom_question_retry.sql` corrects the BEFORE INSERT limit for `ON CONFLICT(id)` retries: count other
+question ids within the same farm, under the existing farm-row lock. Repeating the fifth question succeeds;
+a distinct sixth is refused. Invoker security, immutable parents, grants and RLS are unchanged.
+The complete sequence is **0001 → 0002 → 0003 → 0004 → 0005**; do not edit old migrations to absorb fixes.
+
 `apply_farm_changes` is the only function in `public`. It is SECURITY INVOKER and only
 `service_role` can run it. `voice_events` and `voice_call_sessions` have RLS on with no policy, so
 owners and anon can't reach them.
@@ -62,12 +71,27 @@ With the flag on, `AccountBoundary` wraps `/app` and `/start` and decides whose 
 Screens still call `update(fn)`. In account mode `src/store/accountSync.ts` diffs the document
 against the last server copy (`src/lib/account/changes.ts`), and sends only owner-writable fields to
 `POST /api/account`, which runs the same validated owner actions. So a screen can't write a report
-or ticket, and a sample can't replace a farm: a document with another `createdAt` is refused.
+or ticket, and a sample can't replace a farm: account documents must retain the server-supplied
+`farmId` and `ownerId`. Timestamps describe creation time and are never account/farm identity.
 
 - **Not a Server Action.** Next queues those behind navigation and drops one in flight when the page
   changes, so the save that finishes setup would hang.
 - **Saved means saved.** The screen shows saved only after the server answers. A failure shows a
   banner, keeps the edit, and retries. Closing the page with unsaved edits warns first.
+- **Account switches discard old edits.** Entry loads the current farm before flushing. A conflict clears
+  the old base and pending retry before reopening, and generation checks ignore obsolete save/load/open
+  results. Same-owner entry still flushes setup edits; ordinary network failures keep their retry behavior.
+- **Stable identity at both boundaries.** Open/load/save workspaces carry the repository's farm UUID and
+  the validated session's owner ID. Saves compare the client UUID to the farm loaded through that owner's
+  session-bound repository/RLS; the client UUID never selects or authorizes access to a farm. A timestamp,
+  even one equal to the current farm's `createdAt`, cannot satisfy the save precondition.
+- **Cross-tab Auth changes.** AccountBoundary subscribes to SDK auth events, immediately clears the old
+  workspace/base/timer on an owner change, and queues a reopen outside the SDK callback. Requests check a
+  local session identity hint before and after I/O, plus the server-returned owner and local auth/generation
+  versions. Old results cannot be adopted even before a broadcast arrives. A local one-second poll and
+  focus/visibility checks cover cookie-only server callbacks which do not emit an SDK broadcast. Same-owner
+  token refresh keeps pending edits. Subscriptions and timers are cleaned up on unmount; multiple boundaries
+  share one observer. These browser hints reject stale UI data; only server getOwner()/RLS authorize access.
 - **Half-typed values** (a partial phone number) stay on screen and aren't sent.
 - **Calls appear live.** The farm reloads on focus and every 30 seconds, never over unsaved edits.
 - **localStorage stays the demo's.** A real farm is never written there.
@@ -77,17 +101,42 @@ Not imported: setup details typed into the browser before signing up. The owner 
 Sample farms need a marker before that can be offered, because a demo can't be told apart from a
 real draft.
 
-Rollback: unset the flag and rebuild. Local data is untouched, and saved farm data stays in Supabase.
+### Same-owner concurrency limitation (Sourcery review)
+
+Saves within one tab remain serialized by `while (saving)`; an adversarial test queues four flushes behind
+an in-flight save, changes the pending value, and verifies one concurrent save and the newest snapshot.
+The review's suggested overlapping-flush race was not reproduced, so the existing loop is retained.
+
+Different tabs of the **same** owner editing the same field still have last-write-wins behavior. The service
+revision is not an owner-edit CAS token and owner mutations are independent writes. Adding a revision read/check
+outside an atomic write would introduce a TOCTOU race rather than solve this. Atomic owner batch writes and a
+same-field conflict policy need a separately reviewed change; no revision/migration shortcut is introduced here.
+
+### Exact flag contract and rollback
+
+There is one flag, `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA`, not a second `NAQAH_ACCOUNT_DATA` variable.
+Only the exact string `1` enables it. Unset, empty, `0`, `true`, or whitespace disable it. Next inlines this
+public flag at build time, including server references, so changing deployment settings alone is insufficient.
+
+The route checks it before origin/body/action handling; disabled requests return JSON 404 with `Cache-Control:
+no-store`. Independently callable exports in `src/server/farm/actions.ts` gate through `asOwner` (and the
+`openAccount` early return), producing `unavailable` before session validation or repository creation. Enabled
+requests retain same-origin checks, validated session ownership, RLS and no-store responses.
+
+Rollback: unset the flag, rebuild and replace the active deployment. Old deployments/requests already in flight
+are not cancelled by changing a setting. Saved farm data remains in Supabase; local demo storage is untouched.
+This app-level gate does **not** revoke Supabase Auth sessions, remove Data API/RLS grants, stop direct Supabase
+requests or disable `NAQAH_VOICE_MODE=farm`/service jobs. Those require separately authorized operational steps.
 
 ## Before going live
 
 **Needs the project owner**
-- [ ] Access to `ydsgmzxqjimwbamnksxe`. The connected Supabase account can't see it today.
-- [ ] Apply `0001`–`0004` (steps in `supabase-preparation.md`; a dry run must list all four).
+- [ ] Confirm owner access to the existing `ydsgmzxqjimwbamnksxe` and inspect its actual migration history.
+- [ ] Review/merge the readiness PR separately, then obtain explicit activation authorization (issue #6 stays open).
+- [ ] Apply `0001`–`0005` in order (steps in `supabase-preparation.md`; an empty project's dry run must list all five).
 - [ ] Set `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` and rebuild, after the migrations are applied.
 - [ ] Run Security and Performance Advisors and review the results.
-- [ ] Set `SUPABASE_SECRET_KEY` (`sb_secret_…`) on the server only. Legacy `service_role` keys are
-      being retired.
+- [ ] Verify `SUPABASE_SECRET_KEY` (`sb_secret_…`) only for the service/voice path; owner CRUD uses session/RLS.
 - [ ] Finish the OTP protections in `owner-auth.md` before enabling real login.
 
 **Needs a decision**
@@ -115,8 +164,15 @@ Rollback: unset the flag and rebuild. Local data is untouched, and saved farm da
 
 `sh supabase/local-validation/run-foundation.sh` on a throwaway Postgres 17 with stand-in
 Supabase roles. It covers grants, RLS, cross-farm writes, rollback, both races, and real domain
-flows saved and reloaded through both migrations. The older isolation suite reports one expected
+flows saved and reloaded through the full migration sequence. The older isolation suite reports one expected
 failure, "no functions in public", which predates `apply_farm_changes`.
+
+`sh supabase/local-validation/run-account.sh` applies all five migrations on loopback-only disposable Postgres
+and runs `custom-question.pg.test.ts`: lost-response fifth-question retry, genuine sixth rejection, owner/anon
+isolation, same-farm immutable parents, Ultimate/downgrade, multi-row rollback and concurrent insert/retry/downgrade.
+The same fifth-question test fails with `23514` on 0001–0004 before 0005. Unit regressions separately verify
+flag-off makes no account/repository calls and owner changes cannot loop or adopt stale save results.
+`npm run typecheck` generates Next route helpers with `next typegen` before `tsc --noEmit`, including fresh checkouts.
 
 `scripts/verify-account.mjs` drives a real browser against `run-stack.sh`: real migrations and
 PostgREST, stand-in Auth. It covers setup, saving, refresh, sign-out and sign-in, a failed save,
@@ -129,5 +185,4 @@ handlers, `supabase-js`, a real PostgREST and all migrations.
 **Not verified:** real Supabase roles and `auth.uid()` (the stand-ins imitate them), the platform's
 API gateway, real sign-up and OTP against this data path, advisors, and any live call. Run these against the real project before relying on them.
 
-`supabase-preparation.md` predates this work: its `ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`
-names are out of date, use `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY`.
+Current environment names and manual activation steps are maintained in `supabase-preparation.md` and `.env.example`.

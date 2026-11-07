@@ -56,6 +56,16 @@ describe("owner repository", () => {
     const { client } = fakeClient({ farms, custom_questions: { data: null, error: { code: "23514", message: "Basic plan allows up to 5 custom questions" } } });
     await expect(createOwnerRepository(client, "owner").addCustomQuestion("q")).rejects.toMatchObject({ code: "limit_reached" });
   });
+  it("retries a custom question with the same farm-scoped id and upsert target", async () => {
+    const { client, calls } = fakeClient({ farms });
+    const repository = createOwnerRepository(client, "owner");
+    const first = await repository.addCustomQuestion("Fifth question", "cq_retry");
+    expect(await repository.addCustomQuestion("Fifth question", "cq_retry")).toBe(first);
+    const writes = calls.filter((call) => call.op === "upsert");
+    expect(writes).toHaveLength(2);
+    expect(writes[0]).toEqual(writes[1]);
+    expect(writes[0].args).toEqual([{ text: "Fifth question", id: first, farm_id: farmId }, { onConflict: "id" }]);
+  });
   it("hides database text from errors", async () => {
     const { client } = fakeClient({ farms: { data: null, error: { code: "XX000", message: "secret detail" } } });
     await expect(createOwnerRepository(client, "owner").load()).rejects.toMatchObject({ code: "unavailable", message: "XX000" });

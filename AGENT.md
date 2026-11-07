@@ -4,7 +4,8 @@
 > what the product is, which rules are confirmed, how the code is organized, and what is still open.
 
 **Status:** Investor MVP / demo (November 2026). No real phone calls, no payments, no subscriptions are charged.
-Everything runs in the browser so the demo link never breaks and costs nothing to host.
+The demo runs in the browser. Account persistence and farm-mode call storage exist behind opt-in flags;
+their code being present does not mean the live project has been migrated or activated.
 
 ---
 
@@ -63,7 +64,7 @@ Next.js 16 (App Router, React 19, Tailwind v4)  →  deployed on Vercel (free Ho
    │       ├─ engine.ts         every call type: worker report, owner briefing, NAQAH→worker + retries,
    │       │                    worker callback, owner inquiry, emergency info. Mirrors a future voice agent.
    │       └─ personalize.ts    swaps the sample names (Ahmed/Abdullah) for the farm's real ones at render
-   ├─ server/db/                Supabase persistence, not wired to the UI yet: row mappers, change diff,
+   ├─ server/db/                Supabase persistence, wired to account-mode UI behind its flag: row mappers, change diff,
    │                            owner repository (RLS session) and service repository (see §8.1)
    ├─ server/farm/              owner Server Actions and input validation
    ├─ server/voice/contract.ts  voice → farm data contract
@@ -133,9 +134,12 @@ Things to know before changing them:
   sample workspace, it says it is a sample, and it saves nothing. `NAQAH_VOICE_MODE=farm` is a real call: the caller
   resolves to a farm in Supabase, `voice_call_sessions` holds the call, and outcomes save through `applyVoiceEvent`.
   Farm mode never falls back to sample data. See `twilio-activation.md`.
-- **Two data modes.** With `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1`, a signed-in owner's farm comes from Supabase through
+- **Two data modes.** Only with the exact build-time value `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1`, a signed-in owner's farm comes from Supabase through
   `src/store/accountSync.ts`; everyone else keeps the localStorage demo. `update(fn)` works in both, but only
-  owner-writable fields reach the database. Anything demo-only must check `useIsAccount()`. See `supabase-backend.md`.
+  owner-writable fields reach the database. The server also gates `/api/account` (404 when disabled) and every owner
+  Server Action (unavailable without repository access). Anything demo-only must check `useIsAccount()`.
+  Unsetting the flag requires a rebuild/deployment and does not revoke direct Supabase access or stop voice writes.
+  See `supabase-backend.md`.
 - **Voice locale is per deployment** (`NAQAH_VOICE_LOCALE`). Verify with
   `node scripts/verify-naqah.mjs voice --locale <same locale as the server>`.
 - **Push:** without VAPID keys, notifications are shown locally by the service worker while the app is open.
@@ -172,7 +176,11 @@ The demo keeps one `Workspace` in `localStorage`. Every rule is a pure function 
 the same functions and swaps only the storage and the "who triggers it" layer.
 
 ### 8.1 Database — Supabase (free tier is enough to start)
-- Schema: `supabase/migrations/0001_init.sql` and `0002_backend_foundation.sql` (Postgres 15+; validated locally with a stubbed `auth` schema; RLS tested). Status, plan and go-live list: `docs/integrations/supabase-backend.md`.
+- Schema, applied in order: `0001_init.sql`, `0002_backend_foundation.sql`, `0003_voice_call_sessions.sql`,
+  `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql` under `supabase/migrations/` (Postgres 15+).
+  Local validation uses stand-in Supabase roles/Auth; it does not prove live activation. The existing Supabase project
+  contains Auth test users; the latest team report says application migrations have not been applied (issue #6).
+  Status, plan and manual go-live list: `docs/integrations/supabase-backend.md`.
   One owner (`auth.users`) → one `farms` row (holds owner + settings + Basic window) → one `workers` row.
   Child tables mirror `types.ts`: `camels`, `resources`, `custom_questions` (DB trigger enforces Basic ≤ 5),
   `criteria`, `emergency_categories`, `calls`, `reports` + `report_answers` + `findings`, `task_tickets`, `relays`,
@@ -180,14 +188,16 @@ the same functions and swaps only the storage and the "who triggers it" layer.
 - RLS: owners read/write their farm's settings, herd, resources, questions, criteria, relays and events; they can
   only **read** calls, reports, tickets and retries — those are written by the voice service with the
   `service_role` key (server only, bypasses RLS). Never ship the service key to the browser.
-- Setup: create a project (the owner's Supabase account hit the 2-free-project limit during the build, so none was
-  created), run `supabase link` then `supabase db push`, and add `NEXT_PUBLIC_SUPABASE_URL`,
-  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (browser) and `SUPABASE_SECRET_KEY` (server) to Vercel.
+- Activation is a separate owner-authorized phase on the existing project, not permission to create another project,
+  run live migrations, change Auth users/settings or deploy during code-readiness work. Follow `supabase-preparation.md`.
+  Current variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Auth/browser),
+  `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA` (account opt-in), `SUPABASE_SECRET_KEY` (voice/service only).
 - Migration path in the app: see `docs/integrations/supabase-backend.md`. Call outcomes go through `runFarmAction`: load the
   farm into a `Workspace`, run the pure action, diff and persist in one transaction. Keep `clockOffsetMs` demo-only.
 
 ### 8.2 Auth
-Supabase Auth with phone OTP for the owner (matches the "ordinary phone" audience). The worker never logs in; they
+Supabase Auth supports phone OTP, email/password and Google OAuth for the owner. Provider configuration and real
+verification remain distinct from mocked Auth checks. The worker never logs in; they
 are recognised by caller ID (`workers.phone`) — an identification signal only, not proof (open decision 4).
 
 ### 8.3 Telephony + voice agent

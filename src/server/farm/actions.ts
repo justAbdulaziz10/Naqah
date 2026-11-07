@@ -6,48 +6,61 @@ import { getSupabaseConfig } from "@/lib/supabase/config";
 import { createWritableClient, getOwner } from "@/lib/supabase/server";
 import { withTimeout } from "@/lib/supabase/timeout";
 import { applyOwnerChanges } from "./changes";
+import { isAccountDataEnabled } from "./account-mode";
+import type { AccountWorkspace } from "@/lib/account/types";
+import type { LoadedFarm } from "@/server/db/queries";
+import { isUuid } from "@/server/db/ids";
 
 const DB_TIMEOUT_MS = 8_000;
 
 type ActionResult<T> = { ok: true; data: T } | { ok: false; error: DbErrorCode | "unauthenticated" };
 
-/** Identity comes from the validated session only. No action takes an owner or farm id. */
-async function asOwner<T>(work: (repository: OwnerRepository) => Promise<T>): Promise<ActionResult<T>> {
+/** Authorization comes only from the validated session. Client ids never select the repository. */
+async function asOwner<T>(work: (repository: OwnerRepository, ownerId: string) => Promise<T>): Promise<ActionResult<T>> {
+  if (!isAccountDataEnabled()) return { ok: false, error: "unavailable" };
   try {
     const { user, unavailable } = await getOwner();
     // An outage is not a signed-out owner: treating it as one would show them the demo.
     if (!user) return { ok: false, error: unavailable ? "unavailable" : "unauthenticated" };
     const client = await createWritableClient();
     if (!client) return { ok: false, error: "unavailable" };
-    return { ok: true, data: await withTimeout(work(createOwnerRepository(client, user.id)), DB_TIMEOUT_MS) };
+    return { ok: true, data: await withTimeout(work(createOwnerRepository(client, user.id), user.id), DB_TIMEOUT_MS) };
   } catch (error) {
     return { ok: false, error: error instanceof DbError ? error.code : "unavailable" };
   }
+}
+
+function accountWorkspace(loaded: LoadedFarm, ownerId: string): AccountWorkspace {
+  return { ...loaded.workspace, farmId: loaded.farmId, ownerId };
 }
 
 export async function ensureFarm() { return asOwner((r) => r.ensureFarm()); }
 
 /** Entering the dashboard or setup. Without Supabase configured there is no account to open. */
 export async function openAccount() {
+  if (!isAccountDataEnabled()) return { ok: false as const, error: "unavailable" as const };
   if (!getSupabaseConfig()) return { ok: false as const, error: "unauthenticated" as const };
-  return asOwner(async (r) => {
+  return asOwner(async (r, ownerId) => {
     await r.ensureFarm();
-    return (await r.load()).workspace;
+    return accountWorkspace(await r.load(), ownerId);
   });
 }
 
 /** One save from the screens: validated change by change, then the server's copy of the farm. */
 export async function saveOwnerEdits(changes: unknown, farm: unknown) {
-  return asOwner(async (r) => {
+  return asOwner(async (r, ownerId) => {
     // A tab opened by one owner can outlive their session: its edits must not land on the next farm.
-    const { workspace } = await r.load();
-    if (workspace.createdAt !== farm) throw new DbError("conflict");
+    if (typeof farm !== "string" || !isUuid(farm)) throw new DbError("invalid_input");
+    // r is bound to the validated session and RLS. The untrusted id is only a stale-edit
+    // precondition; it never selects a farm or changes whose repository executes the write.
+    const loaded = await r.load();
+    if (loaded.farmId !== farm) throw new DbError("conflict");
     const applied = await applyOwnerChanges(r, changes);
-    return { ...applied, workspace: (await r.load()).workspace };
+    return { ...applied, workspace: accountWorkspace(await r.load(), ownerId) };
   });
 }
 
-export async function loadWorkspace() { return asOwner(async (r) => (await r.load()).workspace); }
+export async function loadWorkspace() { return asOwner(async (r, ownerId) => accountWorkspace(await r.load(), ownerId)); }
 export async function listAlerts() { return asOwner((r) => r.alerts(new Date())); }
 export async function listInstructions() { return asOwner((r) => r.instructions()); }
 
