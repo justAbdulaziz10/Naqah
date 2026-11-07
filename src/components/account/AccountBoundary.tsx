@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { CamelMark } from "@/components/brand/CamelMark";
+import { ACCOUNT_DATA } from "@/components/entry/paths";
 import { Button } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { accountSync, watchAccountAuth } from "@/store/account";
@@ -24,10 +25,16 @@ export function AccountBoundary({ area, children }: { area: "app" | "start"; chi
   const notice = useAccountState((state) => state.notice);
   const saveFailed = useSaveStatus((state) => state.status === "failed");
   const setupComplete = useWorkspaceStore((state) => state.workspace?.setupComplete);
+  const hydrated = useWorkspaceStore((state) => state.hydrated);
 
   const ready = status === "ready" && active;
+  // Where accounts exist, a visitor without a session doesn't get a browser-only "farm" that looks
+  // real: setup needs an account, and /app is the demo only once the demo has been opened.
+  const visitorTarget = ACCOUNT_DATA && status === "demo" && hydrated
+    ? area === "start" ? `/signup?next=${encodeURIComponent(href("/start"))}` : !setupComplete ? "/login" : null
+    : null;
   const target = !ready
-    ? null
+    ? visitorTarget
     : area === "start"
       ? setupComplete ? "/app" : null
       : !setupComplete ? "/start" : pathname.endsWith("/app/lab") ? "/app" : null;
