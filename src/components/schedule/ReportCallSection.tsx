@@ -68,6 +68,7 @@ export function ReportCallFields({ ws, onChange, showErrors = false }: SetupFiel
 
   return (
     <div className="space-y-6">
+      <p className="text-[1.0625rem] leading-relaxed text-muted">{m.setup.plans.cadence(m.common.plans[plan], weekly)}</p>
       <div className={cn("grid gap-x-5 gap-y-5", weekly ? "grid-cols-2" : "sm:grid-cols-2")}>
         {weekly ? (
           <StepField label={s.day} error={needsDay && showErrors ? s.needDay : undefined}>

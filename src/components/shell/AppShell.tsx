@@ -113,7 +113,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="px-2">
           <Logo locale={locale} href={href("/")} />
           <p className="mt-5 truncate font-semibold text-espresso">{ws.settings.farm.name.trim() || m.app.overview.estateFallback}</p>
-          <p className="text-sm text-muted">{m.common.plans[ws.settings.plan]}</p>
+          <Link href={`${href("/app/settings")}#settings-plan`} className="-mx-1 inline-flex min-h-11 items-center rounded-lg px-1 text-sm text-muted underline-offset-4 hover:text-espresso hover:underline">
+            {m.common.plans[ws.settings.plan]}
+          </Link>
         </div>
         <nav aria-label={m.common.nav.main} className="mt-6 flex flex-col gap-1">
           {nav.map((item) => {

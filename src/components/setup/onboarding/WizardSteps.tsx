@@ -1,6 +1,7 @@
 "use client";
 
-import { PencilSimple } from "@phosphor-icons/react";
+import { CaretDown, PencilSimple } from "@phosphor-icons/react";
+import { PlanComparison } from "@/components/plans/PlanComparison";
 import type { ReactNode } from "react";
 import { ReportCallFields, useCallSentence } from "@/components/schedule/ReportCallSection";
 import { isCompleteCallSchedule } from "@/domain/schedule";
@@ -118,7 +119,16 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
         </SummaryRow>
         <SummaryRow label={r.call} step="call" onEdit={onEdit}>{call ? call.sentence : notSet}</SummaryRow>
         <SummaryRow label={r.questions} step="call" onEdit={onEdit}>{r.questionsValue(customQuestions.length)}</SummaryRow>
-        <SummaryRow label={r.plan} onEdit={onEdit}>{m.common.plans[plan]}</SummaryRow>
+        <SummaryRow label={r.plan} onEdit={onEdit}>
+          <span className="font-semibold">{m.common.plans[plan]}</span>
+          <details className="group mt-1">
+            <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-[0.9375rem] font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown [&::-webkit-details-marker]:hidden">
+              {m.setup.plans.compare}
+              <CaretDown size={14} className="transition-transform group-open:rotate-180" aria-hidden />
+            </summary>
+            <PlanComparison current={plan} className="mt-3" />
+          </details>
+        </SummaryRow>
       </dl>
 
       {gaps.length ? (

@@ -149,7 +149,7 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
             <Plus size={18} weight="bold" aria-hidden />
             {s.add}
           </button>
-          <p className="text-[0.9375rem] text-muted">{s.limit(limit)}</p>
+          <p className="text-[0.9375rem] text-muted">{s.limit(limit, m.common.plans[ws.settings.plan])}</p>
         </div>
         {over ? <p className="mt-3 text-[0.9375rem] text-danger" role="alert">{s.overLimit(over)}</p> : null}
       </FieldGroup>
@@ -167,7 +167,6 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
               inputMode="numeric"
               autoComplete="off"
               dir="ltr"
-              placeholder="0"
               className="ltr-nums text-left rtl:text-right"
               aria-describedby={describedBy}
               aria-invalid={herdInvalid || undefined}

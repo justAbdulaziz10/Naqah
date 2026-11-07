@@ -18,6 +18,7 @@ import { IntegrationsSection } from "@/components/integrations/IntegrationsSecti
 import { ReportCallFields } from "@/components/schedule/ReportCallSection";
 import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { LogoutButton } from "@/components/auth/LogoutButton";
+import { PlanComparison } from "@/components/plans/PlanComparison";
 import { PLAN_LIMITS } from "@/domain/catalog";
 import type { Plan } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
@@ -210,13 +211,13 @@ export default function SettingsPage() {
         <section id="settings-account" aria-labelledby="settings-account-title" className={cn(anchor, "space-y-3")}>
           <GroupTitle id="settings-account-title" title={s.groups.account} />
           <Card>
-            <CardBody className="flex flex-col gap-5 pt-5 sm:flex-row sm:items-center sm:justify-between">
+            <CardBody className="space-y-6 pt-5">
               <div id="settings-plan" className={anchor}>
                 <p className="text-sm text-muted">{s.plan}</p>
                 <p className="mt-0.5 text-lg font-semibold text-espresso">{m.common.plans[ws.settings.plan]}</p>
-                <p className="mt-1 text-sm text-muted">{s.planNote}</p>
+                <PlanComparison current={ws.settings.plan} className="mt-4" />
               </div>
-              <div className="sm:w-56 sm:shrink-0"><LogoutButton /></div>
+              <div className="border-t border-stone/70 pt-5"><div className="sm:w-56"><LogoutButton /></div></div>
             </CardBody>
           </Card>
         </section>
@@ -238,6 +239,7 @@ export default function SettingsPage() {
                   ]}
                 />
                 {tooManyForBasic && ws.settings.plan === "ultimate" ? <p className="mt-2 text-sm text-muted">{s.demoPlanBasicBlocked}</p> : null}
+                <PlanComparison current={ws.settings.plan} className="mt-5" />
               </div>
               <div className="flex flex-wrap gap-3 border-t border-stone/70 pt-4">
                 <Button variant="secondary" onClick={() => (hasOwnSetupData(ws) ? setConfirmingSample(true) : startDemo(locale, ws.settings.plan))}>
