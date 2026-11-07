@@ -87,7 +87,15 @@ export function MobileNavigation({
 }) {
   return (
     <div className="flex items-center lg:hidden">
-      <details className="group relative">
+      <details
+        className="group relative"
+        onKeyDown={(event) => {
+          const details = event.currentTarget;
+          if (event.key !== "Escape" || !details.open) return;
+          details.removeAttribute("open");
+          details.querySelector("summary")?.focus();
+        }}
+      >
         <summary
           aria-label={menuLabel}
           className="inline-flex size-11 cursor-pointer list-none items-center justify-center rounded-full border border-stone text-espresso transition hover:bg-espresso/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current [&::-webkit-details-marker]:hidden"

@@ -127,27 +127,29 @@ export function LandingPage({ locale }: { locale: Locale }) {
           <WovenSignature />
         </div>
 
-        {/* The evening call, down a diagonal: the worker calls, NAQAH asks and saves, NAQAH calls you. */}
+        {/* The report call, down a diagonal: NAQAH calls the worker, asks and saves, then calls you. */}
         <section id="call" aria-labelledby="call-title" className="scroll-mt-20 py-20 sm:py-24 lg:py-28">
           <div className={`${frame} grid gap-y-10 lg:grid-cols-12 lg:gap-x-10 lg:gap-y-8`}>
+            <div className="grid gap-6 lg:col-span-6 lg:col-start-7 lg:row-start-1 lg:self-center lg:gap-8">
+              <h2 id="call-title" data-reveal="" className={sectionTitle}>
+                {landing.story.title}
+              </h2>
+              <Stage {...arrive} delay={90} />
+            </div>
             <EstatePhoto
               id="evening"
               locale={locale}
               sizes="(min-width: 1024px) 38vw, 100vw"
               revealDelay={0}
-              className="aspect-[4/3] w-full lg:col-span-5 lg:row-span-2 lg:self-start"
+              className="aspect-[4/3] w-full lg:col-span-5 lg:col-start-1 lg:row-start-1"
             />
-            <h2 id="call-title" data-reveal="" className={`${sectionTitle} max-lg:order-first lg:col-span-6 lg:col-start-7 lg:row-start-1`}>
-              {landing.story.title}
-            </h2>
-            <Stage {...arrive} delay={90} className="lg:col-span-5 lg:col-start-7 lg:row-start-2 lg:self-start" />
 
             <div data-ui data-reveal="" className="bg-cream p-5 sm:p-8 lg:col-span-6 lg:col-start-2 lg:mt-12">
               <LiveTranscript />
             </div>
             <Stage {...ask} delay={120} className="lg:col-span-4 lg:col-start-9 lg:mt-12 lg:self-center" />
 
-            <Stage {...callBack} className="max-lg:order-last lg:col-span-4 lg:col-start-1 lg:mt-12 lg:self-center" />
+            <Stage {...callBack} className="lg:col-span-4 lg:col-start-1 lg:mt-12 lg:self-center" />
             <div data-reveal="" data-reveal-delay="120" className="relative self-start bg-espresso text-cream lg:col-span-7 lg:col-start-6 lg:mt-12">
               {/* Pinned to the edge: an SVG strip with h-full would otherwise size the panel from its viewBox. */}
               <WovenFrame tone="dark" className="absolute inset-y-0 start-0" />
@@ -218,7 +220,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
               />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:col-span-8 lg:col-start-5">
+            <div className="grid gap-4 sm:grid-cols-2 lg:col-span-8 lg:col-start-5 lg:self-start">
               {plans.map((plan) => {
                 const copy = landing.plans[plan];
                 return (

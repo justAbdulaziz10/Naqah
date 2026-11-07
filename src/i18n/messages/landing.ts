@@ -24,7 +24,7 @@ export const landing = defineMessages({
       stages: [
         {
           lead: "At the time you choose,",
-          body: "NAQAH calls your worker on an ordinary phone. No app or forms. Basic: once a week. Ultimate: every day.",
+          body: "NAQAH calls your worker on their ordinary phone. No app, no forms.",
         },
         {
           lead: "Your questions, one at a time.",
@@ -32,7 +32,7 @@ export const landing = defineMessages({
         },
         {
           lead: "Then NAQAH calls you.",
-          body: "Right after the update is saved, even when there is nothing to flag. The details wait for you on the website.",
+          body: "Right after the update is saved, with only what matters. Even on a quiet day.",
         },
       ],
     },
@@ -66,17 +66,17 @@ export const landing = defineMessages({
     },
     principles: {
       title: "What NAQAH holds to",
-      lead: "Built for the camel estate as it is really run: one owner, the workers you trust, and a herd you know by name.",
+      lead: "Built for how a camel ranch really runs: one owner, a worker you trust, and a herd you know by name.",
       statement: "Rooted in heritage. Clear in detail.",
       items: [
-        { label: "Recordings", value: "None. Only the facts drawn from the call are kept." },
-        { label: "If the worker misses a call", value: "NAQAH tries again, 20 minutes apart, then tells you." },
+        { label: "Recordings", value: "None. Only the facts from the call are kept." },
+        { label: "If the worker misses a call", value: "NAQAH tries up to 3 more times, 20 minutes apart, then flags it for you." },
         { label: "Your instructions", value: "On Ultimate, a task stays open until the worker confirms it is done." },
         { label: "Emergencies", value: "They never wait for NAQAH. The worker calls you directly." },
       ],
     },
     plans: {
-      title: "Two rhythms",
+      title: "Choose your rhythm",
       pricing: "Pricing hasn’t been set yet.",
       labels: {
         cadence: "Farm report",
@@ -93,7 +93,7 @@ export const landing = defineMessages({
       ultimate: {
         name: "Ultimate",
         summary: "Every day, at the time you choose.",
-        rows: { cadence: "Daily", questions: "Unlimited", update: "After every report", calls: "Unlimited", tickets: "Open until confirmed" },
+        rows: { cadence: "Daily", questions: "Unlimited", update: "After every report", calls: "Unlimited", tickets: "Included" },
       },
     },
     final: {
@@ -115,7 +115,7 @@ export const landing = defineMessages({
     hero: {
       title: "اطمئنان على حلالك",
       description:
-        "ناقة تتصل على عاملك في الوقت اللي تختاره، تسأله عن اللي يهمك، تحفظ المعلومات، وتتصل فيك بملخص التحديث.",
+        "ناقة تتصل على عاملك في الوقت اللي تختاره، تسأله عن اللي يهمك، تحفظ المعلومات، وتتصل عليك بملخص التحديث.",
     },
     example: "مثال توضيحي",
     pending: "جاري فتح العرض…",
@@ -124,15 +124,15 @@ export const landing = defineMessages({
       stages: [
         {
           lead: "في الوقت اللي تختاره،",
-          body: "ناقة تتصل على العامل على جواله العادي، بلا تطبيق ولا نماذج. في الأساسية مرة بالأسبوع، وفي المتكاملة كل يوم.",
+          body: "ناقة تتصل على عاملك على جواله العادي، بدون تطبيق ولا نماذج.",
         },
         {
           lead: "أسئلتك، سؤال بعد سؤال.",
           body: "ناقة تسأل اللي جهزته، وتتأكد من الأرقام وأسماء الحلال، و«ما أدري» إجابة مقبولة. وكل معلومة تنحفظ مع مدى التأكد منها.",
         },
         {
-          lead: "بعدها ناقة تتصل فيك.",
-          body: "مباشرة بعد حفظ التحديث، حتى لو ما فيه شيء مهم. والتفاصيل تنتظرك في الموقع.",
+          lead: "بعدها ناقة تتصل عليك.",
+          body: "أول ما ينحفظ التحديث، وتعطيك المهم بس. حتى لو كان اليوم هادي.",
         },
       ],
     },
@@ -150,7 +150,7 @@ export const landing = defineMessages({
         { time: "17:43", who: "worker", text: "إيه، سجّلها." },
       ],
       facts: [
-        { label: "العلف", value: "قارب على النفاد", certainty: "تقديري" },
+        { label: "العلف", value: "قرب يخلص", certainty: "تقديري" },
         { label: "وضحة", value: "تحت الملاحظة", certainty: "حسب إفادة أحمد" },
       ],
     },
@@ -165,38 +165,38 @@ export const landing = defineMessages({
     },
     principles: {
       title: "ما تلتزم به ناقة",
-      lead: "مصممة للعزبة كما تُدار فعلاً: مالك واحد، وعمّال تثق فيهم، وحلال تعرفه بالاسم.",
+      lead: "مصممة للعزبة مثل ما تمشي فعلاً: مالك واحد، وعامل تثق فيه، وحلال تعرفه بالاسم.",
       statement: "أصالة في الجذور. وضوح في التفاصيل.",
       items: [
-        { label: "التسجيل", value: "ما فيه تسجيل. تُحفظ المعلومات المستخرجة من المكالمة فقط." },
-        { label: "إذا فاتت العامل مكالمة", value: "ناقة تعيد المحاولة كل 20 دقيقة، وبعدها تبلغك." },
-        { label: "تعليماتك", value: "في المتكاملة، تبقى المهمة مفتوحة حتى يؤكد العامل إنه أنجزها." },
-        { label: "الطوارئ", value: "ما تنتظر ناقة. العامل يتصل بك مباشرة." },
+        { label: "التسجيل", value: "المكالمة ما تتسجل. ناقة تحفظ المعلومات بس." },
+        { label: "إذا فاتت العامل مكالمة", value: "ناقة تعيد الاتصال حتى 3 مرات، كل 20 دقيقة، وبعدها تنبهك." },
+        { label: "تعليماتك", value: "في المتكاملة، تبقى المهمة مفتوحة لين يؤكد العامل إنه خلّصها." },
+        { label: "الطوارئ", value: "ما تنتظر ناقة. العامل يتصل عليك مباشرة." },
       ],
     },
     plans: {
-      title: "إيقاعان",
+      title: "اختر إيقاعك",
       pricing: "الأسعار ما تحددت بعد.",
       labels: {
         cadence: "تقرير المزرعة",
         questions: "أسئلتك الخاصة",
-        update: "ناقة تتصل فيك",
-        calls: "اتصالاتك بناقة",
+        update: "ناقة تتصل عليك",
+        calls: "اتصالاتك على ناقة",
         tickets: "تذاكر المهام",
       },
       basic: {
         name: "الأساسية",
         summary: "مرة في الأسبوع، في اليوم والوقت اللي تختاره.",
-        rows: { cadence: "أسبوعي", questions: "حتى 5", update: "بعد كل تقرير", calls: "مرة في الأسبوع", tickets: "غير متاحة" },
+        rows: { cadence: "أسبوعي", questions: "حتى 5", update: "بعد كل تقرير", calls: "مرة في الأسبوع", tickets: "غير متوفرة" },
       },
       ultimate: {
         name: "المتكاملة",
         summary: "كل يوم، في الوقت اللي تختاره.",
-        rows: { cadence: "يومي", questions: "بلا حد", update: "بعد كل تقرير", calls: "بلا حد", tickets: "مفتوحة حتى التأكيد" },
+        rows: { cadence: "يومي", questions: "بلا حد", update: "بعد كل تقرير", calls: "بلا حد", tickets: "متوفرة" },
       },
     },
     final: {
-      title: "شوف يوماً أهدأ",
+      title: "خلّ يومك أهدأ",
       body: "جهّز مزرعتك في دقائق.",
     },
     credits: "التصوير",
