@@ -1,7 +1,7 @@
 # Report call schedule
 
-Status: owner-facing setting only. NAQAH does not place report calls yet, and the screen says so.
-Nothing in this document has been applied to Supabase or Twilio. The backend part is a proposal.
+Status: the schedule is saved (demo: browser; account: Supabase, migration 0006). Placing real calls needs Twilio
+credentials and a scheduler: see `twilio-activation.md`.
 
 ## Product rule
 
@@ -40,42 +40,12 @@ farm with no day chosen needs one again before the schedule is complete.
 
 The UI is the "Report call" section in Settings: `src/components/schedule/ReportCallSection.tsx`.
 
-## Where it is saved today
+## Where it is saved
 
 - **Demo mode:** in the browser, through the zustand store (`naqah-workspace-v1` in localStorage).
-- **Account mode** (`NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1`): not saved. `src/server/db/mappers.ts` does not
-  read it, `parseFarmProfile` does not accept it, and `adopt()` in `src/store/accountSync.ts` replaces
-  settings with the server copy, which would drop it. So the section disables its controls and says the
-  call time can't be saved to the account yet.
-
-Nothing is sent to Supabase and no call is placed in either mode.
-
-## Proposed backend contract (Supabase)
-
-A proposal for the next migration (`0006_…`). Not applied.
-
-1. **Columns on `farms`:**
-   ```sql
-   call_day smallint null check (call_day between 0 and 6),  -- 0 = Sunday; Basic only
-   call_time time null                                         -- Asia/Riyadh
-   ```
-   The time zone is fixed to Asia/Riyadh. Optionally store it as
-   `call_time_zone text not null default 'Asia/Riyadh'`. Ultimate ignores `call_day` (or keeps it null);
-   do not reject a saved day on plan change, since the time and day survive a switch in the UI.
-2. **Grants:** owner-writable like `window_day` / `window_start`. Rows are already covered by the
-   `farms_owner` policy; add `call_day, call_time` to the column-level `grant insert (…)` and
-   `grant update (…) on farms to authenticated`.
-3. **`src/server/db/rows.ts`:** add `call_day: number | null; call_time: string | null`.
-4. **`src/server/db/mappers.ts`:** map to `settings.callSchedule`, trimming the time with `hhmm` like
-   the window. Null day and null time → `null`.
-5. **`src/server/farm/input.ts` `parseFarmProfile`:** accept `callSchedule`. `null` clears both
-   columns. Day: integer 0–6 or null. Time: `HH:MM` or empty (empty → null).
-6. **Change diff:** add a `callSchedule` entry next to `windowChange` in `ownerChanges`
-   (`src/lib/account/changes.ts`), sent with the `profile` change and applied by
-   `src/server/farm/changes.ts`.
-7. **`adopt()` in `src/store/accountSync.ts`:** keep the local `callSchedule` while the owner is
-   typing, the same way it keeps `window`.
-8. **UI:** once 1–7 ship, remove the "can't be saved to your account yet" state in `ReportCallSection`.
+- **Account mode:** `farms.call_day` / `farms.call_time` (migration 0006, applied live). The owner's edit goes through
+  `ownerChanges` (`callSchedule` on the profile change) → `parseFarmProfile` → the owner's session under RLS.
+  A half-typed time is not sent. `adopt()` keeps the local value while the owner is typing.
 
 ## Outbound calling (Twilio + scheduler, not built here)
 

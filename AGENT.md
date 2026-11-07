@@ -177,11 +177,12 @@ the same functions and swaps only the storage and the "who triggers it" layer.
 
 ### 8.1 Database — Supabase (free tier is enough to start)
 - Schema, applied in order: `0001_init.sql`, `0002_backend_foundation.sql`, `0003_voice_call_sessions.sql`,
-  `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql` under `supabase/migrations/` (Postgres 15+).
+  `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql`, `0006_owner_flow.sql` under `supabase/migrations/` (Postgres 15+).
   Local validation uses stand-in Supabase roles/Auth; it does not prove live activation. The existing Supabase project
-  contains Auth test users; the latest team report says application migrations have not been applied (issue #6).
+  contains Auth test users; migrations 0001–0006 are applied (0006 recorded live as `20261107213717_owner_flow`).
   Status, plan and manual go-live list: `docs/integrations/supabase-backend.md`.
-  One owner (`auth.users`) → one `farms` row (holds owner + settings + Basic window) → one `workers` row.
+  One owner (`auth.users`) → one `farms` row (owner, settings, call time, herd count, primary worker) → 1–3 (Basic) or
+  1–10 (Ultimate) `workers` rows; NAQAH calls the primary one. Scheduled report calls live in `report_call_runs`.
   Child tables mirror `types.ts`: `camels`, `resources`, `custom_questions` (DB trigger enforces Basic ≤ 5),
   `criteria`, `emergency_categories`, `calls`, `reports` + `report_answers` + `findings`, `task_tickets`, `relays`,
   `pending_worker_calls` + `worker_call_attempts`, `no_answer_tickets`, `events`, `predefined_questions` (global).
