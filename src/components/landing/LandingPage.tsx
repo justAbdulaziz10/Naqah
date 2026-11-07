@@ -1,5 +1,5 @@
+import { AuthNavigation } from '@/components/auth/AuthNavigation';
 import { ArrowUpRight } from "@phosphor-icons/react/dist/ssr";
-import Link from "next/link";
 import type { Locale } from "@/domain/types";
 import { CamelMark } from "@/components/brand/CamelMark";
 import { Logo } from "@/components/brand/Logo";
@@ -42,10 +42,8 @@ function Stage({ lead, body, className, delay = 0 }: { lead: string; body: strin
 }
 
 export function LandingPage({ locale }: { locale: Locale }) {
-  const { common, landing, auth } = getMessages(locale);
+  const { common, landing } = getMessages(locale);
   const prefix = (path: string) => `/${locale}${path === "/" ? "" : path}`;
-  const authNext = `?next=${encodeURIComponent(prefix('/app'))}`;
-  const signupNext = `?next=${encodeURIComponent(prefix('/start'))}`;
   const anchorLinks = [
     { href: "#call", label: landing.nav.how },
     { href: "#principles", label: landing.nav.principles },
@@ -79,15 +77,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
                   {link.label}
                 </a>
               ))}
-              <Link
-                href={prefix("/login") + authNext}
-                className="inline-flex min-h-11 items-center px-3.5 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso"
-              >
-                {landing.nav.signIn}
-              </Link>
-              <Link href={prefix('/signup') + signupNext} className="inline-flex min-h-11 items-center px-3.5 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso">
-                {auth.navSignup}
-              </Link>
+              <AuthNavigation />
             </nav>
             <div className="hidden lg:block">
               <LocaleSwitcher className="min-h-11" />
@@ -95,7 +85,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
             <DemoAction size="md" className={`ms-2 max-sm:hidden ${flat}`}>
               {common.actions.startDemo}
             </DemoAction>
-            <MobileNavigation links={[...anchorLinks, { href: prefix("/login") + authNext, label: landing.nav.signIn }, { href: prefix('/signup') + signupNext, label: auth.navSignup }]} menuLabel={landing.nav.menu} menuTitle={landing.nav.menuLabel} />
+            <MobileNavigation links={anchorLinks} authControls={<AuthNavigation appearance="mobile" />} menuLabel={landing.nav.menu} menuTitle={landing.nav.menuLabel} />
           </div>
         </div>
       </header>
