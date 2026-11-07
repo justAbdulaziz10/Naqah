@@ -3,7 +3,8 @@
  * sample farm for the investor demo ("Explore the demo").
  */
 import { RESOURCE_KINDS } from "./catalog";
-import { atRiyadhTime, HOUR, MINUTE, nextWindowStart } from "./clock";
+import { atRiyadhTime, HOUR, MINUTE } from "./clock";
+import { nextScheduledCall } from "./schedule";
 import { uid } from "./id";
 import type { Camel, Criterion, EmergencyCategory, Locale, Plan, Resource, Workspace } from "./types";
 
@@ -35,7 +36,8 @@ function emptyResources(present: boolean): Resource[] {
   }));
 }
 
-export function createEmptyWorkspace(plan: Plan = "ultimate"): Workspace {
+/** New owners start on Basic. Ultimate is granted manually to approved test accounts (no billing). */
+export function createEmptyWorkspace(plan: Plan = "basic"): Workspace {
   return {
     version: 1,
     setupComplete: false,
@@ -44,12 +46,15 @@ export function createEmptyWorkspace(plan: Plan = "ultimate"): Workspace {
       plan,
       owner: { name: "", phone: "" },
       farm: { name: "", location: "" },
-      worker: { name: "", phone: "", language: "ar" },
+      worker: { id: uid("wkr"), name: "", phone: "", language: "ar" },
+      otherWorkers: [],
+      herdCount: null,
+      herdCountReviewedAt: null,
       customQuestions: [],
       criteria: defaultCriteria(),
       emergencies: defaultEmergencies(),
-      // Basic: the owner must choose day + start + end explicitly (no default duration is assumed).
       window: null,
+      callSchedule: null,
     },
     camels: [],
     resources: emptyResources(true),
@@ -59,6 +64,7 @@ export function createEmptyWorkspace(plan: Plan = "ultimate"): Workspace {
     taskTickets: [],
     noAnswerTickets: [],
     pendingWorkerCalls: [],
+    reportCalls: [],
     relays: [],
     events: [],
     clockOffsetMs: 0,
@@ -107,7 +113,8 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
     location: ar ? "الخرج، منطقة الرياض" : "Al-Kharj, Riyadh Region",
     coords: { lat: 24.155, lon: 47.334 },
   };
-  ws.settings.worker = { name: ar ? "أحمد" : "Ahmed", phone: SAMPLE_WORKER_PHONE, language: ar ? "ar" : "en" };
+  ws.settings.worker = { id: uid("wkr"), name: ar ? "أحمد" : "Ahmed", phone: SAMPLE_WORKER_PHONE, language: ar ? "ar" : "en" };
+  ws.settings.otherWorkers = [{ id: uid("wkr"), name: ar ? "سالم" : "Salem", phone: "", language: ar ? "ar" : "en" }];
   ws.settings.customQuestions = [
     {
       id: uid("cq"),
@@ -120,11 +127,10 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
       createdAt: y,
     },
   ];
-  if (plan === "basic") {
-    // Next Thursday window, 17:00–18:00 Riyadh.
-    ws.settings.window = { day: 4, start: "17:00", end: "18:00" };
-  }
+  // NAQAH calls the worker at the end of the workday: Basic every Thursday, Ultimate every day.
+  ws.settings.callSchedule = { day: plan === "basic" ? 4 : null, time: "17:00" };
 
+  ws.settings.herdCount = 42;
   ws.camels = CAMELS[locale].map(([name, tag, sex, age]) => ({
     id: uid("cml"),
     name,
@@ -179,7 +185,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
     {
       id: callId,
       kind: "worker_report",
-      direction: "inbound",
+      direction: "outbound",
       party: "worker",
       at: y,
       outcome: "completed",
@@ -255,11 +261,12 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
     },
   );
 
-  // Basic demo: start the clock 5 minutes into the next weekly window so a report call works
-  // immediately, and move the sample report to last week's window.
-  if (plan === "basic" && ws.settings.window) {
-    const start = nextWindowStart(realNow, ws.settings.window);
-    ws.clockOffsetMs = start.getTime() + 5 * MINUTE - realNow.getTime();
+  // Basic demo: start the clock 2 minutes before the next weekly report call so the scheduled call
+  // can be shown immediately, and move the sample report to last week's call.
+  const nextCall = plan === "basic" ? nextScheduledCall(realNow, plan, ws.settings.callSchedule) : null;
+  if (nextCall) {
+    const start = nextCall;
+    ws.clockOffsetMs = start.getTime() - 2 * MINUTE - realNow.getTime();
     const shift = start.getTime() - 7 * 24 * HOUR + 12 * MINUTE - yesterday.getTime();
     const move = (v: string) => new Date(new Date(v).getTime() + shift).toISOString();
     ws.reports[0].at = move(ws.reports[0].at);

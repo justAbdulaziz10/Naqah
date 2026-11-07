@@ -36,3 +36,17 @@ export function nextScheduledCall(now: Date, plan: Plan, schedule: CallSchedule 
   }
   return null; // Unreachable: day 7 always matches and is in the future.
 }
+
+/** The latest scheduled call at or before `now`, or null while the schedule is unfinished. */
+export function previousScheduledCall(now: Date, plan: Plan, schedule: CallSchedule | null | undefined): Date | null {
+  if (!schedule || !isCompleteCallSchedule(plan, schedule)) return null;
+  const p = riyadhParts(now);
+  const minutes = toMinutes(schedule.time);
+  for (let back = 0; back <= 7; back++) {
+    const weekday = (((p.weekday - back) % 7) + 7) % 7;
+    if (plan === "basic" && weekday !== schedule.day) continue;
+    const candidate = fromRiyadh(p.year, p.month, p.day - back, Math.floor(minutes / 60), minutes % 60);
+    if (candidate.getTime() <= now.getTime()) return candidate;
+  }
+  return null; // Unreachable: day -7 always matches and is in the past.
+}

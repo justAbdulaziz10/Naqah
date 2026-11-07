@@ -12,6 +12,10 @@ export const DAY = 24 * HOUR;
 /** Retry rule for AI → worker calls: wait 20 minutes, up to 3 retries. */
 export const RETRY_DELAY_MS = 20 * MINUTE;
 export const MAX_RETRIES = 3;
+/** Scheduled report calls: initial attempt + 2 retries, 20 minutes apart (owner brief, Nov 2026). */
+export const REPORT_CALL_RETRIES = 2;
+/** A scheduled slot is only called within this long after its time, so a late scheduler never calls hours later. */
+export const REPORT_CALL_GRACE_MS = 60 * 60 * 1000;
 
 /** Current time as the workspace sees it (includes the demo clock offset). */
 export function nowFor(ws: Pick<Workspace, "clockOffsetMs">, realNow = Date.now()): Date {

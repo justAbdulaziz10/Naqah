@@ -9,6 +9,7 @@ import {
   submitOwnerInstruction,
 } from "./actions";
 import { fromRiyadh, isValidWindow, isWithinWindow, nextWindowStart, RETRY_DELAY_MS, weekKey } from "./clock";
+import { placeReportCallAttempt, resolveReportCallAttempt, startReportCall } from "./reportCalls";
 import type { ReportDraft } from "./findings";
 import { evaluateFindings, ownerBriefing } from "./findings";
 import {
@@ -84,27 +85,32 @@ describe("setup rules", () => {
   });
 });
 
-describe("worker inbound calls (Phase 2)", () => {
-  it("Basic: rejects outside the window, accepts inside, then blocks a second weekly report", () => {
+describe("worker inbound calls", () => {
+  it("tells the worker to wait for NAQAH's call when there is no report call to return", () => {
     const ws = basic();
-    expect(routeWorkerInboundCall(ws, THU_1830)).toEqual({ kind: "rejected", reason: "outside_window" });
-    expect(routeWorkerInboundCall(ws, THU_1710)).toEqual({ kind: "report" });
-    const after = completeWorkerReport(ws, THU_1710, emptyDraft()).ws;
-    expect(routeWorkerInboundCall(after, fromRiyadh(2026, 11, 5, 17, 40))).toEqual({ kind: "rejected", reason: "weekly_done" });
+    expect(routeWorkerInboundCall(ws, THU_1710)).toEqual({ kind: "rejected", reason: "wait_for_call" });
   });
-  it("Basic: a draft window with only an end time does not accept reports", () => {
-    const ws = createDemoWorkspace("en", "basic");
-    ws.reports = [];
-    ws.settings.window = { day: 4, start: "", end: "23:00" };
-    expect(routeWorkerInboundCall(ws, new Date("2026-11-05T12:00:00Z"))).toEqual({ kind: "rejected", reason: "no_window" });
+  it("accepts the worker returning a missed report call, once per period", () => {
+    const ws = basic();
+    let run = startReportCall(ws, THU_1710, "schedule", fromRiyadh(2026, 11, 5, 17, 0));
+    let next = run.ws;
+    for (let i = 0; i < 3; i++) {
+      const at = new Date(THU_1710.getTime() + i * RETRY_DELAY_MS);
+      next = placeReportCallAttempt(next, at, run.run!.id).ws;
+      next = resolveReportCallAttempt(next, at, run.run!.id, false).ws;
+    }
+    expect(next.reportCalls?.[0].state).toBe("missed");
+    expect(routeWorkerInboundCall(next, THU_1830)).toEqual({ kind: "report" });
+    const after = completeWorkerReport(next, THU_1830, emptyDraft()).ws;
+    expect(routeWorkerInboundCall(after, fromRiyadh(2026, 11, 5, 19, 0))).toEqual({ kind: "rejected", reason: "weekly_done" });
+    run = startReportCall(after, fromRiyadh(2026, 11, 5, 19, 0), "manual");
+    expect(run.blocked).toBe("already_reported");
   });
-
   it("Ultimate: one report per day", () => {
     const ws = ultimate();
-    expect(routeWorkerInboundCall(ws, THU_1710).kind).toBe("report");
     const after = completeWorkerReport(ws, THU_1710, emptyDraft()).ws;
     expect(routeWorkerInboundCall(after, THU_1830)).toEqual({ kind: "rejected", reason: "daily_done" });
-    expect(routeWorkerInboundCall(after, fromRiyadh(2026, 11, 6, 17, 0)).kind).toBe("report");
+    expect(routeWorkerInboundCall(after, fromRiyadh(2026, 11, 6, 17, 0))).toEqual({ kind: "rejected", reason: "wait_for_call" });
   });
   it("routes to callback when a No Answer Ticket is open, even outside Basic's window", () => {
     const sub = submitOwnerInstruction(basic(), THU_1830, { message: "Fix the gate", actionable: true, scheduledFor: null });
