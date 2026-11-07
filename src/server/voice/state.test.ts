@@ -3,7 +3,7 @@ import { signVoiceState, verifyVoiceState, VOICE_STATE_MAX_AGE_MS, type VoiceSta
 
 const state: VoiceState = {
   v: 1,
-  sc: "worker_report",
+  sc: "report_call",
   l: "ar",
   t: 1_000_000,
   a: [{ value: "yes" }, { text: "عشرون" }],

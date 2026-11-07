@@ -4,7 +4,11 @@ There are two modes. `NAQAH_VOICE_MODE=farm` is a real call on a real farm in Su
 [twilio-activation.md](twilio-activation.md). This page describes the default **sample line**, which runs the demo
 farm, tells the caller it is a sample, and saves nothing.
 
-The sample line lets a registered worker call NAQAH, answer the scripted worker-report flow, and have a labelled sample
+On a real farm NAQAH calls the worker at the owner's report time (see
+[twilio-activation.md](twilio-activation.md#report-calls-naqah-calls-the-worker)). The sample line can't call anyone, so
+when the registered worker calls it, it plays a sample of that report call and says so.
+
+The sample line lets a registered worker call NAQAH, answer the scripted report-call flow, and have a labelled sample
 summary sent through WhatsApp Cloud API, an outbound Twilio call, or both. Paid sample summaries are sent only after
 the completing voice webhook passes Twilio signature validation. It appears in the owner's
 **Settings → Connections** section. With no voice configuration, that card says the line is not connected and that

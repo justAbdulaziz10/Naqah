@@ -21,6 +21,7 @@ function callKindLabel(kind: CallKind, m: ReturnType<typeof useI18n>["m"]) {
   const labels: Record<CallKind, string> = {
     worker_report: m.app.calls.workerReport,
     worker_report_rejected: m.app.calls.rejectedReport,
+    worker_report_missed: m.app.calls.missedReport,
     worker_callback: m.app.calls.workerCallback,
     worker_instruction: m.app.calls.instructionDelivery,
     worker_task_verification: m.app.calls.taskVerification,

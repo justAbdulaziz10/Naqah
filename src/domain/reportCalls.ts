@@ -173,3 +173,66 @@ export function endReportCallWithoutReport(input: Workspace, now: Date, runId: s
   });
   return ws;
 }
+
+/** A placement that could not be retried after this long since its slot is given up as missed. */
+export const REPORT_CALL_GIVE_UP_MS = 3 * 60 * 60 * 1000;
+
+export interface ReportCallClaim {
+  runId: string;
+  attempt: number;
+  /** E.164 number to dial. */
+  phone: string;
+}
+
+/**
+ * Scheduler step for one farm: the due retry, else the due scheduled slot, recorded as a placed
+ * attempt before anything is dialled. Saved through a revision-checked write, so two schedulers
+ * running at once can't both claim it. Unchanged workspace and null when nothing is due.
+ */
+export function claimDueReportCall(input: Workspace, now: Date): { ws: Workspace; claim: ReportCallClaim | null } {
+  const phone = dialableWorkerPhone(input);
+  if (!phone) return { ws: input, claim: null };
+  let ws = input;
+  let run: ReportCallRun | undefined = dueReportCallAttempts(input, now)[0];
+  if (!run) {
+    const slot = dueScheduledReportCall(input, now);
+    if (!slot) return { ws: input, claim: null };
+    const opened = startReportCall(input, now, "schedule", slot);
+    if (!opened.run) return { ws: input, claim: null };
+    ws = opened.ws;
+    run = opened.run;
+  }
+  const placed = placeReportCallAttempt(ws, now, run.id);
+  if (placed.attempt === null) return { ws: input, claim: null };
+  return { ws: placed.ws, claim: { runId: run.id, attempt: placed.attempt, phone } };
+}
+
+/**
+ * The provider refused or never got the call: the attempt didn't happen, so it is not logged as
+ * "no answer". It is tried again after the retry delay, until the slot is too old.
+ */
+export function abandonReportCallAttempt(input: Workspace, now: Date, runId: string, attempt: number): Workspace {
+  const current = reportCallRuns(input).find((r) => r.id === runId);
+  if (!current || current.state !== "calling" || current.attempts.length !== attempt || current.attempts[attempt - 1].result !== "pending") {
+    return input;
+  }
+  const ws = structuredClone(input);
+  const run = reportCallRuns(ws).find((r) => r.id === runId)!;
+  run.attempts.pop();
+  const name = ws.settings.worker.name;
+  if (now.getTime() - new Date(run.occurrence).getTime() > REPORT_CALL_GIVE_UP_MS) {
+    run.state = "missed";
+    run.nextAttemptAt = null;
+    pushEvent(ws, now, "attention", {
+      ar: `تعذر على ناقة الاتصال بـ${name} لمكالمة التقرير. لا يوجد تقرير لهذه الفترة بعد.`,
+      en: `NAQAH couldn't place the report call to ${name}. There is no report for this period yet.`,
+    });
+    return ws;
+  }
+  run.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
+  pushEvent(ws, now, "attention", {
+    ar: `تعذر على ناقة الاتصال بـ${name} — تحاول مرة ثانية بعد ٢٠ دقيقة`,
+    en: `NAQAH couldn't place the call to ${name} — it will try again in 20 minutes`,
+  });
+  return ws;
+}

@@ -6,6 +6,15 @@ const uuid = "11111111-1111-4111-8111-111111111111";
 const base = { version: 1, eventId: "CA1:report", providerCallId: "CA1" };
 const draft = { answers: [], camelUpdates: [], resourceUpdates: [], herdAccountedFor: true, taskConfirmations: [] };
 const now = new Date("2026-11-08T09:00:00.000Z");
+const runId = "22222222-2222-4222-8222-222222222222";
+
+/** A farm whose worker has just picked up NAQAH's report call. */
+function answered(plan: "basic" | "ultimate" = "ultimate") {
+  const ws = createEmptyWorkspace(plan);
+  ws.settings.worker.phone = "+966501234567";
+  ws.reportCalls = [{ id: runId, occurrence: now.toISOString(), trigger: "schedule", attempts: [{ at: now.toISOString(), result: "answered" }], nextAttemptAt: null, state: "answered", reportId: null }];
+  return ws;
+}
 
 describe("voice event validation", () => {
   it("accepts a valid report", () => {
@@ -59,13 +68,22 @@ describe("report details", () => {
     expect(parseVoiceEvent({ ...base, type: "worker_report", draft: { ...draft, camelUpdates } }).type).toBe("worker_report");
   });
   it("builds the heat-day finding on the server, so it reaches the owner", () => {
-    const event = parseVoiceEvent({ ...base, type: "worker_report", draft: { ...draft, heatWaterNeeded: true } });
-    const step = voiceStep(createEmptyWorkspace("ultimate"), now, event);
+    const event = parseVoiceEvent({ ...base, type: "worker_report", reportCallId: runId, draft: { ...draft, heatWaterNeeded: true } });
+    const step = voiceStep(answered(), now, event);
     expect(step.ws.reports[0].findings.map((f) => f.criterionId)).toEqual(["weather_heat_day"]);
   });
   it("ignores findings written by the voice layer", () => {
-    const event = parseVoiceEvent({ ...base, type: "worker_report", draft: { ...draft, extraFindings: [{ id: "x", criterionId: "y", text: { ar: "a", en: "b" } }] } });
-    expect(voiceStep(createEmptyWorkspace("ultimate"), now, event).ws.reports[0].findings).toEqual([]);
+    const event = parseVoiceEvent({ ...base, type: "worker_report", reportCallId: runId, draft: { ...draft, extraFindings: [{ id: "x", criterionId: "y", text: { ar: "a", en: "b" } }] } });
+    expect(voiceStep(answered(), now, event).ws.reports[0].findings).toEqual([]);
+  });
+  it("keeps the worker's herd count as a proposal on the report", () => {
+    const event = parseVoiceEvent({ ...base, type: "worker_report", reportCallId: runId, draft: { ...draft, herdCount: 41 } });
+    const step = voiceStep(answered(), now, event);
+    expect(step.ws.reports[0].herdCountReported).toBe(41);
+    expect(step.ws.settings.herdCount).toBeNull();
+  });
+  it.each([-1, 1.5, "40", 100_001])("rejects a herd count of %j", (herdCount) => {
+    expect(() => parseVoiceEvent({ ...base, type: "worker_report", draft: { ...draft, herdCount } })).toThrow();
   });
 });
 
@@ -96,22 +114,37 @@ describe("scheduled task verification", () => {
 describe("voice steps follow the domain rules", () => {
   const event = (extra: object) => parseVoiceEvent({ ...base, ...extra }) as VoiceEvent;
 
-  it("saves a first report of the day and refuses a second", () => {
-    const ws = createEmptyWorkspace("ultimate");
-    const first = voiceStep(ws, now, event({ type: "worker_report", draft }));
+  it("saves the report on the answered report call and refuses a second", () => {
+    const first = voiceStep(answered(), now, event({ type: "worker_report", reportCallId: runId, draft }));
     expect(first.result).toEqual({ status: "saved" });
-    const second = voiceStep(first.ws, now, event({ type: "worker_report", draft }));
-    expect(second.result).toEqual({ status: "rejected", reason: "daily_done" });
+    expect(first.ws.reportCalls?.[0]).toMatchObject({ state: "completed", reportId: first.ws.reports[0].id });
+    expect(first.ws.calls[0].direction).toBe("outbound");
+    const second = voiceStep(first.ws, now, event({ type: "worker_report", reportCallId: runId, draft }));
+    expect(second.result).toEqual({ status: "rejected", reason: "call_not_active" });
     expect(second.ws.reports).toHaveLength(1);
+  });
+  it("refuses a report on a run that isn't in conversation", () => {
+    const ws = answered();
+    ws.reportCalls![0].state = "missed";
+    expect(voiceStep(ws, now, event({ type: "worker_report", reportCallId: runId, draft })).result).toEqual({ status: "rejected", reason: "call_not_active" });
   });
   it("never turns a call refused at the start into an empty report", () => {
     const refused = event({ type: "worker_report", draft, refusedAtStart: true });
     const step = voiceStep(createEmptyWorkspace("ultimate"), now, refused);
-    expect(step.result).toEqual({ status: "rejected", reason: "not_allowed" });
+    expect(step.result).toEqual({ status: "rejected", reason: "wait_for_call" });
     expect(step.ws.reports).toHaveLength(0);
+    expect(step.ws.calls.at(-1)?.kind).toBe("worker_report_rejected");
   });
-  it("refuses Basic reporting without a window", () => {
-    expect(voiceStep(createEmptyWorkspace("basic"), now, event({ type: "worker_report", draft })).result).toEqual({ status: "rejected", reason: "no_window" });
+  it("tells a worker who calls in to wait for NAQAH's call", () => {
+    expect(voiceStep(createEmptyWorkspace("basic"), now, event({ type: "worker_report", draft })).result).toEqual({ status: "rejected", reason: "wait_for_call" });
+  });
+  it("takes a report from a worker returning a missed report call", () => {
+    const ws = answered();
+    ws.reportCalls![0].state = "missed";
+    ws.reportCalls![0].attempts = [{ at: now.toISOString(), result: "no_answer" }];
+    const step = voiceStep(ws, now, event({ type: "worker_report", draft }));
+    expect(step.result).toEqual({ status: "saved" });
+    expect(step.ws.calls[0].direction).toBe("inbound");
   });
   it("treats a returned missed call as a callback, not a report", () => {
     const ws = createEmptyWorkspace("ultimate");
@@ -135,4 +168,39 @@ describe("voice steps follow the domain rules", () => {
     const step = voiceStep(ws, now, event({ type: "task_confirmation", taskId: uuid, done: false, via: "worker_report" }));
     expect(step.ws.taskTickets[0].status).toBe("open");
   });
+});
+
+describe("report call status events", () => {
+  const event = (extra: object) => parseVoiceEvent({ ...base, ...extra }) as VoiceEvent;
+  function ringing() {
+    const ws = answered();
+    ws.reportCalls![0] = { ...ws.reportCalls![0], state: "calling", attempts: [{ at: now.toISOString(), result: "pending" }] };
+    return ws;
+  }
+  it("keeps attempts and endings to the system, and endings to the worker too", () => {
+    const attempt = event({ type: "report_call_attempt", reportCallId: runId, attempt: 1, answered: false });
+    expect(eventAllowed({ party: "system" }, attempt)).toBe(true);
+    expect(eventAllowed({ party: "worker" }, attempt)).toBe(false);
+    const ended = event({ type: "report_call_ended", reportCallId: runId });
+    expect(eventAllowed({ party: "worker" }, ended)).toBe(true);
+    expect(eventAllowed({ party: "owner", call: "inquiry" }, ended)).toBe(false);
+  });
+  it("schedules a retry for an unanswered attempt and ignores a late callback for another attempt", () => {
+    const step = voiceStep(ringing(), now, event({ type: "report_call_attempt", reportCallId: runId, attempt: 1, answered: false }));
+    expect(step.result).toEqual({ status: "saved", detail: "retry_scheduled" });
+    expect(step.ws.calls[0].kind).toBe("worker_report_missed");
+    const late = voiceStep(ringing(), now, event({ type: "report_call_attempt", reportCallId: runId, attempt: 2, answered: false }));
+    expect(late.result).toEqual({ status: "saved", detail: "ignored" });
+  });
+  it("ends an answered call unsaved, and counts a completed call that never reached the questions as unanswered", () => {
+    const ended = voiceStep(answered(), now, event({ type: "report_call_ended", reportCallId: runId, attempt: 1 }));
+    expect(ended.ws.reportCalls?.[0].state).toBe("missed");
+    const never = voiceStep(ringing(), now, event({ type: "report_call_ended", reportCallId: runId, attempt: 1 }));
+    expect(never.result).toEqual({ status: "saved", detail: "retry_scheduled" });
+  });
+  it.each([
+    { type: "report_call_attempt", reportCallId: "rcl_1", attempt: 1, answered: true },
+    { type: "report_call_attempt", reportCallId: runId, attempt: 0, answered: true },
+    { type: "worker_report", reportCallId: "x", draft },
+  ])("rejects %j", (input) => expect(() => parseVoiceEvent({ ...base, ...input })).toThrow());
 });

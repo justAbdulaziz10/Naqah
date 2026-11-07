@@ -42,7 +42,8 @@ How the telephony layer (Twilio + voice model) reports to the farm. Code:
 
 | `type` | Extra fields | Domain function |
 |---|---|---|
-| `worker_report` | `draft` (`ReportDraft`), optional `refusedAtStart` | `routeWorkerInboundCall`, then `completeWorkerReport` or `rejectWorkerReport`. `refusedAtStart` logs a refused call and can never save a report |
+| `worker_report` | `draft` (`ReportDraft`), optional `refusedAtStart`, optional `reportCallId` | With `reportCallId` (a report call NAQAH placed): the run must be answered, then `completeWorkerReport(…, runId)`. Without it (the worker phoned in): `routeWorkerInboundCall`, then `completeWorkerReport` or `rejectWorkerReport`. `refusedAtStart` logs a refused call and can never save a report |
+| `report_call_ended` | `reportCallId`, optional `attempt` | `endReportCallWithoutReport`; with `attempt`, a call that never reached the questions counts as unanswered |
 | `worker_callback` | none | `completeWorkerCallback`; not a farm update |
 | `task_confirmation` | `taskId`, `done`, `via` | `confirmTask`; only the worker's confirmation closes a task |
 | `owner_inquiry` | none | `routeOwnerInboundCall`, then `recordOwnerInquiry` or `rejectOwnerInquiry` |
@@ -50,12 +51,17 @@ How the telephony layer (Twilio + voice model) reports to the farm. Code:
 | `owner_notification` | `reportId`, `answered` | `recordOwnerNotification` |
 | `task_verification_start` | `taskId` | `startTaskVerification`, once per task |
 | `worker_call_attempt` | `pendingCallId`, `answered` | `resolveWorkerCallAttempt` (20 min × 3, then No Answer ticket) |
+| `report_call_attempt` | `reportCallId`, `attempt`, `answered` | `resolveReportCallAttempt` (20 min × 2 retries, then missed); a callback for another attempt is ignored |
 
-The first three come from the worker's call, the next two from the owner's, and the last three
-from the system (scheduler and Twilio status callbacks).
+`worker_report`, `worker_callback` and `task_confirmation` come from the worker's call;
+`owner_inquiry` and `owner_instruction` from the owner's; `owner_notification`,
+`task_verification_start`, `worker_call_attempt` and `report_call_attempt` from the system (scheduler
+and Twilio status callbacks). `report_call_ended` comes from either the worker (ended unsaved) or
+the system (final status). Every event naming a `reportCallId` also stores the CallSid on that run.
 
 `draft` holds `answers`, `camelUpdates`, `resourceUpdates`, `herdAccountedFor`,
-`taskConfirmations` and an optional `heatWaterNeeded` flag. The server writes the heat-day finding
+`taskConfirmations`, an optional `herdCount` (integer 0–100000, the worker's count: a proposal for
+the owner, saved as `reports.herd_count_reported`) and an optional `heatWaterNeeded` flag. The server writes the heat-day finding
 itself; findings sent by the voice layer are ignored. Each answer carries a certainty label: `reported`, `approximate`, `unknown`
 or `verified`. «ما أدري» is a valid answer with certainty `unknown`.
 
@@ -65,13 +71,13 @@ or `verified`. «ما أدري» is a valid answer with certainty `unknown`.
 |---|---|---|
 | `saved` | Stored. `detail` holds the attempt result where relevant. | May confirm it |
 | `unchanged` | Nothing needed saving | Says nothing was changed |
-| `rejected` | `reason`: `outside_window`, `weekly_done`, `daily_done`, `no_window`, `allowance_used`, `callback_required`, `not_allowed` | Explains politely |
+| `rejected` | `reason`: `wait_for_call`, `weekly_done`, `daily_done`, `allowance_used`, `callback_required`, `call_not_active`, `not_allowed` (`outside_window` / `no_window` are retired) | Explains politely |
 
 Errors are `DbError` codes. `invalid_input` means a bad event. `not_found`, `conflict` or
 `unavailable` mean nothing was saved: the agent must not claim it was.
 
-The live routes use one `eventId` per outcome: `<CallSid>:report`, `:callback`, `:inquiry` and
-`:task:<taskId>`.
+The live routes use one `eventId` per outcome: `<CallSid>:report`, `:callback`, `:inquiry`,
+`:task:<taskId>`, `:answered`, `:ended`, `:final` and `:owner`.
 
 A retried event returns its first outcome and changes nothing, including an event that changed
 nothing the first time. If a farm changes during a save,
@@ -79,7 +85,8 @@ the server reloads and runs the rules again, up to three times.
 
 ## Scheduler
 
-Every few minutes, using the service client: load each farm with due work. For each task in
+Report calls are built: `GET /api/cron/report-calls` (see `twilio-activation.md`). Not yet built,
+for instruction and task calls: every few minutes, using the service client, load each farm with due work. For each task in
 `tasksToVerify`, send `task_verification_start`. Then place the calls in `dueWorkerCalls` and report
 each result as `worker_call_attempt`. `pending_worker_calls_due` indexes the query. Use one `eventId`
 per attempt.

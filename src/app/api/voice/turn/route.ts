@@ -100,7 +100,7 @@ export async function POST(request: Request): Promise<Response> {
       const workspace = next.replay.workspace;
       const latestReport = workspace.reports[workspace.reports.length - 1];
       const latestCall = workspace.calls[workspace.calls.length - 1];
-      if (state.sc === "worker_report" && latestCall?.kind === "worker_report" && latestCall.at === new Date(state.t).toISOString() && latestReport) {
+      if (state.sc === "report_call" && latestCall?.kind === "worker_report" && latestCall.at === new Date(state.t).toISOString() && latestReport) {
         if (signature.verified) await scheduleOwnerSummary(latestReport, state.l);
         else console.info("owner summary skipped: unsigned webhook");
       }

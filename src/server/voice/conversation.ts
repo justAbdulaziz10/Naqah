@@ -1,4 +1,5 @@
 import { answer, start, type AnswerInput, type CallSession, type Scenario } from "@/domain/conversation/engine";
+import { placeReportCallAttempt, startReportCall } from "@/domain/reportCalls";
 import { createDemoWorkspace } from "@/domain/seed";
 import type { Locale, Workspace } from "@/domain/types";
 import { isVoiceMiss, type VoiceState } from "./state";
@@ -70,8 +71,16 @@ function applyResult(
   };
 }
 
+/** The sample line plays NAQAH's report call as if the worker had just picked it up. */
+function answeredSampleReportCall(workspace: Workspace, now: Date): { workspace: Workspace; reportCallId?: string } {
+  const opened = startReportCall(workspace, now, "manual");
+  if (!opened.run) return { workspace };
+  const stable = stabilizeWorkspace(placeReportCallAttempt(opened.ws, now, opened.run.id).ws);
+  return { workspace: stable.workspace, reportCallId: stable.ids.get(opened.run.id) };
+}
+
 export function newVoiceState(scenario: Scenario, locale: Locale, startedAt = Date.now(), callSid?: string): VoiceState {
-  if (scenario !== "worker_report" && scenario !== "owner_inquiry") {
+  if (scenario !== "report_call" && scenario !== "owner_inquiry") {
     throw new Error("Unsupported inbound voice scenario");
   }
   return { v: 1, sc: scenario, l: locale, t: startedAt, ...(callSid === undefined ? {} : { callSid }), a: [] };
@@ -80,7 +89,9 @@ export function newVoiceState(scenario: Scenario, locale: Locale, startedAt = Da
 export function replayVoiceState(state: VoiceState): ReplayResult {
   const now = new Date(state.t);
   let workspace = stableDemoWorkspace(state.l, now);
-  let result = start(workspace, now, state.sc);
+  let reportCallId: string | undefined;
+  if (state.sc === "report_call") ({ workspace, reportCallId } = answeredSampleReportCall(workspace, now));
+  let result = start(workspace, now, state.sc, { reportCallId });
   let applied = applyResult(workspace, result.session, result);
   workspace = applied.workspace;
   let session = applied.session;

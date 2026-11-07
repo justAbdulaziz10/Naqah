@@ -3,7 +3,9 @@ import { completeWorkerReport } from "./actions";
 import { fromRiyadh, MINUTE, RETRY_DELAY_MS } from "./clock";
 import { acceptHerdCountProposal, dismissHerdCountProposal, herdCountProposal } from "./herd";
 import {
+  abandonReportCallAttempt,
   activeReportCall,
+  claimDueReportCall,
   dueReportCallAttempts,
   dueScheduledReportCall,
   endReportCallWithoutReport,
@@ -59,7 +61,9 @@ describe("scheduled report calls", () => {
   });
 
   it("retries twice, 20 minutes apart, then marks the call missed", () => {
-    let { ws, run } = startReportCall(farm(), THU_1700, "schedule");
+    const started = startReportCall(farm(), THU_1700, "schedule");
+    const run = started.run;
+    let ws = started.ws;
     const id = run!.id;
     const outcomes: string[] = [];
     let at = THU_1700;
@@ -82,7 +86,9 @@ describe("scheduled report calls", () => {
   });
 
   it("answered → the saved report completes the run once", () => {
-    let { ws, run } = startReportCall(farm(), THU_1700, "manual");
+    const started = startReportCall(farm(), THU_1700, "manual");
+    const run = started.run;
+    let ws = started.ws;
     ws = placeReportCallAttempt(ws, THU_1700, run!.id).ws;
     ws = resolveReportCallAttempt(ws, THU_1700, run!.id, true).ws;
     expect(resolveReportCallAttempt(ws, THU_1700, run!.id, true).outcome).toBe("ignored");
@@ -93,7 +99,9 @@ describe("scheduled report calls", () => {
   });
 
   it("an answered call that ends without a report is not retried automatically", () => {
-    let { ws, run } = startReportCall(farm("ultimate"), THU_1700, "schedule");
+    const started = startReportCall(farm("ultimate"), THU_1700, "schedule");
+    const run = started.run;
+    let ws = started.ws;
     ws = placeReportCallAttempt(ws, THU_1700, run!.id).ws;
     ws = resolveReportCallAttempt(ws, THU_1700, run!.id, true).ws;
     ws = endReportCallWithoutReport(ws, fromRiyadh(2026, 11, 5, 17, 3), run!.id);
@@ -132,5 +140,40 @@ describe("registered workers", () => {
     expect(allWorkers(settings).map((w) => w.name)).toEqual(["Salem", "Ahmed", "Omar"]);
     expect(canAddWorker(settings)).toBe(false);
     expect(canAddWorker({ ...settings, plan: "ultimate" })).toBe(true);
+  });
+});
+
+describe("scheduler claims", () => {
+  it("claims the due slot once, then the retry when it is due", () => {
+    const first = claimDueReportCall(farm(), THU_1700);
+    expect(first.claim).toMatchObject({ attempt: 1, phone: "+966501234567" });
+    expect(claimDueReportCall(first.ws, THU_1700).claim).toBeNull();
+
+    const unanswered = resolveReportCallAttempt(first.ws, THU_1700, first.claim!.runId, false).ws;
+    expect(claimDueReportCall(unanswered, new Date(THU_1700.getTime() + 19 * MINUTE)).claim).toBeNull();
+    const retry = claimDueReportCall(unanswered, new Date(THU_1700.getTime() + RETRY_DELAY_MS));
+    expect(retry.claim).toEqual({ runId: first.claim!.runId, attempt: 2, phone: "+966501234567" });
+  });
+
+  it("claims nothing without a dialable number or outside the slot", () => {
+    const noPhone = farm();
+    noPhone.settings.worker.phone = "";
+    expect(claimDueReportCall(noPhone, THU_1700).claim).toBeNull();
+    expect(claimDueReportCall(farm(), fromRiyadh(2026, 11, 5, 16, 0)).claim).toBeNull();
+  });
+
+  it("undoes an attempt the provider never placed, without logging a missed call", () => {
+    const claimed = claimDueReportCall(farm(), THU_1700);
+    const abandoned = abandonReportCallAttempt(claimed.ws, THU_1700, claimed.claim!.runId, 1);
+    const run = abandoned.reportCalls![0];
+    expect(run.attempts).toEqual([]);
+    expect(run.state).toBe("calling");
+    expect(run.nextAttemptAt).toBe(new Date(THU_1700.getTime() + RETRY_DELAY_MS).toISOString());
+    expect(abandoned.calls).toHaveLength(0);
+    expect(abandonReportCallAttempt(abandoned, THU_1700, run.id, 1)).toBe(abandoned);
+
+    const late = new Date(THU_1700.getTime() + 4 * 60 * MINUTE);
+    const reclaimed = claimDueReportCall(abandoned, late);
+    expect(abandonReportCallAttempt(reclaimed.ws, late, run.id, 1).reportCalls![0].state).toBe("missed");
   });
 });

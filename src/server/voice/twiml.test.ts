@@ -3,7 +3,7 @@ import type { CallSession } from "@/domain/conversation/engine";
 import { escapeXml, sayElement, twimlGather, twimlGoodbye } from "./twiml";
 
 const session: CallSession = {
-  scenario: "worker_report", step: "confirm",
+  scenario: "report_call", step: "confirm",
   turns: [{ speaker: "agent", text: { en: "Say & confirm", ar: "قل نعم" }, at: "2026-01-01T00:00:00.000Z" }],
   replies: [{ id: "yes", value: "yes", label: { en: "Yes", ar: "نعم" } }],
   inputMode: "choices", done: false, startedAt: "2026-01-01T00:00:00.000Z",

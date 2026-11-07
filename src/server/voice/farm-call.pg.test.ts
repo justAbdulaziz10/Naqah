@@ -7,6 +7,11 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { POST as inbound } from "@/app/api/voice/inbound/route";
 import { POST as voiceStatus } from "@/app/api/voice/status/route";
 import { POST as turn } from "@/app/api/voice/turn/route";
+import { POST as outbound } from "@/app/api/voice/outbound/route";
+import { POST as outboundStatus } from "@/app/api/voice/outbound/status/route";
+import { runReportCallScheduler } from "@/server/calls/scheduler";
+import { recordingCaller, type OutboundCallResult } from "@/server/calls/twilio";
+import { createServiceClient } from "@/server/db/service-client";
 import { loadFarm } from "@/server/db/queries";
 import { advanceVoiceSession, readVoiceSession } from "@/server/db/voice-sessions";
 import { twilioRequestSignature } from "@/server/twilio/signature";
@@ -48,6 +53,8 @@ interface Farm { id: string; ownerId: string; worker: string; owner: string; cam
 function seedFarm(options: {
   plan?: "basic" | "ultimate"; worker?: string; owner?: string; custom?: string[]; setup?: boolean;
   workerName?: string; camels?: string[]; window?: [number, string, string]; resources?: string[]; language?: string;
+  /** NAQAH calls for the report; a worker only reports by phoning in after missing that call. Default true. */
+  missedReportCall?: boolean; callTime?: string; callDay?: number;
 } = {}): Farm {
   const ownerId = randomUUID();
   const worker = options.worker ?? phone();
@@ -70,6 +77,15 @@ function seedFarm(options: {
   (options.custom ?? []).forEach((text, index) => {
     sql(`insert into custom_questions (farm_id, text, sort_order) values (${q(id)}, ${q(text)}, ${index})`);
   });
+  if (options.callTime) {
+    sql(`update farms set call_time = ${q(options.callTime)}, call_day = ${options.callDay ?? "null"} where id = ${q(id)}`);
+  }
+  if (options.missedReportCall ?? true) {
+    // This morning's report call rang out three times, so the worker may phone in with the report.
+    const tries = ["05:00", "05:20", "05:40"].map((at) => ({ at: `2026-11-08T${at}:00.000Z`, result: "no_answer" }));
+    sql(`insert into report_call_runs (farm_id, occurrence, trigger, attempts, state)
+      values (${q(id)}, '2026-11-08T05:00:00Z', 'schedule', ${q(JSON.stringify(tries))}::jsonb, 'missed')`);
+  }
   return { id, ownerId, worker, owner, camels };
 }
 
@@ -128,6 +144,7 @@ class Call {
 async function answerToSummary(call: Call) {
   for (let turns = 0; turns < 15 && !call.text.includes("Confirm and save"); turns++) {
     if (/how many bags/i.test(call.text)) await call.say("twelve");
+    else if (/how many camels/i.test(call.text)) await call.say("one");
     else if (/approximate, correct/i.test(call.text)) await call.press("1");
     else if (/Press 1 for/.test(call.text)) await call.press("1");
     else await call.say("Nothing new to report");
@@ -400,10 +417,11 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       expect(second.text).toContain("wasn't saved");
       expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(1);
     });
-    it("holds Basic to its weekly window and names the next one", async () => {
-      const farm = seedFarm({ plan: "basic", window: [4, "17:00", "19:00"] });
+    it("tells a worker who phones in without a missed report call when NAQAH will call", async () => {
+      const farm = seedFarm({ plan: "basic", missedReportCall: false, callTime: "17:00", callDay: 4 });
       const call = await new Call(farm.worker).start();
-      expect(call.text).toContain("window is closed");
+      expect(call.text).toContain("NAQAH will call you for the report");
+      expect(call.text).toContain("Thu");
       expect(call.ended).toBe(true);
       expect(count(`calls where farm_id = ${q(farm.id)} and kind = 'worker_report_rejected'`)).toBe(1);
       expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(0);
@@ -564,6 +582,121 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
         await (await new Call(farm.worker).start()).finish();
         expect(sql(`select status from no_answer_tickets where id = ${q(ticket)}`)).toBe("open");
       });
+    });
+  });
+
+  describe("NAQAH calls the worker", () => {
+    beforeEach(() => {
+      vi.stubEnv("NAQAH_VOICE_SECRET", "local-test-voice-secret-at-least-32-bytes");
+    });
+    const run = (farm: Farm) => sql(`select state || ' ' || jsonb_array_length(attempts) || ' ' || coalesce(provider_call_id, '-') from report_call_runs where farm_id = ${q(farm.id)}`);
+    const schedule = (result?: (index: number) => OutboundCallResult) => {
+      const recording = recordingCaller(result ? (_request, index) => result(index) : undefined);
+      const pass = () => runReportCallScheduler(createServiceClient()!, recording.caller, { baseUrl: BASE, now: new Date() });
+      return { ...recording, pass };
+    };
+    const pathOf = (url: string) => url.slice(BASE.length);
+    const status = (url: string, callSid: string, CallStatus: string) => outboundStatus(hook(pathOf(url), { CallSid: callSid, CallStatus }));
+    const later = (minutes: number) => vi.setSystemTime(new Date(SUNDAY.getTime() + minutes * 60_000));
+
+    it("calls at the scheduled time, takes the report on that call, and keeps the count as a proposal", async () => {
+      const farm = seedFarm({ missedReportCall: false, callTime: "09:00" });
+      const scheduler = schedule();
+      expect(await scheduler.pass()).toMatchObject({ placed: 1, failed: 0, errors: 0 });
+      expect((await scheduler.pass()).placed).toBe(0);
+      expect(scheduler.requests).toHaveLength(1);
+      expect(scheduler.requests[0].to).toBe(farm.worker);
+      expect(run(farm)).toBe("calling 1 -");
+
+      const call = new Call(farm.worker);
+      const answered = await outbound(hook(pathOf(scheduler.requests[0].url!), { CallSid: call.sid, CallStatus: "in-progress" }));
+      call.xml = await answered.text();
+      call.path = nextPath(call.xml);
+      expect(call.text).toContain("calling for the farm report");
+      expect(run(farm)).toBe(`answered 1 ${call.sid}`);
+
+      await answerToSummary(call);
+      expect(call.text).toContain("camels counted: 1");
+      await call.press("1");
+      expect(call.text).toContain("Your update is saved");
+      expect(sql(`select herd_count_reported from reports where farm_id = ${q(farm.id)}`)).toBe("1");
+      expect(sql(`select herd_count is null from farms where id = ${q(farm.id)}`)).toBe("t");
+      expect(run(farm)).toBe(`completed 1 ${call.sid}`);
+      expect(sql(`select direction from calls where farm_id = ${q(farm.id)} and kind = 'worker_report'`)).toBe("outbound");
+
+      expect((await status(scheduler.requests[0].statusCallback, call.sid, "completed")).status).toBe(204);
+      expect(run(farm)).toBe(`completed 1 ${call.sid}`);
+      expect(count(`voice_call_sessions where call_sid = ${q(call.sid)}`)).toBe(0);
+    });
+
+    it("retries twice 20 minutes apart, then marks the call missed, and the worker can call back with the report", async () => {
+      const farm = seedFarm({ missedReportCall: false, callTime: "09:00" });
+      const scheduler = schedule();
+      const sids = [sid(), sid(), sid()];
+      for (const [index, outcome] of (["no-answer", "busy", "no-answer"] as const).entries()) {
+        later(index * 20);
+        expect((await scheduler.pass()).placed).toBe(1);
+        await status(scheduler.requests[index].statusCallback, sids[index], outcome);
+        if (index < 2) {
+          later(index * 20 + 19);
+          expect((await scheduler.pass()).placed).toBe(0);
+        }
+      }
+      // Each attempt's CallSid replaces the last, so the run names the latest call.
+      expect(run(farm)).toBe(`missed 3 ${sids[2]}`);
+      expect(count(`calls where farm_id = ${q(farm.id)} and kind = 'worker_report_missed'`)).toBe(3);
+      // A repeated status callback changes nothing.
+      await status(scheduler.requests[2].statusCallback, sids[2], "no-answer");
+      expect(count(`calls where farm_id = ${q(farm.id)} and kind = 'worker_report_missed'`)).toBe(3);
+      later(90);
+      expect((await scheduler.pass()).placed).toBe(0);
+
+      const returned = await new Call(farm.worker).start();
+      expect(returned.text).toContain("report call you missed");
+      await (await answerToSummary(returned)).press("1");
+      expect(returned.text).toContain("Your update is saved");
+      expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(1);
+    });
+
+    it("ends an answered call unsaved when the worker hangs up mid-report", async () => {
+      const farm = seedFarm({ missedReportCall: false, callTime: "09:00" });
+      const scheduler = schedule();
+      await scheduler.pass();
+      const call = new Call(farm.worker);
+      await outbound(hook(pathOf(scheduler.requests[0].url!), { CallSid: call.sid }));
+      await status(scheduler.requests[0].statusCallback, call.sid, "completed");
+      expect(run(farm)).toBe(`missed 1 ${call.sid}`);
+      expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(0);
+    });
+
+    it("undoes a call Twilio never placed instead of logging it as unanswered", async () => {
+      const farm = seedFarm({ missedReportCall: false, callTime: "09:00" });
+      const scheduler = schedule(() => ({ placed: false, reason: "rejected", status: 400 }));
+      expect(await scheduler.pass()).toMatchObject({ placed: 0, failed: 1 });
+      expect(run(farm)).toBe("calling 0 -");
+      expect(count(`calls where farm_id = ${q(farm.id)}`)).toBe(0);
+    });
+
+    it("refuses a forged token and a CallSid that belongs to another run", async () => {
+      const farm = seedFarm({ missedReportCall: false, callTime: "09:00" });
+      const scheduler = schedule();
+      await scheduler.pass();
+      const url = pathOf(scheduler.requests[0].url!);
+      const forged = url.replace(/s=([A-Za-z0-9_-])/, (_m, first: string) => `s=${first === "A" ? "B" : "A"}`);
+      expect((await outbound(hook(forged, { CallSid: sid() }))).status).toBe(403);
+      expect((await outbound(hook(url, { CallSid: sid() }, "wrong-token"))).status).toBe(403);
+      expect(run(farm)).toBe("calling 1 -");
+
+      const other = seedFarm({ missedReportCall: false, callTime: "09:00" });
+      const second = schedule();
+      await second.pass();
+      const callSid = sid();
+      await outbound(hook(url, { CallSid: callSid }));
+      const replayed = await outbound(hook(pathOf(second.requests.find((request) => request.to === other.worker)!.url!), { CallSid: callSid }));
+      const replayedXml = await replayed.text();
+      expect(replayedXml).toContain("<Hangup/>");
+      expect(said(replayedXml)).not.toContain("farm report");
+      expect(run(other)).toBe("calling 1 -");
     });
   });
 
