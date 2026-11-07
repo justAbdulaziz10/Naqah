@@ -64,8 +64,7 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
       <p role="status" className="mt-4 leading-relaxed text-muted">{m.confirmBody}</p>
       <Link className="mt-5 inline-flex min-h-11 items-center underline underline-offset-4" href={`${href('/login')}?${query}`}>{m.otherLogin}</Link>
     </> : <>
-      <AuthMethods mode={mode} active="email" next={next} disabled={pending || !configured} onPendingChange={setGooglePending} />
-      <p className="mt-5 text-muted leading-relaxed">{m.emailIntro}</p>
+      <AuthMethods mode={mode} active="email" next={next} disabled={pending || !configured} onPendingChange={setGooglePending}>
       <form onSubmit={(event) => void submit(event)} className="mt-6 flex flex-col gap-4" aria-busy={pending || googlePending}>
         <label htmlFor={emailId} className="text-sm font-semibold">{m.email}</label>
         <Input id={emailId} name="email" type="email" dir="ltr" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} required value={email} onChange={(event) => { setEmail(event.target.value); setIssue(null); }} disabled={pending || googlePending || !configured} aria-invalid={issue === 'credentials' || issue === 'accountExists'} aria-describedby={errorId} />
@@ -76,7 +75,8 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
         {captchaKey && configured && <CaptchaField siteKey={captchaKey} resetKey={captchaReset} onToken={setCaptchaToken} onFailed={() => setIssue('captcha')} />}
         <Button type="submit" size="lg" disabled={pending || googlePending || !configured || (!!captchaKey && !captchaToken)}>{pending ? m.emailPending : mode === 'signup' ? m.emailSignup : m.emailLogin}</Button>
       </form>
-      <Link className="mt-5 inline-flex min-h-11 items-center text-sm underline underline-offset-4" href={`${href(mode === 'login' ? '/signup' : '/login')}?${alternateQuery}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</Link>
+      </AuthMethods>
+      <Link className="mt-4 inline-flex min-h-11 items-center text-sm underline underline-offset-4" href={`${href(mode === 'login' ? '/signup' : '/login')}?${alternateQuery}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</Link>
     </>}
   </AuthFrame>;
 }

@@ -10,8 +10,6 @@ export const account = defineMessages({
     planLocked: "Your plan can't be changed here yet.",
     retry: "Try again",
     dismiss: "Dismiss",
-    title: "Account",
-    callsReady: "Your farm details are saved. Outbound calling must be connected before NAQAH can call your worker.",
   },
   ar: {
     loading: "جارٍ تحميل مزرعتك",
@@ -21,7 +19,5 @@ export const account = defineMessages({
     planLocked: "تغيير الباقة غير متاح من هنا حالياً.",
     retry: "حاول مرة ثانية",
     dismiss: "إغلاق",
-    title: "الحساب",
-    callsReady: "حُفظت بيانات مزرعتك. يلزم ربط المكالمات الصادرة قبل ما تتصل ناقة على العامل.",
   },
 });

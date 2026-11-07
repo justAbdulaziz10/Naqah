@@ -16,6 +16,8 @@ import {
   type WizardStepKey,
 } from "@/components/setup/onboarding/WizardSteps";
 import { StepHead } from "@/components/setup/onboarding/WizardParts";
+import { getCallSetupGaps } from "@/components/setup/CallSetupStatus";
+import { buttonClass } from "@/components/ui/Button";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
 import { uid } from "@/domain/id";
 import type { Workspace } from "@/domain/types";
@@ -105,7 +107,8 @@ export default function StartPage() {
       case "ready": return <ReadyStep ws={ws} onEdit={(key) => go(steps.indexOf(key))} />;
     }
   })();
-  const head = f.heads[current];
+  // "Ready" only when NAQAH has everything it needs to call.
+  const head = current === "ready" && getCallSetupGaps(ws).length ? f.heads.almost : f.heads[current];
 
   return (
     <div className="min-h-dvh bg-ivory lg:grid lg:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[25rem_minmax(0,1fr)]">
@@ -203,7 +206,7 @@ export default function StartPage() {
               type="button"
               data-step-next={isLast ? undefined : ""}
               onClick={isLast ? finish : nextStep}
-              className="inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-espresso px-8 text-[1.0625rem] font-semibold text-cream transition hover:bg-brown active:scale-[0.98]"
+              className={buttonClass({ size: "lg", className: "px-8" })}
             >
               {isLast ? (
                 <>

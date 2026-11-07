@@ -19,6 +19,7 @@ export const setup = defineMessages({
         team: { title: "Who looks after the herd?", lead: "Add your workers and choose the one NAQAH calls for the report." },
         call: { title: "When should NAQAH call?", lead: "NAQAH calls your worker at this time and takes the farm report." },
         ready: { title: "Your ranch is ready", lead: "A short summary. You can change any of it later in Settings." },
+        almost: { title: "Almost ready", lead: "Here is what you set. Finish the rest now, or later in Settings." },
       },
       demoNote: "Demo. Your details stay in this browser.",
       notSaved: "Your details could not be saved in this browser. Keep this page open, or they will be lost.",
@@ -34,7 +35,6 @@ export const setup = defineMessages({
       chooseRegion: "Choose a region",
       ownerName: "Your name",
       ownerPhone: "Your mobile",
-      ownerPhoneHint: "NAQAH calls you on this number after each report.",
     },
     team: {
       title: "Workers and herd",
@@ -63,7 +63,6 @@ export const setup = defineMessages({
       chooseDay: "Choose a day",
       time: "Time",
       timeHint: "Riyadh time",
-      frequency: "Every day",
       workerFallback: "your worker",
       sentenceWeekly: (worker: string, day: string, time: string) => `NAQAH will call ${worker} every ${day} at ${time}.`,
       sentenceDaily: (worker: string, time: string) => `NAQAH will call ${worker} every day at ${time}.`,
@@ -126,7 +125,6 @@ export const setup = defineMessages({
     dashboard: {
       nextCall: "Next report call",
       noCallTime: "No call time set",
-      setCallTime: "Choose a call time",
       herd: "Herd",
       herdNotSet: "Count not set",
       camels: (count: string) => count === "1" ? "1 camel" : `${count} camels`,
@@ -151,6 +149,7 @@ export const setup = defineMessages({
         team: { title: "مين يهتم بالحلال؟", lead: "أضف عمالك واختر العامل اللي تتصل عليه ناقة للتقرير." },
         call: { title: "متى تتصل ناقة؟", lead: "ناقة تتصل على العامل في هذا الوقت وتاخذ منه تقرير المزرعة." },
         ready: { title: "مزرعتك جاهزة", lead: "ملخص سريع. تقدر تغيّر أي شي بعدين من الإعدادات." },
+        almost: { title: "باقي القليل", lead: "هذا اللي جهّزته. كمّل الباقي الحين، أو بعدين من الإعدادات." },
       },
       demoNote: "عرض تجريبي. بياناتك تبقى في هذا المتصفح.",
       notSaved: "ما قدرنا نحفظ بياناتك في هذا المتصفح. خلّ الصفحة مفتوحة وإلا بتضيع.",
@@ -166,7 +165,6 @@ export const setup = defineMessages({
       chooseRegion: "اختر المنطقة",
       ownerName: "اسمك",
       ownerPhone: "جوالك",
-      ownerPhoneHint: "ناقة تتصل عليك على هذا الرقم بعد كل تقرير.",
     },
     team: {
       title: "العمال والحلال",
@@ -195,7 +193,6 @@ export const setup = defineMessages({
       chooseDay: "اختر اليوم",
       time: "الوقت",
       timeHint: "بتوقيت الرياض",
-      frequency: "كل يوم",
       workerFallback: "العامل",
       sentenceWeekly: (worker: string, day: string, time: string) => `ناقة بتتصل على ${worker} كل ${day} الساعة ${time}.`,
       sentenceDaily: (worker: string, time: string) => `ناقة بتتصل على ${worker} كل يوم الساعة ${time}.`,
@@ -258,7 +255,6 @@ export const setup = defineMessages({
     dashboard: {
       nextCall: "مكالمة التقرير الجاية",
       noCallTime: "ما تحدد وقت المكالمة",
-      setCallTime: "حدد وقت المكالمة",
       herd: "الحلال",
       herdNotSet: "العدد ما تحدد",
       camels: (count: string) => `${count} من الإبل`,

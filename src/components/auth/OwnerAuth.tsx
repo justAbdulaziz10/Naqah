@@ -110,11 +110,8 @@ function PhoneAuth({ mode, next }: { mode: 'login' | 'signup'; next: string | nu
     finally { locked.current = false; setBusy(null); }
   }
   const error = !configured ? 'unavailable' : issue;
-  return <AuthFrame>
-    <h1 className="text-2xl font-semibold leading-snug">{sentPhone ? m.codeTitle : m[mode]}</h1>
-    {!sentPhone && <AuthMethods mode={mode} active="phone" next={next} disabled={!!busy || !configured} onPendingChange={setGooglePending} />}
-    <p className="mt-3 text-muted leading-relaxed">{sentPhone ? <>{m.sentTo} <bdi dir="ltr" className="ltr-nums block text-espresso">{sentPhone}</bdi></> : m.intro}</p>
-    <form className="mt-7 flex flex-col gap-4" onSubmit={sentPhone ? verify : (event) => { event.preventDefault(); void send(); }} aria-busy={!!busy}>
+  const form = (
+    <form className="mt-6 flex flex-col gap-4" onSubmit={sentPhone ? verify : (event) => { event.preventDefault(); void send(); }} aria-busy={!!busy}>
       {sentPhone ? <>
         <label htmlFor={codeId} className="text-sm font-semibold">{m.code}</label>
         <Input ref={codeInput} id={codeId} name="code" type="text" dir="ltr" className="ltr-nums text-start text-xl tracking-widest" inputMode="numeric" autoComplete="one-time-code" value={code} maxLength={6} onChange={(e) => { setCode(latinDigits(e.target.value)); setIssue(null); }} disabled={!!busy} aria-invalid={!!issue} aria-describedby={`${hintId} ${errorId}`} />
@@ -134,9 +131,15 @@ function PhoneAuth({ mode, next }: { mode: 'login' | 'signup'; next: string | nu
       {!sentPhone && remaining > 0 && <p role="status" className="text-sm text-muted">{m.cooldown(remaining)}</p>}
       <p role="status" className="text-sm text-muted">{notice ? m.resendSent : ''}</p>
     </form>
-    {!sentPhone && <>
-      <p className="mt-4 text-sm text-muted">{m.accountNote}</p>
-      <Link className="mt-3 inline-flex min-h-11 items-center text-sm underline underline-offset-4" href={`${href(mode === 'login' ? '/signup' : '/login')}?next=${encodeURIComponent(`/${locale}/${mode === 'login' ? 'start' : 'app'}`)}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</Link>
+  );
+  return <AuthFrame>
+    <h1 className="text-2xl font-semibold leading-snug">{sentPhone ? m.codeTitle : m[mode]}</h1>
+    {sentPhone ? <>
+      <p className="mt-3 text-muted leading-relaxed">{m.sentTo} <bdi dir="ltr" className="ltr-nums block text-espresso">{sentPhone}</bdi></p>
+      {form}
+    </> : <>
+      <AuthMethods mode={mode} active="phone" next={next} disabled={!!busy || !configured} onPendingChange={setGooglePending}>{form}</AuthMethods>
+      <Link className="mt-4 inline-flex min-h-11 items-center text-sm underline underline-offset-4" href={`${href(mode === 'login' ? '/signup' : '/login')}?next=${encodeURIComponent(`/${locale}/${mode === 'login' ? 'start' : 'app'}`)}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</Link>
     </>}
   </AuthFrame>;
 }

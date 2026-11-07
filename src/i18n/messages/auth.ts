@@ -2,8 +2,8 @@ import { defineMessages } from '../types';
 
 export const auth = defineMessages({
   en: {
-    login: 'Owner login', signup: 'Create your account', intro: 'Enter your mobile number. We will send you a code by SMS.',
-    accountNote: 'Your number works for login and sign-up.', phone: 'Mobile number', phoneHint: 'Saudi mobile number, for example 05X XXX XXXX.',
+    login: 'Owner login', signup: 'Create your account',
+    phone: 'Mobile number', phoneHint: 'A Saudi mobile, like 05X XXX XXXX. We will text you a code.',
     send: 'Send code', sending: 'Sending…', codeTitle: 'Enter the code', code: 'Verification code', codeHint: 'Enter the code from the SMS.',
     sentTo: 'Code sent to', verify: 'Verify and continue', verifying: 'Verifying…', change: 'Change number', resend: 'Send a new code',
     cooldown: (seconds: number) => `Send again in ${seconds} seconds`,
@@ -14,8 +14,8 @@ export const auth = defineMessages({
     successBody: 'The platform currently uses this browser’s workspace. Account farm data is not connected yet.',
     logout: 'Log out', loggingOut: 'Logging out…', home: 'Return home', otherLogin: 'Already have an account? Log in', otherSignup: 'New to NAQAH? Create an account',
     loading: 'Please wait…', resendSent: 'A new code has been sent.',
-    chooseMethod: 'Choose how to sign in', phoneMethod: 'Mobile', emailMethod: 'Email', google: 'Continue with Google', googlePending: 'Opening Google…',
-    emailIntro: 'Use your email address and password.', email: 'Email address', password: 'Password', showPassword: 'Show password', hidePassword: 'Hide password',
+    chooseMethod: 'Choose how to sign in', phoneMethod: 'Mobile', emailMethod: 'Email', google: 'Continue with Google', googlePending: 'Opening Google…', or: 'or',
+    email: 'Email address', password: 'Password', showPassword: 'Show password', hidePassword: 'Hide password',
     emailLogin: 'Log in', emailSignup: 'Create account', emailPending: 'Please wait…',
     credentials: 'Check your email and password and try again.', accountExists: 'This email is already registered. Log in instead.', confirmRequired: 'Confirm your email using the email link, then try again.',
     weakPassword: 'Choose a longer, stronger password.', confirmTitle: 'Continue with your account',
@@ -24,8 +24,8 @@ export const auth = defineMessages({
     captcha: 'The security check did not finish. Reload the page and try again.', captchaLabel: 'Security check', continue: 'Open platform', navSignup: 'Sign up',
   },
   ar: {
-    login: 'دخول المالك', signup: 'إنشاء حسابك', intro: 'أدخل رقم جوالك ونرسل لك رمز برسالة نصية.',
-    accountNote: 'نفس الرقم للدخول وإنشاء الحساب.', phone: 'رقم الجوال', phoneHint: 'رقم جوال سعودي، مثل 05X XXX XXXX.',
+    login: 'دخول المالك', signup: 'إنشاء حسابك',
+    phone: 'رقم الجوال', phoneHint: 'نرسل لك رمز برسالة نصية. الرقم سعودي، مثل 05X XXX XXXX',
     send: 'إرسال الرمز', sending: 'جاري الإرسال…', codeTitle: 'أدخل الرمز', code: 'رمز التحقق', codeHint: 'أدخل الرمز الموجود في الرسالة النصية.',
     sentTo: 'أرسلنا الرمز إلى', verify: 'تحقق وتابع', verifying: 'جاري التحقق…', change: 'تغيير الرقم', resend: 'إرسال رمز جديد',
     cooldown: (seconds: number) => `تقدر تعيد الإرسال بعد ${seconds} ثانية`,
@@ -36,8 +36,8 @@ export const auth = defineMessages({
     successBody: 'المنصة حاليًا تعرض بيانات هذا المتصفح. ربط بيانات الحساب بالعزبة غير جاهز بعد.',
     logout: 'تسجيل الخروج', loggingOut: 'جاري الخروج…', home: 'العودة للرئيسية', otherLogin: 'عندك حساب؟ سجّل دخولك', otherSignup: 'جديد في ناقة؟ أنشئ حسابك',
     loading: 'لحظة من فضلك…', resendSent: 'أرسلنا لك رمز جديد.',
-    chooseMethod: 'اختر طريقة الدخول', phoneMethod: 'الجوال', emailMethod: 'البريد', google: 'المتابعة مع Google', googlePending: 'جاري فتح Google…',
-    emailIntro: 'أدخل بريدك الإلكتروني وكلمة المرور.', email: 'البريد الإلكتروني', password: 'كلمة المرور', showPassword: 'إظهار كلمة المرور', hidePassword: 'إخفاء كلمة المرور',
+    chooseMethod: 'اختر طريقة الدخول', phoneMethod: 'الجوال', emailMethod: 'البريد', google: 'المتابعة مع Google', googlePending: 'جاري فتح Google…', or: 'أو',
+    email: 'البريد الإلكتروني', password: 'كلمة المرور', showPassword: 'إظهار كلمة المرور', hidePassword: 'إخفاء كلمة المرور',
     emailLogin: 'تسجيل الدخول', emailSignup: 'إنشاء الحساب', emailPending: 'لحظة من فضلك…',
     credentials: 'تأكد من البريد وكلمة المرور وحاول مرة ثانية.', accountExists: 'هذا البريد مسجّل مسبقًا، سجّل دخولك.', confirmRequired: 'أكّد بريدك من الرابط الموجود في الرسالة، ثم حاول مرة ثانية.',
     weakPassword: 'اختر كلمة مرور أطول وأقوى.', confirmTitle: 'تابع حسابك',

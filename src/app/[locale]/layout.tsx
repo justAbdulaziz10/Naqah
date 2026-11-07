@@ -48,7 +48,7 @@ export default async function LocaleLayout({ children, params }: LayoutProps<"/[
   const { locale } = await params;
   if (!isLocale(locale)) notFound();
   return (
-    // suppressHydrationWarning: the landing intro may add data-intro-seen to <html> before hydration.
+    // suppressHydrationWarning: browser extensions may add attributes to <html> before hydration.
     <html
       lang={locale}
       dir={dirOf(locale)}

@@ -6,15 +6,12 @@ import { Logo } from "@/components/brand/Logo";
 import { WovenFragment, WovenFrame, WovenSignature } from "@/components/heritage/Woven";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
 import { getMessages } from "@/i18n/messages";
-import { CamelColours } from "./CamelColours";
 import { EstatePhoto } from "./EstatePhoto";
-import { JourneyScene } from "./JourneyScene";
 import { EntryActions } from "./EntryActionsServer";
 import { MobileNavigation, OwnerCall } from "./LandingActions";
 import { LiveTranscript } from "./LiveTranscript";
 import { MotionRoot } from "./MotionRoot";
 import { LANDING_PHOTOS } from "./photos";
-import { WovenIntro } from "./WovenIntro";
 
 const planRows = ["cadence", "questions", "update", "calls", "tickets"] as const;
 const plans = ["basic", "ultimate"] as const;
@@ -54,7 +51,6 @@ export function LandingPage({ locale }: { locale: Locale }) {
 
   return (
     <div className="min-h-svh overflow-x-clip bg-ivory text-espresso">
-      <WovenIntro skipLabel={landing.intro.skip} />
       <MotionRoot />
       <a
         href="#main"
@@ -125,19 +121,6 @@ export function LandingPage({ locale }: { locale: Locale }) {
               </div>
             </div>
           </div>
-        </section>
-
-        {/* The journey: an independent camel artwork walks the ridge as the page scrolls (handoff §03). */}
-        <section aria-labelledby="journey-title">
-          <div className={`${frame} relative z-10 grid gap-6 pt-20 sm:pt-24 lg:grid-cols-12 lg:items-end lg:gap-x-10 lg:pt-28`}>
-            <h2 id="journey-title" data-reveal="" className={`${sectionTitle} lg:col-span-6`}>
-              {landing.journey.title}
-            </h2>
-            <p data-reveal="" data-reveal-delay="90" className="max-w-[34rem] text-xl leading-9 text-espresso lg:col-span-5 lg:col-start-8">
-              {landing.journey.body}
-            </p>
-          </div>
-          <JourneyScene />
         </section>
 
         <div data-weave="">
@@ -217,8 +200,6 @@ export function LandingPage({ locale }: { locale: Locale }) {
             </div>
           </div>
         </section>
-
-        <CamelColours locale={locale} />
 
         {/* Two rhythms, set like a ledger: the same rows, side by side. */}
         <section id="plans" aria-labelledby="plans-title" className="scroll-mt-20 py-20 sm:py-24 lg:py-28">

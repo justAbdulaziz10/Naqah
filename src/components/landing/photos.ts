@@ -1,12 +1,6 @@
 import type { LocalizedText } from "@/domain/types";
 
-/**
- * The six colour classes judged at the King Abdulaziz Camel Festival (Camel Club categories, via
- * Saudipedia; Arab News). المغاتير is the umbrella name for the light colours, not a class of its own.
- */
-export type CamelColourId = "wadh" | "shul" | "sufr" | "shaqh" | "humr" | "majaheem";
-
-export type LandingPhotoId = "hero" | "evening" | "heritage" | "herd" | "closing" | "welcome" | CamelColourId;
+export type LandingPhotoId = "hero" | "evening" | "heritage" | "herd" | "closing";
 
 export interface LandingPhoto {
   /** Path under /public, e.g. "/images/landing/hero.jpg". */

@@ -17,11 +17,10 @@ const navigationObserver = createNavigationObserver({
   validate: readNavigationIdentity,
 });
 
-export type AuthNavigationStyle = 'desktop' | 'mobile' | 'welcome';
+export type AuthNavigationStyle = 'desktop' | 'mobile';
 const styles = {
   desktop: 'inline-flex min-h-11 items-center px-3.5 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso',
   mobile: 'flex min-h-11 w-full items-center rounded-xl px-3.5 text-sm font-semibold text-espresso transition hover:bg-ivory focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current',
-  welcome: 'inline-flex min-h-11 items-center px-2 text-[0.9375rem] font-semibold text-muted transition-colors hover:text-espresso',
 } as const;
 
 export function AuthNavigationLoading({ appearance }: { appearance: AuthNavigationStyle }) {
@@ -54,7 +53,7 @@ export function AuthNavigationClient({ initialIdentity, appearance, signup = tru
   if (identity.status === 'signedIn') return <LogoutButton navigationClassName={className} />;
   const closeMenu = (event: React.MouseEvent<HTMLAnchorElement>) => event.currentTarget.closest('details')?.removeAttribute('open');
   return <>
-    <Link className={className} href={`${href('/login')}?next=${encodeURIComponent(href('/app'))}`} onClick={closeMenu}>{appearance === 'welcome' ? m.welcome.signIn : m.landing.nav.signIn}</Link>
+    <Link className={className} href={`${href('/login')}?next=${encodeURIComponent(href('/app'))}`} onClick={closeMenu}>{m.landing.nav.signIn}</Link>
     {signup ? <Link className={className} href={`${href('/signup')}?next=${encodeURIComponent(href('/start'))}`} onClick={closeMenu}>{m.auth.navSignup}</Link> : null}
   </>;
 }

@@ -18,11 +18,6 @@ export const landing = defineMessages({
         "NAQAH calls your worker at the time you choose, asks your questions, keeps the facts, and calls you with the update.",
     },
     example: "Illustrative example",
-    intro: { skip: "Skip intro" },
-    journey: {
-      title: "Close to your herd",
-      body: "Stay close to your camels without following every detail yourself.",
-    },
     pending: "Opening the demo…",
     story: {
       title: "The report call",
@@ -71,25 +66,13 @@ export const landing = defineMessages({
     },
     principles: {
       title: "What NAQAH holds to",
-      lead: "Built for the camel estate as it is really run: one owner, one worker, and a herd you know by name.",
+      lead: "Built for the camel estate as it is really run: one owner, the workers you trust, and a herd you know by name.",
       statement: "Rooted in heritage. Clear in detail.",
       items: [
         { label: "Recordings", value: "None. Only the facts drawn from the call are kept." },
         { label: "If the worker misses a call", value: "NAQAH tries again, 20 minutes apart, then tells you." },
         { label: "Your instructions", value: "On Ultimate, a task stays open until the worker confirms it is done." },
         { label: "Emergencies", value: "They never wait for NAQAH. The worker calls you directly." },
-      ],
-    },
-    colours: {
-      title: "The colours of the herd",
-      lead: "The six colour classes judged at the King Abdulaziz Camel Festival, from white Wadh to dark Majaheem.",
-      items: [
-        { id: "wadh", name: "Wadh", native: "الوضح", description: "Bright white coats, the palest of the light-coloured camels." },
-        { id: "shul", name: "Shu'l", native: "الشعل", description: "A warm light tan, between red and blond." },
-        { id: "sufr", name: "Sufr", native: "الصفر", description: "Sandy yellow to beige coats." },
-        { id: "shaqh", name: "Shaqh", native: "الشقح", description: "Off-white coats, a little darker than Wadh." },
-        { id: "humr", name: "Humr", native: "الحمر", description: "Red to reddish-brown coats." },
-        { id: "majaheem", name: "Majaheem", native: "المجاهيم", description: "Dark black coats, sometimes with a faint reddish tint." },
       ],
     },
     plans: {
@@ -135,11 +118,6 @@ export const landing = defineMessages({
         "ناقة تتصل على عاملك في الوقت اللي تختاره، تسأله عن اللي يهمك، تحفظ المعلومات، وتتصل فيك بملخص التحديث.",
     },
     example: "مثال توضيحي",
-    intro: { skip: "تخطّي" },
-    journey: {
-      title: "قريب من حلالك",
-      body: "تبقى قريب من حلالك، دون ما تتابع كل التفاصيل بنفسك.",
-    },
     pending: "جاري فتح العرض…",
     story: {
       title: "مكالمة التقرير",
@@ -187,25 +165,13 @@ export const landing = defineMessages({
     },
     principles: {
       title: "ما تلتزم به ناقة",
-      lead: "مصممة للعزبة كما تُدار فعلاً: مالك واحد، وعامل واحد، وحلال تعرفه بالاسم.",
+      lead: "مصممة للعزبة كما تُدار فعلاً: مالك واحد، وعمّال تثق فيهم، وحلال تعرفه بالاسم.",
       statement: "أصالة في الجذور. وضوح في التفاصيل.",
       items: [
         { label: "التسجيل", value: "ما فيه تسجيل. تُحفظ المعلومات المستخرجة من المكالمة فقط." },
         { label: "إذا فاتت العامل مكالمة", value: "ناقة تعيد المحاولة كل 20 دقيقة، وبعدها تبلغك." },
         { label: "تعليماتك", value: "في المتكاملة، تبقى المهمة مفتوحة حتى يؤكد العامل إنه أنجزها." },
         { label: "الطوارئ", value: "ما تنتظر ناقة. العامل يتصل بك مباشرة." },
-      ],
-    },
-    colours: {
-      title: "ألوان الإبل",
-      lead: "الألوان الستة اللي تُحكَّم في مهرجان الملك عبدالعزيز للإبل، من الوضح البيض إلى المجاهيم السود.",
-      items: [
-        { id: "wadh", name: "الوضح", native: "", description: "وبرها أبيض ناصع، وهي أفتح المغاتير لوناً." },
-        { id: "shul", name: "الشعل", native: "", description: "لونها بين الأحمر والأشقر، قريب من الحنطي." },
-        { id: "sufr", name: "الصفر", native: "", description: "لونها أصفر رملي يميل للبيج." },
-        { id: "shaqh", name: "الشقح", native: "", description: "بياضها أقل من الوضح، ويميل للغبرة." },
-        { id: "humr", name: "الحمر", native: "", description: "وبرها يميل للحمرة أو البني." },
-        { id: "majaheem", name: "المجاهيم", native: "", description: "لونها أسود داكن، وأحياناً فيه حمرة خفيفة." },
       ],
     },
     plans: {

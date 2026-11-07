@@ -146,7 +146,6 @@ export default function SettingsPage() {
                   value={ws.settings.plan}
                   onChange={choosePlan}
                   label={s.demoPlan}
-                  className="[&>button]:min-h-11"
                   options={[
                     { value: "basic", label: m.common.plans.basic },
                     { value: "ultimate", label: m.common.plans.ultimate },

@@ -3,9 +3,6 @@ import { defineMessages } from "../types";
 /** Shared strings: brand, navigation, generic actions, plan names. */
 export const common = defineMessages({
   en: {
-    brand: "NAQAH",
-    brandAlt: "ناقة",
-    tagline: "Peace of mind, without the busyness.",
     switchLanguage: "العربية",
     switchLanguageLabel: "Switch to Arabic",
     plans: { basic: "Basic", ultimate: "Ultimate" },
@@ -20,11 +17,9 @@ export const common = defineMessages({
       notSaved: "Not saved",
       cancel: "Cancel",
       add: "Add",
-      remove: "Remove",
       edit: "Edit",
       close: "Close",
       reset: "Reset demo",
-      confirm: "Confirm",
     },
     nav: {
       main: "Main navigation",
@@ -43,7 +38,6 @@ export const common = defineMessages({
       noticeShort: "Real calls don't update here.",
       simulateCall: "Simulate a call",
       notice: "Farm updates, calls and tickets here are simulated. Real calls don't reach this dashboard yet.",
-      clock: "Demo clock",
       clockHint: "Riyadh time",
       noWorkspace: "No farm yet",
       noWorkspaceBody: "Start with a sample ranch or set up your own farm.",
@@ -54,20 +48,11 @@ export const common = defineMessages({
       sampleConfirmAction: "Use sample data",
       sampleConfirmCancel: "Keep my details",
     },
-    time: {
-      never: "Not yet",
-      justNow: "Just now",
-      riyadh: "Riyadh",
-    },
     footer: {
-      rights: "© 2026 NAQAH. Investor preview — not a live service.",
-      noRecordings: "Calls are never recorded. Only the extracted facts are stored.",
+      rights: "© 2026 NAQAH",
     },
   },
   ar: {
-    brand: "ناقة",
-    brandAlt: "NAQAH",
-    tagline: "اطمئنان، دون انشغال",
     switchLanguage: "English",
     switchLanguageLabel: "التبديل إلى الإنجليزية",
     plans: { basic: "الأساسية", ultimate: "المتكاملة" },
@@ -82,11 +67,9 @@ export const common = defineMessages({
       notSaved: "ما انحفظ",
       cancel: "إلغاء",
       add: "إضافة",
-      remove: "حذف",
       edit: "تعديل",
       close: "إغلاق",
       reset: "إعادة ضبط العرض",
-      confirm: "تأكيد",
     },
     nav: {
       main: "التنقل الرئيسي",
@@ -105,7 +88,6 @@ export const common = defineMessages({
       noticeShort: "المكالمات الحقيقية ما تحدّث هاللوحة.",
       simulateCall: "محاكاة مكالمة",
       notice: "التحديثات والمكالمات والمهام هنا محاكاة. المكالمات الحقيقية ما توصل لهذه اللوحة حالياً.",
-      clock: "ساعة العرض",
       clockHint: "بتوقيت الرياض",
       noWorkspace: "لا توجد مزرعة بعد",
       noWorkspaceBody: "ابدأ بمزرعة نموذجية أو جهّز مزرعتك.",
@@ -116,14 +98,8 @@ export const common = defineMessages({
       sampleConfirmAction: "استخدم البيانات النموذجية",
       sampleConfirmCancel: "خلّ بياناتي",
     },
-    time: {
-      never: "لم يحدث بعد",
-      justNow: "الآن",
-      riyadh: "الرياض",
-    },
     footer: {
-      rights: "© 2026 ناقة. نسخة عرض للمستثمرين — ليست خدمة فعلية.",
-      noRecordings: "لا نسجّل المكالمات أبداً. نحفظ المعلومات المستخلصة فقط.",
+      rights: "© 2026 ناقة",
     },
   },
 });

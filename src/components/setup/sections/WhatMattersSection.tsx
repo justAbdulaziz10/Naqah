@@ -52,9 +52,8 @@ export function WhatMattersSection({ ws, onChange, showSaved }: SetupSectionProp
         action={showSaved ? <SaveState /> : undefined}
       />
       <CardBody>
-        <section>
-          <h3 className="font-semibold text-espresso">{m.onboarding.criteriaTitle}</h3>
-          <ul className="mt-2 divide-y divide-stone/70">
+        <section aria-label={m.onboarding.criteriaTitle}>
+          <ul className="divide-y divide-stone/70">
             {criteria.map((kind) => {
               const criterion = ws.settings.criteria.find((item) => item.kind === kind);
               const label = t(CRITERION_LABELS[kind]);
