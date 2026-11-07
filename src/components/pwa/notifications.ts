@@ -79,7 +79,7 @@ export function buildNotification(event: PlatformEvent, locale: Locale, demo = t
   // Demo events are simulated, so their title says so.
   const brand = locale === "ar" ? (demo ? "ناقة (تجريبي)" : "ناقة") : (demo ? "NAQAH (Demo)" : "NAQAH");
   const title = locale === "ar"
-    ? `${brand} | ${ownerCall ? "اتصال المالك" : "مستجد مهم في المزرعة"}`
+    ? `${brand} | ${ownerCall ? "اتصال المالك" : "مستجد مهم في العزبة"}`
     : `${brand} | ${ownerCall ? "Owner call" : "Important farm update"}`;
   const destination = isNoAnswerTicket(event) ? "/app/tickets" : ownerCall ? "/app/calls" : "/app";
 

@@ -12,8 +12,8 @@ export const account = defineMessages({
     dismiss: "Dismiss",
   },
   ar: {
-    loading: "جارٍ تحميل مزرعتك",
-    loadFailed: "ما قدرنا نحمّل مزرعتك. بياناتك بأمان.",
+    loading: "جارٍ تحميل عزبتك",
+    loadFailed: "ما قدرنا نحمّل عزبتك. بياناتك بأمان.",
     notSaved: "آخر تعديل ما انحفظ إلى الآن.",
     refused: "فيه قيمة طويلة أو خارج الحد. عدّلها وبتنحفظ.",
     planLocked: "تغيير الباقة غير متاح من هنا حالياً.",

@@ -24,13 +24,13 @@ export const onboarding = defineMessages({
   },
   ar: {
     sectionTitles: {
-      resources: "موارد المزرعة",
+      resources: "موارد العزبة",
       whatMatters: "ما يهمك",
     },
-    hasResource: "متوفر في المزرعة",
-    presentOnFarm: "متوفر في المزرعة",
-    absentFromFarm: "غير موجود في المزرعة",
-    absentResourcesSkipped: "نتجاوز الأسئلة عن الموارد غير الموجودة في مزرعتك.",
+    hasResource: "متوفر في العزبة",
+    presentOnFarm: "متوفر في العزبة",
+    absentFromFarm: "غير موجود في العزبة",
+    absentResourcesSkipped: "نتجاوز الأسئلة عن الموارد غير الموجودة في عزبتك.",
     criteriaTitle: "المعلومات التي تهمك",
     customCriterion: "كلمة أو عبارة مخصصة",
     removeCustomCriterion: (name: string) => `حذف ${name}`,

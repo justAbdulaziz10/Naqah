@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "NAQAH | ناقة",
     short_name: "ناقة",
-    description: "إدارة هادئة لمزرعة الإبل، مع آخر المستجدات المهمة.",
+    description: "إدارة هادئة لعزبة الإبل، مع آخر المستجدات المهمة.",
     lang: "ar",
     dir: "rtl",
     start_url: "/ar/app",

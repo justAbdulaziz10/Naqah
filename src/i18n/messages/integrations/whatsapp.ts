@@ -26,7 +26,7 @@ export const whatsapp = defineMessages({
     messageWorker: "راسل العامل",
     orderSupplier: "اطلب من المورّد",
     supplierOrderIntro: (supplier: string, farm: string) =>
-      "السلام عليكم" + (supplier ? " يا " + supplier : "") + "، نحتاج للمزرعة " + farm + ":",
+      "السلام عليكم" + (supplier ? " يا " + supplier : "") + "، نحتاج للعزبة " + farm + ":",
     supplierOrderLine: (item: string, quantity: string, level: string) =>
       item + ": " + quantity + " (" + level + ")",
     quantityNotRecorded: "الكمية غير محددة",

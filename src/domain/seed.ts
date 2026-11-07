@@ -109,7 +109,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
   ws.setupComplete = true;
   ws.settings.owner = { name: ar ? "عبدالله الدوسري" : "Abdullah Al-Dosari", phone: "+966 55 012 3344" };
   ws.settings.farm = {
-    name: ar ? "مزرعة الصفراء" : "Al Safra Ranch",
+    name: ar ? "عزبة الصفراء" : "Al Safra Ranch",
     location: ar ? "الخرج، منطقة الرياض" : "Al-Kharj, Riyadh Region",
     coords: { lat: 24.155, lon: 47.334 },
   };
@@ -123,7 +123,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
     },
     {
       id: uid("cq"),
-      text: ar ? "هل زار المزرعة أحد غريب؟" : "Did any visitors come to the farm?",
+      text: ar ? "هل زار العزبة أحد غريب؟" : "Did any visitors come to the farm?",
       createdAt: y,
     },
   ];
@@ -251,7 +251,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
       id: uid("evt"),
       at: y,
       tone: "success",
-      text: { ar: `حُفظ تحديث المزرعة من ${ws.settings.worker.name}`, en: `Farm update saved from ${ws.settings.worker.name}` },
+      text: { ar: `حُفظ تحديث العزبة من ${ws.settings.worker.name}`, en: `Farm update saved from ${ws.settings.worker.name}` },
     },
     {
       id: uid("evt"),

@@ -90,7 +90,7 @@ export function completeWorkerReport(
   ws.lastUpdateAt = at;
 
   pushEvent(ws, now, "success", {
-    ar: `حُفظ تحديث المزرعة من ${ws.settings.worker.name} (${draft.answers.length} إجابة)`,
+    ar: `حُفظ تحديث العزبة من ${ws.settings.worker.name} (${draft.answers.length} إجابة)`,
     en: `Farm update saved from ${ws.settings.worker.name} (${draft.answers.length} answers)`,
   });
   const closed = draft.taskConfirmations.filter((t) => t.done).length;
@@ -186,7 +186,7 @@ export function recordOwnerInquiry(
     summary:
       mode === "missed_callback"
         ? { ar: "اتصال المالك بعد إشعار فائت", en: "Owner called back after a missed notification" }
-        : { ar: "استفسار المالك عن حالة المزرعة", en: "Owner asked about the farm" },
+        : { ar: "استفسار المالك عن حالة العزبة", en: "Owner asked about the farm" },
     ticketId: null,
     reportId: null,
   });

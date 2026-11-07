@@ -29,9 +29,9 @@ export const calendar = defineMessages({
     downloadUnavailable: "ما قدرنا ننزّل ملف التقويم من هذا المتصفح.",
     addTaskGoogle: "أضف إلى Google Calendar",
     downloadTask: "نزّل ملف .ics",
-    reportTitle: "تحديث المزرعة",
-    reportReminder: "تذكير: تحديث المزرعة",
-    farmDetails: (farm: string) => "المزرعة: " + farm,
-    taskDetails: (farm: string) => "مهمة للمزرعة: " + farm,
+    reportTitle: "تحديث العزبة",
+    reportReminder: "تذكير: تحديث العزبة",
+    farmDetails: (farm: string) => "العزبة: " + farm,
+    taskDetails: (farm: string) => "مهمة للعزبة: " + farm,
   },
 });

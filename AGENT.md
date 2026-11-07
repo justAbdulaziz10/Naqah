@@ -106,7 +106,7 @@ window). Always get "now" with `useNow()` (client) or `nowFor(ws)` — never `ne
 - **Icons:** Phosphor (`@phosphor-icons/react`; in Server Components import from `@phosphor-icons/react/dist/ssr`).
   The camel logo is **not** an icon — use `<CamelMark/>`, never redraw/outline/distort it.
 - **Copy:** quiet, warm, direct («Warm Discretion»). No hype, no exclamation marks, no emoji. Contemporary Saudi Arabic,
-  not stiff MSA. Cut helper text a layout doesn't need.
+  not stiff MSA. Cut helper text a layout doesn't need. The ranch is «عزبة» in Arabic and "ranch" in English, everywhere.
 - **Accessibility:** 44px touch targets, visible focus, labels on every control, `prefers-reduced-motion` respected.
 - **Client vs server:** pages that read the workspace are client components (`"use client"`); the landing page can
   be a server component with client islands.

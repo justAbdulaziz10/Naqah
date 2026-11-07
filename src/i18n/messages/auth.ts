@@ -27,8 +27,8 @@ export const auth = defineMessages({
     captcha: 'The security check didn’t finish. Reload the page and try again.', captchaLabel: 'Security check', continue: 'Open your ranch', navSignup: 'Sign up',
   },
   ar: {
-    login: 'ادخل على مزرعتك', signup: 'إنشاء حسابك',
-    loginLead: 'سجّل دخولك وشوف آخر أخبار مزرعتك.', signupLead: 'حساب المالك لمزرعتك، وبعده نجهّز المزرعة.',
+    login: 'ادخل على عزبتك', signup: 'إنشاء حسابك',
+    loginLead: 'سجّل دخولك وشوف آخر أخبار عزبتك.', signupLead: 'حساب المالك لعزبتك، وبعده نجهّز العزبة.',
     phone: 'رقم الجوال', phoneHint: 'نرسل لك رمز الدخول برسالة نصية.', phoneCountry: 'السعودية، ‎+966', phonePlaceholder: '5X XXX XXXX',
     send: 'إرسال الرمز', sending: 'جاري الإرسال…', codeTitle: 'أدخل الرمز', code: 'رمز التحقق', codeHint: 'الرمز المكوّن من 6 أرقام في الرسالة النصية.',
     sentTo: 'أرسلنا الرمز إلى', verify: 'تحقق وتابع', verifying: 'جاري التحقق…', change: 'تغيير الرقم', resend: 'إرسال رمز جديد',
@@ -37,7 +37,7 @@ export const auth = defineMessages({
     invalidCodeFormat: 'الرمز 6 أرقام.', rateLimit: 'المحاولات كثيرة. انتظر شوي وجرّب مرة ثانية.',
     network: 'تعذّر الاتصال. تأكد من الإنترنت وجرّب مرة ثانية.', unavailable: 'ما نقدر ندخلك الحين. جرّب بعد شوي.',
     failed: 'صار خلل عندنا. جرّب بعد لحظات.', signedIn: 'تم تسجيل دخولك',
-    successBody: 'حاليًا تبقى بيانات مزرعتك في هذا المتصفح.',
+    successBody: 'حاليًا تبقى بيانات عزبتك في هذا المتصفح.',
     logout: 'تسجيل الخروج', loggingOut: 'جاري الخروج…', home: 'العودة للرئيسية', otherLogin: 'عندك حساب؟ سجّل دخولك', otherSignup: 'جديد في ناقة؟ أنشئ حسابك',
     loading: 'لحظة من فضلك…', resendSent: 'أرسلنا لك رمز جديد.',
     chooseMethod: 'اختر طريقة الدخول', phoneMethod: 'الجوال', emailMethod: 'البريد', google: 'المتابعة مع Google', googlePending: 'جاري فتح Google…', or: 'أو',
@@ -49,6 +49,6 @@ export const auth = defineMessages({
     confirmTitle: 'تابع حسابك',
     confirmBody: 'إذا وصلك بريد تأكيد، افتح أحدث رابط فيه من نفس المتصفح، وشيّك على البريد غير المرغوب. إذا أكّدت من قبل، سجّل دخولك.',
     callbackFailed: 'ما اكتمل الدخول. ممكن الرابط انتهى أو انفتح في متصفح ثاني. جرّب مرة ثانية.',
-    captcha: 'ما اكتمل التحقق الأمني. حدّث الصفحة وجرّب مرة ثانية.', captchaLabel: 'التحقق الأمني', continue: 'افتح مزرعتك', navSignup: 'إنشاء حساب',
+    captcha: 'ما اكتمل التحقق الأمني. حدّث الصفحة وجرّب مرة ثانية.', captchaLabel: 'التحقق الأمني', continue: 'افتح عزبتك', navSignup: 'إنشاء حساب',
   },
 });

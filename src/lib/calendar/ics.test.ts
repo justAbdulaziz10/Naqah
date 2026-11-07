@@ -9,7 +9,7 @@ describe("generateIcs", () => {
     const schedule: CalendarSchedule = {
       v: 1,
       l: "ar",
-      f: "مزرعة النخيل",
+      f: "عزبة النخيل",
       p: "basic",
       w: { day: 4, start: "17:00", end: "17:30" },
       t: [],
@@ -22,7 +22,7 @@ describe("generateIcs", () => {
     expect(result).toContain("RRULE:FREQ=WEEKLY;BYDAY=TH");
     expect(result).toContain("UID:report-weekly@naqah.app");
     expect(result).toContain("TRIGGER:-PT15M");
-    expect(result).toContain("SUMMARY:تحديث المزرعة");
+    expect(result).toContain("SUMMARY:تحديث العزبة");
     expect(result).toMatch(/\r\n$/);
     expect(result.replace(/\r\n/g, "")).not.toMatch(/(?<!\r)\n/);
   });

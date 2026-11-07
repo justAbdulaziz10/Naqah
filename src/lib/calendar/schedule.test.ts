@@ -29,7 +29,7 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
     settings: {
       plan: "basic",
       owner: { name: "Owner", phone: "0500000000" },
-      farm: { name: "مزرعة النخيل", location: "" },
+      farm: { name: "عزبة النخيل", location: "" },
       worker: { name: "Worker", phone: "0500000001", language: "ar" },
       customQuestions: [],
       criteria: [],
@@ -68,7 +68,7 @@ describe("calendar schedule", () => {
     expect(scheduleFromWorkspace(ws, "ar")).toEqual({
       v: 1,
       l: "ar",
-      f: "مزرعة النخيل",
+      f: "عزبة النخيل",
       p: "basic",
       w: { day: 4, start: "16:00", end: "16:30" },
       t: [

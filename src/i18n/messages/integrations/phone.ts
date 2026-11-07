@@ -27,7 +27,7 @@ export const phone = defineMessages({
     connected: "مرتبط",
     sampleShort: "خط تجريبي",
     almostReady: "غير مفعّل بعد",
-    sampleLine: "هذا خط تجريبي، ومكالماته ما تغيّر شي في مزرعتك.",
+    sampleLine: "هذا خط تجريبي، ومكالماته ما تغيّر شي في عزبتك.",
     numberMissing: "رقم الاتصال على ناقة بيظهر هنا أول ما يجهز.",
     signatureValidationOff: "مكالمات التحديث لك متوقفة مؤقتًا.",
     callNow: "اتصل على ناقة",
