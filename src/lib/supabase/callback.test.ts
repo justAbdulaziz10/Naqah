@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 const mock = vi.hoisted(() => ({ create: vi.fn(), exchange: vi.fn(), config: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('@supabase/ssr', () => ({ createServerClient: mock.create }));
-vi.mock('./config', () => ({ getSupabaseConfig: mock.config, sessionCookieOptions: { path: '/', sameSite: 'lax', secure: true } }));
+vi.mock('./config', () => ({ getSupabaseConfig: mock.config, sessionCookieOptions: { path: '/', sameSite: 'lax', secure: true }, sessionCookieOptionsFor: () => ({ path: '/', sameSite: 'lax', secure: true }) }));
 import { completeAuthCallback } from './callback';
 import { callbackUrl, successPath } from './auth-paths';
 

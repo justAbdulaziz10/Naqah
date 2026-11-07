@@ -2,7 +2,7 @@ import 'server-only';
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { isLocale } from '@/i18n/config';
-import { getSupabaseConfig, sessionCookieOptions } from './config';
+import { getSupabaseConfig, sessionCookieOptionsFor } from './config';
 import { withTimeout } from './timeout';
 import { safeReturnPath } from './auth-input';
 import { successPath } from './auth-paths';
@@ -23,7 +23,8 @@ export async function completeAuthCallback(request: NextRequest, locale: string)
   // Relative Location keeps the browser's actual origin, even when Next.js runs
   // behind a proxy or uses a different internal hostname. Never trust forwarded hosts.
   const response = new NextResponse(null, { status: 303, headers: { Location: failure.pathname + failure.search } });
-  response.cookies.set(AUTH_RETURN_COOKIE, '', { ...sessionCookieOptions, maxAge: 0 });
+  const cookieOptions = sessionCookieOptionsFor(request.nextUrl);
+  response.cookies.set(AUTH_RETURN_COOKIE, '', { ...cookieOptions, maxAge: 0 });
   response.headers.set('Cache-Control', 'private, no-store');
   response.headers.set('Referrer-Policy', 'no-referrer');
   const config = getSupabaseConfig();
@@ -32,7 +33,7 @@ export async function completeAuthCallback(request: NextRequest, locale: string)
   if (!config || !code || params.getAll('code').length !== 1 || params.has('error') || params.has('error_code') || params.getAll('sb_flow_id').length > 1) return response;
   try {
     const client = createServerClient(config.url, config.key, {
-      cookieOptions: sessionCookieOptions,
+      cookieOptions,
       cookies: {
         getAll: () => request.cookies.getAll(),
         setAll(values, headers) {

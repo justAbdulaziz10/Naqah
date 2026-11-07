@@ -20,3 +20,15 @@ export const sessionCookieOptions = {
   sameSite: 'lax',
   secure: process.env.NODE_ENV !== 'development',
 } as const;
+
+const LOOPBACK = /^(localhost|127(?:\.\d+){3}|\[::1\])$/;
+
+/**
+ * The same options for the page actually being served. Plain-http loopback (a local production
+ * preview at http://localhost:3300) can't keep Secure cookies in Safari, so sign-in silently failed
+ * there; every other origin, and anything over https, stays Secure.
+ */
+export function sessionCookieOptionsFor(origin: { protocol: string; hostname: string } | null | undefined) {
+  if (!origin || origin.protocol !== 'http:' || !LOOPBACK.test(origin.hostname)) return sessionCookieOptions;
+  return { ...sessionCookieOptions, secure: false } as const;
+}

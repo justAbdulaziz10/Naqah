@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { getSupabaseConfig, sessionCookieOptions } from './config';
+import { getSupabaseConfig, sessionCookieOptionsFor } from './config';
 import { withTimeout } from './timeout';
 
 // Only signed-in visitors reach the network here; an outage must not hold every page.
@@ -12,7 +12,7 @@ export async function updateSession(request: NextRequest) {
   const config = getSupabaseConfig();
   if (!config) return response;
   const client = createServerClient(config.url, config.key, {
-    cookieOptions: sessionCookieOptions,
+    cookieOptions: sessionCookieOptionsFor(request.nextUrl),
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll(values, headers) {

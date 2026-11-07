@@ -10,7 +10,7 @@ verified over HTTPS through an ngrok tunnel. Unattended scheduled calls are off.
 | Caller ID | `+447447199952` (UK, voice-capable), `TWILIO_PHONE_NUMBER` |
 | Saudi (+966) | Allowed: the subaccount inherits the parent's voice geo permissions (Saudi low-risk on) |
 | Credentials | The subaccount's own SID and auth token (Twilio signs its webhooks with that token) |
-| Public origin | `https://breastless-nonfraudulently-marquetta.ngrok-free.dev` → `next start -p 3300` |
+| Public origin | the local ngrok domain (kept out of the repo) → `next start -p 3300`, set as `NAQAH_PUBLIC_BASE_URL` |
 | Number's own Voice URL | Not set (only needed for workers phoning in; outbound calls carry their own URLs) |
 
 ## Controlled test switches (all server-side, all off unless set)
@@ -24,6 +24,15 @@ verified over HTTPS through an ngrok tunnel. Unattended scheduled calls are off.
 
 `GET /api/integrations/status` reports `outbound.configured`, `manualCalls`, `scheduledCalls` and the
 number of allowlisted numbers (never the numbers or secrets).
+
+### Local preview sign-in
+
+Supabase Auth only returns Google sign-in to callback URLs on its allow-list (Authentication → URL
+Configuration). `http://localhost:3300/{ar,en}/login/callback?**` was added on 2026-11-08 next to the
+production, Vercel-preview and `localhost:3000/3002` entries; the Site URL stays `https://naqah.vercel.app`.
+A preview on any other port needs its own two entries, or Google returns to production with no session.
+On plain-http loopback the session cookies are not `Secure` (Safari drops Secure cookies on
+`http://localhost`); every other origin keeps them Secure (`sessionCookieOptionsFor`).
 
 ### One controlled call
 
