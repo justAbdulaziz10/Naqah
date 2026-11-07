@@ -1,4 +1,6 @@
-import type { Workspace } from "@/domain/types";
+import type { AccountWorkspace } from "@/lib/account/types";
+import { browserOwnerId, observeAccountAuth } from "@/lib/account/auth-observer";
+import { createClient } from "@/lib/supabase/client";
 import type { OwnerChange } from "@/lib/account/changes";
 import { createAccountSync, type SavedChanges } from "./accountSync";
 import { accountLink, useSaveStatus } from "./workspace";
@@ -16,10 +18,26 @@ async function call<T>(op: string, changes?: OwnerChange[], farm?: string): Prom
 }
 
 export const accountSync = createAccountSync({
-  open: () => call<Workspace>("open"),
-  load: () => call<Workspace>("load"),
+  open: () => call<AccountWorkspace>("open"),
+  load: () => call<AccountWorkspace>("load"),
   save: (changes, farm) => call<SavedChanges>("save", changes, farm),
+}, {
+  async getOwnerId() {
+    const client = createClient();
+    return client ? browserOwnerId(client.auth) : null;
+  },
 });
+
+let observers = 0;
+let stopObserving: (() => void) | undefined;
+export function watchAccountAuth(): () => void {
+  const client = createClient();
+  if (!client) return () => undefined;
+  if (++observers === 1) stopObserving = observeAccountAuth(client.auth, accountSync.authChanged);
+  return () => {
+    if (--observers === 0) { stopObserving?.(); stopObserving = undefined; }
+  };
+}
 
 /** For a screen that confirms a save in words: in account mode that has to wait for the server. */
 export async function savedForSure(): Promise<boolean> {

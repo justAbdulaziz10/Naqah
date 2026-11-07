@@ -5,7 +5,7 @@ import { useEffect, type ReactNode } from "react";
 import { CamelMark } from "@/components/brand/CamelMark";
 import { Button } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import { accountSync } from "@/store/account";
+import { accountSync, watchAccountAuth } from "@/store/account";
 import { useAccountState, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
 
 const REFRESH_MS = 30_000;
@@ -33,7 +33,10 @@ export function AccountBoundary({ area, children }: { area: "app" | "start"; chi
       : !setupComplete ? "/start" : pathname.endsWith("/app/lab") ? "/app" : null;
 
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_NAQAH_ACCOUNT_DATA === "1") void accountSync.open();
+    if (process.env.NEXT_PUBLIC_NAQAH_ACCOUNT_DATA !== "1") return;
+    const stop = watchAccountAuth();
+    void accountSync.open();
+    return stop;
   }, []);
 
   useEffect(() => {

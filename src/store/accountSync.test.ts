@@ -1,27 +1,43 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDemoWorkspace, createEmptyWorkspace } from "@/domain/seed";
 import type { Workspace } from "@/domain/types";
+import type { AccountWorkspace } from "@/lib/account/types";
 import type { AccountApi } from "./accountSync";
 
 const writes: string[] = [];
 let stored: string | null = null;
 
-async function setup(farm: Workspace) {
+const FARM_A = "11111111-1111-4111-8111-111111111111";
+const FARM_B = "22222222-2222-4222-8222-222222222222";
+const OWNER_A = "owner-a";
+const OWNER_B = "owner-b";
+
+async function setup(farm: AccountWorkspace) {
   vi.resetModules();
   const { createAccountSync } = await import("./accountSync");
   const store = await import("./workspace");
   let server = farm;
+  let browserOwner: string | null = farm.ownerId;
   const api = {
     open: vi.fn<AccountApi["open"]>(async () => ({ ok: true, data: server })),
     load: vi.fn<AccountApi["load"]>(async () => ({ ok: true, data: server })),
     save: vi.fn<AccountApi["save"]>(async () => ({ ok: true, data: { workspace: server, created: {}, failed: [] } })),
   };
-  return { ...store, api, sync: createAccountSync(api), setServer: (ws: Workspace) => { server = ws; } };
+  const identity = { getOwnerId: vi.fn(async () => browserOwner) };
+  const sync = createAccountSync(api, identity);
+  return {
+    ...store, api, sync, identity,
+    setServer: (ws: AccountWorkspace) => { server = ws; browserOwner = ws.ownerId; },
+    setIdentity: (owner: string | null, notify = true) => {
+      browserOwner = owner;
+      if (notify) sync.authChanged(owner);
+    },
+  };
 }
 
 const template = createEmptyWorkspace("basic");
-const farm = (): Workspace => ({ ...template, createdAt: "2026-11-01T00:00:00.000Z", setupComplete: true });
-const rename = (name: string) => (ws: Workspace): Workspace => ({ ...ws, settings: { ...ws.settings, owner: { ...ws.settings.owner, name } } });
+const farm = (): AccountWorkspace => ({ ...template, farmId: FARM_A, ownerId: OWNER_A, createdAt: "2026-11-01T00:00:00.000Z", setupComplete: true });
+const rename = (name: string) => <T extends Workspace>(ws: T): T => ({ ...ws, settings: { ...ws.settings, owner: { ...ws.settings.owner, name } } });
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -39,6 +55,199 @@ afterEach(() => {
 });
 
 describe("account mode", () => {
+  it("does not merge or flush between two farms with identical createdAt and the same owner hint", async () => {
+    const { sync, api, useWorkspaceStore, setServer } = await setup(farm());
+    await sync.open();
+    useWorkspaceStore.getState().update(rename("Old farm pending"));
+    const other = { ...farm(), farmId: FARM_B };
+    expect(other.createdAt).toBe(farm().createdAt);
+    setServer(other);
+    await sync.open();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+    expect(api.save).not.toHaveBeenCalled();
+  });
+
+  it.each(["open", "load", "save"] as const)("discards pending %s results immediately after a cross-tab auth event", async (operation) => {
+    const { sync, api, useWorkspaceStore, setServer, setIdentity } = await setup(farm());
+    await sync.open();
+    let finish!: () => void;
+    let pending: Promise<void>;
+    if (operation === "save") {
+      api.save.mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ ok: true, data: { workspace: rename("Stale A")(farm()), created: {}, failed: [] } }); }));
+      useWorkspaceStore.getState().update(rename("A pending"));
+      pending = sync.flush();
+    } else {
+      api[operation].mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ ok: true, data: rename("Stale A")(farm()) }); }));
+      pending = operation === "open" ? sync.open() : sync.refresh();
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    const other = { ...rename("Current B")(farm()), farmId: FARM_B, ownerId: OWNER_B };
+    expect(other.createdAt).toBe(farm().createdAt);
+    setServer(other);
+    setIdentity(OWNER_B);
+    expect(useWorkspaceStore.getState().workspace).toBeNull();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+    expect(sync.hasUnsaved()).toBe(false); // A's still-pending request is not B's pending work.
+    finish();
+    await pending;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+    expect(sync.hasUnsaved()).toBe(false);
+    expect(api.save.mock.calls.every(([, id]) => id === FARM_A)).toBe(true);
+  });
+
+  it.each(["open", "load", "save"] as const)("rechecks identity after %s even before a cross-tab notification arrives", async (operation) => {
+    const { sync, api, useWorkspaceStore, setServer } = await setup(farm());
+    await sync.open();
+    let finish!: () => void;
+    let pending: Promise<void>;
+    if (operation === "save") {
+      api.save.mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ ok: true, data: { workspace: rename("Stale A")(farm()), created: {}, failed: [] } }); }));
+      useWorkspaceStore.getState().update(rename("A pending"));
+      pending = sync.flush();
+    } else {
+      api[operation].mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ ok: true, data: rename("Stale A")(farm()) }); }));
+      pending = operation === "open" ? sync.open() : sync.refresh();
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    const other = { ...rename("Current B")(farm()), farmId: FARM_B, ownerId: OWNER_B };
+    setServer(other); // Updates the cookie/session hint, without an SDK event.
+    finish();
+    await pending;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+  });
+
+  it("rejects a response with a different validated owner than the initiating browser identity", async () => {
+    const { sync, api, useWorkspaceStore, useAccountState } = await setup(farm());
+    await sync.open();
+    api.open.mockResolvedValueOnce({ ok: true, data: { ...farm(), farmId: FARM_B, ownerId: OWNER_B } });
+    await sync.open();
+    expect(useWorkspaceStore.getState().workspace).toBeNull();
+    expect(useAccountState.getState().status).toBe("error");
+    expect(api.save).not.toHaveBeenCalled();
+  });
+
+  it.each(["open", "load", "save"] as const)("rechecks the final identity boundary immediately before adopting %s", async (operation) => {
+    const { sync, api, identity, useWorkspaceStore, setServer, setIdentity } = await setup(farm());
+    await sync.open();
+    let finish!: () => void;
+    let pending: Promise<void>;
+    const stale = rename("Stale response A")(farm());
+    if (operation === "save") {
+      api.save.mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ ok: true, data: { workspace: stale, created: {}, failed: [] } }); }));
+      useWorkspaceStore.getState().update(rename("A pending"));
+      pending = sync.flush();
+    } else {
+      api[operation].mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ ok: true, data: stale }); }));
+      pending = operation === "open" ? sync.open() : sync.refresh();
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    let switched = false;
+    let adoptedOldResult = false;
+    const unsubscribe = useWorkspaceStore.subscribe(({ workspace }) => {
+      if (switched && workspace?.settings.owner.name === "Stale response A") adoptedOldResult = true;
+    });
+    const other = { ...rename("Current B")(farm()), farmId: FARM_B, ownerId: OWNER_B };
+    identity.getOwnerId.mockImplementationOnce(async () => {
+      // Event lands after the awaited probe/check resolves, but before its caller adopts.
+      queueMicrotask(() => queueMicrotask(() => queueMicrotask(() => {
+        switched = true;
+        setServer(other);
+        setIdentity(OWNER_B);
+      })));
+      return OWNER_A;
+    });
+    finish();
+    await pending;
+    await vi.advanceTimersByTimeAsync(0);
+    unsubscribe();
+    expect(adoptedOldResult).toBe(false);
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+  });
+
+  it("does not invalidate pending edits for same-owner token refresh events", async () => {
+    const { sync, api, useWorkspaceStore } = await setup(farm());
+    await sync.open();
+    useWorkspaceStore.getState().update(rename("Still mine"));
+    sync.authChanged(OWNER_A);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(api.save).toHaveBeenCalledTimes(1);
+    expect(api.save.mock.calls[0][1]).toBe(FARM_A);
+  });
+
+  it("rejects an old A result after rapid A to B to A events", async () => {
+    const { sync, api, useWorkspaceStore, setServer, setIdentity } = await setup(farm());
+    await sync.open();
+    let finish!: () => void;
+    api.open.mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ ok: true, data: rename("Obsolete A")(farm()) }); }));
+    const pending = sync.open();
+    await vi.advanceTimersByTimeAsync(0);
+    setIdentity(OWNER_B);
+    const fresh = rename("Current A")(farm());
+    setServer(fresh);
+    setIdentity(OWNER_A);
+    await vi.advanceTimersByTimeAsync(0);
+    finish();
+    await pending;
+    expect(useWorkspaceStore.getState().workspace).toEqual(fresh);
+  });
+
+  it("lets an initial SDK auth event supersede an old identity probe", async () => {
+    const { sync, api, identity, useWorkspaceStore, setServer, setIdentity } = await setup(farm());
+    let finish!: (owner: string | null) => void;
+    identity.getOwnerId.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const pending = sync.open();
+    const fresh = { ...farm(), farmId: FARM_B, ownerId: OWNER_B };
+    setServer(fresh);
+    setIdentity(OWNER_B);
+    await vi.advanceTimersByTimeAsync(0);
+    finish(OWNER_A);
+    await pending;
+    expect(useWorkspaceStore.getState().workspace).toEqual(fresh);
+    expect(api.open).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps pending edits and retries after a local session-probe failure", async () => {
+    const { sync, api, identity, useSaveStatus, useWorkspaceStore } = await setup(farm());
+    await sync.open();
+    identity.getOwnerId.mockRejectedValueOnce(new Error("temporarily unavailable"));
+    useWorkspaceStore.getState().update(rename("Still pending"));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(useSaveStatus.getState().status).toBe("failed");
+    expect(api.save).not.toHaveBeenCalled();
+    expect(useWorkspaceStore.getState().workspace?.settings.owner.name).toBe("Still pending");
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(api.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes queued flushes and retains the last server snapshot", async () => {
+    const { sync, api, useWorkspaceStore, setServer } = await setup(farm());
+    await sync.open();
+    let running = 0, peak = 0, sequence = 0;
+    api.save.mockImplementation(async (changes) => {
+      peak = Math.max(peak, ++running);
+      const order = ++sequence;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const name = (changes.find((change) => change.kind === "profile") as { input?: { ownerName?: string } })?.input?.ownerName ?? "";
+      const saved = { ...rename(name)(farm()), lastUpdateAt: `snapshot-${order}` };
+      setServer(saved);
+      running--;
+      return { ok: true, data: { workspace: saved, created: {}, failed: [] } };
+    });
+    useWorkspaceStore.getState().update(rename("First"));
+    const initial = sync.flush();
+    await vi.advanceTimersByTimeAsync(0);
+    useWorkspaceStore.getState().update(rename("Second"));
+    const waiting = Array.from({ length: 4 }, () => sync.flush());
+    await vi.advanceTimersByTimeAsync(200);
+    await Promise.all([initial, ...waiting]);
+    expect(peak).toBe(1);
+    expect(api.save).toHaveBeenCalledTimes(2);
+    expect(useWorkspaceStore.getState().workspace).toMatchObject({ lastUpdateAt: "snapshot-2", settings: { owner: { name: "Second" } } });
+  });
   it("drops conflicted edits and opens once even if every save would conflict", async () => {
     const { sync, api, useWorkspaceStore, setServer, useAccountState } = await setup(farm());
     await sync.open();
@@ -47,7 +256,7 @@ describe("account mode", () => {
       if (api.save.mock.calls.length > 5) return { ok: false, error: "unavailable" };
       return { ok: false, error: "conflict" };
     });
-    const other = { ...rename("Owner B")(farm()), createdAt: "2026-11-05T00:00:00.000Z" };
+    const other = { ...rename("Replacement farm")(farm()), farmId: FARM_B };
     setServer(other);
     useWorkspaceStore.getState().update(rename("Owner A pending edit"));
     await vi.advanceTimersByTimeAsync(60_000);
@@ -64,7 +273,7 @@ describe("account mode", () => {
     api.save.mockResolvedValueOnce({ ok: false, error: "unavailable" });
     useWorkspaceStore.getState().update(rename("Owner A pending edit"));
     await vi.advanceTimersByTimeAsync(1_000);
-    const other = { ...farm(), createdAt: "2026-11-05T00:00:00.000Z" };
+    const other = { ...farm(), farmId: FARM_B, ownerId: OWNER_B };
     setServer(other);
     await sync.open();
     await vi.advanceTimersByTimeAsync(60_000);
@@ -79,7 +288,7 @@ describe("account mode", () => {
     api.save.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     useWorkspaceStore.getState().update(rename("Owner A pending edit"));
     await vi.advanceTimersByTimeAsync(1_000);
-    const other = { ...rename("Owner B")(farm()), createdAt: "2026-11-05T00:00:00.000Z" };
+    const other = { ...rename("Owner B")(farm()), farmId: FARM_B, ownerId: OWNER_B };
     setServer(other);
     await sync.open();
     expect(useWorkspaceStore.getState().workspace).toEqual(other);
@@ -98,7 +307,8 @@ describe("account mode", () => {
     let finish!: (result: Awaited<ReturnType<AccountApi["open"]>>) => void;
     api.open.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     const obsolete = sync.open();
-    const other = { ...farm(), createdAt: "2026-11-05T00:00:00.000Z" };
+    await vi.advanceTimersByTimeAsync(0);
+    const other = { ...farm(), farmId: FARM_B, ownerId: OWNER_B };
     setServer(other);
     await sync.open();
     finish({ ok: true, data: rename("Old A")(farm()) });
@@ -115,7 +325,8 @@ describe("account mode", () => {
     useWorkspaceStore.getState().update(rename("A pending"));
     const inFlight = sync.flush();
     const queued = sync.flush();
-    const other = { ...farm(), createdAt: "2026-11-05T00:00:00.000Z" };
+    await vi.advanceTimersByTimeAsync(0);
+    const other = { ...farm(), farmId: FARM_B, ownerId: OWNER_B };
     setServer(other);
     await sync.open();
     finish({ ok: false, error: "unavailable" });
@@ -131,8 +342,9 @@ describe("account mode", () => {
     let finish!: (result: Awaited<ReturnType<AccountApi["load"]>>) => void;
     api.load.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     const refresh = sync.refresh();
+    await vi.advanceTimersByTimeAsync(0);
     sync.close();
-    const other = { ...farm(), createdAt: "2026-11-05T00:00:00.000Z" };
+    const other = { ...farm(), farmId: FARM_B, ownerId: OWNER_B };
     setServer(other);
     await sync.open();
     finish({ ok: true, data: rename("Stale A")(farm()) });
@@ -196,7 +408,8 @@ describe("account mode", () => {
     const { sync, api, useWorkspaceStore } = await setup(farm());
     await sync.open();
     const before = useWorkspaceStore.getState().workspace;
-    useWorkspaceStore.getState().update(() => createDemoWorkspace("en", "ultimate"));
+    useWorkspaceStore.getState().update(() => ({ ...createDemoWorkspace("en", "ultimate"), createdAt: farm().createdAt }));
+    useWorkspaceStore.getState().update((ws) => ({ ...ws, farmId: FARM_B }));
     useWorkspaceStore.getState().startDemo("en");
     useWorkspaceStore.getState().reset();
     useWorkspaceStore.getState().startOnboarding("ultimate");
@@ -315,12 +528,12 @@ describe("account mode", () => {
     const { sync, api, useWorkspaceStore, setServer } = await setup(farm());
     await sync.open();
     useWorkspaceStore.getState().update(rename("Owner A"));
-    const other = { ...farm(), createdAt: "2026-11-05T00:00:00.000Z" };
+    const other = { ...farm(), farmId: FARM_B, ownerId: OWNER_B };
     setServer(other);
     await sync.open();
     await vi.advanceTimersByTimeAsync(20_000);
-    expect(useWorkspaceStore.getState().workspace?.createdAt).toBe(other.createdAt);
-    expect(api.save.mock.calls.every(([, farmId]) => farmId === farm().createdAt)).toBe(true);
+    expect(useWorkspaceStore.getState().workspace).toEqual(other);
+    expect(api.save.mock.calls.every(([, farmId]) => farmId === FARM_A)).toBe(true);
   });
 
   it("names the farm in every save, and reloads when the server refuses it", async () => {
@@ -329,7 +542,7 @@ describe("account mode", () => {
     api.save.mockResolvedValueOnce({ ok: false, error: "conflict" });
     useWorkspaceStore.getState().update(rename("Salem"));
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(api.save.mock.calls[0][1]).toBe(farm().createdAt);
+    expect(api.save.mock.calls[0][1]).toBe(FARM_A);
     expect(api.open).toHaveBeenCalledTimes(2);
   });
 

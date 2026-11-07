@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 import { createDemoWorkspace, createEmptyWorkspace, nowFor, type Locale, type Plan, type Workspace } from "@/domain";
+import { isAccountWorkspace } from "@/lib/account/types";
 
 interface WorkspaceState {
   workspace: Workspace | null;
@@ -104,7 +105,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const next = fn(ws);
         if (!accountLink.active) return set({ workspace: next });
         // A different document is a sample or a restart, never an edit to a real farm.
-        if (next.createdAt !== ws.createdAt) return;
+        if (!isAccountWorkspace(ws) || !isAccountWorkspace(next) || next.farmId !== ws.farmId || next.ownerId !== ws.ownerId) return;
         set({ workspace: next });
         accountLink.edited();
       },

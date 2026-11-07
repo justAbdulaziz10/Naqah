@@ -71,7 +71,8 @@ With the flag on, `AccountBoundary` wraps `/app` and `/start` and decides whose 
 Screens still call `update(fn)`. In account mode `src/store/accountSync.ts` diffs the document
 against the last server copy (`src/lib/account/changes.ts`), and sends only owner-writable fields to
 `POST /api/account`, which runs the same validated owner actions. So a screen can't write a report
-or ticket, and a sample can't replace a farm: a document with another `createdAt` is refused.
+or ticket, and a sample can't replace a farm: account documents must retain the server-supplied
+`farmId` and `ownerId`. Timestamps describe creation time and are never account/farm identity.
 
 - **Not a Server Action.** Next queues those behind navigation and drops one in flight when the page
   changes, so the save that finishes setup would hang.
@@ -80,6 +81,17 @@ or ticket, and a sample can't replace a farm: a document with another `createdAt
 - **Account switches discard old edits.** Entry loads the current farm before flushing. A conflict clears
   the old base and pending retry before reopening, and generation checks ignore obsolete save/load/open
   results. Same-owner entry still flushes setup edits; ordinary network failures keep their retry behavior.
+- **Stable identity at both boundaries.** Open/load/save workspaces carry the repository's farm UUID and
+  the validated session's owner ID. Saves compare the client UUID to the farm loaded through that owner's
+  session-bound repository/RLS; the client UUID never selects or authorizes access to a farm. A timestamp,
+  even one equal to the current farm's `createdAt`, cannot satisfy the save precondition.
+- **Cross-tab Auth changes.** AccountBoundary subscribes to SDK auth events, immediately clears the old
+  workspace/base/timer on an owner change, and queues a reopen outside the SDK callback. Requests check a
+  local session identity hint before and after I/O, plus the server-returned owner and local auth/generation
+  versions. Old results cannot be adopted even before a broadcast arrives. A local one-second poll and
+  focus/visibility checks cover cookie-only server callbacks which do not emit an SDK broadcast. Same-owner
+  token refresh keeps pending edits. Subscriptions and timers are cleaned up on unmount; multiple boundaries
+  share one observer. These browser hints reject stale UI data; only server getOwner()/RLS authorize access.
 - **Half-typed values** (a partial phone number) stay on screen and aren't sent.
 - **Calls appear live.** The farm reloads on focus and every 30 seconds, never over unsaved edits.
 - **localStorage stays the demo's.** A real farm is never written there.
@@ -88,6 +100,17 @@ or ticket, and a sample can't replace a farm: a document with another `createdAt
 Not imported: setup details typed into the browser before signing up. The owner enters them again.
 Sample farms need a marker before that can be offered, because a demo can't be told apart from a
 real draft.
+
+### Same-owner concurrency limitation (Sourcery review)
+
+Saves within one tab remain serialized by `while (saving)`; an adversarial test queues four flushes behind
+an in-flight save, changes the pending value, and verifies one concurrent save and the newest snapshot.
+The review's suggested overlapping-flush race was not reproduced, so the existing loop is retained.
+
+Different tabs of the **same** owner editing the same field still have last-write-wins behavior. The service
+revision is not an owner-edit CAS token and owner mutations are independent writes. Adding a revision read/check
+outside an atomic write would introduce a TOCTOU race rather than solve this. Atomic owner batch writes and a
+same-field conflict policy need a separately reviewed change; no revision/migration shortcut is introduced here.
 
 ### Exact flag contract and rollback
 

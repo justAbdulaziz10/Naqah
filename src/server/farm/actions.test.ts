@@ -40,11 +40,40 @@ describe("owner actions", () => {
     expect(mock.repository).toHaveBeenCalledWith({ session: true }, "owner");
   });
   it("never applies another farm's pending edits when enabled", async () => {
-    const load = vi.fn().mockResolvedValue({ workspace: { createdAt: "farm-b" } });
+    const load = vi.fn().mockResolvedValue({ farmId: "22222222-2222-4222-8222-222222222222", workspace: { createdAt: "2026-11-01T00:00:00Z" } });
     mock.repository.mockReturnValue({ load });
-    expect(await actions.saveOwnerEdits([], "farm-a")).toEqual({ ok: false, error: "conflict" });
+    expect(await actions.saveOwnerEdits([], "11111111-1111-4111-8111-111111111111")).toEqual({ ok: false, error: "conflict" });
     expect(mock.apply).not.toHaveBeenCalled();
     expect(load).toHaveBeenCalledTimes(1);
+  });
+  it("does not accept a matching timestamp as farm identity", async () => {
+    const timestamp = "2026-11-01T00:00:00.000Z";
+    const load = vi.fn().mockResolvedValue({ farmId: "22222222-2222-4222-8222-222222222222", workspace: { createdAt: timestamp } });
+    mock.repository.mockReturnValue({ load });
+    expect(await actions.saveOwnerEdits([], timestamp)).toEqual({ ok: false, error: "invalid_input" });
+    expect(mock.apply).not.toHaveBeenCalled();
+  });
+  it("uses the session's repository even when the caller knows another farm's id", async () => {
+    const farmId = "22222222-2222-4222-8222-222222222222";
+    const loaded = { farmId, workspace: { createdAt: "2026-11-01T00:00:00.000Z", farmId: "forged", ownerId: "forged" } };
+    const repository = { load: vi.fn().mockResolvedValue(loaded) };
+    mock.repository.mockReturnValue(repository);
+    mock.apply.mockResolvedValue({ created: {}, failed: [] });
+    const result = await actions.saveOwnerEdits([], farmId);
+    expect(result).toMatchObject({ ok: true, data: { workspace: { farmId, ownerId: "owner" } } });
+    expect(mock.repository).toHaveBeenCalledWith({ session: true }, "owner");
+    expect(mock.apply).toHaveBeenCalledWith(repository, []);
+  });
+  it("returns session-derived owner and repository-derived farm ids for open and load", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "mock-only");
+    const farmId = "11111111-1111-4111-8111-111111111111";
+    const repository = { ensureFarm: vi.fn(), load: vi.fn().mockResolvedValue({ farmId, workspace: { createdAt: "same-time" } }) };
+    mock.repository.mockReturnValue(repository);
+    for (const read of [actions.openAccount, actions.loadWorkspace]) {
+      expect(await read()).toEqual({ ok: true, data: { farmId, ownerId: "owner", createdAt: "same-time" } });
+    }
+    expect(repository.ensureFarm).toHaveBeenCalledTimes(1);
   });
   it("returns a code, never an exception or database text", async () => {
     addCamelRepo.mockRejectedValue(new DbError("limit_reached"));
