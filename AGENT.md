@@ -11,9 +11,9 @@ their code being present does not mean the live project has been migrated or act
 
 ## 1. Product in one paragraph
 
-NAQAH is private camel-ranch operations management for **one owner, one farm, one worker**. The **worker** uses an ordinary
-phone (no app): they call the NAQAH AI voice agent, which asks the owner-configured questions, records structured facts
-(never audio), and updates the farm. Right after a successful update the AI **calls the owner** with only what matters.
+NAQAH is private camel-ranch operations management for **one owner, one farm**, with up to 3 registered workers (Basic)
+or 10 (Ultimate). At the time the owner chooses, **NAQAH calls the primary worker** on an ordinary phone (no app); the AI
+voice agent asks the owner-configured questions, records structured facts (never audio), and updates the farm. Right after a successful update the AI **calls the owner** with only what matters.
 The **owner** uses a website (this app) to set up the farm, see the latest state, and track tickets.
 Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. Personality: *The Quiet Steward*.
 
@@ -23,7 +23,9 @@ Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. P
 |---|---|---|
 | Custom questions (owner-written) | up to **5** | unlimited |
 | Predefined questions (NAQAH team) | mandatory when applicable; skipped if the resource is absent | same |
-| Worker reporting | **one per week**, only inside the owner's weekly window (owner sets day + start + end; no default duration) | **one per day**, whenever the worker chooses (marks the end of their workday) |
+| Report call (NAQAH → primary worker) | **one per week**, on the weekday and exact time the owner sets (Asia/Riyadh) | **one per day**, at the exact time the owner sets |
+| Report call unanswered | retry after **20 min**, up to **2 retries**, then the run is *missed*; the worker may call back that period to report | same |
+| Registered workers / herd | up to **3** workers; the owner keeps the official herd count, a worker's count is a proposal | up to **10** workers; same |
 | Owner calls the AI | **one call per week** (an answered notification call consumes it) | unlimited |
 | Missed notification | owner may call back **once** (this MVP counts it as the weekly call — *open decision*) | unlimited anyway |
 | Owner instructions during post-update call | relayed to the worker, **no ticket** | actionable → **Task Ticket** (OPEN) with a time or "any time"; information-only → no ticket |
@@ -38,7 +40,9 @@ accepts «ما أدري» / "I don't know"; confirms quantities and camel names;
 "saved/notified/created" before the system confirms; labels facts as *reported / approximate / unknown / verified*;
 never presents old data as new; stores extracted facts only (**no recordings**).
 
-**Do not add** (not approved): native apps, a website chatbot, multiple farms/workers, diagnosis, purchasing,
+The old Basic From/To *reporting window* (worker calls in) is **retired** (Nov 2026): columns remain only so old rows load.
+
+**Do not add** (not approved): native apps, a website chatbot, multiple farms, diagnosis, purchasing,
 extra reporting updates, new channels, automated emergency dispatch.
 
 ## 3. Architecture
