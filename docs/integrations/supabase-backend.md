@@ -1,8 +1,7 @@
 # Supabase backend foundation
 
-Status (2026-11-08): migrations **0001–0006 are applied** to the live project `ydsgmzxqjimwbamnksxe`. 0001–0005 were
-verified to match these files exactly (normalized statement hashes); 0006 was applied from this repository after the
-owner approved it, and is recorded live as `20261107213717_owner_flow`. Account mode is still opt-in: until the exact
+Status (2026-11-08): migrations **0001–0005, `20261107213717_owner_flow`, and `20261108000000_pending_worker_call_tasks` are applied** to the live project `ydsgmzxqjimwbamnksxe`. 0001–0005 were
+verified to match these files exactly (normalized statement hashes). Owner flow is recorded live as `20261107213717`, and its repository filename matches. The grouped task-link migration was applied after a dry run listed it alone. Account mode is still opt-in: until the exact
 build-time `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` is set, everyone stays on the browser demo and `/api/account` returns
 404. The voice routes use this code only when `NAQAH_VOICE_MODE=farm`; see `twilio-activation.md`.
 
@@ -51,13 +50,17 @@ the farm mid-call. It holds the dialogue position and the structured draft, neve
 `0005_custom_question_retry.sql` corrects the BEFORE INSERT limit for `ON CONFLICT(id)` retries: count other
 question ids within the same farm, under the existing farm-row lock. Repeating the fifth question succeeds;
 a distinct sixth is refused. Invoker security, immutable parents, grants and RLS are unchanged.
-`0006_owner_flow.sql` is the owner flow: `farms.call_day/call_time` (NAQAH calls the worker; Basic weekly, Ultimate
+`20261107213717_owner_flow.sql` is the owner flow: `farms.call_day/call_time` (NAQAH calls the worker; Basic weekly, Ultimate
 daily, Asia/Riyadh), `farms.herd_count` + `herd_count_reviewed_at` (official count; a worker's count is a proposal kept
 on `reports.herd_count_reported`), several workers per farm (Basic 3, Ultimate 10, trigger `workers_limit`; the one
 NAQAH calls is `farms.primary_worker_id`, cleared if that worker is deleted), `report_call_runs` (one row per
 scheduled slot, unique `(farm_id, occurrence)`, service-written, owner-readable), the `worker_report_missed` call
 kind, and `apply_farm_changes` saving those rows. The retired reporting window columns stay so old rows load.
-The complete sequence is **0001 → 0002 → 0003 → 0004 → 0005 → 0006**; do not edit old migrations to absorb fixes.
+The complete sequence is **0001 → 0002 → 0003 → 0004 → 0005 → 20261107213717 → 20261108000000**; do not edit old migrations to absorb fixes.
+
+`20261108000000_pending_worker_call_tasks.sql` keeps one worker call linked to multiple Task Tickets through
+`pending_worker_call_tasks`. The original `task_ticket_id` remains for compatibility with older call rows and writers.
+The hosted migration history and resulting schema, RLS and grants were verified after application.
 
 Local proof without Docker: `supabase/local-validation/run-foundation.sh` (0002 + 0006 checks, isolation, races,
 domain round trip including a report call) and `run-stack.sh` (Postgres + PostgREST + mock Auth) with
@@ -140,9 +143,9 @@ requests or disable `NAQAH_VOICE_MODE=farm`/service jobs. Those require separate
 ## Before going live
 
 **Needs the project owner**
-- [ ] Confirm owner access to the existing `ydsgmzxqjimwbamnksxe` and inspect its actual migration history.
+- [x] Confirm owner access to the existing `ydsgmzxqjimwbamnksxe` and inspect its actual migration history.
 - [ ] Review/merge the readiness PR separately, then obtain explicit activation authorization (issue #6 stays open).
-- [ ] Apply `0001`–`0005` in order (steps in `supabase-preparation.md`; an empty project's dry run must list all five).
+- [x] Apply `0001`–`0005` in order, then the reviewed owner-flow and grouped task-link migrations; remote history matches local files.
 - [ ] Set `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` and rebuild, after the migrations are applied.
 - [ ] Run Security and Performance Advisors and review the results.
 - [ ] Verify `SUPABASE_SECRET_KEY` (`sb_secret_…`) only for the service/voice path; owner CRUD uses session/RLS.

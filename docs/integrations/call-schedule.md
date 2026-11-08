@@ -1,6 +1,6 @@
 # Report call schedule
 
-Status: the schedule is saved (demo: browser; account: Supabase, migration 0006). Placing real calls needs Twilio
+Status: the schedule is saved (demo: browser; account: Supabase, migration `20261107213717_owner_flow`). Placing real calls needs Twilio
 credentials and a scheduler: see `twilio-activation.md`.
 
 ## Product rule

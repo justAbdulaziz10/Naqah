@@ -289,11 +289,14 @@ export interface PendingWorkerCall {
   nextAttemptAt: string | null;
   state: "pending" | "delivered" | "no_answer_ticket";
   /**
-   * Set when several approved instructions share this one delivery call.
-   * A retry with the same id must not create another call or more tickets.
+   * Conversation batch/event identity when several approved instructions share this one delivery call.
+   * A retry with the same id must not create another call or more tickets. Absent on legacy calls.
    */
   batchId?: string;
-  /** Every task whose instruction is still waiting on this delivery call. */
+  /**
+   * Ordered task associations still waiting on this delivery call.
+   * Absent preserves legacy storage; an empty array means the call has no grouped tasks.
+   */
   coveredTaskIds?: string[];
 }
 

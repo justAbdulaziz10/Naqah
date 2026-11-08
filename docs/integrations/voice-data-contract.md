@@ -101,8 +101,8 @@ Team B can drive a call without replacing the scripted engine or the Twilio rout
 surface is `openAgentCall` and `agentTurn` in `src/server/gemini/agent.ts`, with
 `liveGeminiClient()` from `src/server/gemini/client.ts`.
 
-- One model request per turn. There is no retry. The request aborts after `GEMINI_TIMEOUT_MS`
-  (8s), inside the 12s webhook limit.
+- One model request per turn, plus one fast provider retry inside the same `GEMINI_TIMEOUT_MS`
+  (8s) budget and the 12s webhook limit. Quota and timeouts are not retried.
 - A plain `نعم` or `لا` on a confirmation stage does not call the model. `نعم` accepts the
   pending point. `لا` rejects it. Neither writes a report or an instruction by itself.
 - Pass a `SaveHandler` that calls `voiceStep` / `applyVoiceEvent`. The agent says the update was
@@ -110,15 +110,86 @@ surface is `openAgentCall` and `agentTurn` in `src/server/gemini/agent.ts`, with
 - Text languages are `ar`, `en`, `ur`, `hi`, `bn`, and `fil`. Live phone languages stay `ar` and `en`.
 - The current Twilio routes still use the scripted engine. Connecting them is Team B's change.
 
-## Team A: batch fields are not stored
+## Team A: grouped instruction links are stored
 
-`PendingWorkerCall.batchId` and `coveredTaskIds` exist only in memory. `pending_worker_calls` has
-`task_ticket_id` and `relay_id`, and `toRows` writes those, not the batch fields. After a Supabase
-reload, a multi-ticket instruction still has one call row, but the link from that call to every
-covered ticket is gone, so `dueTaskVerifications` can treat those tickets as eligible again. A
-retried voice event still does not create a second batch, because the event id is the batch id.
-Persisting the two fields needs a Team A migration. This change does not add one.
+`batchId` and `coveredTaskIds` are written by migration `20261108000000_pending_worker_call_tasks.sql`.
+The mapping is in the next section. A reload keeps the batch id and the ordered task links, so a
+retried event does not create another call or more tickets, and a scheduled task stays ineligible
+for verification until that delivery call is delivered.
 
 ## Changing the contract
 
 Add optional fields freely. Anything else needs a new `version`, and both sides must deploy it.
+
+## Task A ↔ C: durable grouped instruction delivery (20261108000000)
+
+Inspected C implementation: `feature/conversation-checks` at
+`a5817455f913fbb64bde1d80825a47ca29f49526`. This persistence branch does not import C's
+instruction extraction, agent, prompts, batching or scheduling changes. C's accepted version-1
+`owner_instruction` event carries the approved `items` and optional `deliveryMessage`;
+`voiceStep` calls `submitOwnerInstructionBatch` with `event.eventId` as `batchId`. Ultimate
+creates one independent Task Ticket per actionable item and ONE pending delivery call.
+
+| C state | SQL representation | Compatibility |
+| --- | --- | --- |
+| `PendingWorkerCall.batchId` | `pending_worker_calls.batch_id` | Absent/null payload preserves the existing value. Once set, the RPC rejects a different batch ID. Unique within the farm; does not claim exactly-once external telephone delivery. |
+| `coveredTaskIds` absent | No `covered_task_ids` payload key | Keep all existing links and the explicit-array marker. An old writer cannot silently clear a group. |
+| `coveredTaskIds: []` | Marker `task_links_explicit=true`, no ordered rows | Explicitly empty grouped array; preserve any independent legacy `task_ticket_id` link. Valid for Basic relay batches. |
+| populated `coveredTaskIds` | `pending_worker_call_tasks(farm_id,pending_call_id,task_ticket_id,covered_order)` | Normalize IDs with `toDbId`, deduplicate by first occurrence, retain array order. Non-null `covered_order` reconstructs the exact explicit array. |
+| legacy `taskTicketId` | Existing `task_ticket_id` plus a junction row | NULL `covered_order` marks a legacy-only link, not an element of `coveredTaskIds`. If the same task is also covered, one row carries its array position. |
+
+The legacy field and explicit array are independent, matching C's union of both when deciding
+whether an instruction still awaits delivery. Neither erases the other. A backfilled legacy
+call still loads without the optional array; a deliberately empty array reloads as `[]`.
+No links are inferred from message text. `batchId` is opaque event identity, not a task ID.
+Backfill preserves valid legacy foreign-key relationships only. Previously discarded grouped
+IDs or batch IDs cannot be reconstructed from old rows; this migration does not guess them.
+
+`historyRows` includes explicit array/batch keys only when supplied. The existing pending-row
+diff therefore detects relationship-only and order-only changes. `apply_farm_changes` retains
+its public signature, service-only grants and SECURITY INVOKER behavior. Its reviewed 0006
+body is retained as a private invoker function; the public wrapper calls it and writes links
+inside the same transaction. The farm lock/revision check and voice-event replay guard remain
+unchanged. Any bad link rolls back tasks, call, links, event outcome and revision together.
+Composite foreign keys enforce same-farm call/task relationships even for service-role writes.
+Owners may read their links under RLS but cannot write them; anon receives no access.
+
+Both active and recent pending-call queries embed the associations in bulk (no per-call API
+query). Active reads also include `no_answer_ticket` calls so a callback is not limited to the
+last 200 calls. Attempts, delivery and callback reloads retain the fields without changing C's
+retry/confirmation rules. Deleting a task removes its links and nulls the legacy reference;
+the pending call/history survives, matching existing single-task deletion semantics. Deleting
+a pending call cascades only its links/attempts, not the independent tasks.
+
+Coordination note: at the inspected C SHA, `completeWorkerCallback` closes No Answer Tickets
+and delivers Basic relays but leaves the pending call's `no_answer_ticket` state unchanged.
+This storage fix preserves that behavior and every task association; it does not decide whether
+callback delivery should also release the task-verification gate. Any such transition change
+belongs to C and needs a separate reviewed decision. Delivery never closes Task Tickets.
+
+Rollout: apply reviewed `20261108000000_pending_worker_call_tasks.sql` **before** compatible application code. Old application writes
+remain valid and keep existing groups, with a trigger maintaining legacy links. The migration
+must run transactionally; ALTER TABLE/unique index creation takes an ACCESS EXCLUSIVE lock on pending calls for the transaction duration, blocking their reads/writes
+and scans the call table, while backfill scans existing valid legacy links. Schedule that DDL
+window for the observed table size; do not enable calls as part of rollout. The new app's
+embedded relation reads require the new schema; notify PostgREST to reload it at commit.
+
+### Local verification and hosted preflight boundary
+
+Use installed `psql` and a disposable loopback PostgreSQL database whose name begins
+`naqah_task_links_`. `node supabase/local-validation/run-task-links.mjs --fresh` verifies
+loopback and a database ownership marker before any reset, applies all migrations, seeds a
+pre-association-migration legacy call locally, and runs the SQL regression suite. Set `NAQAH_TASK_C_ROOT` to a
+clean checkout at the pinned C SHA and use a separate disposable database to run the real C
+accepted-event suite. The config imports C's actual contract/actions and Task A's actual
+repository/mappers. Its Supabase fetch transport executes real local SQL but is a stand-in
+for hosted Auth/PostgREST; it is not live-call/provider verification.
+
+The owner-flow migration filename matches the already-applied hosted version
+`20261107213717_owner_flow.sql` (formerly `0006_owner_flow.sql` locally), with SQL unchanged.
+The recorded SQL and affected catalog were compared read-only; no history repair or owner-flow
+re-execution was needed. The reviewed `20261108000000_pending_worker_call_tasks.sql` migration
+was applied to the existing project after a fresh dry run listed it alone. Verification confirmed
+the recorded version, validated constraints and indexes, owner-read RLS, service-only writes, and
+unchanged Auth-user count. The compatible application code is committed on the feature branch and
+must reach `main` before the application can save and reload grouped links in production.
