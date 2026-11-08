@@ -126,5 +126,7 @@ WebSockets, so production needs a separately hosted bridge; that needs owner app
 - The report is saved before the session row advances (`planTurn`, then `advanceRow`). A confirmed report can land while a
   fallback takes over; it is not lost or duplicated (`${callSid}:report`), but the two are not one transaction.
 - `/api/voice/realtime/*` and the Twilio webhooks read the whole body before checking its size and signature.
-- A scheduled verification is not started if its instruction reached the worker only through a callback. The task is still
-  asked about on later report calls. Open decision: see `voice-data-contract.md`.
+- Callback-delivered instructions, including grouped messages, receive one scheduled verification cycle per still-open
+  task once due. Open No Answer Tickets still block delivery; existing verification cycles prevent duplicates.
+  This is covered locally, not proven against live telephony. Missing callback-ticket evidence fails closed; the current
+  DB loader's 200-ticket closed-history cap can hide it before a distant due time. See `voice-data-contract.md`.

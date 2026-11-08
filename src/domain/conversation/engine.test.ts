@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recordOwnerInquiry, submitOwnerInstruction } from "../actions";
+import { confirmTask, recordOwnerInquiry, submitOwnerInstruction, submitOwnerInstructionBatch } from "../actions";
 import { fromRiyadh, RETRY_DELAY_MS } from "../clock";
 import { evaluateFindings, ownerBriefing } from "../findings";
 import { herdCountProposal } from "../herd";
@@ -77,6 +77,69 @@ function noAnswerFourTimes(ws: Workspace, startAt = NOW) {
   }
   return { ws, session, now };
 }
+
+describe("callback-delivered instruction verification", () => {
+  const callbackAt = fromRiyadh(2026, 11, 5, 18, 30);
+  const dueAt = fromRiyadh(2026, 11, 6, 9, 0);
+  const instruction = { message: "Check the shade net", actionable: true, scheduledFor: dueAt.toISOString() };
+
+  function missedInstruction(grouped: boolean) {
+    const ws = createEmptyWorkspace("ultimate");
+    const created = grouped
+      ? submitOwnerInstructionBatch(ws, NOW, [instruction, instruction], "callback-batch")
+      : submitOwnerInstruction(ws, NOW, instruction);
+    const taskIds = "taskIds" in created ? created.taskIds : [created.taskId!];
+    return { ...noAnswerFourTimes(created.ws), taskIds };
+  }
+
+  function deliverCallback(ws: Workspace, now = callbackAt) {
+    const session = start(ws, now, "worker_callback").session;
+    return applyAnswer(session, ws, now, { value: "received" }).ws;
+  }
+
+  it.each([false, true])("starts exactly one cycle per due callback-delivered task (grouped=%s)", (grouped) => {
+    const missed = missedInstruction(grouped);
+    expect(scenarioAvailability(missed.ws, dueAt).dueTaskVerificationCount).toBe(0);
+    const blocked = start(missed.ws, dueAt, "worker_outbound");
+    expect((blocked.commit?.(missed.ws) ?? missed.ws).pendingWorkerCalls.filter((call) => call.purpose === "task_verification")).toEqual([]);
+
+    const delivered = deliverCallback(missed.ws);
+    expect(scenarioAvailability(delivered, callbackAt).dueTaskVerificationCount).toBe(0);
+    expect(scenarioAvailability(delivered, dueAt).dueTaskVerificationCount).toBe(missed.taskIds.length);
+    const started = start(delivered, dueAt, "worker_outbound");
+    const once = started.commit?.(delivered) ?? delivered;
+    expect(once.pendingWorkerCalls.filter((call) => call.purpose === "task_verification").map((call) => call.taskTicketId)).toEqual(missed.taskIds);
+    expect(scenarioAvailability(once, dueAt).dueTaskVerificationCount).toBe(0);
+    const repeated = start(once, dueAt, "worker_outbound");
+    expect((repeated.commit?.(once) ?? once).pendingWorkerCalls).toEqual(once.pendingWorkerCalls);
+  });
+
+  it("keeps an identical later batch blocked until its own callback", () => {
+    const first = missedInstruction(true);
+    const delivered = deliverCallback(first.ws);
+    const secondAt = fromRiyadh(2026, 11, 5, 19, 0);
+    const second = submitOwnerInstructionBatch(delivered, secondAt, [instruction, instruction], "later-callback-batch");
+    const missed = noAnswerFourTimes(second.ws, secondAt);
+    expect(scenarioAvailability(missed.ws, dueAt).dueTaskVerificationCount).toBe(first.taskIds.length);
+    const started = start(missed.ws, dueAt, "worker_outbound");
+    const onlyFirst = started.commit?.(missed.ws) ?? missed.ws;
+    expect(onlyFirst.pendingWorkerCalls.filter((call) => call.purpose === "task_verification").map((call) => call.taskTicketId)).toEqual(first.taskIds);
+
+    const allDelivered = deliverCallback(missed.ws, fromRiyadh(2026, 11, 5, 20, 30));
+    expect(scenarioAvailability(allDelivered, dueAt).dueTaskVerificationCount).toBe(first.taskIds.length + second.taskIds.length);
+  });
+
+  it.each(["before_callback", "after_callback"])("skips a batch task closed %s", (when) => {
+    const missed = missedInstruction(true);
+    let ws = missed.ws;
+    if (when === "before_callback") ws = confirmTask(ws, callbackAt, missed.taskIds[0], true, "worker_report");
+    ws = deliverCallback(ws);
+    if (when === "after_callback") ws = confirmTask(ws, callbackAt, missed.taskIds[0], true, "worker_callback");
+    const started = start(ws, dueAt, "worker_outbound");
+    const verified = started.commit?.(ws) ?? ws;
+    expect(verified.pendingWorkerCalls.filter((call) => call.purpose === "task_verification").map((call) => call.taskTicketId)).toEqual([missed.taskIds[1]]);
+  });
+});
 
 describe("Call Lab conversation engine", () => {
   it("completes a sick-camel and low-feed report, then briefs the owner", () => {

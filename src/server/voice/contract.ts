@@ -242,11 +242,9 @@ export function parseVoiceEvent(value: unknown): VoiceEvent {
 /**
  * Scheduled tasks to start a verification call for: one per task. Later checks happen during the
  * worker's own calls.
- * OPEN DECISION: whether and how often an unconfirmed task is called about again.
  */
 export function tasksToVerify(ws: Workspace, now: Date) {
-  const started = new Set(ws.pendingWorkerCalls.filter((c) => c.purpose === "task_verification").map((c) => c.taskTicketId));
-  return dueTaskVerifications(ws, now).filter((task) => !started.has(task.id));
+  return dueTaskVerifications(ws, now);
 }
 
 /**

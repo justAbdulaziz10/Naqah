@@ -8,6 +8,7 @@ import {
   resolveWorkerCallAttempt,
   startTaskVerification,
   submitOwnerInstruction,
+  submitOwnerInstructionBatch,
 } from "./actions";
 import { fromRiyadh, isValidWindow, isWithinWindow, nextWindowStart, RETRY_DELAY_MS, weekKey } from "./clock";
 import { placeReportCallAttempt, resolveReportCallAttempt, startReportCall } from "./reportCalls";
@@ -342,6 +343,104 @@ describe("scheduled verification cycle", () => {
     expect(dueTaskVerifications(delivered, dueAt).map((task) => task.id)).not.toContain(sub.taskId);
     expect(overdueScheduledTasks(delivered, dueAt).map((task) => task.id)).not.toContain(sub.taskId);
     expect(delivered.taskTickets.find((task) => task.id === sub.taskId)?.status).toBe("open");
+  });
+});
+
+describe("scheduled verification after callback delivery", () => {
+  const dueAt = fromRiyadh(2026, 11, 6, 9, 0);
+  const instruction = { message: "Check the shade net", actionable: true, scheduledFor: dueAt.toISOString() };
+
+  function exhaustCall(ws: Workspace, pendingCallId: string, startedAt: Date) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      ws = resolveWorkerCallAttempt(
+        ws,
+        new Date(startedAt.getTime() + attempt * RETRY_DELAY_MS),
+        pendingCallId,
+        false,
+      ).ws;
+    }
+    return ws;
+  }
+
+  function missedInstruction(ws = ultimate(), grouped = false, startedAt = THU_1710) {
+    const created = grouped
+      ? submitOwnerInstructionBatch(ws, startedAt, [instruction, instruction], `batch-${ws.pendingWorkerCalls.length}`)
+      : submitOwnerInstruction(ws, startedAt, instruction);
+    const pendingCallId = created.pendingCallId!;
+    const taskIds = "taskIds" in created ? created.taskIds : [created.taskId!];
+    return { ws: exhaustCall(created.ws, pendingCallId, startedAt), taskIds, pendingCallId };
+  }
+
+  it.each([false, true])("releases only due callback-delivered tasks (grouped=%s)", (grouped) => {
+    const missed = missedInstruction(ultimate(), grouped);
+    expect(dueTaskVerifications(missed.ws, dueAt)).toEqual([]);
+    const delivered = completeWorkerCallback(missed.ws, THU_1830);
+    expect(dueTaskVerifications(delivered, THU_1830)).toEqual([]);
+    expect(dueTaskVerifications(delivered, dueAt).map((task) => task.id)).toEqual(missed.taskIds);
+    expect(delivered.pendingWorkerCalls).toEqual(missed.ws.pendingWorkerCalls);
+    expect(delivered.noAnswerTickets.every((ticket) => ticket.status === "closed")).toBe(true);
+    expect(delivered.taskTickets.filter((task) => missed.taskIds.includes(task.id)).every((task) => task.status === "open")).toBe(true);
+    if (grouped) expect(delivered.pendingWorkerCalls.at(-1)?.taskTicketId).toBeNull();
+  });
+
+  it("releases an already-due task when the worker finally calls back", () => {
+    const missed = missedInstruction();
+    expect(dueTaskVerifications(completeWorkerCallback(missed.ws, dueAt), dueAt).map((task) => task.id)).toEqual(missed.taskIds);
+  });
+
+  it.each([false, true])("does not release a repeated identical message using another call's closed ticket (grouped=%s)", (grouped) => {
+    const first = missedInstruction(ultimate(), grouped);
+    const delivered = completeWorkerCallback(first.ws, THU_1830);
+    const secondAt = grouped ? fromRiyadh(2026, 11, 5, 19, 0) : THU_1710;
+    const second = missedInstruction(delivered, grouped, secondAt);
+    expect(dueTaskVerifications(second.ws, dueAt).map((task) => task.id)).toEqual(first.taskIds);
+    const allDelivered = completeWorkerCallback(second.ws, dueAt);
+    expect(dueTaskVerifications(allDelivered, dueAt).map((task) => task.id)).toEqual([...first.taskIds, ...second.taskIds]);
+  });
+
+  it("fails closed when matching tickets are ambiguous and one remains open", () => {
+    const missed = missedInstruction();
+    missed.ws.noAnswerTickets.push({ ...missed.ws.noAnswerTickets[0], id: "closed-copy", status: "closed", closedAt: THU_1830.toISOString() });
+    expect(dueTaskVerifications(missed.ws, dueAt)).toEqual([]);
+  });
+
+  it("matches exhaustion timestamps across database timezone formats", () => {
+    const missed = missedInstruction();
+    const delivered = completeWorkerCallback(missed.ws, THU_1830);
+    delivered.noAnswerTickets[0].createdAt = delivered.noAnswerTickets[0].createdAt.replace("Z", "+00:00");
+    expect(dueTaskVerifications(delivered, dueAt).map((task) => task.id)).toEqual(missed.taskIds);
+  });
+
+  it("replaying a completed callback changes nothing", () => {
+    const missed = missedInstruction();
+    const delivered = completeWorkerCallback(missed.ws, THU_1830);
+    expect(completeWorkerCallback(delivered, dueAt)).toEqual(delivered);
+    expect(dueTaskVerifications(delivered, dueAt).map((task) => task.id)).toEqual(missed.taskIds);
+  });
+
+  it.each(["before_callback", "after_callback"])("never verifies a task closed %s", (when) => {
+    const missed = missedInstruction(ultimate(), true);
+    let ws = missed.ws;
+    if (when === "before_callback") ws = confirmTask(ws, THU_1830, missed.taskIds[0], true, "worker_report");
+    ws = completeWorkerCallback(ws, THU_1830);
+    if (when === "after_callback") ws = confirmTask(ws, THU_1830, missed.taskIds[0], true, "worker_callback");
+    expect(dueTaskVerifications(ws, dueAt).map((task) => task.id)).toEqual([missed.taskIds[1]]);
+  });
+
+  it.each(["pending", "delivered", "no_answer_ticket"] as const)("never repeats a callback-delivered task's %s verification cycle", (state) => {
+    const missed = missedInstruction();
+    const delivered = completeWorkerCallback(missed.ws, THU_1830);
+    const started = startTaskVerification(delivered, dueAt, missed.taskIds[0]);
+    let ws = started.ws;
+    if (state === "delivered") ws = resolveWorkerCallAttempt(ws, dueAt, started.pendingCallId, true).ws;
+    if (state === "no_answer_ticket") ws = exhaustCall(ws, started.pendingCallId, dueAt);
+    expect(ws.pendingWorkerCalls.find((call) => call.id === started.pendingCallId)?.state).toBe(state);
+    const later = new Date(dueAt.getTime() + 4 * RETRY_DELAY_MS);
+    ws = completeWorkerCallback(ws, later);
+    expect(dueTaskVerifications(ws, later)).toEqual([]);
+    const repeated = startTaskVerification(ws, later, missed.taskIds[0]);
+    expect(repeated.pendingCallId).toBe(started.pendingCallId);
+    expect(repeated.ws.pendingWorkerCalls.filter((call) => call.purpose === "task_verification")).toHaveLength(1);
   });
 });
 

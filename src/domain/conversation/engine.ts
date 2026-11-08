@@ -312,26 +312,8 @@ export function scenarioAvailability(ws: Workspace, now: Date): ScenarioAvailabi
     ownerInquiry: routeOwnerInboundCall(ws, now),
     pendingWorkerCallCount: ws.pendingWorkerCalls.filter((call) => call.state === "pending").length,
     dueWorkerCallCount: dueWorkerCalls(ws, now).length,
-    dueTaskVerificationCount: tasksReadyForVerification(ws, now).length,
+    dueTaskVerificationCount: dueTaskVerifications(ws, now).length,
   };
-}
-
-/** One verification cycle per task. A cycle that was delivered or exhausted is not started again. */
-function verificationCycleExists(ws: Workspace, taskId: string): boolean {
-  return ws.pendingWorkerCalls.some((call) => call.purpose === "task_verification" && call.taskTicketId === taskId);
-}
-
-/** Wait until the instruction call is delivered. A missed instruction stays on the callback path. */
-function instructionAwaitingDelivery(ws: Workspace, taskId: string): boolean {
-  return ws.pendingWorkerCalls.some(
-    (call) => call.purpose === "instruction" && call.taskTicketId === taskId && call.state !== "delivered",
-  );
-}
-
-function tasksReadyForVerification(ws: Workspace, now: Date) {
-  return dueTaskVerifications(ws, now).filter(
-    (task) => !verificationCycleExists(ws, task.id) && !instructionAwaitingDelivery(ws, task.id),
-  );
 }
 
 /** Ultimate open tasks a worker can confirm now: Any Time, plus scheduled tasks whose time has come. */
@@ -670,7 +652,7 @@ function startWorkerOutbound(ws: Workspace, now: Date): EngineResult {
   let prepared = ws;
   let startedVerification = false;
   const startedVerificationCallIds: string[] = [];
-  const dueTasks = tasksReadyForVerification(prepared, now);
+  const dueTasks = dueTaskVerifications(prepared, now);
   for (const task of dueTasks) {
     const result = startTaskVerification(prepared, now, task.id);
     prepared = result.ws;

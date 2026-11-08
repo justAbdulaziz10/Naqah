@@ -138,11 +138,20 @@ retry/confirmation rules. Deleting a task removes its links and nulls the legacy
 the pending call/history survives, matching existing single-task deletion semantics. Deleting
 a pending call cascades only its links/attempts, not the independent tasks.
 
-Coordination note: at the inspected C SHA, `completeWorkerCallback` closes No Answer Tickets
-and delivers Basic relays but leaves the pending call's `no_answer_ticket` state unchanged.
-This storage fix preserves that behavior and every task association; it does not decide whether
-callback delivery should also release the task-verification gate. Any such transition change
-belongs to C and needs a separate reviewed decision. Delivery never closes Task Tickets.
+Coordination note (owner-approved): callback delivery releases scheduled verification for every
+still-open task covered by that instruction, including grouped calls with a null legacy task ID.
+The pending call keeps its `no_answer_ticket` state and attempts for dashboard history. The shared
+domain gate recognizes its closed No Answer Ticket by purpose, legacy task ID, message, and the
+final failed-attempt timestamp matching ticket creation time; message text alone is not a link.
+An open matching ticket still blocks delivery, including ambiguous matches. At the scheduled
+time, a task gets one verification cycle only; any existing pending, delivered, or exhausted
+verification blocks another. Replayed callbacks with no open tickets are no-ops. Delivery never
+closes Task Tickets, and closed tasks never receive scheduled verification.
+
+Read-model limit: missing callback-ticket evidence fails closed. The current DB loader includes
+all open No Answer Tickets but only the 200 most recent closed ones; a distant scheduled task
+can therefore lose its callback-delivery evidence before it is due. Retaining closed tickets
+linked to active instruction calls requires a separate DB-read change; no migration is needed.
 
 Rollout: apply reviewed `20261108000000_pending_worker_call_tasks.sql` **before** compatible application code. Old application writes
 remain valid and keep existing groups, with a trigger maintaining legacy links. The migration

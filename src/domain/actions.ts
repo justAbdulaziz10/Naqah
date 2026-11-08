@@ -509,6 +509,7 @@ export function completeWorkerCallback(input: Workspace, now: Date): Workspace {
   const ws = clone(input);
   const at = iso(now);
   const open = ws.noAnswerTickets.filter((t) => t.status === "open");
+  if (!open.length) return ws;
   for (const t of open) {
     Object.assign(t, { status: "closed", closedAt: at });
     for (const c of ws.pendingWorkerCalls) {
