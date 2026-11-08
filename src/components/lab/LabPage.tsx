@@ -341,7 +341,7 @@ function PhoneStage({
             <div className="flex items-center gap-2">
               <SpeakerHigh size={16} className="text-cream/75" aria-hidden />
               <span className="text-xs font-semibold text-cream/80">{m.lab.phone.speakLines}</span>
-              <Switch checked={speakLines} onChange={setSpeakLines} label={m.lab.phone.speakLines} className="h-11 w-16" />
+              <Switch checked={speakLines} onChange={setSpeakLines} label={m.lab.phone.speakLines} />
             </div>
           ) : null}
         </div>

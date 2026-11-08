@@ -113,7 +113,7 @@ export function RhythmStrip({ slots, weekly, now, planned = false, className }: 
               className={cn(
                 // Wide enough on a phone for the longest label, "أسبوع 26 نوفمبر" or "Wednesday".
                 "naqah-stagger-item relative flex shrink-0 snap-center flex-col items-center rounded-2xl px-1 pb-2 pt-2 text-center sm:w-auto sm:pb-3 sm:pt-3",
-                weekly ? "w-32" : "w-24",
+                weekly ? "w-32" : "w-28",
                 slot.current && "bg-cream/[0.07]",
               )}
               style={{ "--i": index } as CSSProperties}
@@ -148,7 +148,7 @@ export function RhythmStrip({ slots, weekly, now, planned = false, className }: 
                   slot.state === "next" ? "font-semibold text-sand" : slot.state === "missed" ? "text-sand" : slot.state === "saved" || slot.state === "open" ? "text-cream" : "text-cream/55",
                 )}
               >
-                <bdi className="ltr-nums">{caption(slot)}</bdi>
+                <bdi className="ltr-nums whitespace-nowrap">{caption(slot)}</bdi>
               </span>
             </li>
           );

@@ -47,7 +47,9 @@ function RetryRail({ locale }: { locale: Locale }) {
         <span key={time} className="flex flex-1 items-center">
           <span className={`relative flex flex-col ${index ? "items-center" : "items-start"}`}>
             <span aria-hidden className={`size-3 rounded-full border-2 ${index ? "border-sand bg-espresso" : "border-sand bg-sand"}`} />
-            <span aria-hidden className={`ltr-nums absolute top-5 whitespace-nowrap text-[0.8125rem] tabular-nums text-cream/70 ${index ? "" : "start-0"}`}>{time}</span>
+            <span aria-hidden className={`absolute top-5 whitespace-nowrap ${index ? "" : "start-0"}`}>
+              <span className="ltr-nums text-[0.8125rem] tabular-nums text-cream/70">{time}</span>
+            </span>
           </span>
           <span aria-hidden className="h-0 flex-1 border-t-2 border-dashed border-sand/50" />
         </span>

@@ -725,7 +725,7 @@ for (const status of ["no-answer", "busy", "failed"]) {
 
 scenario("S7-scheduled", "Scheduled run: no-answer, busy, failed with retries", async () => {
   const ranch = await makeFarm(FULL);
-  sql(`update farms set call_day = extract(dow from now() at time zone 'Asia/Riyadh')::int,
+  sql(`update farms set call_day = extract(dow from now() at time zone 'Asia/Riyadh' - interval '1 minute')::int,
        call_time = (now() at time zone 'Asia/Riyadh' - interval '1 minute')::time where id = ${q(ranch.farm)}`);
   await resetProvider();
   const cron = async () => (await fetch(`${APP}/api/cron/report-calls`, { headers: { Authorization: `Bearer ${CRON_SECRET}` } })).json();
