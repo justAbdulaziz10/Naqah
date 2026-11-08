@@ -1,10 +1,9 @@
 "use client";
 
-import { Card } from "@/components/ui";
-import { EmptyState } from "@/components/dashboard/DashboardPrimitives";
 import { EstateHeader, type EstateFact, type EstateTone } from "@/components/dashboard/EstateHeader";
 import { EstateLedger } from "@/components/dashboard/EstateLedger";
 import { EstateMatters } from "@/components/dashboard/EstateMatters";
+import { FirstReport } from "@/components/dashboard/FirstReport";
 import { HerdCountFact } from "@/components/dashboard/HerdCountFact";
 import { ReportCallNow } from "@/components/dashboard/ReportCallNow";
 import { estateMatters } from "@/components/dashboard/matters";
@@ -15,7 +14,11 @@ import { CallSetupStatus, formatSaudiMobile, getCallSetupGaps } from "@/componen
 import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
 
-const dateTime = { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" } as const;
+// Short enough for a two-column header on a phone: the day and time lead, the date sits underneath.
+// formatDateTime fills in every field it is not told to leave out.
+const dayTime = { weekday: "short", day: undefined, month: undefined } as const;
+const dateTime = { weekday: undefined } as const;
+const dayMonth = { weekday: undefined, hour: undefined, minute: undefined } as const;
 
 export default function OverviewPage() {
   const { m, fmt, href } = useI18n();
@@ -68,7 +71,6 @@ export default function OverviewPage() {
           <p className="text-lg font-semibold leading-snug">{fmt.relative(reportAt, now)}</p>
           <p className="mt-1 text-sm text-cream/75">
             <time className="ltr-nums" dateTime={reportAt}>{fmt.dateTime(reportAt, dateTime)}</time>
-            <span> · {app.overview.reportedBy(worker)}</span>
           </p>
         </>
       ),
@@ -80,9 +82,9 @@ export default function OverviewPage() {
     content: call ? (
       <>
         <p className="text-lg font-semibold leading-snug">
-          <time className="ltr-nums" dateTime={call.next.toISOString()}>{fmt.dateTime(call.next, dateTime)}</time>
+          <time className="ltr-nums" dateTime={call.next.toISOString()}>{fmt.dateTime(call.next, dayTime)}</time>
         </p>
-        <p className="mt-1 text-sm text-cream/75">{scheduledOff ? d.scheduledOff : `${d.callsWorker(call.worker)} · ${fmt.relative(call.next, now)}`}</p>
+        <p className="mt-1 text-sm text-cream/75">{scheduledOff ? d.scheduledOff : <>{fmt.dateTime(call.next, dayMonth)} · {fmt.relative(call.next, now)}</>}</p>
         <ReportCallNow ws={ws} worker={worker} now={now} />
       </>
     ) : (
@@ -128,15 +130,11 @@ export default function OverviewPage() {
 
       {hasReport ? (
         <EstateMatters ws={ws} matters={matters} unanswered={unanswered} reportAt={reportAt} worker={worker} now={now} />
-      ) : (
-        <Card>
-          <EmptyState camel title={app.overview.firstReportTitle} body={app.overview.firstReportBody} />
-        </Card>
+      ) : gaps.length ? null : (
+        <FirstReport ws={ws} worker={worker} next={scheduledOff ? null : call?.next ?? null} />
       )}
 
-      {hasReport || ws.camels.length > 0 ? (
-        <EstateLedger ws={ws} worker={worker} now={now} hasReport={hasReport} allowance={allowance} />
-      ) : null}
+      <EstateLedger ws={ws} worker={worker} hasReport={hasReport} latestReport={latestReport} allowance={allowance} />
     </div>
   );
 }

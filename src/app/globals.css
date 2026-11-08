@@ -156,6 +156,10 @@
     transition: clip-path 800ms var(--ease-weave);
     transition-delay: var(--reveal-delay, 0ms);
   }
+  /* Dashboard: what follows the estate header rises in once, so the eye lands on the header first. */
+  .naqah-rise {
+    animation: naqah-rise 480ms var(--ease-expo) 80ms both;
+  }
   /* The hero photograph settles once on arrival; no perpetual zoom. */
   .naqah-settle img {
     animation: naqah-settle 1600ms var(--ease-soft) both;
@@ -172,6 +176,13 @@
   }
   [data-reveal="pending"] .naqah-ring::after {
     animation: none;
+  }
+}
+
+@keyframes naqah-rise {
+  from {
+    opacity: 0;
+    translate: 0 8px;
   }
 }
 

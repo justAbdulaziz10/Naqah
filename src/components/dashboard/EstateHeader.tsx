@@ -54,9 +54,9 @@ export function EstateHeader({
         {action ? <ButtonLink href={action.href} variant="light" className="w-full sm:w-auto">{action.label}</ButtonLink> : null}
       </div>
       {facts.length ? (
-        <dl className="mt-6 flex flex-wrap gap-x-10 gap-y-5 border-t border-cream/15 pt-5">
+        <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5 border-t border-cream/15 pt-5 lg:grid-flow-col lg:auto-cols-fr lg:grid-cols-none lg:gap-x-10">
           {facts.map((fact) => (
-            <div key={fact.key} className="min-w-0 flex-1 basis-44">
+            <div key={fact.key} className="min-w-0">
               <dt className="text-sm text-cream/75">{fact.label}</dt>
               <dd className="mt-1">{fact.content}</dd>
             </div>

@@ -1,15 +1,15 @@
 "use client";
 
-import { CheckCircle, Circle, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ButtonLink } from "@/components/ui";
 import { CertaintyBadge, ConditionLabel, HealthBadge, ResourceMeter, isConditionResource } from "@/components/dashboard/DashboardPrimitives";
 import { MessageWorkerLink, OrderSupplierLink } from "@/components/integrations/WhatsAppActions";
 import { EMERGENCY_LABELS, RESOURCE_LABELS, levelLabel } from "@/domain";
-import type { Camel, EventTone, Workspace } from "@/domain";
+import type { Camel, FarmReport, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
+import { ReportAnswers } from "./ReportAnswers";
 
 const ROSTER_LIMIT = 8;
 const concern: Record<Camel["health"], number> = { sick: 0, watch: 1, unknown: 2, healthy: 3 };
@@ -42,33 +42,32 @@ function SectionLink({ href, children }: { href: string; children: ReactNode }) 
   return <ButtonLink href={href} variant="ghost" size="sm" className="-me-3 min-h-11 text-brown">{children}</ButtonLink>;
 }
 
-function HerdRoster({ ws, now }: { ws: Workspace; now: Date }) {
+function HerdRoster({ ws, hasReport }: { ws: Workspace; hasReport: boolean }) {
   const { m, fmt, href } = useI18n();
   const app = m.app;
   const count = (health: Camel["health"]) => ws.camels.filter((camel) => camel.health === health).length;
+  // Healthy is the quiet default, so the line names only what isn't.
   const parts: [number, string][] = [
-    [count("healthy"), app.overview.healthy],
     [count("watch"), app.overview.watch],
     [count("sick"), app.overview.sick],
     [count("unknown"), app.overview.unknown],
   ];
   const roster = [...ws.camels].sort((a, b) => concern[a.health] - concern[b.health]).slice(0, ROSTER_LIMIT);
   const hidden = ws.camels.length - roster.length;
-  const newest = ws.camels.map((camel) => camel.updatedAt).filter((at): at is string => Boolean(at)).sort().at(-1);
-  const reported = ws.camels.some((camel) => camel.certainty === "reported" || camel.certainty === "approximate");
+  // Before any report, "unknown" says nothing new: the herd is listed by name only.
+  const showHealth = (camel: Camel) => hasReport || camel.health !== "unknown";
 
   return (
     <LedgerSection
       id="ledger-herd"
       title={app.herd.title}
-      className="border-stone/70 max-lg:border-t lg:col-span-7"
+      className="lg:col-span-7"
       note={ws.camels.length ? (
         <>
           <span className="whitespace-nowrap">{app.herd.count(fmt.number(ws.camels.length))}</span>
-          {parts.filter(([value]) => value > 0).map(([value, label]) => (
-            <span key={label}><span aria-hidden> · </span><span className="whitespace-nowrap"><span className="ltr-nums">{fmt.number(value)}</span> {label}</span></span>
-          ))}
-          {reported && newest ? <span className="block">{app.labels.reported}<span aria-hidden> · </span>{app.overview.updated(fmt.relative(newest, now))}</span> : null}
+          {hasReport ? parts.filter(([value]) => value > 0).map(([value, label]) => (
+            <span key={label}> <span className="whitespace-nowrap"><span aria-hidden>· </span><span className="ltr-nums">{fmt.number(value)}</span> {label}</span></span>
+          )) : null}
         </>
       ) : undefined}
       action={ws.camels.length ? <SectionLink href={href("/app/herd")}>{app.overview.viewHerd}</SectionLink> : undefined}
@@ -80,7 +79,7 @@ function HerdRoster({ ws, now }: { ws: Workspace; now: Date }) {
               <Link href={`${href("/app/herd")}#camel-${camel.id}`} className="flex min-h-11 min-w-0 items-center font-semibold text-espresso underline decoration-transparent underline-offset-4 hover:decoration-brown">
                 <span className="truncate">{camel.name}</span>
               </Link>
-              <HealthBadge health={camel.health} />
+              {showHealth(camel) ? <HealthBadge health={camel.health} /> : null}
             </li>
           ))}
         </ul>
@@ -90,19 +89,17 @@ function HerdRoster({ ws, now }: { ws: Workspace; now: Date }) {
   );
 }
 
-function ResourcesSection({ ws, now }: { ws: Workspace; now: Date }) {
-  const { m, t, fmt } = useI18n();
+function ResourcesSection({ ws, alone }: { ws: Workspace; alone: boolean }) {
+  const { m, t } = useI18n();
   const app = m.app;
   const present = ws.resources.filter((resource) => resource.present);
   const absent = ws.resources.filter((resource) => !resource.present);
-  const newest = present.map((resource) => resource.updatedAt).filter((at): at is string => Boolean(at)).sort().at(-1);
 
   return (
     <LedgerSection
       id="ledger-resources"
       title={app.overview.resources}
-      note={newest ? <>{app.labels.reported}<span aria-hidden> · </span>{app.overview.updated(fmt.relative(newest, now))}</> : undefined}
-      className="border-t border-stone/70 lg:col-span-5 lg:border-s lg:border-t-0"
+      className={cn("border-t border-stone/70", alone ? "lg:col-span-12" : "lg:col-span-5 lg:border-s lg:border-t-0")}
     >
       <ul>
         {present.map((resource) => (
@@ -123,36 +120,32 @@ function ResourcesSection({ ws, now }: { ws: Workspace; now: Date }) {
   );
 }
 
-function EventMarker({ tone }: { tone: EventTone }) {
-  const Icon = tone === "success" ? CheckCircle : tone === "attention" || tone === "danger" ? WarningCircle : Circle;
-  const className = tone === "success" ? "text-ok" : tone === "attention" ? "text-warn" : tone === "danger" ? "text-danger" : "text-muted";
-  return <Icon size={18} weight="fill" className={className} aria-hidden />;
-}
-
-function ActivitySection({ ws, now }: { ws: Workspace; now: Date }) {
-  const { m, t, fmt, href } = useI18n();
-  const events = [...ws.events].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 4);
+/** The owner's own questions, answered on the latest report call. NAQAH's questions show as herd and supplies. */
+function AnswersSection({ ws, report }: { ws: Workspace; report: FarmReport }) {
+  const { m, href } = useI18n();
+  const custom = new Set(ws.settings.customQuestions.map((question) => question.id));
+  const answers = report.answers.filter((answer) => custom.has(answer.questionId) && !answer.followUp);
+  if (!answers.length) return null;
   return (
     <LedgerSection
-      id="ledger-activity"
-      title={m.app.overview.activity}
+      id="ledger-answers"
+      title={m.app.overview.answers}
       className="border-t border-stone/70 lg:col-span-7"
       action={<SectionLink href={href("/app/calls")}>{m.app.overview.viewCalls}</SectionLink>}
     >
-      <ul>
-        {events.map((event) => (
-          <li key={event.id} className="flex items-start gap-3 py-2 first:pt-0">
-            <span className="mt-1"><EventMarker tone={event.tone} /></span>
-            <p className="min-w-0 flex-1 leading-relaxed text-espresso">{t(event.text)}</p>
-            <span className="shrink-0 pt-0.5 text-[0.8125rem] text-muted">{fmt.relative(event.at, now)}</span>
-          </li>
-        ))}
-      </ul>
+      <ReportAnswers answers={answers} />
     </LedgerSection>
   );
 }
 
-function WorkerSection({ ws, worker, allowance, wide }: { ws: Workspace; worker: string; allowance: ReactNode; wide: boolean }) {
+type Placement = "beside-herd" | "beside-answers" | "wide";
+const placement: Record<Placement, string> = {
+  "beside-herd": "lg:col-span-5 lg:border-s lg:border-t-0",
+  "beside-answers": "lg:col-span-5 lg:border-s",
+  wide: "lg:col-span-12",
+};
+
+function WorkerSection({ ws, worker, allowance, place }: { ws: Workspace; worker: string; allowance: ReactNode; place: Placement }) {
   const { m, t, href, locale } = useI18n();
   const app = m.app;
   const phone = ws.settings.worker.phone.trim();
@@ -164,7 +157,7 @@ function WorkerSection({ ws, worker, allowance, wide }: { ws: Workspace; worker:
       id="ledger-emergency"
       title={app.overview.emergency}
       note={app.overview.emergencyInstructions}
-      className={cn("border-stone/70 max-lg:order-first lg:border-t", wide ? "lg:col-span-12" : "lg:col-span-5 lg:border-s")}
+      className={cn("border-t border-stone/70", placement[place])}
     >
       <p className="flex flex-wrap items-baseline gap-x-3 font-semibold text-espresso">
         <span>{worker}</span>
@@ -183,21 +176,22 @@ function WorkerSection({ ws, worker, allowance, wide }: { ws: Workspace; worker:
 }
 
 /** Everything else about the estate, on one surface: hairlines divide it, not separate cards. */
-export function EstateLedger({ ws, worker, now, hasReport, allowance }: {
+export function EstateLedger({ ws, worker, hasReport, latestReport, allowance }: {
   ws: Workspace;
   worker: string;
-  now: Date;
   hasReport: boolean;
+  latestReport: FarmReport | null;
   allowance: ReactNode;
 }) {
-  const showActivity = hasReport && ws.events.length > 0;
+  const custom = new Set(ws.settings.customQuestions.map((question) => question.id));
+  const hasAnswers = Boolean(latestReport?.answers.some((answer) => custom.has(answer.questionId) && !answer.followUp));
+  const herd = ws.camels.length > 0;
   return (
-    <div className="grid overflow-hidden rounded-[var(--radius-card)] border border-stone/70 bg-cream lg:grid-cols-12">
-      <HerdRoster ws={ws} now={now} />
-      {hasReport ? <ResourcesSection ws={ws} now={now} /> : null}
-      {showActivity ? <ActivitySection ws={ws} now={now} /> : null}
-      <WorkerSection ws={ws} worker={worker} allowance={allowance} wide={hasReport && !showActivity} />
+    <div className="naqah-rise grid overflow-hidden rounded-[var(--radius-card)] border border-stone/70 bg-cream lg:grid-cols-12 [&>section:first-child]:border-t-0">
+      {herd ? <HerdRoster ws={ws} hasReport={hasReport} /> : null}
+      {hasReport ? <ResourcesSection ws={ws} alone={!herd} /> : null}
+      {latestReport && hasAnswers ? <AnswersSection ws={ws} report={latestReport} /> : null}
+      <WorkerSection ws={ws} worker={worker} allowance={allowance} place={hasAnswers ? "beside-answers" : herd && !hasReport ? "beside-herd" : "wide"} />
     </div>
   );
 }
-

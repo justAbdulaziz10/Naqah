@@ -11,7 +11,8 @@ import { isHerdFinding, type EstateMatter, type MatterInstruction } from "./matt
 const ROW_LIMIT = 4;
 const recordLink = "underline decoration-stone underline-offset-4 hover:decoration-brown focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown";
 
-function Step({ title, detail, last = false, waiting = false }: { title: ReactNode; detail?: string | null; last?: boolean; waiting?: boolean }) {
+/** One stop on a short timeline: down the page on phones, across it from md. */
+export function Step({ title, detail, last = false, waiting = false }: { title: ReactNode; detail?: string | null; last?: boolean; waiting?: boolean }) {
   return (
     <li className="relative flex min-w-0 flex-1 gap-3 pb-4 last:pb-0 md:block md:pb-0 md:pe-5">
       <span className="relative flex w-3 shrink-0 flex-col items-center md:h-3 md:w-full md:flex-row">
@@ -103,7 +104,7 @@ export function EstateMatters({ ws, matters, unanswered, reportAt, worker, now }
   // A calm day has no section at all: the estate header has already said so.
   if (!shownUnanswered.length && !shownMatters.length) return null;
   return (
-    <section aria-labelledby="estate-matters" className="rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-5 sm:px-8 sm:py-6">
+    <section aria-labelledby="estate-matters" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-5 sm:px-8 sm:py-6">
       <h2 id="estate-matters" className="text-lg font-semibold text-espresso">{m.app.overview.attention}</h2>
       <ul className="mt-4 divide-y divide-stone/70">
         {shownUnanswered.map((ticket) => <UnansweredRow key={ticket.id} ws={ws} ticket={ticket} worker={worker} />)}
