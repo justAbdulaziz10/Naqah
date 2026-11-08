@@ -204,8 +204,8 @@ The six-colour gallery (الوضح، الشعل، الصفر، الشقح، ال
 ## Product Experience 2.0 (2026-11-08)
 
 Two photographs from the unmerged `design/landing-refresh-v2` branch (commit `4d96e8b`) are now used on the landing.
-Both stay **candidates pending owner approval**; licence terms below are copied from that branch's ledger and must be
-re-read on each source page before production. Credits stay visible in the landing footer even though neither licence
+**Verified for release 2026-11-08:** each source page and licence page was re-read (both photos marked free, commercial
+website use allowed, no attribution required), and each file was compared with its source image. Credits stay visible in the landing footer even though neither licence
 requires attribution. Neither is presented as a NAQAH estate, herd, worker or client.
 
 | Slot | File | Shows | Stated location | Creator | Licence | Source |
