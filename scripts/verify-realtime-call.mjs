@@ -614,7 +614,7 @@ scenario("R2", "Barge-in: worker speech during playback clears Twilio and cancel
   const clearsBefore = stream.sent("clear").length;
   upstream.workerSays("لحظة");
   await sleep(300);
-  note(`clears sent for speech while nothing is playing: ${stream.sent("clear").length - clearsBefore} (harmless on Twilio)`);
+  check("speech with nothing playing sends no clear", stream.sent("clear").length === clearsBefore, stream.sent("clear").length - clearsBefore);
   check("speech with nothing playing sends no cancel", upstream.of("response.cancel").length === 0, upstream.of("response.cancel"));
 
   stream.autoMark = false;
@@ -625,7 +625,7 @@ scenario("R2", "Barge-in: worker speech during playback clears Twilio and cancel
   await sleep(100);
   const framesBefore = stream.sent("media").length;
   upstream.speechStarted(1000);
-  const clear = await stream.waitForEvent((event) => event.event === "clear" && stream.sent("clear").length > clearsBefore + 1, 4000, "Twilio clear").catch(() => null);
+  const clear = await stream.waitForEvent((event) => event.event === "clear" && stream.sent("clear").length > clearsBefore, 4000, "Twilio clear").catch(() => null);
   check("Twilio gets clear with the stream SID", clear?.streamSid === stream.streamSid, clear);
   const cancel = await upstream.waitForEvent((event) => event.type === "response.cancel", 4000, "response.cancel").catch(() => null);
   check("the provider gets response.cancel naming the playing response", cancel?.response_id === speaking.responseId, cancel);
@@ -653,12 +653,42 @@ scenario("R2b", "Worker speech lands between response.create and response.create
   await upstream.waitForEvent((event) => event.type === "response.create" && !event.response?.instructions, 3000, "an open turn").catch(() => null);
   upstream.speechStarted(1000);
   await sleep(400);
-  note(`bridge sent ${upstream.of("response.cancel").length} response.cancel with no id; mock replies with the documented response_cancel_not_active error, stream closed: ${stream.closed}`);
-  if (stream.closed) {
-    note("A non-fatal provider `error` ended the realtime call; the call falls back to the script (spec: any provider error falls back).");
-    await call.after();
-    check("the race falls back to the Gather at the current question", Boolean(call.action), call.xml.slice(0, 300));
-  } else stream.closeNormally();
+  check("speech before the reply is audible cancels nothing", upstream.of("response.cancel").length === 0, upstream.of("response.cancel"));
+  check("the realtime call stays up", !stream.closed);
+  const framesBefore = stream.sent("media").length;
+  await upstream.speak("أبشر، خذ راحتك", { chunks: 2 });
+  await waitFor(() => stream.sent("media").length > framesBefore, "the reply reaches Twilio", 40);
+  stream.stop();
+  stream.closeNormally();
+  await call.finalStatus("completed");
+  assertUnsaved(ranch);
+});
+
+scenario("R2c", "An early hello can't cancel the greeting, and the next turn is answered", async () => {
+  const ranch = await makeFarm(FULL);
+  const { call, stream } = await placeCall(ranch, { startStream: false });
+  stream.start();
+  for (let frame = 0; frame < 40; frame += 1) stream.media();
+  const upstream = await provider.next();
+  await upstream.waitForEvent((event) => event.type === "response.create" && typeof event.response?.instructions === "string", 20_000, "the greeting request");
+  await waitFor(() => upstream.spoken.length >= 1 && stream.sent("media").length >= 1, "the greeting reaches Twilio", 40);
+  await sleep(100);
+  check("audio from before the session was ready never reaches the provider", upstream.audioIn.length === 0, upstream.audioIn.length);
+  check("the greeting is not cancelled", upstream.of("response.cancel").length === 0, upstream.of("response.cancel"));
+  const clears = stream.sent("clear").length;
+  stream.media();
+  await upstream.waitForEvent((event) => event.type === "input_audio_buffer.append", 3000, "live audio");
+  upstream.workerSays("ألو");
+  await upstream.waitForEvent((event) => event.type === "response.create" && !event.response?.instructions, 3000, "the next turn");
+  upstream.speechStarted(1000); // Caller talks again before the reply is audible, as on the real call.
+  await sleep(200);
+  upstream.workerFinishes("ألو تسمعني");
+  const framesBefore = stream.sent("media").length;
+  await upstream.speak("هلا والله، معك مساعد ناقة", { chunks: 2 });
+  await waitFor(() => stream.sent("media").length > framesBefore, "the reply to the next turn reaches Twilio", 40);
+  check("the reply plays without being cancelled", upstream.of("response.cancel").length === 0 && stream.sent("clear").length === clears, upstream.of("response.cancel"));
+  stream.stop();
+  stream.closeNormally();
   await call.finalStatus("completed");
   assertUnsaved(ranch);
 });

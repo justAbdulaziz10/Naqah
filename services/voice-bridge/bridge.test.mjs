@@ -267,7 +267,7 @@ test('refused ticket closes Twilio without connecting to the provider', async ()
   } finally { await state.close(); }
 });
 
-test('early audio buffers until session.updated; both directions remain raw mu-law', async () => {
+test('audio from before session.updated is dropped; both directions remain raw mu-law', async () => {
   const state = await fixture({ sessionDelay: 30 });
   try {
     const { socket, messages } = await state.connect();
@@ -275,6 +275,11 @@ test('early audio buffers until session.updated; both directions remain raw mu-l
     media(socket);
     for (let attempt = 0; attempt < 100 && !state.providerInbox; attempt += 1) await delay(5);
     assert.ok(state.providerInbox);
+    await state.providerInbox.wait((event) => event.type === 'response.create');
+    await delay(10);
+    assert.equal(state.providerEvents.filter((event) => event.type === 'input_audio_buffer.append').length, 0);
+    assert.ok(state.logs.some((record) => record.event === 'provider_ready' && record.droppedEarlyFrames === 1));
+    media(socket);
     const append = await state.providerInbox.wait((event) => event.type === 'input_audio_buffer.append');
     assert.equal(append.audio, AUDIO);
     const update = state.providerEvents.find((event) => event.type === 'session.update');
@@ -451,6 +456,51 @@ test('a cancel that races its response keeps the call on the realtime voice', as
   } finally { await state.close(); }
 });
 
+test('speech before a reply is audible cancels nothing, and the next turn is answered', async () => {
+  const state = await fixture();
+  try {
+    const { socket, messages } = await state.connect();
+    await state.ready(socket);
+    send(state.provider, { type: 'input_audio_buffer.speech_started' });
+    await delay(20);
+    assert.equal(state.providerEvents.filter((event) => event.type === 'response.cancel').length, 0);
+    assert.equal(messages.received.filter((event) => event.event === 'clear').length, 0);
+    state.audio(160);
+    await messages.wait((event) => event.event === 'media');
+    state.complete();
+    send(state.provider, { type: 'input_audio_buffer.speech_stopped' });
+    send(state.provider, { type: 'input_audio_buffer.committed' });
+    await state.providerInbox.wait((event) => event.type === 'response.create' && !event.response.instructions);
+    await delay(10);
+    send(state.provider, { type: 'input_audio_buffer.speech_started' });
+    await delay(20);
+    assert.equal(state.providerEvents.filter((event) => event.type === 'response.cancel').length, 0);
+    state.audio(160, 'next-item');
+    await delay(20);
+    assert.equal(messages.received.filter((event) => event.event === 'media').length, 2);
+    const events = state.logs.map((record) => record.event);
+    for (const name of ['speech_before_audio', 'response_requested', 'response_created', 'response_audio_started', 'response_done']) assert.ok(events.includes(name), name);
+    const done = state.logs.find((record) => record.event === 'response_done');
+    assert.deepEqual([done.kind, done.status], ['opening', 'completed']);
+  } finally { await state.close(); }
+});
+
+test('response logs carry labels only, never provider text', async () => {
+  const state = await fixture();
+  try {
+    const { socket } = await state.connect();
+    await state.ready(socket);
+    send(state.provider, { type: 'response.done', response: {
+      id: state.responseId, status: 'completed', status_details: { reason: 'private words here' },
+      output: [{ type: 'message', content: [{ transcript: 'private transcript' }] }],
+    } });
+    await delay(20);
+    const logs = JSON.stringify(state.logs);
+    assert.ok(!logs.includes('private'));
+    assert.deepEqual(state.logs.find((record) => record.event === 'response_done').outputs, ['message']);
+  } finally { await state.close(); }
+});
+
 test('provider connection refusal closes Twilio; it never retries', async () => {
   const state = await fixture();
   let attempts = 0;
@@ -512,18 +562,16 @@ test('duplicate callSid cannot consume a second ticket or start a second provide
   } finally { await state.close(); }
 });
 
-test('silence, call duration, early audio and message size limits close the stream', async () => {
-  for (const limit of ['silence', 'duration', 'early', 'size', 'invalid-start']) {
+test('silence, call duration and message size limits close the stream', async () => {
+  for (const limit of ['silence', 'duration', 'size', 'invalid-start']) {
     const state = await fixture({
-      sessionDelay: limit === 'early' ? 100 : 0,
       maxSeconds: limit === 'duration' ? 0.06 : 120,
-      limits: { silenceMs: limit === 'silence' ? 60 : 45_000, earlyAudioBytes: 100 },
+      limits: { silenceMs: limit === 'silence' ? 60 : 45_000 },
     });
     try {
       const { socket } = await state.connect();
       if (limit === 'invalid-start') start(socket, { callSid: 'not-a-call' });
       else start(socket);
-      if (limit === 'early') media(socket);
       if (limit === 'size') socket.send('x'.repeat(70 * 1024));
       await closed(socket);
     } finally { await state.close(); }

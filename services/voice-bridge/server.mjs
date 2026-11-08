@@ -5,6 +5,8 @@ import { REALTIME_MODEL } from './config.mjs';
 import { internalHeaders, verifyTwilioSignature } from './security.mjs';
 
 const HARMLESS_PROVIDER_ERRORS = new Set(['response_cancel_not_active', 'conversation_already_has_active_response']);
+/** A provider enum for the logs; anything that doesn't look like one is not logged. */
+const label = (value) => (typeof value === 'string' && /^[a-z0-9_.-]{1,64}$/i.test(value) ? value : null);
 
 const DEFAULT_LIMITS = Object.freeze({
   startMs: 10_000,
@@ -18,7 +20,6 @@ const DEFAULT_LIMITS = Object.freeze({
   twilioMessageBytes: 64 * 1024,
   providerMessageBytes: 256 * 1024,
   internalBodyBytes: 256 * 1024,
-  earlyAudioBytes: 80 * 1024,
   socketBufferBytes: 256 * 1024,
   maxMarks: 1024,
   maxTools: 128,
@@ -91,8 +92,8 @@ class CallStream {
     this.logger = logger;
     this.abort = new AbortController();
     this.timers = new Map();
-    this.earlyAudio = [];
-    this.earlyBytes = 0;
+    this.droppedEarlyFrames = 0;
+    this.responseAudible = false;
     this.marks = new Map();
     this.items = new Map();
     this.ignoredResponses = new Set();
@@ -107,7 +108,6 @@ class CallStream {
     this.responseId = null;
     this.responseKind = null;
     this.nextResponse = null;
-    this.cancelPending = false;
     this.speaking = false;
     this.started = false;
     this.ready = false;
@@ -127,10 +127,11 @@ class CallStream {
     twilio.on('error', () => this.finish('twilio_error'));
   }
 
-  log(event) {
+  /** `detail` holds short labels and counts only: never audio, transcripts or message text. */
+  log(event, detail = {}) {
     this.logger({
       call: this.callSid?.slice(-6) || '', event,
-      inputFrames: this.inputFrames, outputFrames: this.outputFrames, tools: this.toolIds.size,
+      inputFrames: this.inputFrames, outputFrames: this.outputFrames, tools: this.toolIds.size, ...detail,
     });
   }
 
@@ -162,7 +163,6 @@ class CallStream {
     if (this.calls.get(this.callSid) === this) this.calls.delete(this.callSid);
     this.streams.delete(this);
     this.log(event);
-    this.earlyAudio.length = 0;
     this.marks.clear();
     this.items.clear();
     for (const socket of [this.provider, this.twilio]) {
@@ -234,15 +234,12 @@ class CallStream {
       if (!this.started || message.streamSid !== this.streamSid || message.media?.track !== 'inbound') {
         throw new Error('Invalid media');
       }
-      const bytes = audioBytes(message.media.payload, 16 * 1024);
+      audioBytes(message.media.payload, 16 * 1024);
       this.inputFrames += 1;
       if (this.ending) return;
+      // Audio from before the session is ready is stale: replayed, it reads as speech over the greeting.
       if (this.ready) this.send(this.provider, { type: 'input_audio_buffer.append', audio: message.media.payload });
-      else {
-        this.earlyBytes += bytes.length;
-        if (this.earlyBytes > this.limits.earlyAudioBytes) return this.finish('early_audio_limit');
-        this.earlyAudio.push(message.media.payload);
-      }
+      else this.droppedEarlyFrames += 1;
     } else if (message.event === 'mark') {
       if (!this.started || message.streamSid !== this.streamSid) throw new Error('Invalid mark');
       const mark = this.marks.get(message.mark?.name);
@@ -322,6 +319,8 @@ class CallStream {
     this.nextResponse = null;
     this.responsePending = true;
     this.responseKind = next.kind;
+    this.responseAudible = false;
+    this.log('response_requested', { kind: next.kind });
     const response = { output_modalities: ['audio'] };
     if (next.text) {
       response.instructions = `Say only the following text verbatim, with no additions: ${JSON.stringify(next.text)}`;
@@ -331,15 +330,13 @@ class CallStream {
     this.timer('response', this.limits.responseMs, () => this.finish('response_timeout'));
   }
 
+  /** Speech only interrupts a reply the caller can hear; one still being prepared goes ahead. */
   interrupt() {
+    if (!this.responseAudible && !this.items.size) return this.log('speech_before_audio', { kind: this.responseKind });
     this.send(this.twilio, { event: 'clear', streamSid: this.streamSid });
-    if (this.responseId || this.responsePending) {
-      const cancel = { type: 'response.cancel' };
-      if (this.responseId) {
-        cancel.response_id = this.responseId;
-        this.ignoredResponses.add(this.responseId);
-      } else this.cancelPending = true;
-      if (!this.cancelSent) this.send(this.provider, cancel);
+    if (this.responseId && this.responseAudible) {
+      this.ignoredResponses.add(this.responseId);
+      if (!this.cancelSent) this.send(this.provider, { type: 'response.cancel', response_id: this.responseId });
       this.cancelSent = true;
     }
     for (const item of this.items.values()) {
@@ -361,6 +358,10 @@ class CallStream {
       throw new Error('Invalid audio item');
     }
     const bytes = audioBytes(event.delta, this.limits.providerMessageBytes);
+    if (!this.responseAudible) {
+      this.responseAudible = true;
+      this.log('response_audio_started', { kind: this.responseKind });
+    }
     const key = `${event.item_id}:${event.content_index}`;
     let item = this.items.get(key);
     if (!item) {
@@ -384,7 +385,9 @@ class CallStream {
     if (!isObject(event) || typeof event.type !== 'string') throw new Error('Invalid event');
     if (event.type === 'error') {
       // A barge-in can race the response it cancels; the conversation is still healthy.
-      if (HARMLESS_PROVIDER_ERRORS.has(event.error?.code)) return this.log('provider_error_ignored');
+      const detail = { type: label(event.error?.type), code: label(event.error?.code) };
+      if (HARMLESS_PROVIDER_ERRORS.has(event.error?.code)) return this.log('provider_error_ignored', detail);
+      this.log('provider_error_detail', detail);
       return this.finish('provider_error');
     }
     if (event.type === 'session.updated') {
@@ -392,10 +395,7 @@ class CallStream {
       this.ready = true;
       this.clearTimer('ready');
       this.requestResponse('opening', this.session.opening);
-      for (const audio of this.earlyAudio) this.send(this.provider, { type: 'input_audio_buffer.append', audio });
-      this.earlyAudio.length = 0;
-      this.earlyBytes = 0;
-      this.log('provider_ready');
+      this.log('provider_ready', { droppedEarlyFrames: this.droppedEarlyFrames });
     } else if (!this.ready) {
       if (event.type !== 'session.created') throw new Error('Provider not ready');
     } else if (event.type === 'response.created') {
@@ -404,10 +404,7 @@ class CallStream {
       }
       this.responsePending = false;
       this.responseId = event.response.id;
-      if (this.cancelPending) {
-        this.ignoredResponses.add(this.responseId);
-        this.cancelPending = false;
-      }
+      this.log('response_created', { kind: this.responseKind });
     } else if (event.type === 'response.output_audio.delta') {
       this.outputAudio(event);
     } else if (event.type === 'response.output_audio.done') {
@@ -420,26 +417,34 @@ class CallStream {
       if (this.ending) return;
       this.speaking = true;
       this.activity();
+      this.log('speech_started');
       this.interrupt();
     } else if (event.type === 'input_audio_buffer.speech_stopped') {
       this.speaking = false;
       this.activity();
+      this.log('speech_stopped');
     } else if (event.type === 'input_audio_buffer.committed') {
       if (this.ending) return;
       this.speaking = false;
       this.userSpoke = true;
       this.activity();
+      this.log('input_committed');
       this.requestResponse('turn');
     } else if (event.type === 'response.function_call_arguments.done') {
       if (!this.ending && !this.ignoredResponses.has(event.response_id)) this.queueTool(event);
     } else if (event.type === 'response.done') {
       if (event.response?.id !== this.responseId) throw new Error('Invalid response completion');
       const interrupted = this.ignoredResponses.delete(this.responseId);
+      this.log('response_done', {
+        kind: this.responseKind, status: label(event.response.status), reason: label(event.response.status_details?.reason),
+        outputs: Array.isArray(event.response.output) ? event.response.output.map((item) => label(item?.type)) : [], interrupted,
+      });
       if (event.response.status !== 'completed' && !(interrupted && event.response.status === 'cancelled')) {
         return this.finish('provider_response_failed');
       }
       const kind = this.responseKind;
       this.responseId = null;
+      this.responseAudible = false;
       this.responsePending = false;
       this.cancelSent = false;
       this.clearTimer('response');

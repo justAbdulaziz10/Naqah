@@ -80,7 +80,7 @@ Realtime events. Both implement the same application-side bridge contract.
 ## Playback, tools, and fallback
 
 The bridge waits for `session.updated`, requests the supplied opening verbatim
-(tools disabled for that turn), and then flushes bounded early input audio.
+(tools disabled for that turn), and drops input audio received before the session was ready.
 Only `input_audio_buffer.committed` grants `userSpokeSinceLastTool`; speech-start
 events or transcripts do not. Every returned tool result resets the flag,
 including `awaitingConfirmation: true`. Duplicate provider tool events are
