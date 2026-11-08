@@ -288,6 +288,10 @@ export interface PendingWorkerCall {
   /** When the next attempt is due; null when finished. */
   nextAttemptAt: string | null;
   state: "pending" | "delivered" | "no_answer_ticket";
+  /** Task C's approved conversation batch/event identity; optional for legacy calls. */
+  batchId?: string;
+  /** Ordered Task C associations. Absent preserves legacy storage; [] means no grouped tasks. */
+  coveredTaskIds?: string[];
 }
 
 /** Result of one placed report-call attempt. "pending" while the phone is ringing. */

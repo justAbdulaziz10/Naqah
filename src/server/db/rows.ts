@@ -128,9 +128,21 @@ export interface PendingWorkerCallRow {
   relay_id: string | null;
   next_attempt_at: string | null;
   state: "pending" | "delivered" | "no_answer_ticket";
+  batch_id?: string | null;
+  task_links_explicit?: boolean;
+}
+export interface PendingWorkerCallTaskRow {
+  farm_id: string;
+  pending_call_id: string;
+  task_ticket_id: string;
+  /** null is a legacy-only link; otherwise the zero-based coveredTaskIds order. */
+  covered_order: number | null;
 }
 export interface WorkerCallAttemptRow { pending_call_id: string; at: string; answered: boolean }
-export interface PendingCallWithAttempts extends PendingWorkerCallRow { worker_call_attempts: WorkerCallAttemptRow[] }
+export interface PendingCallWithAttempts extends PendingWorkerCallRow {
+  worker_call_attempts: WorkerCallAttemptRow[];
+  pending_worker_call_tasks?: PendingWorkerCallTaskRow[];
+}
 export interface ReportCallRunRow {
   id: string;
   farm_id: string;
