@@ -6,7 +6,7 @@ import { regionForCoords } from "@/lib/geo/regions";
 import { useNow, useWorkspace } from "@/store/workspace";
 import { useWeatherRefresh } from "./useWeatherRefresh";
 
-export function WeatherLine() {
+export function WeatherLine({ className = "mt-2 text-sm text-muted" }: { className?: string }) {
   const { m } = useI18n();
   const workspace = useWorkspace();
   const now = useNow();
@@ -23,7 +23,7 @@ export function WeatherLine() {
   const heat = heatLevel(forecast.maxTempC);
 
   return (
-    <p className="mt-2 text-sm text-muted">
+    <p className={className}>
       {m.integrations.weather.todayLabel(location)}{" "}
       <bdi dir="ltr" className="ltr-nums">{Math.round(forecast.maxTempC)}°</bdi> {m.integrations.weather.maximum}
       {heat !== "none" ? <><span aria-hidden="true"> · </span>{m.integrations.weather.heatDay}</> : null}

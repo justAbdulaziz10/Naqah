@@ -10,7 +10,11 @@ import {
   getCallSetupGaps,
   clearReplacementDraft,
   createOnboardingSample,
+  createReplacementDraft,
+  hasOwnSetupData,
+  phoneNeedsFixing,
   readReplacementDraft,
+  replacementLoss,
   saveReplacementDraft,
   subscribeReplacementDraft,
   type CallSetupGap,
@@ -18,6 +22,7 @@ import {
 } from "@/components/setup";
 import {
   DetailsStep,
+  ExistingFarmChoice,
   OwnerFarmStep,
   PlanStep,
   ReviewStep,
@@ -26,14 +31,15 @@ import {
   type WizardStepKey,
 } from "@/components/setup/onboarding/WizardSteps";
 import { StepHead } from "@/components/setup/onboarding/WizardParts";
+import { ConfirmDialog } from "@/components/ui";
+import { isValidWindow } from "@/domain/clock";
 import { uid } from "@/domain/id";
 import type { Plan, Workspace } from "@/domain/types";
-import { createEmptyWorkspace } from "@/domain/seed";
 import { useI18n } from "@/i18n/client";
 import { onboarding as onboardingMessages } from "@/i18n/messages/onboarding";
 import { cn } from "@/lib/cn";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
-import { useWorkspaceStore } from "@/store/workspace";
+import { useIsAccount, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
 
 const STEPS = ["plan", "ownerFarm", "worker", "details", "schedule", "review"] as const satisfies readonly WizardStepKey[];
 type StepKey = (typeof STEPS)[number];
@@ -45,13 +51,29 @@ const STEP_GAPS: Partial<Record<StepKey, CallSetupGap[]>> = {
   schedule: ["schedule"],
 };
 
+/** Whether this step holds something typed that cannot be used yet. Blank is fine: setup is optional. */
+function stepNeedsFixing(key: StepKey, ws: Workspace) {
+  const { owner, worker, window } = ws.settings;
+  if (key === "ownerFarm") return phoneNeedsFixing(owner.phone);
+  if (key === "worker") return phoneNeedsFixing(worker.phone);
+  if (key === "schedule") return Boolean(window && !isValidWindow(window));
+  return false;
+}
+
 export default function StartPage() {
   const router = useRouter();
   const { locale, m, href } = useI18n();
   const hydrated = useWorkspaceStore((state) => state.hydrated);
   const workspace = useWorkspaceStore((state) => state.workspace);
   const startOnboarding = useWorkspaceStore((state) => state.startOnboarding);
+  const account = useIsAccount();
+  const saveFailed = useSaveStatus((state) => state.status === "failed") && !account; // The account banner covers it.
   const [step, setStep] = useState(0);
+  const [showStepErrors, setShowStepErrors] = useState(false);
+  const [confirmingSample, setConfirmingSample] = useState(false);
+  const [confirmingReplace, setConfirmingReplace] = useState(false);
+  const [startingOver, setStartingOver] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const isReplacing = workspace?.setupComplete === true;
   const sourceCreatedAt = isReplacing ? workspace.createdAt : undefined;
   const getReplacementSnapshot = useCallback(() => readReplacementDraft(sourceCreatedAt), [sourceCreatedAt]);
@@ -60,13 +82,13 @@ export default function StartPage() {
   // Only built client-side when replacing an existing workspace (never during prerender).
   const emptyReplacementDraft = useMemo(() => {
     if (!isReplacing || !workspace) return null;
-    return { ...createEmptyWorkspace("basic"), camels: workspace.camels };
+    return createReplacementDraft(workspace);
   }, [isReplacing, workspace]);
-  const replacementDraft = storedReplacementDraft ?? volatileReplacementDraft;
+  const replacementDraft = volatileReplacementDraft ?? storedReplacementDraft; // Set only when the latest write failed.
   const replacementBase = replacementDraft ?? emptyReplacementDraft;
   const activeWorkspace = isReplacing
-    ? replacementBase && workspace && replacementBase.camels.length === 0 && workspace.camels.length > 0
-      ? { ...replacementBase, camels: workspace.camels }
+    ? replacementBase && workspace
+      ? { ...replacementBase, camels: workspace.camels } // Re-running setup never replaces the real herd.
       : replacementBase
     : workspace;
   const hasActiveWorkspace = Boolean(activeWorkspace);
@@ -78,10 +100,31 @@ export default function StartPage() {
   useEffect(() => {
     if (!hasActiveWorkspace) return;
     document.getElementById("current-step-title")?.focus({ preventScroll: true });
-  }, [hasActiveWorkspace, step]);
+  }, [hasActiveWorkspace, step, startingOver]);
 
-  if (!hydrated || !activeWorkspace) {
+  if (!hydrated || !activeWorkspace || finishing) {
     return <div className="flex min-h-dvh items-center justify-center px-6 text-center text-muted">{m.onboarding.loading}</div>;
+  }
+
+  // A finished farm never lands in the wizard by accident: starting over is its own choice.
+  if (isReplacing && workspace && !startingOver) {
+    return (
+      <div className="min-h-dvh bg-ivory">
+        <header className="bg-espresso text-cream">
+          <div className="mx-auto flex w-full max-w-[44rem] items-center justify-between gap-3 px-4 py-3 sm:px-6">
+            <Logo locale={locale} href={href("/")} tone="light" />
+            <LocaleSwitcher tone="light" className="px-3" />
+          </div>
+        </header>
+        <main className="mx-auto w-full max-w-[44rem] px-4 pb-12 pt-10 sm:px-6 sm:pt-16">
+          <ExistingFarmChoice
+            ws={workspace}
+            resuming={Boolean(replacementDraft)}
+            onStartOver={() => setStartingOver(true)}
+          />
+        </main>
+      </div>
+    );
   }
 
   const ws = activeWorkspace;
@@ -99,7 +142,12 @@ export default function StartPage() {
     if (isReplacing && workspace) setVolatileReplacementDraft(saveReplacementDraft(workspace.createdAt, sample) ? null : sample);
     else useWorkspaceStore.getState().update(() => sample);
   };
+  const askToFillSample = () => {
+    if (hasOwnSetupData(ws)) setConfirmingSample(true);
+    else fillSample();
+  };
   const editStep = (nextStep: number) => {
+    setShowStepErrors(false);
     setStep(Math.max(0, Math.min(nextStep, steps.length - 1)));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -109,6 +157,15 @@ export default function StartPage() {
   const isLast = step === steps.length - 1;
 
   function skipStep() {
+    editStep(step + 1);
+  }
+
+  function nextStep() {
+    if (stepNeedsFixing(currentKey, ws)) {
+      setShowStepErrors(true);
+      requestAnimationFrame(() => document.querySelector<HTMLElement>("main [aria-invalid='true']")?.focus());
+      return;
+    }
     editStep(step + 1);
   }
 
@@ -124,6 +181,8 @@ export default function StartPage() {
         text: { ar: onboardingMessages.ar.setupEvent, en: onboardingMessages.en.setupEvent },
       }],
     });
+    setConfirmingReplace(false);
+    setFinishing(true);
     if (isReplacing) {
       useWorkspaceStore.getState().update(() => complete(ws));
       clearReplacementDraft();
@@ -137,14 +196,15 @@ export default function StartPage() {
   const content = (() => {
     switch (currentKey) {
       case "plan": return <PlanStep ws={ws} onChange={mutateWorkspace} />;
-      case "ownerFarm": return <OwnerFarmStep ws={ws} onChange={mutateWorkspace} />;
-      case "worker": return <WorkerStep ws={ws} onChange={mutateWorkspace} />;
+      case "ownerFarm": return <OwnerFarmStep ws={ws} onChange={mutateWorkspace} showErrors={showStepErrors} />;
+      case "worker": return <WorkerStep ws={ws} onChange={mutateWorkspace} showErrors={showStepErrors} />;
       case "details": return <DetailsStep ws={ws} onChange={mutateWorkspace} />;
-      case "schedule": return <ScheduleStep ws={ws} onChange={mutateWorkspace} />;
+      case "schedule": return <ScheduleStep ws={ws} onChange={mutateWorkspace} showErrors={showStepErrors} />;
       case "review": return <ReviewStep ws={ws} onEdit={editStepByKey} />;
     }
   })();
   const head = m.onboarding.wizard.heads[currentKey];
+  const loss = isReplacing && workspace ? replacementLoss(workspace) : null;
   const replaceNotice = isReplacing ? (
     <div className={cn("flex flex-col gap-1 rounded-2xl border border-stone bg-cream px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4", isLast ? "mt-8" : "mb-8")}>
       <p className="flex items-start gap-2.5 text-[0.975rem] leading-relaxed text-espresso">
@@ -201,7 +261,7 @@ export default function StartPage() {
             })}
           </ol>
         </nav>
-        <p className="relative z-10 mt-auto max-w-[17rem] text-[0.9375rem] leading-relaxed text-cream/70">{m.onboarding.wizard.browserOnly}</p>
+        {account ? null : <p className="relative z-10 mt-auto max-w-[17rem] text-[0.9375rem] leading-relaxed text-cream/70">{m.onboarding.wizard.browserOnly}</p>}
         {/* The approved mark, unchanged, enlarged and cropped by the panel edge. */}
         <CamelMark className="pointer-events-none absolute -bottom-10 -end-24 h-auto w-[30rem] opacity-[0.09]" />
       </aside>
@@ -212,14 +272,16 @@ export default function StartPage() {
           <div className="mx-auto flex w-full max-w-[44rem] items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:max-w-none lg:justify-end lg:px-10 lg:py-6">
             <span className="lg:hidden"><Logo locale={locale} href={href("/")} tone="light" /></span>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => fillSample()}
-                className="inline-flex h-10 items-center rounded-full px-3 text-sm font-semibold text-cream transition hover:bg-cream/10 lg:px-4 lg:text-espresso lg:hover:bg-espresso/5"
-              >
-                <span className="hidden sm:inline">{m.onboarding.sampleData}</span>
-                <span className="sm:hidden">{m.onboarding.sampleShort}</span>
-              </button>
+              {account ? null : (
+                <button
+                  type="button"
+                  onClick={askToFillSample}
+                  className="inline-flex h-10 items-center rounded-full px-3 text-sm font-semibold text-cream transition hover:bg-cream/10 lg:px-4 lg:text-espresso lg:hover:bg-espresso/5"
+                >
+                  <span className="hidden sm:inline">{m.onboarding.sampleData}</span>
+                  <span className="sm:hidden">{m.onboarding.sampleShort}</span>
+                </button>
+              )}
               <LocaleSwitcher className="px-3 max-lg:text-cream max-lg:hover:bg-cream/10" />
             </div>
           </div>
@@ -252,23 +314,26 @@ export default function StartPage() {
           {step === 0 ? replaceNotice : null}
           {content}
           {isLast ? replaceNotice : null}
+          {saveFailed || volatileReplacementDraft ? (
+            <p className="mt-6 text-[0.975rem] leading-relaxed text-danger" role="alert">{m.onboarding.wizard.notSavedNotice}</p>
+          ) : null}
 
           {/* Actions sit right under the step, never fixed over fields or the keyboard. */}
           <div className="mt-10 grid grid-cols-2 items-center gap-3 border-t border-stone/80 pt-6 sm:flex sm:flex-row-reverse">
             {isLast ? (
               <button
                 type="button"
-                onClick={confirmSetup}
+                onClick={isReplacing ? () => setConfirmingReplace(true) : confirmSetup}
                 className="col-span-2 inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-espresso px-7 text-[1.0625rem] font-semibold text-cream transition hover:bg-brown active:scale-[0.98]"
               >
                 <CheckCircle size={22} weight="fill" aria-hidden />
-                {m.onboarding.confirmAndOpen}
+                {isReplacing ? m.onboarding.wizard.replaceFinish : m.onboarding.confirmAndOpen}
               </button>
             ) : (
               <button
                 type="button"
                 data-step-next
-                onClick={() => editStep(step + 1)}
+                onClick={nextStep}
                 className="col-span-2 inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-espresso px-8 text-[1.0625rem] font-semibold text-cream transition hover:bg-brown active:scale-[0.98]"
               >
                 {m.common.actions.next}
@@ -297,6 +362,29 @@ export default function StartPage() {
           </div>
         </main>
       </div>
+      {confirmingReplace && loss ? (
+        <ConfirmDialog
+          title={m.onboarding.wizard.replaceConfirmTitle}
+          body={loss.reports + loss.calls + loss.tickets ? m.onboarding.wizard.replaceConfirmBody(loss) : m.onboarding.wizard.replaceConfirmEmpty}
+          confirmLabel={m.onboarding.wizard.replaceConfirmAction}
+          cancelLabel={m.onboarding.wizard.replaceConfirmCancel}
+          onConfirm={confirmSetup}
+          onCancel={() => setConfirmingReplace(false)}
+        />
+      ) : null}
+      {confirmingSample ? (
+        <ConfirmDialog
+          title={m.common.demo.sampleConfirmTitle}
+          body={m.common.demo.sampleConfirmSetup}
+          confirmLabel={m.common.demo.sampleConfirmAction}
+          cancelLabel={m.common.demo.sampleConfirmCancel}
+          onConfirm={() => {
+            setConfirmingSample(false);
+            fillSample();
+          }}
+          onCancel={() => setConfirmingSample(false)}
+        />
+      ) : null}
     </div>
   );
 }

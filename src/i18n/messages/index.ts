@@ -1,5 +1,7 @@
 import type { Locale } from "@/domain/types";
+import { account } from "./account";
 import { app } from "./app";
+import { auth } from "./auth";
 import { common } from "./common";
 import { lab } from "./lab";
 import { landing } from "./landing";
@@ -12,7 +14,7 @@ import { section } from "./integrations/section";
 import { weather } from "./integrations/weather";
 import { whatsapp } from "./integrations/whatsapp";
 
-const all = { common, landing, welcome, onboarding, app, lab };
+const all = { common, landing, welcome, onboarding, app, lab, auth, account };
 const integrations = { section, pwa, calendar, whatsapp, weather, phone };
 
 export function getMessages(locale: Locale) {
@@ -23,6 +25,8 @@ export function getMessages(locale: Locale) {
     onboarding: all.onboarding[locale],
     app: all.app[locale],
     lab: all.lab[locale],
+    auth: all.auth[locale],
+    account: all.account[locale],
     integrations: {
       section: integrations.section[locale],
       pwa: integrations.pwa[locale],

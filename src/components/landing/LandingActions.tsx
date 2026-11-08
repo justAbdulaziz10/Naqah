@@ -4,6 +4,8 @@ import { CircleNotch, List, SpeakerHigh } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
+import { hasOwnSetupData } from "@/components/setup/draft";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { Plan } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
@@ -20,9 +22,9 @@ export function DemoAction({ children, plan, ...style }: DemoActionProps) {
   const { locale, href, m } = useI18n();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [confirming, setConfirming] = useState(false);
 
-  function start() {
-    if (pending) return;
+  function open() {
     const state = useWorkspaceStore.getState();
     if (plan) {
       state.startDemo(locale, plan);
@@ -32,17 +34,40 @@ export function DemoAction({ children, plan, ...style }: DemoActionProps) {
     startTransition(() => router.push(href("/app")));
   }
 
+  function start() {
+    if (pending) return;
+    const { workspace } = useWorkspaceStore.getState();
+    const replacesWorkspace = Boolean(plan) || !workspace?.setupComplete;
+    if (replacesWorkspace && hasOwnSetupData(workspace)) setConfirming(true);
+    else open();
+  }
+
   return (
-    <button type="button" onClick={start} disabled={pending} aria-busy={pending} className={buttonClass(style)}>
-      {pending ? (
-        <>
-          <CircleNotch size={18} className="motion-safe:animate-spin" aria-hidden="true" />
-          {m.landing.pending}
-        </>
-      ) : (
-        children
-      )}
-    </button>
+    <>
+      <button type="button" onClick={start} disabled={pending} aria-busy={pending} className={buttonClass(style)}>
+        {pending ? (
+          <>
+            <CircleNotch size={18} className="motion-safe:animate-spin" aria-hidden="true" />
+            {m.landing.pending}
+          </>
+        ) : (
+          children
+        )}
+      </button>
+      {confirming ? (
+        <ConfirmDialog
+          title={m.common.demo.sampleConfirmTitle}
+          body={m.common.demo.sampleConfirmFarm}
+          confirmLabel={m.common.demo.sampleConfirmAction}
+          cancelLabel={m.common.demo.sampleConfirmCancel}
+          onConfirm={() => {
+            setConfirming(false);
+            open();
+          }}
+          onCancel={() => setConfirming(false)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -51,10 +76,12 @@ export function MobileNavigation({
   links,
   menuLabel,
   menuTitle,
+  authControls,
 }: {
   links: { href: string; label: string }[];
   menuLabel: string;
   menuTitle: string;
+  authControls?: ReactNode;
 }) {
   return (
     <div className="flex items-center lg:hidden">
@@ -79,6 +106,7 @@ export function MobileNavigation({
               {link.label}
             </Link>
           ))}
+          {authControls}
           <div className="mt-1 pt-1">
             <LocaleSwitcher className="min-h-11 w-full justify-start rounded-xl px-3.5" />
           </div>

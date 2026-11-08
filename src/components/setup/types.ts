@@ -6,5 +6,4 @@ export interface SetupSectionProps {
   ws: Workspace;
   onChange: (update: WorkspaceUpdate) => void;
   showSaved?: boolean;
-  showErrors?: boolean;
 }

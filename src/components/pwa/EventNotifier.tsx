@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useI18n } from "@/i18n/client";
-import { useWorkspaceStore } from "@/store/workspace";
+import { accountLink, useWorkspaceStore } from "@/store/workspace";
 import {
   buildNotification,
   NOTIFICATION_PREFERENCE_EVENT,
@@ -31,7 +31,7 @@ export function EventNotifier() {
       if (!enabled || freshEvents.length === 0) return;
 
       for (const event of selectNotificationEvents(freshEvents)) {
-        void notify(buildNotification(event, locale));
+        void notify(buildNotification(event, locale, !accountLink.active));
       }
     });
 

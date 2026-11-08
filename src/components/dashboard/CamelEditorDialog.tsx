@@ -13,11 +13,13 @@ export function CamelEditorDialog({
   camel,
   onClose,
   onSave,
+  onRemove,
 }: {
   open: boolean;
   camel: Camel | null;
   onClose: () => void;
   onSave: (values: CamelFormValues) => void;
+  onRemove: () => void;
 }) {
   const { m } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -36,6 +38,7 @@ export function CamelEditorDialog({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!name.trim()) return;
     onSave({
       name: name.trim(),
       sex,
@@ -86,6 +89,7 @@ export function CamelEditorDialog({
                 id={id}
                 type="number"
                 min={0}
+                max={60}
                 step={1}
                 inputMode="numeric"
                 value={age}
@@ -108,6 +112,7 @@ export function CamelEditorDialog({
               <Textarea
                 id={id}
                 rows={3}
+                maxLength={500}
                 placeholder={m.app.herd.notePlaceholder}
                 value={healthNote}
                 onChange={(event) => setHealthNote(event.target.value)}
@@ -117,6 +122,7 @@ export function CamelEditorDialog({
         </div>
 
         <div className="flex flex-wrap justify-end gap-2 border-t border-stone px-5 py-4 sm:px-6">
+          {camel ? <Button variant="ghost" className="me-auto text-danger!" onClick={onRemove}>{m.app.herd.removeCamel}</Button> : null}
           <Button variant="secondary" onClick={onClose}>{m.common.actions.cancel}</Button>
           <Button type="submit">{m.common.actions.save}</Button>
         </div>

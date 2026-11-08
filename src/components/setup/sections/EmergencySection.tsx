@@ -5,6 +5,7 @@ import { EMERGENCY_LABELS } from "@/domain/catalog";
 import type { EmergencyKind } from "@/domain/types";
 import { uid } from "@/domain/id";
 import { useI18n } from "@/i18n/client";
+import { SaveState } from "../SaveState";
 import type { SetupSectionProps } from "../types";
 
 type StandardEmergency = Exclude<EmergencyKind, "custom">;
@@ -27,7 +28,7 @@ export function EmergencySection({ ws, onChange, showSaved }: SetupSectionProps)
     <Card>
       <CardHeader
         title={m.onboarding.emergenciesTitle}
-        action={showSaved ? <span className="text-xs font-medium text-muted">{m.common.actions.saved}</span> : undefined}
+        action={showSaved ? <SaveState /> : undefined}
       />
       <CardBody>
         <ul className="divide-y divide-stone/70">

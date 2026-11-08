@@ -5,6 +5,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { useId, useState } from "react";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
+import { formatSaudiMobile, phoneNeedsFixing } from "../phone";
 
 /**
  * Onboarding-only form pieces. They are set larger than the shared Field/Input (17px text, 56px
@@ -73,27 +74,23 @@ export function StepSelect({ className, children, ...props }: ComponentProps<"se
   );
 }
 
-/** A Saudi mobile in any common form: +966 5…, 00966 5…, 966 5…, 05… or 5… (9 digits after the prefix). */
-export function looksLikeSaudiMobile(value: string) {
-  const digits = value.replace(/[\s\-().]/g, "").replace(/^\+/, "").replace(/^00/, "");
-  return /^(966|0)?5\d{8}$/.test(digits);
-}
-
-/** Phone input that always reads left-to-right and checks the format once the owner leaves it. */
+/** Phone input that always reads left-to-right, and tidies or flags the number once the owner leaves it. */
 export function PhoneField({
   label,
   value,
   onChange,
   autoComplete = "tel",
+  showError = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   autoComplete?: string;
+  showError?: boolean;
 }) {
   const { m } = useI18n();
-  const [touched, setTouched] = useState(false);
-  const invalid = touched && value.trim() !== "" && !looksLikeSaudiMobile(value);
+  const [touched, setTouched] = useState(() => phoneNeedsFixing(value));
+  const invalid = (touched || showError) && phoneNeedsFixing(value);
   return (
     <StepField
       label={label}
@@ -116,7 +113,11 @@ export function PhoneField({
           aria-invalid={invalid || undefined}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          onBlur={() => setTouched(true)}
+          onBlur={() => {
+            setTouched(true);
+            const formatted = formatSaudiMobile(value);
+            if (formatted !== value) onChange(formatted);
+          }}
         />
       )}
     </StepField>

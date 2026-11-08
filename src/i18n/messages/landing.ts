@@ -6,16 +6,16 @@ export const landing = defineMessages({
     nav: {
       how: "The call",
       principles: "Principles",
-      colours: "Colours",
       plans: "Plans",
+      signIn: "Owner sign-in",
       menu: "Open navigation menu",
       menuLabel: "Page navigation",
       skip: "Skip to content",
     },
     hero: {
-      title: "Peace of mind, without the busyness",
+      title: "Peace of mind for your herd",
       description:
-        "At the end of the workday your worker calls NAQAH from an ordinary phone. NAQAH asks your questions, keeps the facts, and calls you with what matters.",
+        "Your worker calls NAQAH from an ordinary phone. It asks your questions, keeps the facts, and calls you with the update.",
     },
     example: "Illustrative example",
     intro: { skip: "Skip intro" },
@@ -25,11 +25,11 @@ export const landing = defineMessages({
     },
     pending: "Opening the demo…",
     story: {
-      title: "One call at the end of the day",
+      title: "The worker’s call",
       stages: [
         {
-          lead: "When the workday ends,",
-          body: "your worker calls NAQAH from an ordinary phone. No app and no forms. On Ultimate that is every day; on Basic, once a week in the window you set.",
+          lead: "When it’s time to report,",
+          body: "your worker calls NAQAH from an ordinary phone. No app or forms. Basic: once a week in your chosen window. Ultimate: once a day after work.",
         },
         {
           lead: "Your questions, one at a time.",
@@ -94,7 +94,7 @@ export const landing = defineMessages({
     },
     plans: {
       title: "Two rhythms",
-      pricing: "Pricing is shared with pilot partners and announced at launch.",
+      pricing: "Pricing hasn’t been set yet.",
       labels: {
         cadence: "Farm report",
         questions: "Your own questions",
@@ -117,7 +117,7 @@ export const landing = defineMessages({
     },
     final: {
       title: "See a quieter day",
-      body: "A sample ranch is ready. Make it yours after.",
+      body: "Explore a sample ranch, then set up your own.",
     },
     credits: "Photography",
   },
@@ -125,16 +125,16 @@ export const landing = defineMessages({
     nav: {
       how: "المكالمة",
       principles: "التزاماتنا",
-      colours: "الألوان",
       plans: "الخطط",
+      signIn: "دخول المالك",
       menu: "فتح قائمة التنقل",
       menuLabel: "التنقل في الصفحة",
       skip: "انتقل إلى المحتوى",
     },
     hero: {
-      title: "اطمئنان، دون انشغال",
+      title: "اطمئنان على حلالك",
       description:
-        "في نهاية الدوام يتصل العامل بناقة من جواله العادي. ناقة تسأله أسئلتك، وتحفظ المعلومات، وتتصل بك بالمهم.",
+        "يتصل العامل بناقة من جواله. تسأله عن اللي يهمك، وتحفظ المعلومات، وتتصل بك بملخص التحديث.",
     },
     example: "مثال توضيحي",
     intro: { skip: "تخطّي" },
@@ -144,11 +144,11 @@ export const landing = defineMessages({
     },
     pending: "جاري فتح العرض…",
     story: {
-      title: "مكالمة واحدة في آخر اليوم",
+      title: "مكالمة العامل لناقة",
       stages: [
         {
-          lead: "إذا خلص الدوام،",
-          body: "يتصل العامل بناقة من جواله العادي. بدون تطبيق ولا نماذج. في المتكاملة كل يوم، وفي الأساسية مرة في الأسبوع ضمن الوقت اللي تحدده.",
+          lead: "وقت التحديث،",
+          body: "يتصل العامل بناقة من جواله، بلا تطبيق ولا نماذج. في الأساسية مرة بالأسبوع ضمن نافذتك، وفي المتكاملة كل يوم بعد الدوام.",
         },
         {
           lead: "أسئلتك، سؤال بعد سؤال.",
@@ -212,7 +212,7 @@ export const landing = defineMessages({
     },
     plans: {
       title: "إيقاعان",
-      pricing: "الأسعار تُشارك مع شركاء التجربة وتُعلن عند الإطلاق.",
+      pricing: "الأسعار ما تحددت بعد.",
       labels: {
         cadence: "تقرير المزرعة",
         questions: "أسئلتك الخاصة",
@@ -235,7 +235,7 @@ export const landing = defineMessages({
     },
     final: {
       title: "شوف يوماً أهدأ",
-      body: "عزبة نموذجية جاهزة. وبعدها خلّها عزبتك.",
+      body: "ابدأ بعزبة نموذجية، ثم جهّز مزرعتك.",
     },
     credits: "التصوير",
   },

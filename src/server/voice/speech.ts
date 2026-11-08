@@ -151,13 +151,31 @@ function semanticReply(replies: Reply[], intent: "yes" | "no" | "unknown"): Repl
   });
 }
 
-const STOP_WORDS = new Set(["the", "a", "an", "is", "are", "of", "to", "for", "and", "or", "هل", "في", "من", "ما", "هو", "هي"]);
+const STOP_WORDS = new Set(["the", "a", "an", "is", "are", "of", "to", "for", "and", "or", "هل", "في", "من", "هو", "هي"]);
+
+const NEGATORS = new Set(["ما", "مو", "لا", "مب", "مش", "بدون", "غير", "ليس", "no", "not", "dont", "don", "never", "without", "nothing", "none"]);
+const NEGATIVE_ANSWERS = new Set(["no", "not_yet", "not_enough", "end_without_save", "instruction_no"]);
+const SAVE_WORDS = new Set(["احفظ", "احفظه", "حفظ", "اكد", "تاكيد", "confirm", "save", "save it"]);
+const DONE_WORDS = new Set(["خلصت", "خلصتها", "انتهيت", "done", "finished"]);
+
+const words = (input: string) => compact(input).match(/[\p{L}\p{N}]+/gu) ?? [];
+const isNegated = (input: string) => words(input).some((word) => NEGATORS.has(word));
+const replyIsNegated = (reply: Reply) => isNegated(reply.label.ar) || isNegated(reply.label.en);
+
+/** These steps change the farm for good, so a near match is not enough: it takes a clear answer. */
+function needsClearAnswer(session: CallSession): boolean {
+  if (session.step === "report_summary" || session.step === "callback_task_confirmation") return true;
+  return session.step === "report_question" && session.data.queue?.[session.data.reportIndex ?? 0]?.kind === "task";
+}
 
 function overlapReply(replies: Reply[], transcript: string, locale: Locale): Reply | undefined {
-  const inputTokens = (compact(transcript).match(/[\p{L}\p{N}]+/gu) ?? []).filter((token) => !STOP_WORDS.has(token));
+  const inputTokens = words(transcript).filter((token) => !STOP_WORDS.has(token));
   if (!inputTokens.length) return undefined;
+  const negated = isNegated(transcript);
   let best: { reply: Reply; score: number } | undefined;
   for (const reply of replies) {
+    // «ما خلصت» shares a word with «إيه، خلصت», and means the opposite.
+    if (replyIsNegated(reply) !== negated) continue;
     const preferred = (compact(reply.label[locale]).match(/[\p{L}\p{N}]+/gu) ?? []).filter((token) => !STOP_WORDS.has(token));
     const secondary = (compact(reply.label[locale === "ar" ? "en" : "ar"]).match(/[\p{L}\p{N}]+/gu) ?? [])
       .filter((token) => !STOP_WORDS.has(token));
@@ -187,8 +205,18 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
     const reply = semanticReply(session.replies, "no");
     if (reply) return { value: reply.value };
   }
-  const reply = session.replies.find((item) => compact(item.value) === normalized) ?? overlapReply(session.replies, transcript, locale);
-  return reply ? { value: reply.value } : null;
+  const exact = session.replies.find((item) => [item.value, item.label.ar, item.label.en].some((text) => compact(text) === normalized));
+  if (exact) return { value: exact.value };
+
+  const clear = needsClearAnswer(session);
+  if (clear && (session.step === "report_summary" ? SAVE_WORDS : DONE_WORDS).has(normalized)) {
+    const reply = semanticReply(session.replies, "yes");
+    if (reply) return { value: reply.value };
+  }
+  const reply = clear ? undefined : overlapReply(session.replies, transcript, locale);
+  if (reply) return { value: reply.value };
+  const negative = isNegated(transcript) ? session.replies.find((item) => NEGATIVE_ANSWERS.has(item.value)) : undefined;
+  return negative ? { value: negative.value } : null;
 }
 
 export function mapSpeechToInput(
@@ -198,6 +226,7 @@ export function mapSpeechToInput(
   locale: Locale = "ar",
 ): AnswerInput | null {
   if (session.inputMode === "none") return null;
+  if (session.inputMode === "number" && digits && /^\d{1,6}$/.test(digits)) return { text: digits };
   if (digits && /^\d$/.test(digits)) {
     if (session.inputMode === "choices") {
       const reply = session.replies[Number(digits) - 1];
@@ -209,6 +238,11 @@ export function mapSpeechToInput(
   }
 
   const raw = transcript.trim().slice(0, 300);
+  // Spelling varies by recogniser, and «ما ادري» saved as free text would read as a reported fact.
+  if (session.inputMode !== "choices" && UNKNOWN_WORDS.has(compact(raw))) {
+    const reply = unknownReply(session.replies);
+    if (reply) return { value: reply.value };
+  }
   if (session.inputMode === "text") return raw ? { text: raw } : null;
   if (session.inputMode === "number") {
     const number = extractNumber(raw);

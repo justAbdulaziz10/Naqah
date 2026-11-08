@@ -11,6 +11,11 @@ const session: CallSession = {
 };
 
 describe("TwiML output", () => {
+  it("ends a choice at one key press, and lets a quantity take several", () => {
+    expect(twimlGather(session, "en", "/t")).toContain('numDigits="1"');
+    expect(twimlGather({ ...session, inputMode: "number" }, "en", "/t")).not.toContain("numDigits");
+  });
+
   it("escapes XML metacharacters in text and attributes", () => {
     expect(escapeXml(`&<>"'`)).toBe("&amp;&lt;&gt;&quot;&apos;");
     expect(sayElement(`عربي & < > " '`, "ar")).toContain("عربي &amp; &lt; &gt; &quot; &apos;");

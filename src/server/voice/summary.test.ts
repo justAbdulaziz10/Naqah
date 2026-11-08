@@ -12,8 +12,9 @@ const report: FarmReport = {
 };
 
 describe("owner report summary", () => {
-  it("localizes saved status, findings, and fixed-choice facts", () => {
-    expect(buildOwnerSummary(report, "ar")).toContain("حُفظ تحديث المزرعة.");
+  it("labels the sample, then localizes findings and fixed-choice facts", () => {
+    expect(buildOwnerSummary(report, "ar")).toContain("تحديث تجريبي");
+    expect(buildOwnerSummary(report, "en")).toContain("not saved to a real farm");
     expect(buildOwnerSummary(report, "ar")).toContain("ناقة تحت الملاحظة");
     expect(buildOwnerSummary(report, "en")).toContain("Feed: 20 bags");
     expect(buildOwnerSummary(report, "en")).toContain("Important findings:");
@@ -34,7 +35,7 @@ describe("owner report summary", () => {
       })),
     };
     const summary = buildOwnerCallSummary(long, "en");
-    expect(summary).toContain("Farm update saved.");
+    expect(summary).toContain("Sample update from the demo farm.");
     expect(summary).toContain("Important findings:");
     expect(summary.length).toBeLessThanOrEqual(600);
     expect(summary.endsWith("…")).toBe(true);

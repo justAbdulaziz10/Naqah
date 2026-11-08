@@ -9,7 +9,7 @@ import {
   startTaskVerification,
   submitOwnerInstruction,
 } from "./actions";
-import { fromRiyadh, isWithinWindow, nextWindowStart, RETRY_DELAY_MS, weekKey } from "./clock";
+import { fromRiyadh, isValidWindow, isWithinWindow, nextWindowStart, RETRY_DELAY_MS, weekKey } from "./clock";
 import type { ReportDraft } from "./findings";
 import { evaluateFindings, ownerBriefing } from "./findings";
 import {
@@ -54,6 +54,15 @@ describe("clock", () => {
     expect(isWithinWindow(THU_1830, w)).toBe(false);
     expect(nextWindowStart(THU_1830, w).toISOString()).toBe(fromRiyadh(2026, 11, 12, 17, 0).toISOString());
   });
+  it("treats a window with a missing or malformed time as no window", () => {
+    expect(isValidWindow({ day: 4, start: "17:00", end: "18:00" })).toBe(true);
+    expect(isValidWindow({ day: 4, start: "", end: "18:00" })).toBe(false);
+    expect(isValidWindow({ day: 4, start: "17:00", end: "" })).toBe(false);
+    expect(isValidWindow({ day: 4, start: "18:00", end: "17:00" })).toBe(false);
+    expect(isValidWindow({ day: 4, start: "17:00", end: "17:00" })).toBe(false);
+    expect(isValidWindow({ day: 4, start: "17:00", end: "25:00" })).toBe(false);
+  });
+
   it("weeks start on Sunday", () => {
     expect(weekKey(fromRiyadh(2026, 11, 7, 23, 59))).toBe("2026-11-01");
     expect(weekKey(fromRiyadh(2026, 11, 8, 0, 0))).toBe("2026-11-08");
@@ -86,6 +95,13 @@ describe("worker inbound calls (Phase 2)", () => {
     const after = completeWorkerReport(ws, THU_1710, emptyDraft()).ws;
     expect(routeWorkerInboundCall(after, fromRiyadh(2026, 11, 5, 17, 40))).toEqual({ kind: "rejected", reason: "weekly_done" });
   });
+  it("Basic: a draft window with only an end time does not accept reports", () => {
+    const ws = createDemoWorkspace("en", "basic");
+    ws.reports = [];
+    ws.settings.window = { day: 4, start: "", end: "23:00" };
+    expect(routeWorkerInboundCall(ws, new Date("2026-11-05T12:00:00Z"))).toEqual({ kind: "rejected", reason: "no_window" });
+  });
+
   it("Ultimate: one report per day", () => {
     const ws = ultimate();
     expect(routeWorkerInboundCall(ws, THU_1710).kind).toBe("report");

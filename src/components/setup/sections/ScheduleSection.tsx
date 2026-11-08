@@ -5,13 +5,14 @@ import { WEEKDAY_LABELS } from "@/domain/catalog";
 import { isValidWindow } from "@/domain/clock";
 import type { ReportingWindow, Weekday } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
+import { SaveState } from "../SaveState";
 import type { SetupSectionProps } from "../types";
 
-export function ScheduleSection({ ws, onChange, showSaved, showErrors, optional = false }: SetupSectionProps & { optional?: boolean }) {
+export function ScheduleSection({ ws, onChange, showSaved, optional = false }: SetupSectionProps & { optional?: boolean }) {
   const { m, t } = useI18n();
   const window = ws.settings.window;
   const hasCompleteTimes = Boolean(window?.start && window.end);
-  const windowValid = Boolean(window && hasCompleteTimes && isValidWindow(window));
+  const invalidTimes = Boolean(window && hasCompleteTimes && !isValidWindow(window));
 
   function updateWindow(patch: Partial<ReportingWindow>) {
     onChange((current) => {
@@ -30,7 +31,7 @@ export function ScheduleSection({ ws, onChange, showSaved, showErrors, optional 
     <Card>
       <CardHeader
         title={m.onboarding.sectionTitles.schedule}
-        action={showSaved ? <span className="text-xs font-medium text-muted">{m.common.actions.saved}</span> : undefined}
+        action={showSaved ? <SaveState /> : undefined}
       />
       <CardBody>
         {ws.settings.plan === "ultimate" ? (
@@ -79,7 +80,8 @@ export function ScheduleSection({ ws, onChange, showSaved, showErrors, optional 
                     id={id}
                     type="time"
                     required={!optional}
-                    className="ltr-nums"
+                    className={invalidTimes ? "ltr-nums border-danger" : "ltr-nums"}
+                    aria-invalid={invalidTimes || undefined}
                     value={window?.end ?? ""}
                     disabled={!window}
                     onChange={(event) => updateWindow({ end: event.target.value })}
@@ -87,10 +89,10 @@ export function ScheduleSection({ ws, onChange, showSaved, showErrors, optional 
                 )}
               </Field>
             </div>
-            {!optional && (showErrors || ws.settings.plan === "basic") && !windowValid ? (
-              <p className="text-sm text-danger" role="alert">
-                {window && hasCompleteTimes ? m.onboarding.windowEndAfterStart : m.onboarding.windowRequired}
-              </p>
+            {invalidTimes ? (
+              <p className="text-sm text-danger" role="alert">{m.onboarding.windowEndAfterStart}</p>
+            ) : window && !hasCompleteTimes ? (
+              <p className="text-sm text-muted">{m.onboarding.windowRequired}</p>
             ) : null}
           </div>
         )}

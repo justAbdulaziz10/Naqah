@@ -301,7 +301,7 @@ export interface Settings {
 
 export interface Workspace {
   version: 1;
-  /** False until onboarding is confirmed. */
+  /** True once the owner finishes or skips the guided setup; call readiness is tracked separately. */
   setupComplete: boolean;
   createdAt: string;
   settings: Settings;

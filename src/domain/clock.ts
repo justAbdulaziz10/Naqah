@@ -77,8 +77,11 @@ export function toMinutes(hhmm: string): number {
   return h * 60 + (m || 0);
 }
 
+const CLOCK_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Both times present and in order. A draft with an empty time is not a window yet. */
 export function isValidWindow(w: ReportingWindow): boolean {
-  return toMinutes(w.end) > toMinutes(w.start);
+  return CLOCK_TIME.test(w.start) && CLOCK_TIME.test(w.end) && toMinutes(w.end) > toMinutes(w.start);
 }
 
 export function isWithinWindow(date: Date, w: ReportingWindow): boolean {

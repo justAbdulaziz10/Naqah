@@ -7,6 +7,7 @@ import { CRITERION_LABELS } from "@/domain/catalog";
 import { uid } from "@/domain/id";
 import type { CriterionKind } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
+import { SaveState } from "../SaveState";
 import type { SetupSectionProps } from "../types";
 
 type StandardCriterion = Exclude<CriterionKind, "custom">;
@@ -48,7 +49,7 @@ export function WhatMattersSection({ ws, onChange, showSaved }: SetupSectionProp
     <Card>
       <CardHeader
         title={m.onboarding.sectionTitles.whatMatters}
-        action={showSaved ? <span className="text-xs font-medium text-muted">{m.common.actions.saved}</span> : undefined}
+        action={showSaved ? <SaveState /> : undefined}
       />
       <CardBody>
         <section>

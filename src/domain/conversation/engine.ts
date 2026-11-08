@@ -845,7 +845,8 @@ function handleHealthPick(session: CallSession, ws: Workspace, now: Date, input:
     if ((session.data.askedCamelIds ?? []).length > 0) {
       return { session: finishCamelHealth(current.session, ws, now) };
     }
-    const recorded = reportAnswer(current.session, item, UNKNOWN_ANSWER, "unknown");
+    // The worker already said one needs attention, and not knowing which must not erase that.
+    const recorded = reportAnswer(current.session, item, copy("A camel needs attention (unspecified)", "فيه ناقة تحتاج متابعة (غير محددة)"), "reported");
     return { session: nextReportItem(recorded, ws, now) };
   }
   const camelId = current.value.startsWith("camel:") ? current.value.slice("camel:".length) : "";
@@ -1092,10 +1093,16 @@ function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallS
     factsEn.push("not all camels are accounted for");
     factsAr.push("الحلال غير مكتمل العدد");
   }
+  // A task closes on this confirmation, so the worker must hear it before saving.
+  for (const confirmation of session.draft.taskConfirmations) {
+    const instruction = ws.taskTickets.find((task) => task.id === confirmation.taskId)?.instruction ?? "";
+    factsEn.push((confirmation.done ? "task finished: " : "task still open: ") + instruction);
+    factsAr.push((confirmation.done ? "مهمة خلصت: " : "مهمة باقية: ") + instruction);
+  }
   const baseEn = factsEn.length ? factsEn.join("; ") : "no additional farm facts";
   const baseAr = factsAr.length ? factsAr.join("، ") : "ما فيه معلومات إضافية عن المزرعة";
-  const findingEn = findings.length ? " The owner will hear: " + findings[0].text.en : "";
-  const findingAr = findings.length ? " والمالك بيوصله: " + findings[0].text.ar : "";
+  const findingEn = findings.length ? " Important for the owner: " + findings[0].text.en : "";
+  const findingAr = findings.length ? " أهم ملاحظة للمالك: " + findings[0].text.ar : "";
   const text = copy(
     "Here’s the summary: " + baseEn + "." + findingEn + " Confirm and save this update?",
     "هذا ملخص التحديث: " + baseAr + "." + findingAr + " أحفظه؟",

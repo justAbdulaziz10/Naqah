@@ -1,9 +1,11 @@
-import { shouldRefuseUnsignedVoice, voiceConfiguration } from "@/server/env";
+import { shouldRefuseUnsignedVoice, voiceConfiguration, voiceLocale, voiceMode } from "@/server/env";
+import { answerFarmCall } from "@/server/voice/farm-call";
+import { farmResponse, farmWebhook } from "@/server/voice/farm-webhook";
 import { replayVoiceState, trailingMissCount, voiceActionUrl } from "@/server/voice/conversation";
 import { mapSpeechToInput, unknownReply } from "@/server/voice/speech";
 import { VOICE_MISS_VALUE, signVoiceState, verifyVoiceState } from "@/server/voice/state";
 import { scheduleOwnerSummary } from "@/server/voice/summary";
-import { twimlGather, twimlGoodbye, twimlResponse } from "@/server/voice/twiml";
+import { SAMPLE_CALL_ENDED, twimlGather, twimlGoodbye, twimlResponse } from "@/server/voice/twiml";
 import { checkTwilioWebhookSignature } from "@/server/twilio/signature";
 
 const MISS_ONCE = {
@@ -21,7 +23,7 @@ const MISSED_TWICE = {
 
 function hangUpWithCurrentTurn(session: ReturnType<typeof replayVoiceState>["session"], locale: "ar" | "en") {
   const final = [...session.turns].reverse().find((turn) => turn.speaker === "agent")?.text[locale];
-  return twimlResponse(twimlGoodbye(locale, final));
+  return twimlResponse(twimlGoodbye(locale, session.next ? SAMPLE_CALL_ENDED[locale] : final));
 }
 
 function responseForState(request: Request, state: NonNullable<ReturnType<typeof verifyVoiceState>>, prefix = "") {
@@ -35,6 +37,20 @@ function responseForState(request: Request, state: NonNullable<ReturnType<typeof
 }
 
 export async function POST(request: Request): Promise<Response> {
+  if (voiceMode() === "farm") {
+    const hook = await farmWebhook(request);
+    if (hook instanceof Response) return hook;
+    const seq = new URL(request.url).searchParams.get("n") ?? "";
+    if (!/^\d{1,4}$/.test(seq)) return twimlResponse(twimlGoodbye(voiceLocale()), 400);
+    return farmResponse(answerFarmCall(hook.client, {
+      callSid: hook.callSid,
+      seq: Number(seq),
+      speech: hook.form.get("SpeechResult") ?? "",
+      digits: hook.form.get("Digits"),
+      now: new Date(),
+    }));
+  }
+
   const config = voiceConfiguration();
   if (!config.secret || !config.workerPhone || shouldRefuseUnsignedVoice()) {
     return twimlResponse(twimlGoodbye(config.locale, config.locale === "ar" ? "خط الاتصال غير مفعّل حالياً." : "The phone line is not configured yet."));

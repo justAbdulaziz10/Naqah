@@ -1,3 +1,4 @@
+import { AuthNavigation } from '@/components/auth/AuthNavigation';
 import Link from "next/link";
 import type { Locale } from "@/domain/types";
 import { Logo } from "@/components/brand/Logo";
@@ -24,7 +25,10 @@ export function WelcomePage({ locale }: { locale: Locale }) {
     <div className="grid min-h-svh bg-ivory text-espresso [grid-template-areas:'header'_'image'_'main'_'sig'] [grid-template-rows:auto_auto_1fr_auto] lg:grid-cols-[minmax(0,45fr)_minmax(0,55fr)] lg:[grid-template-areas:'header_image'_'main_image'_'sig_image'] lg:[grid-template-rows:auto_1fr_auto]">
       <header className="flex min-h-16 items-center justify-between gap-3 px-5 [grid-area:header] sm:px-8 lg:px-12 xl:px-20">
         <Logo locale={locale} href={`/${locale}`} className="min-h-11" />
-        <LocaleSwitcher className="min-h-11" />
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-1">
+          <AuthNavigation appearance="welcome" />
+          <LocaleSwitcher className="min-h-11" />
+        </div>
       </header>
 
       <div className="relative [grid-area:image]">

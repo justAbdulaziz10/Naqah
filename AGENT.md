@@ -4,7 +4,8 @@
 > what the product is, which rules are confirmed, how the code is organized, and what is still open.
 
 **Status:** Investor MVP / demo (November 2026). No real phone calls, no payments, no subscriptions are charged.
-Everything runs in the browser so the demo link never breaks and costs nothing to host.
+The demo runs in the browser. Account persistence and farm-mode call storage exist behind opt-in flags;
+their code being present does not mean the live project has been migrated or activated.
 
 ---
 
@@ -63,6 +64,10 @@ Next.js 16 (App Router, React 19, Tailwind v4)  →  deployed on Vercel (free Ho
    │       ├─ engine.ts         every call type: worker report, owner briefing, NAQAH→worker + retries,
    │       │                    worker callback, owner inquiry, emergency info. Mirrors a future voice agent.
    │       └─ personalize.ts    swaps the sample names (Ahmed/Abdullah) for the farm's real ones at render
+   ├─ server/db/                Supabase persistence, wired to account-mode UI behind its flag: row mappers, change diff,
+   │                            owner repository (RLS session) and service repository (see §8.1)
+   ├─ server/farm/              owner Server Actions and input validation
+   ├─ server/voice/contract.ts  voice → farm data contract
    ├─ store/workspace.ts        zustand store persisted to localStorage (`naqah-workspace-v1`)
    ├─ i18n/                     config, formatting (Riyadh time, Latin digits), messages per slice
    ├─ components/ui/            design-system primitives (Button, Card, Badge, Field, Switch, Segmented)
@@ -70,7 +75,7 @@ Next.js 16 (App Router, React 19, Tailwind v4)  →  deployed on Vercel (free Ho
    ├─ components/shell/         AppShell (dashboard nav), LocaleSwitcher, DemoClock
    ├─ components/landing/       public landing page sections
    ├─ components/setup/         onboarding wizard + settings sections (shared)
-   ├─ components/dashboard/     overview/herd/tickets/calls building blocks
+   ├─ components/dashboard/     estate header, matters, ledger and other overview/herd/tickets/calls building blocks
    └─ components/lab/           Call Lab UI (phone stage, "Inside NAQAH" panel, demo clock)
 supabase/migrations/            production schema (not used by the demo yet) — see §6
 ```
@@ -122,12 +127,19 @@ stay off until their env vars are set (see `.env.example`). Nothing here needs a
 | Calendar feed + per-task "add to calendar" | Free | Settings card; Tickets rows | `src/lib/calendar/`, `src/app/api/calendar` | `calendar.md` |
 | WhatsApp deep links (message worker, order from supplier) | Free | Settings card; dashboard resources + emergency | `src/lib/whatsapp/`, `WhatsAppActions.tsx` | `whatsapp-links.md` |
 | Weather + farm location + heat-day question | Free (Open-Meteo) | Dashboard line; Settings card; setup; Call Lab "Simulate a heat day" | `src/domain/weather.ts`, `src/lib/weather/`, `src/lib/geo/` | `weather.md` |
-| Real phone line (Twilio) + WhatsApp Cloud summary | **Paid** per minute / message | Settings "Phone line" card | `src/server/`, `src/app/api/voice/*`, `src/app/api/integrations/status` | `phone.md` |
+| Real phone line (Twilio) + WhatsApp Cloud summary | **Paid** per minute / message | Settings "Phone line" card | `src/server/`, `src/app/api/voice/*`, `src/app/api/integrations/status` | `phone.md`, `twilio-activation.md` |
 
 Things to know before changing them:
-- **Phone calls are stateless.** Call state travels in the signed `s` query parameter and each turn replays the
-  engine against the server-side sample workspace. Until Supabase is connected, a real call updates the *sample*
-  farm, not the owner's browser data.
+- **Two phone modes.** By default the line is the *sample* line: signed `s` state, each turn replays the engine on the
+  sample workspace, it says it is a sample, and it saves nothing. `NAQAH_VOICE_MODE=farm` is a real call: the caller
+  resolves to a farm in Supabase, `voice_call_sessions` holds the call, and outcomes save through `applyVoiceEvent`.
+  Farm mode never falls back to sample data. See `twilio-activation.md`.
+- **Two data modes.** Only with the exact build-time value `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1`, a signed-in owner's farm comes from Supabase through
+  `src/store/accountSync.ts`; everyone else keeps the localStorage demo. `update(fn)` works in both, but only
+  owner-writable fields reach the database. The server also gates `/api/account` (404 when disabled) and every owner
+  Server Action (unavailable without repository access). Anything demo-only must check `useIsAccount()`.
+  Unsetting the flag requires a rebuild/deployment and does not revoke direct Supabase access or stop voice writes.
+  See `supabase-backend.md`.
 - **Voice locale is per deployment** (`NAQAH_VOICE_LOCALE`). Verify with
   `node scripts/verify-naqah.mjs voice --locale <same locale as the server>`.
 - **Push:** without VAPID keys, notifications are shown locally by the service worker while the app is open.
@@ -164,7 +176,11 @@ The demo keeps one `Workspace` in `localStorage`. Every rule is a pure function 
 the same functions and swaps only the storage and the "who triggers it" layer.
 
 ### 8.1 Database — Supabase (free tier is enough to start)
-- Schema: `supabase/migrations/0001_init.sql` (validated on Postgres 14 with a stubbed `auth` schema; RLS tested).
+- Schema, applied in order: `0001_init.sql`, `0002_backend_foundation.sql`, `0003_voice_call_sessions.sql`,
+  `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql` under `supabase/migrations/` (Postgres 15+).
+  Local validation uses stand-in Supabase roles/Auth; it does not prove live activation. The existing Supabase project
+  contains Auth test users; the latest team report says application migrations have not been applied (issue #6).
+  Status, plan and manual go-live list: `docs/integrations/supabase-backend.md`.
   One owner (`auth.users`) → one `farms` row (holds owner + settings + Basic window) → one `workers` row.
   Child tables mirror `types.ts`: `camels`, `resources`, `custom_questions` (DB trigger enforces Basic ≤ 5),
   `criteria`, `emergency_categories`, `calls`, `reports` + `report_answers` + `findings`, `task_tickets`, `relays`,
@@ -172,14 +188,16 @@ the same functions and swaps only the storage and the "who triggers it" layer.
 - RLS: owners read/write their farm's settings, herd, resources, questions, criteria, relays and events; they can
   only **read** calls, reports, tickets and retries — those are written by the voice service with the
   `service_role` key (server only, bypasses RLS). Never ship the service key to the browser.
-- Setup: create a project (the owner's Supabase account hit the 2-free-project limit during the build, so none was
-  created), run `supabase link` then `supabase db push`, and add `NEXT_PUBLIC_SUPABASE_URL`,
-  `NEXT_PUBLIC_SUPABASE_ANON_KEY` (browser) and `SUPABASE_SERVICE_ROLE_KEY` (server) to Vercel.
-- Migration path in the app: write `src/store/supabase.ts` exposing the same `update(fn)` shape: load the farm into a
-  `Workspace`, run the pure action, diff and persist. Keep `clockOffsetMs` demo-only (production uses real time).
+- Activation is a separate owner-authorized phase on the existing project, not permission to create another project,
+  run live migrations, change Auth users/settings or deploy during code-readiness work. Follow `supabase-preparation.md`.
+  Current variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Auth/browser),
+  `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA` (account opt-in), `SUPABASE_SECRET_KEY` (voice/service only).
+- Migration path in the app: see `docs/integrations/supabase-backend.md`. Call outcomes go through `runFarmAction`: load the
+  farm into a `Workspace`, run the pure action, diff and persist in one transaction. Keep `clockOffsetMs` demo-only.
 
 ### 8.2 Auth
-Supabase Auth with phone OTP for the owner (matches the "ordinary phone" audience). The worker never logs in; they
+Supabase Auth supports phone OTP, email/password and Google OAuth for the owner. Provider configuration and real
+verification remain distinct from mocked Auth checks. The worker never logs in; they
 are recognised by caller ID (`workers.phone`) — an identification signal only, not proof (open decision 4).
 
 ### 8.3 Telephony + voice agent
@@ -191,6 +209,8 @@ are recognised by caller ID (`workers.phone`) — an identification signal only,
 - **No recordings**: disable Twilio recording and transcription storage; persist only extracted facts.
 
 ### 8.4 Webhook → domain action map
+The implemented contract is `docs/integrations/voice-data-contract.md`.
+
 | Event | Route handler (suggested) | Domain functions |
 |---|---|---|
 | Worker calls in | `POST /api/voice/inbound` (caller = worker) | `routeWorkerInboundCall` → report / `rejectWorkerReport` / callback |
@@ -228,6 +248,8 @@ for the demo.
 - No pills for status. `Badge`, `HealthBadge`, `CertaintyBadge` and `OutcomeBadge` render coloured text (with an optional dot). Certainty is quiet provenance text, never a chip.
 - No icon tiles, eyebrow labels, numbered 01/02/03 steps, same-size icon card grids, or decorative SVG waves/blobs. `CardHeader` shows an icon inline only, never in a tinted square.
 - Cards have a hairline border and no shadow. Do not nest cards, and do not tint cards with gold or other status colours to call attention.
+- The Overview is the estate ledger: one espresso estate header, the matters row, then one surface divided by hairlines. Camels appear by name. Espresso is the only filled field, and only there. Numbers sit inline with their label, never in separate cells.
+- Calling the worker from NAQAH is not connected, so `EstateHeader` shows it as a disabled control that says so. No `tel:` links on the dashboard: the demo's numbers are samples. Simulation lives only in the demo strip and the Call Lab, and always says it is a simulation.
 - The landing is one editorial page: hero plus the call ledger (`LiveTranscript`), the owner quote (`OwnerCall`), the rules list, the plan table, and the final band. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`.
 - Arabic pages lead with Alexandria (`--font-arabic`). next/font's "Montserrat Fallback" covers every codepoint, so with Montserrat first, Arabic renders in Arial.
 

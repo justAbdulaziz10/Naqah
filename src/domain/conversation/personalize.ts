@@ -23,15 +23,13 @@ export function makePersonalizer(ws: Pick<Workspace, "settings"> | null): Person
   // A real name that already contains a sample name ("Ahmed Saleh", "محمد بن عبدالله") would
   // otherwise double up or swap the wrong word, so leave that role alone.
   const mentionsSample = (name: string, samples: readonly string[]) => samples.some((sample) => name.includes(sample));
-  const pairs: [string, string][] = [];
-  if (worker && !mentionsSample(worker, SAMPLE_NAMES.worker)) {
-    for (const sample of SAMPLE_NAMES.worker) pairs.push([sample, worker]);
-  }
-  if (owner && !mentionsSample(ownerFull, SAMPLE_NAMES.owner)) {
-    for (const sample of SAMPLE_NAMES.owner) pairs.push([sample, owner]);
-  }
-  if (!pairs.length) return (text) => text;
-  return (text) => pairs.reduce((acc, [from, to]) => acc.split(from).join(to), text);
+  const names = new Map<string, string>();
+  if (worker && !mentionsSample(worker, SAMPLE_NAMES.worker)) for (const sample of SAMPLE_NAMES.worker) names.set(sample, worker);
+  if (owner && !mentionsSample(ownerFull, SAMPLE_NAMES.owner)) for (const sample of SAMPLE_NAMES.owner) names.set(sample, owner);
+  if (!names.size) return (text) => text;
+  // One pass: a worker named Abdullah must not then be renamed as the owner.
+  const samples = new RegExp([...names.keys()].join("|"), "g");
+  return (text) => text.replace(samples, (sample) => names.get(sample) ?? sample);
 }
 
 /** Apply a personalizer to every string (and string-returning function) in a message tree. */

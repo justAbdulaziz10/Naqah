@@ -15,6 +15,22 @@ export function shouldRefuseUnsignedVoice(): boolean {
   return production && process.env.NAQAH_ALLOW_UNSIGNED_VOICE !== "1" && !voiceSignatureValidationEnabled();
 }
 
+/** `farm` is a real call on a real farm. Anything else is the sample line, which saves nothing. */
+export function voiceMode(): "farm" | "sample" {
+  return value("NAQAH_VOICE_MODE").toLowerCase() === "farm" ? "farm" : "sample";
+}
+
+/** Names only, so it is safe to log. Farm calls need every one of these. */
+export function farmVoiceMissing(): string[] {
+  return ["TWILIO_AUTH_TOKEN", "NAQAH_PUBLIC_BASE_URL", "SUPABASE_SECRET_KEY", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"]
+    .filter((name) => !value(name));
+}
+
+/** Caller ID can be spoofed and an inquiry reads farm data aloud, so it stays off until decided. */
+export function voiceOwnerInquiryEnabled(): boolean {
+  return value("NAQAH_VOICE_OWNER_INQUIRY") === "1";
+}
+
 export function voiceConfiguration() {
   return {
     secret: value("NAQAH_VOICE_SECRET"),
@@ -35,20 +51,25 @@ export function integrationsStatus() {
       voice.ownerPhone,
   );
 
+  const mode = voiceMode();
+
   return {
     ok: true as const,
     voice: {
-      configured: Boolean(voice.secret && voice.workerPhone),
+      mode,
+      configured: mode === "farm" ? !farmVoiceMissing().length : Boolean(voice.secret && voice.workerPhone),
       number: value("NEXT_PUBLIC_NAQAH_PHONE_NUMBER") || null,
       signatureValidation: voiceSignatureValidationEnabled(),
     },
+    // Summaries go to one number from the environment, so they exist on the sample line only:
+    // a real farm's report must reach that farm's owner.
     whatsapp: {
-      configured: Boolean(
+      configured: mode === "sample" && Boolean(
         value("WHATSAPP_PHONE_NUMBER_ID") && value("WHATSAPP_TOKEN") && value("NAQAH_OWNER_WHATSAPP"),
       ),
     },
     ownerCall: {
-      configured: value("NAQAH_CALL_OWNER") === "1" && twilioReady,
+      configured: mode === "sample" && value("NAQAH_CALL_OWNER") === "1" && twilioReady,
     },
   };
 }

@@ -1,8 +1,12 @@
 # Phone line and report summaries
 
-The phone adapter lets a registered worker call NAQAH, answer the scripted worker-report flow, and have the owner
-receive the saved report summary through WhatsApp Cloud API, an outbound Twilio call, or both. Paid owner summaries
-are sent only after the completing voice webhook passes Twilio signature validation. It appears in the owner's
+There are two modes. `NAQAH_VOICE_MODE=farm` is a real call on a real farm in Supabase: see
+[twilio-activation.md](twilio-activation.md). This page describes the default **sample line**, which runs the demo
+farm, tells the caller it is a sample, and saves nothing.
+
+The sample line lets a registered worker call NAQAH, answer the scripted worker-report flow, and have a labelled sample
+summary sent through WhatsApp Cloud API, an outbound Twilio call, or both. Paid sample summaries are sent only after
+the completing voice webhook passes Twilio signature validation. It appears in the owner's
 **Settings → Connections** section. With no voice configuration, that card says the line is not connected and that
 Call Lab simulates calls; if signature validation is off, it says automatic owner summaries are paused.
 
@@ -103,7 +107,7 @@ node scripts/verify-naqah.mjs stop
 ```
 
 Add `--locale en` to exercise English. The command posts a form-encoded inbound call, reads the signed Gather action,
-answers each turn with scripted speech, and verifies a saved-report goodbye and tamper rejection. Each request and
+answers each turn with scripted speech, and verifies the sample-call goodbye and tamper rejection. Each request and
 response is kept in `artifacts/verify/voice/<timestamp>/` for review. Alternatively, while a server is running, POST
 `From=<registered-worker-number>` to `/api/voice/inbound` with `Content-Type: application/x-www-form-urlencoded`, then
 POST each `SpeechResult` to the `<Gather action>` URL returned by Twilio.
@@ -114,8 +118,8 @@ POST each `SpeechResult` to the `<Gather action>` URL returned by Twilio.
   number words, and reply-label overlap. It is not an LLM and does not understand open-ended speech generally.
 - Conversation state is signed, not encrypted, into the Gather action URL and expires after 30 minutes. Answers are
   therefore visible in URL and proxy request logs. The app replays the engine
-  from a canonicalized sample workspace on every webhook. There is no server database, so the saved report is only
-  available to build and send the immediate summary; it does not appear in the owner's dashboard yet.
+  from a canonicalized sample workspace on every webhook. Nothing is stored: the sample report exists only to build
+  the labelled summary. Farm mode does not use this state.
 - Number and time extraction supports common Arabic and English forms, not every dialect or phrasing. The match is
   retried twice before an unknown choice is selected or the call ends.
 - Caller ID identifies a configured worker or owner but can be spoofed by a caller. A valid Twilio signature proves
@@ -124,6 +128,6 @@ POST each `SpeechResult` to the `<Gather action>` URL returned by Twilio.
   `NAQAH_WORKER_PHONE`, calls from that number are always treated as worker reports and owner inquiry is unreachable.
 - WhatsApp provider policy, number eligibility, call pricing, and templates are controlled by Meta and Twilio and can
   change. Confirm current terms and charges with each provider before enabling a paid channel.
-- The later production path is Supabase persistence plus a realtime speech model connected through Twilio media
-  streams (or provider SIP). Keep the engine's domain transitions as tools, let the realtime model phrase each turn,
-  and save structured facts only after the domain action confirms success. Do not store recordings.
+- A later step is a realtime speech model connected through Twilio media streams (or provider SIP). Keep the engine's
+  domain transitions as tools, let the model phrase each turn, and save structured facts only after the domain action
+  confirms success. Do not store recordings.
