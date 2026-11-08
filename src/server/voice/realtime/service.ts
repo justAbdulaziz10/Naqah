@@ -123,9 +123,11 @@ function resultOf(plan: TurnPlan, session: VoiceCallSession, workspace: Workspac
   if (plan.outcome === "save_failed") return finished("save_failed", plan.goodbye!);
   if (plan.session.done) return finished("ended_without_saving", plan.goodbye ?? ENDED[locale]);
   const spoken = spokenLines(plan.session, session.turns.length, workspace, locale);
+  const prompt = promptFor(plan.session, spoken, workspace, locale);
   return {
-    output: stringify({ status: "ok", ...promptFor(plan.session, spoken, workspace, locale) }),
+    output: stringify({ status: "ok", ...prompt }),
     awaitingConfirmation: plan.session.step === SUMMARY_STEP,
+    ...(prompt.summary ? { summaryText: prompt.summary } : {}),
     end: null,
     goodbye: null,
   };
@@ -168,8 +170,9 @@ export async function runRealtimeTool(client: SupabaseClient, body: ToolBody, se
       const prompt = promptFor(row.session, spokenLines(row.session, row.session.turns.length - 1, workspace, row.locale), workspace, row.locale);
       const result: ToolResponse = {
         ...refusal(error, row),
+        ...(error === "summary_not_finished" && prompt.summary ? { summaryText: prompt.summary } : {}),
         output: stringify({ status: "invalid", error, ...prompt, message: error === "summary_not_finished"
-          ? "The worker did not hear the complete summary. Read the entire summary again, then ask for clear confirmation. Nothing was saved."
+          ? "The worker did not hear the complete summary. It is being read again now. Wait for their answer. Nothing was saved."
           : "The worker has not clearly confirmed. Ask the worker to confirm clearly or use the keypad fallback. Nothing was saved." }),
         end: failures >= 2 ? "fallback" : null,
       };

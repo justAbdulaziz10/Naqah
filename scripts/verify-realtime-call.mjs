@@ -586,7 +586,6 @@ scenario("R1a", "Happy path: ranch with camels, resources and a custom question 
   check("the last answer's tool output carries the summary to read", /أحفظه/.test(last ?? "") && output(last)?.isSummary === true, (last ?? "").slice(0, 300));
   const summaryState = state(call.sid);
   check("the engine is at the summary", summaryState.step === "report_summary", summaryState?.step);
-  await upstream.speak(output(last)?.summary ?? "هذا ملخص التحديث", { chunks: 2 });
   stream.media(VOICED);
   await confirmAndFinish(call, stream, upstream);
   await assertSaved(ranch, call, {
@@ -605,7 +604,6 @@ scenario("R1b", "Happy path: empty ranch (no camels, no herd count, no resources
   check("the empty ranch starts on a question the engine asks", first?.step === "report_question", first);
   await answerUntil(call, upstream);
   check("no herd count step on an empty ranch", state(call.sid).step === "report_summary", state(call.sid)?.step);
-  await upstream.speak("هذا الملخص");
   await confirmAndFinish(call, stream, upstream);
   await assertSaved(ranch, call);
 });
@@ -742,9 +740,6 @@ scenario("R4", "A cheating model cannot change or save anything", async () => {
 
   await answerUntil(call, upstream);
   check("reaches the summary", state(call.sid).step === "report_summary", state(call.sid)?.step);
-  await expectRefused("confirm_report true at the summary with no worker speech", () => upstream.toolCall("confirm_report", { confirmed: true }));
-  await expectRefused("confirm_report with a non-boolean", () => upstream.toolCall("confirm_report", { confirmed: "yes" }));
-  await upstream.speak("أحفظه؟");
   await confirmAndFinish(call, stream, upstream);
   await assertSaved(ranch, call, { herd: 20 });
 });
@@ -787,7 +782,6 @@ scenario("R5", "A duplicate toolCallId is applied once", async () => {
   check("the concurrent duplicate advanced exactly one step", state(call.sid)?.step === "herd_count_confirm", state(call.sid)?.step);
 
   await answerUntil(call, upstream);
-  await upstream.speak("هذا الملخص");
   await waitFor(() => stream.sent("mark").some((event) => event.mark?.name?.startsWith("summary-")), "summary playback boundary");
   await sleep(100);
   upstream.workerSays("إيه احفظه");

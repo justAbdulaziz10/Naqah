@@ -591,7 +591,9 @@ class CallStream {
         turn?.settle('');
         if (turn) turn.transcript = '';
       }
-      this.summaryNext = result.awaitingConfirmation;
+      // Only a summary the server speaks word for word counts as heard: a model reply could say anything.
+      const summary = typeof result.summaryText === 'string' && result.summaryText.trim() ? result.summaryText : null;
+      this.summaryNext = Boolean(summary);
       this.send(this.provider, {
         type: 'conversation.item.create',
         item: { type: 'function_call_output', call_id: event.call_id, output: result.output },
@@ -605,7 +607,8 @@ class CallStream {
         this.speaking = false;
         this.timer('goodbye', this.limits.goodbyeMs, () => this.finish('goodbye_timeout'));
         this.requestResponse('goodbye', result.goodbye);
-      } else this.requestResponse('turn');
+      } else if (summary) this.requestResponse('summary', summary);
+      else this.requestResponse('turn');
     }).catch(() => this.finish('tool_failed')).finally(() => {
       this.toolPending -= 1;
       this.flushResponse();

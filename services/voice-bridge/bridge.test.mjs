@@ -450,8 +450,34 @@ test('one committed worker turn cannot authorize two queued answers', async () =
   } finally { await state.close(); }
 });
 
-test('interrupted summary is not heard; only a complete re-read and its marks allow confirmation', async () => {
+test('a reply that is not the server-spoken summary never counts as hearing it', async () => {
   const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: true, end: null, goodbye: null } });
+  try {
+    const { socket, messages } = await state.connect();
+    await state.ready(socket);
+    state.complete();
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'answer' });
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'answer', content_index: 0, transcript: 'نعم' });
+    await delay(15);
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'refused', name: 'confirm_report', arguments: '{"confirmed":true}' });
+    await state.providerInbox.wait((event) => event.item?.call_id === 'refused');
+    await delay(20);
+    state.audio(160, 'model-question');
+    send(state.provider, { type: 'response.output_audio.done', item_id: 'model-question', content_index: 0 });
+    state.complete();
+    await delay(15);
+    assert.equal(messages.received.filter((event) => event.event === 'mark' && event.mark.name.startsWith('summary-')).length, 0);
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'second' });
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'second', content_index: 0, transcript: 'نعم' });
+    await delay(15);
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'after-question', name: 'confirm_report', arguments: '{"confirmed":true}' });
+    await state.providerInbox.wait((event) => event.item?.call_id === 'after-question');
+    assert.equal(state.requests.find((request) => request.body?.toolCallId === 'after-question').body.heardSummary, false);
+  } finally { await state.close(); }
+});
+
+test('interrupted summary is not heard; only a complete re-read and its marks allow confirmation', async () => {
+  const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: true, summaryText: 'Mock summary', end: null, goodbye: null } });
   try {
     const { socket, messages } = await state.connect();
     await state.ready(socket);
@@ -459,6 +485,8 @@ test('interrupted summary is not heard; only a complete re-read and its marks al
     send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'summary-tool', name: 'answer_question', arguments: '{"value":"yes"}' });
     await state.providerInbox.wait((event) => event.item?.call_id === 'summary-tool');
     state.complete();
+    const spoken = await state.providerInbox.wait((event) => event.type === 'response.create' && /Mock summary/.test(event.response.instructions || ''));
+    assert.equal(spoken.response.tool_choice, 'none');
     await delay(20);
     state.audio(160, 'summary-first');
     const audioMark = await messages.wait((event) => event.event === 'mark');

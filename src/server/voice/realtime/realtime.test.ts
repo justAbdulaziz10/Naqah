@@ -637,12 +637,22 @@ describe("verified realtime confirmation", () => {
     expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
   });
 
+  it.each(["ماهو صحيح", "مهوب صحيح", "ماهي صحيحة"])("refuses a joined negation: %s", async (workerUtterance) => {
+    const { ticket, opened } = await open();
+    await reachSummary(ticket, firstPrompt(opened));
+    const result = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance });
+    expect(result.output.error).toBe("worker_has_not_confirmed");
+    expect(result.result.summaryText).toBeUndefined();
+    expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
+  });
+
   it.each([undefined, false])("requires affirmative playback evidence (%j)", async (heardSummary) => {
     const { ticket, opened } = await open();
     await reachSummary(ticket, firstPrompt(opened));
     const result = await tool(ticket, "confirm_report", { confirmed: true }, { heardSummary });
     expect(result.output.error).toBe("summary_not_finished");
     expect(result.output.summary).toContain("أحفظه");
+    expect(result.result.summaryText).toContain("أحفظه");
     expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
     const confirmed = await tool(ticket, "confirm_report", { confirmed: true });
     expect(confirmed.output.status).toBe("saved");

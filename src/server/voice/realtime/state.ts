@@ -14,6 +14,8 @@ export interface ToolResponse {
   awaitingConfirmation: boolean;
   end: null | "hangup" | "fallback";
   goodbye: string | null;
+  /** The summary for the bridge to speak word for word: the worker must hear exactly this before confirming. */
+  summaryText?: string;
 }
 
 export interface RealtimeState {

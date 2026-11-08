@@ -231,7 +231,7 @@ const INTERJECTIONS = new Set(["لا", "no", "nope", "nah"]);
 /** …unless it is a determiner: «لا يوجد», "no camel". */
 const DETERMINED = new Set(["يوجد", "احد", "شي", "شيء", "ناقه", "وحده", "camel", "camels", "one", "animal", "problem", "problems", "sign", "signs"]);
 const SCOPE_NEGATORS = new Set([
-  "ما", "مو", "مب", "مش", "ليس", "ليست", "لم", "لن", "لا", "ولا", "بدون", "غير", "مافي", "مافيه", "ماكو", "محد",
+  "ما", "ماهو", "ماهي", "مهو", "مهي", "مهوب", "مهيب", "مهب", "مو", "مب", "مش", "ليس", "ليست", "لم", "لن", "لا", "ولا", "بدون", "غير", "مافي", "مافيه", "ماكو", "محد",
   "not", "never", "without", "no", "none", "nothing", "nobody", "neither", "nor",
 ]);
 /** Words that are themselves "nothing at all". */
