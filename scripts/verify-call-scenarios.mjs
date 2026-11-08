@@ -490,6 +490,56 @@ scenario("S3b", "Silence until the call gives up", async () => {
   check("the live session is cleaned up", sessions(call.sid) === 0);
 });
 
+scenario("S3c", "Replay of call 9b929d (speech, speech, 2 silent, speech, 3 silent), then a correct call", async () => {
+  const ranch = await makeFarm(FULL);
+  const call = await callNow(ranch, "S3c-replay");
+  await call.answer();
+  const noise = speech("البطيخ طاير فوق السطح", "0.0");
+  for (const input of [noise, noise, SILENT, SILENT, noise, SILENT, SILENT]) {
+    await call.turn(input);
+    check(`turn ${call.turns - 1} keeps the call open`, !call.ended, call.text);
+  }
+  await call.turn(SILENT);
+  note(`what each turn replied: ${call.transcript.map((line) => `[${line.said.length} chars] ${line.said}`).join(" || ")}`);
+  check("the call gives up on the eighth turn", call.ended && call.turns === 8, { turns: call.turns, ended: call.ended });
+  check("the last line asks the caller to call again and hangs up", /ما قدرت أفهم إجابتك/.test(call.text) && /<Hangup/.test(call.xml), call.text);
+  const logged = readFileSync(join(LOGS, "next.log"), "utf8").split("\n")
+    .filter((line) => line.includes(`[NAQAH] voice turn call=${call.sid.slice(-6)}`))
+    .slice(-8).map((line) => line.match(/parse=(\w+)/)?.[1]);
+  check("the server log matches the real call's sequence", logged.join() === "unmapped,unmapped,empty,empty,unmapped,empty,empty,empty", logged);
+  const status = await call.finalStatus("completed");
+  check("final status accepted", status.status === 204, status);
+  assertNotSaved(ranch, call);
+  const [ended] = run(ranch.farm);
+  check("the run is missed with one answered attempt and no retry", ended.state === "missed" && ended.attempts?.length === 1 && ended.attempts[0].result === "answered" && ended.next_attempt_at === null, ended);
+  check("the owner is told the call ended unsaved", /ended before the report was saved/.test(sql(`select string_agg(text_en, ' | ' order by at) from events where farm_id = ${q(ranch.farm)}`)));
+  check("the live session is cleaned up", sessions(call.sid) === 0);
+  check("no owner update call follows it", !(await provider()).some((r) => r.To === OWNER));
+
+  const retry = await callNow(ranch, "S3c-correct");
+  await retry.answer();
+  await drive(retry, [
+    { ask: Q.health, input: speech("كلها بخير") }, { ask: Q.herdCount, input: speech("عشرين ناقة") },
+    { ask: Q.feed, input: speech("باقي شوي") }, { ask: Q.bags, input: speech("٢٥") },
+    { ask: Q.water, input: speech("إيه كافي") }, { ask: Q.litres, input: speech("مية لتر") },
+    { ask: Q.custom, input: speech("لا ما جا") }, { ask: Q.summary, input: speech("إيه") },
+  ]);
+  await waitFor(async () => (await provider()).some((r) => r.To === OWNER), "owner call before the final status", 20).catch(() => {});
+  const ownerCallFirst = (await provider()).some((r) => r.To === OWNER);
+  note(`owner update call requested while the worker's call is still open (no final status yet): ${ownerCallFirst}`);
+  await assertSaved(ranch, retry, {
+    herd: 20,
+    expected: [
+      { id: "herd_health", text: /well|بخير/i },
+      { id: "feed_level", text: /low|قليل|ناقص/i },
+      { id: "water_level", text: /good|sufficient|كاف/i },
+      { id: "cq_", text: /ما جا/ },
+    ],
+  });
+  const runs = run(ranch.farm);
+  check("the earlier run stays missed beside the completed one", runs.length === 2 && runs.filter((r) => r.state === "missed").length === 1, runs.map((r) => r.state));
+});
+
 scenario("S4a", "Recognised words count even at low confidence", async () => {
   const ranch = await makeFarm(FULL);
   const call = await callNow(ranch, "S4a");
