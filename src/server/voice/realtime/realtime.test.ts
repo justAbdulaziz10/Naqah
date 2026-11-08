@@ -648,7 +648,7 @@ describe("tool calls on a live call", () => {
 });
 
 describe("verified realtime confirmation", () => {
-  it.each(["", "ضجيج", "لا", "إيه بس العلف غلط", "صح لكن", "yes but change the feed", "لا تحفظه", "إيه لا", "صح مو صحيح", "yes if the owner agrees", "إيه إذا وافق المالك", "yes maybe", "صح يمكن", "he said yes", "قال صح", "is that correct?", "صح؟"])("refuses %j without changing the engine or saving", async (workerUtterance) => {
+  it.each(["", "ضجيج", "لا", "إيه بس العلف غلط", "صح لكن", "yes but change the feed", "لا تحفظه", "إيه لا", "صح مو صحيح", "yes if the owner agrees", "إيه إذا وافق المالك", "yes maybe", "ب، احفض", "إيه والله مدري", "صح يمكن", "he said yes", "قال صح", "is that correct?", "صح؟"])("refuses %j without changing the engine or saving", async (workerUtterance) => {
     const { ticket, opened } = await open();
     await reachSummary(ticket, firstPrompt(opened));
     const before = JSON.stringify({ data: row().session.data, seq: row().seq, misses: row().misses, turns: row().session.turns });
@@ -713,7 +713,7 @@ describe("verified realtime confirmation", () => {
     expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
   });
 
-  it.each(["إيه", "صح", "تمام", "احفظه", "إيه صح", "نعم صحيح", "تمام احفظه", "yes", "yes save it", "that is correct", "إيه تمام", "تأكيد وحفظ", "confirm and save"])("accepts the existing parser's clear confirmation %s exactly once", async (workerUtterance) => {
+  it.each(["إيه", "صح", "تمام", "احفظه", "إيه صح", "نعم صحيح", "تمام احفظه", "yes", "yes save it", "that is correct", "إيه تمام", "تأكيد وحفظ", "confirm and save", "إيه صح، احفظه.", "إيه، صح.", "تمام، احفظه"])("accepts the existing parser's clear confirmation %s exactly once", async (workerUtterance) => {
     const { ticket, opened } = await open();
     await reachSummary(ticket, firstPrompt(opened));
     const result = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance });

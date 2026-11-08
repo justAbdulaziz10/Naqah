@@ -17,10 +17,14 @@ const CLEAR_CONFIRMATIONS = new Set([
   "تاكيد وحفظ", "تاكيد", "اكد", "اكد واحفظ", "ايه اكد", "ايه تاكيد",
 ]);
 
+/** «إيه صح، احفظه»: a clear Arabic yes can be strung together, as long as every word is one of these. */
+const CLEAR_ARABIC_WORDS = new Set(["ايه", "ايوه", "اي", "نعم", "اكيد", "صح", "صحيح", "تمام", "اوكي", "طيب", "والله", "احفظ", "احفظه", "احفظها", "واحفظ", "واحفظه", "تاكيد", "اكد"]);
+const isClearArabic = (words: string) => words.split(" ").every((word) => CLEAR_ARABIC_WORDS.has(word));
+
 /** Words alone: does this transcript really say yes to the summary, with no correction in it? */
 export function isVerifiedConfirmation(utterance: string, session: CallSession, locale: Locale): boolean {
   if (!utterance || utterance.length > MAX_UTTERANCE || /[?؟]/u.test(utterance)) return false;
   const words = normalizeSpeech(utterance).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-  if (!CLEAR_CONFIRMATIONS.has(words)) return false;
+  if (!CLEAR_CONFIRMATIONS.has(words) && !isClearArabic(words)) return false;
   return session.step === SUMMARY_STEP && mapSpeechToInput(session, utterance, null, locale)?.value === "confirm_save";
 }
