@@ -21,7 +21,7 @@ for (const value of [BASE, OFF, GATEWAY, OUTBOUND]) {
   const url = new URL(value);
   assert(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname) && url.pathname === "/", "Loopback HTTP origins only");
 }
-assert(/^naqah_codex2?_/.test(DB), "Disposable Codex database required");
+assert(/^naqah_codex\d*_/.test(DB), "Disposable Codex database required");
 mkdirSync(SHOTS, { recursive: true });
 const sql = (query) => execFileSync("psql", ["-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", DB], { input: query, encoding: "utf8" }).trim();
 const quote = (value) => `'${String(value).replaceAll("'", "''")}'`;

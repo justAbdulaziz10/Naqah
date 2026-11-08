@@ -9,7 +9,9 @@
  *   NAQAH_VOICE_MODE=farm NAQAH_VOICE_SECRET=local-only-… TWILIO_AUTH_TOKEN=local-test-auth-token \
  *     NAQAH_PUBLIC_BASE_URL=http://localhost:3460 npx next start -p 3460
  *   node scripts/verify-owner-flow.mjs --secret local-only-… --token local-test-auth-token
+ *   Add --input keypad to enter quantities with #, or --review keep to retain the owner's count.
  */
+import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -25,6 +27,10 @@ const TOKEN = arg("token", "local-test-auth-token");
 const SECRET = arg("secret", "");
 const DB = arg("db", "naqah_live");
 const SHOTS = arg("shots", "/tmp/naqah-live-tools/shots");
+const INPUT = arg("input", "speech");
+const REVIEW = arg("review", "accept");
+assert(["speech", "keypad"].includes(INPUT), "--input must be speech or keypad");
+assert(["accept", "keep"].includes(REVIEW), "--review must be accept or keep");
 if (!/^https?:\/\/(127\.0\.0\.1|localhost)/.test(BASE) || !/127\.0\.0\.1|localhost/.test(GATEWAY)) throw new Error("local addresses only");
 if (!SECRET.startsWith("local-only-")) throw new Error("--secret must be the server's local-only NAQAH_VOICE_SECRET");
 mkdirSync(SHOTS, { recursive: true });
@@ -80,14 +86,22 @@ const action = (xml) => {
   return raw ? decode(raw) : null;
 };
 
-/** The worker answers NAQAH's report call. `answer(text)` returns speech or digits for a question. */
+/** The worker answers NAQAH's report call with speech or a sequence of keypad presses. */
 async function reportCall(farmId, runId, answer) {
   const CallSid = `CA${randomBytes(16).toString("hex")}`;
   const s = callToken({ k: "report", f: farmId, r: runId, n: 1, l: "ar", t: Date.now() });
   let reply = await webhook(`/api/voice/outbound?s=${encodeURIComponent(s)}`, { CallSid, CallStatus: "in-progress" });
   const script = [says(reply.xml)];
   for (let turn = 0; turn < 30 && action(reply.xml); turn += 1) {
-    reply = await webhook(action(reply.xml), { CallSid, ...answer(says(reply.xml)) });
+    const { keys, ...fields } = answer(says(reply.xml), reply.xml);
+    if (keys) {
+      const finishKey = reply.xml.match(/<Gather\b[^>]*\bfinishOnKey="([^"]+)"/)?.[1];
+      assert(finishKey && keys.endsWith(finishKey), "keypad quantities must end with the requested finish key");
+      fields.Digits = keys.slice(0, -finishKey.length);
+      assert(/^\d+$/.test(fields.Digits), "the webhook receives digits without the finish key");
+    }
+    reply = await webhook(action(reply.xml), { CallSid, ...fields });
+    assert.equal(reply.status, 200, "report turn webhook succeeds");
     script.push(says(reply.xml));
   }
   await webhook(`/api/voice/outbound/status?s=${encodeURIComponent(s)}`, { CallSid, CallStatus: "completed" });
@@ -97,7 +111,7 @@ async function reportCall(farmId, runId, answer) {
 const browser = await chromium.launch();
 const errors = [];
 const open = async (viewport) => {
-  const context = await browser.newContext({ viewport });
+  const context = await browser.newContext({ viewport, reducedMotion: "reduce" });
   const page = await context.newPage();
   page.on("pageerror", (error) => errors.push(error.message));
   return { context, page };
@@ -186,9 +200,16 @@ const runId = randomUUID();
 const now = new Date().toISOString();
 sql(`insert into report_call_runs (id, farm_id, occurrence, trigger, attempts, state)
   values (${q(runId)}, ${q(farmA)}, ${q(now)}, 'manual', ${q(JSON.stringify([{ at: now, result: "pending" }]))}::jsonb, 'calling')`);
-const call = await reportCall(farmA, runId, (text) => {
-  if (/اضغط|Press/.test(text)) return { Digits: "1" };
-  if (/كم.*(إجمالي|المجموع|كلها|عدد)|total/i.test(text)) return { SpeechResult: "أربعين" };
+let quantities = 0;
+const call = await reportCall(farmA, runId, (text, xml) => {
+  if (/<Gather\b[^>]*\bnumDigits="1"/.test(xml)) return { Digits: "1" };
+  if (/قل العدد|Say the number/.test(text)) {
+    assert(xml.includes('finishOnKey="#"') && /ثم اضغط #|then press #/.test(text), "quantity prompt explains keypad completion");
+    quantities += 1;
+    const amount = /أكياس|bags/.test(text) ? "30" : /باللتر|litres/.test(text) ? "150" : "40";
+    if (INPUT === "keypad") return { keys: `${amount}#` };
+    return { SpeechResult: amount === "40" ? "أربعين" : amount === "30" ? "ثلاثين كيس" : "مية وخمسين لتر" };
+  }
   if (/مريض|تعبان|sick/.test(text)) return { SpeechResult: "لا، ما فيه مريض" };
   if (/الطبيب|البيطري|vet/i.test(text)) return { SpeechResult: "لا ما جاء" };
   return { SpeechResult: "نعم" };
@@ -196,17 +217,22 @@ const call = await reportCall(farmA, runId, (text) => {
 const saved = sql(`select r.herd_count_reported || '|' || run.state || '|' || (run.report_id = r.id) from report_call_runs run join reports r on r.farm_id = run.farm_id where run.id = ${q(runId)}`);
 check("the answered report call saves one report and completes its run", /\|completed\|true$/.test(saved), `${saved}\n${call.script.join("\n")}`);
 check("the worker's herd count is kept as a proposal, not the official count", /^40\|/.test(saved) && sql(`select herd_count from farms where id = ${q(farmA)}`) === "45", saved);
+check(`${INPUT} quantities are confirmed and saved without confusing # with a menu choice`, quantities === 3 && sql(`select count(*) from resources where farm_id = ${q(farmA)} and certainty = 'approximate' and ((kind = 'feed' and quantity = '30 bags') or (kind = 'water' and quantity = '150 litres'))`) === "2", call.script.join("\n"));
 check("no recording or transcript is stored", !/audio|recording|transcript/.test(sql(`select string_agg(column_name, ',') from information_schema.columns where table_schema = 'public'`)));
 
 await A.page.goto(`${BASE}/en/app`);
 await settled(A.page);
 const afterCall = await A.page.locator("main").innerText();
 check("the dashboard shows the new report", !/no report yet/i.test(afterCall), afterCall.slice(0, 500));
-const use = A.page.getByRole("button", { name: /^Use/ });
+const use = A.page.getByRole("button", { name: "Use 40", exact: true });
+const keep = A.page.getByRole("button", { name: "Keep 45", exact: true });
 check("the dashboard offers the worker's count to accept", await use.count() > 0, afterCall.slice(0, 500));
-if (await use.count()) {
-  await use.first().click();
-  check("accepting it makes it the official count", await waitFor(() => sql(`select herd_count from farms where id = ${q(farmA)}`) === "40"));
+check("the dashboard offers to keep the owner's count", await keep.count() > 0, afterCall.slice(0, 500));
+const review = REVIEW === "accept" ? use : keep;
+const expectedCount = REVIEW === "accept" ? "40" : "45";
+if (await review.count()) {
+  await review.click();
+  check(`${REVIEW}: the official count and review persist`, await waitFor(() => sql(`select herd_count || '|' || (herd_count_reviewed_at is not null) from farms where id = ${q(farmA)}`) === `${expectedCount}|true`));
 }
 await A.page.screenshot({ path: `${SHOTS}/flow-en-after-call.png`, fullPage: true });
 for (const locale of ["ar", "en"]) {
@@ -215,7 +241,8 @@ for (const locale of ["ar", "en"]) {
     await A.page.goto(`${BASE}/${locale}/app`);
     await settled(A.page);
     const reportText = await A.page.locator("main").innerText();
-    check(`${locale} ${width}: dashboard shows the persisted report and accepted count`, reportText.includes(RANCH) && /40/.test(reportText) && !/no report yet|ما وصل.*تحديث/.test(reportText), reportText);
+    check(`${locale} ${width}: dashboard shows the persisted report and reviewed count`, reportText.includes(RANCH) && new RegExp(`\\b${expectedCount}\\b`).test(reportText) && !/no report yet|ما وصل.*تحديث/.test(reportText), reportText);
+    check(`${locale} ${width}: the reviewed proposal stays dismissed`, await A.page.getByRole("button", { name: /^(?:Use|اعتمد)\s+40$/ }).count() === 0 && sql(`select herd_count_reported from reports where farm_id = ${q(farmA)}`) === "40");
     check(`${locale} ${width}: dashboard has no horizontal overflow`, await noSideScroll(A.page));
     await A.page.screenshot({ path: `${SHOTS}/report-${locale}-${width}.png`, fullPage: true });
   }
