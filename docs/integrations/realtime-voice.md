@@ -41,7 +41,7 @@ Body `{ "ticket": string, "callSid": string, "toolCallId": string, "name": strin
 `output` is the JSON text returned to the model. A repeated `toolCallId` returns the first result without re-applying.
 
 The tool schemas come from Next, so the bridge stays schema-agnostic.
-Only `confirm_report` with `confirmed: true` carries the additive `workerUtterance` and `heardSummary` fields.
+`answer_question` and `confirm_report` with `confirmed: true` carry the worker's `workerUtterance`; the confirmation also carries `heardSummary`.
 The utterance is at most 1,000 characters, with no control characters. It is ephemeral verification input, never model
 context, a log field, or stored session/report data. Missing evidence is a refusal, not permission to save.
 
@@ -118,3 +118,13 @@ Official references checked November 8, 2026:
 
 The bridge listens on 3300 and proxies ordinary HTTP to Next on 3301, keeping one public ngrok address. Vercel can't host
 WebSockets, so production needs a separately hosted bridge; that needs owner approval.
+
+## Known limits (November 2026 integration)
+
+- The bridge counts a summary as heard only when the provider's output transcript matches the summary text. This was
+  tested against mocks, not the real model. If the real transcript differs, the call falls back to the scripted keypad path.
+- The report is saved before the session row advances (`planTurn`, then `advanceRow`). A confirmed report can land while a
+  fallback takes over; it is not lost or duplicated (`${callSid}:report`), but the two are not one transaction.
+- `/api/voice/realtime/*` and the Twilio webhooks read the whole body before checking its size and signature.
+- A scheduled verification is not started if its instruction reached the worker only through a callback. The task is still
+  asked about on later report calls. Open decision: see `voice-data-contract.md`.

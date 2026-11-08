@@ -81,7 +81,7 @@ async function workerCall(from, answers) {
   const script = [say(reply.xml)];
   for (let turn = 0; turn < 25 && action(reply.xml); turn += 1) {
     const text = say(reply.xml);
-    const custom = Object.entries(answers).find(([question]) => text.includes(question));
+    const custom = Object.entries(answers).find(([question]) => text.includes(question.replace(/مزرعة/g, "عزبة")));
     const fields = { CallSid, From: from };
     if (custom) fields.SpeechResult = custom[1];
     else if (!/اضغط|Press/.test(text)) fields.SpeechResult = "12";
@@ -233,7 +233,7 @@ await A.page.evaluate(() => window.dispatchEvent(new Event("focus")));
 let shown = await A.page.getByText(ANSWER).count();
 for (let index = 0; index < 30 && !shown; index += 1) {
   await A.page.waitForTimeout(300);
-  const toggle = A.page.locator("main button[aria-expanded='false']").first();
+  const toggle = A.page.getByRole("button", { name: "اعرض التقرير" }).first();
   if (await toggle.count()) await toggle.click().catch(() => undefined);
   shown = await A.page.getByText(ANSWER).count();
 }
@@ -253,7 +253,7 @@ check("signing out leaves no farm data on screen or in storage", !(await A.page.
 await signIn(A.context, ownerA);
 await A.page.goto(`${BASE}/ar/app/calls`);
 await settled(A.page);
-const toggle = A.page.locator("main button[aria-expanded='false']").first();
+const toggle = A.page.getByRole("button", { name: "اعرض التقرير" }).first();
 if (await toggle.count()) await toggle.click();
 await A.page.getByText(ANSWER).first().waitFor({ state: "attached", timeout: 8_000 });
 check("signing in again brings the report back", true);

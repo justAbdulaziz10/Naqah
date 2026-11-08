@@ -282,7 +282,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
         else await call.press("1");
       }
       expect(call.text).toMatch(/Your update is saved|تم حفظ التحديث/);
-      expect(sql(`select quantity || ':' || certainty from resources where farm_id = ${q(farm.id)} and kind = 'feed'`)).toBe(`${quantity} bags:approximate`);
+      expect(sql(`select quantity || ':' || certainty from resources where farm_id = ${q(farm.id)} and kind = 'feed'`)).toBe(`${quantity} ${language === "ar" ? "كيس" : "bags"}:approximate`);
     });
 
     it("clears a call whose end was never reported, on the next inbound call", async () => {

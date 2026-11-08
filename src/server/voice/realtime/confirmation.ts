@@ -13,7 +13,8 @@ const CLEAR_CONFIRMATIONS = new Set([
   "yes", "yeah", "yep", "yup", "sure", "correct", "right", "ok", "okay", "confirm",
   "save", "save it", "save the report", "save the update", "yes save it", "yes correct",
   "that is correct", "that s correct", "that is right", "that s right", "yes that is correct",
-  "go ahead and save it",
+  "go ahead and save it", "confirm and save",
+  "تاكيد وحفظ", "تاكيد", "اكد", "اكد واحفظ", "ايه اكد", "ايه تاكيد",
 ]);
 
 /** Words alone: does this transcript really say yes to the summary, with no correction in it? */

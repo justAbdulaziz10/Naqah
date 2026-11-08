@@ -705,7 +705,7 @@ describe("verified realtime confirmation", () => {
     expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
   });
 
-  it.each(["إيه", "صح", "تمام", "احفظه", "إيه صح", "نعم صحيح", "تمام احفظه", "yes", "yes save it", "that is correct"])("accepts the existing parser's clear confirmation %s exactly once", async (workerUtterance) => {
+  it.each(["إيه", "صح", "تمام", "احفظه", "إيه صح", "نعم صحيح", "تمام احفظه", "yes", "yes save it", "that is correct", "إيه تمام", "تأكيد وحفظ", "confirm and save"])("accepts the existing parser's clear confirmation %s exactly once", async (workerUtterance) => {
     const { ticket, opened } = await open();
     await reachSummary(ticket, firstPrompt(opened));
     const result = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance });
