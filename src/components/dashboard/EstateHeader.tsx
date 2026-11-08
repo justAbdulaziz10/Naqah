@@ -1,78 +1,62 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { CheckCircle, Clock, WarningCircle } from "@phosphor-icons/react";
+import type { CSSProperties, ReactNode } from "react";
 import { CamelMark } from "@/components/brand/CamelMark";
-import { ButtonLink } from "@/components/ui";
 import { WeatherLine } from "@/components/dashboard/WeatherLine";
 import { cn } from "@/lib/cn";
 
 export type EstateTone = "calm" | "attention" | "unanswered" | "quiet";
 
-const toneDot: Record<EstateTone, string> = {
-  calm: "bg-ok-soft",
-  attention: "bg-sand",
-  unanswered: "bg-danger-soft",
-  quiet: "bg-cream/50",
-};
+const step = (i: number) => ({ "--i": i }) as CSSProperties;
 
-export interface EstateFact {
-  key: string;
-  label: string;
-  content: ReactNode;
+/** Each tone has its own shape as well as colour: a tick, a warning, a clock. */
+function ToneMark({ tone }: { tone: EstateTone }) {
+  const className = "shrink-0 translate-y-[0.12em]";
+  if (tone === "calm") return <CheckCircle size="1em" weight="fill" className={cn(className, "text-ok-soft")} aria-hidden />;
+  if (tone === "quiet") return <Clock size="1em" weight="bold" className={cn(className, "text-cream/60")} aria-hidden />;
+  return <WarningCircle size="1em" weight="fill" className={cn(className, tone === "unanswered" ? "text-[#f0a493]" : "text-sand")} aria-hidden />;
 }
 
 /**
- * The estate at a glance: its name, how it is, one next step, and the few facts the owner checks
- * every visit (last report, next report call, herd). "Call now" appears inside the next-call fact
- * only where the deployment has real calls switched on (see ReportCallNow).
+ * The estate at a glance, on the page's one espresso field: its name, the answer to "is my ranch
+ * alright" in one sentence with where it comes from, and the rhythm of report calls with the next
+ * one. Every other fact lives once, further down the page.
  */
-export function EstateHeader({
-  name,
-  state,
-  tone,
-  action,
-  rhythm,
-  facts,
-}: {
+export function EstateHeader({ name, answer, tone, provenance, rhythm, next }: {
   name: string;
-  state: string;
+  answer: string;
   tone: EstateTone;
-  action: { href: string; label: string } | null;
-  /** Latest report → now → next report call, drawn to scale. Replaces those two facts when present. */
-  rhythm?: ReactNode;
-  facts: EstateFact[];
+  provenance: ReactNode;
+  /** The report rhythm strip. */
+  rhythm: ReactNode | null;
+  /** The next report call, said plainly, with any real action beside it. */
+  next: ReactNode;
 }) {
-  return (
-    <section aria-labelledby="estate-name" className="rounded-[var(--radius-card)] bg-espresso px-5 py-6 text-cream sm:px-8 sm:py-7">
-      <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-5">
-        <div className="min-w-0 flex-1 basis-80">
-          <div className="flex items-center gap-3">
-            <h1 id="estate-name" className="min-w-0 text-[2rem] font-semibold leading-tight tracking-[-0.02em] sm:text-[2.25rem]">{name}</h1>
-            <CamelMark className="h-8 w-auto shrink-0 sm:h-9" />
-          </div>
-          <p className="mt-2 flex items-center gap-2.5 text-lg font-medium leading-snug sm:text-xl">
-            <span className={`size-2.5 shrink-0 rounded-full ${toneDot[tone]}`} aria-hidden />
-            {state}
-          </p>
-        </div>
-        {action ? <ButtonLink href={action.href} variant="light" className="w-full sm:w-auto">{action.label}</ButtonLink> : null}
+  const title = (
+    <div className="min-w-0">
+      <div className="flex items-start justify-between gap-4">
+        <CamelMark className="naqah-enter h-8 w-auto shrink-0 sm:h-10" />
+        <WeatherLine className="naqah-enter mt-1 text-end text-sm leading-snug text-cream/70" />
       </div>
-      {rhythm || facts.length ? (
-        <div className={cn("mt-6 grid gap-x-12 gap-y-6 border-t border-cream/15 pt-5", rhythm && "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]")}>
-          {rhythm}
-          {facts.length ? (
-            <dl className={cn("grid grid-cols-2 gap-x-6 gap-y-5", !rhythm && "lg:grid-flow-col lg:auto-cols-fr lg:grid-cols-none lg:gap-x-10", rhythm && "lg:pt-6")}>
-              {facts.map((fact) => (
-                <div key={fact.key} className="min-w-0">
-                  <dt className="text-sm text-cream/75">{fact.label}</dt>
-                  <dd className="mt-1">{fact.content}</dd>
-                </div>
-              ))}
-            </dl>
-          ) : null}
-        </div>
-      ) : null}
-      <WeatherLine className="mt-4 text-sm leading-relaxed text-cream/75" />
+      <h1 id="estate-name" className="naqah-enter naqah-name mt-4 text-[2.25rem] font-semibold leading-[1.05] tracking-[-0.025em] text-balance sm:text-[3rem] xl:text-[3.5rem]" style={step(1)}>
+        {name}
+      </h1>
+      <p className="naqah-enter mt-4 flex items-start gap-3 text-[1.375rem] font-semibold leading-snug text-cream sm:text-[1.75rem]" style={step(2)}>
+        <ToneMark tone={tone} />
+        <span className="naqah-name min-w-0">{answer}</span>
+      </p>
+      <p className="naqah-enter mt-2 ps-[calc(1.375rem+0.75rem)] text-[0.9375rem] leading-relaxed text-cream/70 sm:ps-[calc(1.75rem+0.75rem)]" style={step(3)}>
+        {provenance}
+      </p>
+    </div>
+  );
+
+  return (
+    <section aria-labelledby="estate-name" className="overflow-hidden rounded-[var(--radius-card)] bg-espresso px-5 py-7 text-cream sm:px-9 sm:py-9">
+      {title}
+      {rhythm ? <div className="mt-8 border-t border-cream/15 pt-6">{rhythm}</div> : null}
+      <div className={cn("naqah-enter", rhythm ? "mt-5" : "mt-7 border-t border-cream/15 pt-5")} style={step(5)}>{next}</div>
     </section>
   );
 }

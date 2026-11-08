@@ -250,15 +250,24 @@ for the demo.
   and console errors. **Always run it against `npm run build && npx next start`**, not only `next dev` — two bugs
   below only showed up in production.
 
-### Design rules (from the 2026-11 distill pass)
+### Design rules (2026-11 distill pass, updated by Product Experience 2.0)
 
-- No pills for status. `Badge`, `HealthBadge`, `CertaintyBadge` and `OutcomeBadge` render coloured text (with an optional dot). Certainty is quiet provenance text, never a chip.
+These rules keep NAQAH from looking generic. They are guardrails, not a ceiling: the owner wants a premium,
+visually rich product, so a rule may be broken deliberately when it clearly blocks a better result. Record the
+exception here.
+
+- No pills for status. `Badge`, `HealthBadge`, `CertaintyBadge` and `OutcomeBadge` render coloured text (with an optional dot). Certainty is quiet provenance text, never a chip. Status is never shown by colour alone.
 - No icon tiles, eyebrow labels, numbered 01/02/03 steps, same-size icon card grids, or decorative SVG waves/blobs. `CardHeader` shows an icon inline only, never in a tinted square.
-- Cards have a hairline border and no shadow. Do not nest cards, and do not tint cards with gold or other status colours to call attention.
-- The Overview is the estate ledger: one espresso estate header, the matters row, then one surface divided by hairlines. Camels appear by name. Espresso is the only filled field, and only there. Numbers sit inline with their label, never in separate cells.
-- Calling the worker from NAQAH is not connected, so `EstateHeader` shows it as a disabled control that says so. No `tel:` links on the dashboard: the demo's numbers are samples. Simulation lives only in the demo strip and the Call Lab, and always says it is a simulation.
-- The landing is one editorial page: hero plus the call ledger (`LiveTranscript`), the owner quote (`OwnerCall`), the rules list, the plan table, and the final band. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`.
+- Cards have a hairline border and no shadow, and are never nested. Overlays are the exception: `Sheet` and dialogs sit on a dimmed backdrop with elevation.
+- Visuals carry real data only (labelled samples in the demo and the landing) and must read well with one report or none. Timelines share one language from `src/components/visuals/`: a filled mark happened, a ring is still to come. Every visual has a text equivalent for screen readers.
+- The Overview answers first: the espresso estate header holds the ranch name, a one-sentence answer, the report rhythm strip and the next call. Below it, what needs attention, the latest report as a timestamped ledger, and the herd. Say each fact once. Camels appear by name and open their sheet.
+- Espresso fill is reserved for the estate header and the "your ranch's week" card in onboarding and Settings.
+- Soft tints are allowed only for: findings inside a report, an unanswered check inside its task, the emergency strip (sand), and a warning that would lose unsaved work. Never tint whole cards to call attention.
+- The herd count may sit large beside the herd mark field; other numbers stay inline with their label.
+- The dashboard has no call control unless "Call now" is genuinely available (account mode, `ReportCallNow`). Copy distinguishes three states: no call time yet, a time saved but report calls not switched on, and "Call now" available. No `tel:` links on the dashboard: the demo's numbers are samples. Simulation lives only in the demo strip and the Call Lab, and always says it is a simulation.
+- The landing is one photographic story: hero with the sample evening rail, the scroll-led `CallStory` (worker's call → report → owner's call → dashboard), principles with the retry rail, `PlanWeeks` with "Compare every detail", and the closing invitation. Dark scrims under text on photos are allowed for contrast. Times above story steps are timeline markers, not eyebrows. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`. Photos and their credits are tracked in `docs/design/asset-ledger.md`.
 - Arabic pages lead with Alexandria (`--font-arabic`). next/font's "Montserrat Fallback" covers every codepoint, so with Montserrat first, Arabic renders in Arial.
+- Motion is subtle and meaningful (entrances, state changes, sheets), never hides content, and stops under `prefers-reduced-motion`.
 
 ### Known pitfalls (learned the hard way)
 - **Store hydration:** localStorage rehydration runs *inside* zustand's `create()`, before `useWorkspaceStore` is
@@ -269,5 +278,11 @@ for the demo.
   Create such values in an event handler, an effect, or only when actually needed on the client.
 - **Answers in two languages:** fixed-choice answers carry `answerText {ar,en}`; free text stays in `answer` exactly
   as said. Render `answerText ? t(answerText) : answer`.
+- **`.ltr-nums` sets `direction` on the element itself,** which flips its own `start-*`/`end-*` positioning. Position a
+  wrapper instead and keep `.ltr-nums` on the inner text.
+- **Arabic has no short weekday names** (`weekday: "short"` returns the full name). Tight seven-day strips use the
+  one-letter `narrow` forms (ح ن ث …) and keep the full name for screen readers.
+- **Heavy client SDKs:** load the Supabase browser client through `src/lib/supabase/lazy-client.ts` everywhere except
+  sign-in forms, so the landing, onboarding and the demo never download it.
 - **Names in the Call Lab:** engine and lab copy were written with the sample names; `personalize.ts` swaps them.
   When the real voice agent arrives, pass names explicitly instead (TODO in that file).

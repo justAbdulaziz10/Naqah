@@ -730,7 +730,7 @@ export function LabPage() {
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.lab.title}</h1>
+        <h1 className="text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-espresso sm:text-[2.5rem]">{m.lab.title}</h1>
         <p className="max-w-2xl text-sm leading-relaxed text-muted">
           {m.lab.subtitle}{" "}
           <Link href={`${href("/app/settings")}#settings-plan`} className="inline-flex min-h-11 items-center font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
@@ -770,7 +770,7 @@ export function LabPage() {
 
         <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-2.5">
-            <Badge tone={availabilityTone} dot>{m.lab.availability.label}</Badge>
+            <span className="shrink-0 whitespace-nowrap"><Badge tone={availabilityTone} dot>{m.lab.availability.label}</Badge></span>
             <p className="pt-0.5 text-sm leading-relaxed text-muted">
               {selectedAvailability.text}
               {selectedAvailability.time ? <> <bdi className="ltr-nums">{selectedAvailability.time}</bdi></> : null}

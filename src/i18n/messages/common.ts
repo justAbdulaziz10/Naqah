@@ -31,12 +31,14 @@ export const common = defineMessages({
       labShort: "Call Lab",
       settings: "Settings",
       home: "Home",
+      skip: "Skip to content",
     },
     demo: {
       badge: "Sample ranch",
       label: "Demo",
       noticeShort: "Sample ranch. Calls here are simulated.",
       simulateCall: "Simulate a call",
+      labHint: "Try every call, simulated",
       notice: "A sample ranch in this browser. Calls, updates and tasks here are simulated.",
       clockHint: "Riyadh time",
       noWorkspace: "No ranch here yet",
@@ -50,6 +52,11 @@ export const common = defineMessages({
     },
     footer: {
       rights: "© 2026 NAQAH",
+    },
+    loadError: {
+      title: "Your ranch didn't load",
+      home: "Back to the home page",
+      orSignOut: "Not your account?",
     },
   },
   ar: {
@@ -81,12 +88,14 @@ export const common = defineMessages({
       labShort: "المختبر",
       settings: "الإعدادات",
       home: "الرئيسية",
+      skip: "انتقل للمحتوى",
     },
     demo: {
       badge: "عزبة نموذجية",
       label: "عرض تجريبي",
       noticeShort: "عزبة نموذجية. المكالمات هنا محاكاة.",
       simulateCall: "محاكاة مكالمة",
+      labHint: "جرّب كل المكالمات، محاكاة",
       notice: "عزبة نموذجية في هذا المتصفح. المكالمات والتحديثات والمهام هنا محاكاة.",
       clockHint: "بتوقيت الرياض",
       noWorkspace: "ما فيه عزبة هنا للحين",
@@ -100,6 +109,11 @@ export const common = defineMessages({
     },
     footer: {
       rights: "© 2026 ناقة",
+    },
+    loadError: {
+      title: "ما تحمّلت عزبتك",
+      home: "ارجع للصفحة الرئيسية",
+      orSignOut: "مو حسابك؟",
     },
   },
 });

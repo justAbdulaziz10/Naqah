@@ -64,7 +64,7 @@ export function TimeRail({
   const nowAnchor = pNow < 0.14 ? "start" : pNow > 0.86 ? "end" : "center";
 
   return (
-    <figure role="group" aria-label={label} className={cn("min-w-0", className)}>
+    <div role="group" aria-label={label} className={cn("min-w-0", className)}>
       <div aria-hidden className="relative">
         {nowMs !== null && start ? (
           <div className={cn("relative mb-1", compact ? "h-4" : "h-5")}>
@@ -103,11 +103,11 @@ export function TimeRail({
           ) : null}
         </div>
       </div>
-      <figcaption className="mt-3 grid grid-cols-2 gap-x-4">
+      <div className="mt-3 grid grid-cols-2 gap-x-4">
         <RailLabel end={start ?? { at: new Date(from), label: m.visual.now, value: startValue }} c={c} compact={compact} />
         <RailLabel end={end} c={c} compact={compact} align="end" />
-      </figcaption>
-    </figure>
+      </div>
+    </div>
   );
 }
 

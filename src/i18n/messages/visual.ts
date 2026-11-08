@@ -8,6 +8,14 @@ export const visual = defineMessages({
       label: (last: string, next: string) => `From the latest report, ${last}, to the next report call, ${next}`,
       firstLabel: (next: string) => `No report yet. The first report call is ${next}`,
       noReport: "No report yet",
+      stripLabel: "Report calls, recent and upcoming",
+      today: "Today",
+      thisWeek: "This week",
+      states: { saved: "Report saved", missed: "Not answered", quiet: "No report", open: "Waiting for the report", next: "Next call", upcoming: "Upcoming", planned: "Planned call" },
+      legend: { saved: "Report saved", missed: "Not answered", quiet: "No report", next: "Next call", upcoming: "Later calls" },
+      weekOf: (date: string) => `Week of ${date}`,
+      savedAt: (time: string) => `Saved ${time}`,
+      plannedAt: (time: string) => `Planned ${time}`,
     },
     herd: {
       label: "Health of the named camels",
@@ -17,6 +25,21 @@ export const visual = defineMessages({
       unknown: (count: string) => `${count} not reported yet`,
       unnamed: (count: string) => `${count} not registered by name`,
       dotsLabel: "The herd, one mark per camel",
+      group: { sick: "Sick", watch: "Under watch", unknown: "Not reported yet", healthy: "Healthy" },
+      more: (count: string) => `and ${count} more`,
+    },
+    composition: {
+      health: "Health",
+      type: "Type",
+      age: "Age",
+      female: (count: number) => (count === 1 ? "1 female" : `${count} female`),
+      male: (count: number) => (count === 1 ? "1 male" : `${count} male`),
+      bands: {
+        young: (count: string) => `${count} under 3 years`,
+        adult: (count: string) => `${count} aged 3 to 8`,
+        older: (count: string) => `${count} aged 9 or more`,
+        unknown: (count: string) => `${count} age not recorded`,
+      },
     },
     week: {
       label: "Report calls in a week",
@@ -51,6 +74,17 @@ export const visual = defineMessages({
       emptySaveDetail: "Never the recording",
       emptyBrief: "NAQAH calls you",
       emptyBriefDetail: "With what matters",
+      delivered: (time: string) => `Got your instruction · ${time}`,
+      deliveryMissed: "Not reached yet",
+    },
+    activity: {
+      title: (days: number) => (days >= 14 ? "The last two weeks" : days === 7 ? "The last week" : `The last ${days} days`),
+      summary: (total: number, reports: number, missed: number) =>
+        total === 0 ? "No calls" : [total === 1 ? "1 call" : `${total} calls`, reports === 1 ? "1 report" : `${reports} reports`, missed ? `${missed} not answered` : null].filter(Boolean).join(" · "),
+      today: "Today",
+      report: "Report",
+      other: "Other call",
+      noAnswer: "Not answered",
     },
     tasks: {
       given: "Given",
@@ -69,6 +103,14 @@ export const visual = defineMessages({
       label: (last: string, next: string) => `من آخر تقرير ${last} إلى مكالمة التقرير الجاية ${next}`,
       firstLabel: (next: string) => `ما وصل تقرير بعد. أول مكالمة تقرير ${next}`,
       noReport: "ما وصل تقرير بعد",
+      stripLabel: "مكالمات التقرير، الماضية والجاية",
+      today: "اليوم",
+      thisWeek: "هالأسبوع",
+      states: { saved: "وصل التقرير", missed: "ما رد", quiet: "ما فيه تقرير", open: "بانتظار التقرير", next: "المكالمة الجاية", upcoming: "جاية", planned: "مكالمة مخطّطة" },
+      legend: { saved: "وصل التقرير", missed: "ما رد", quiet: "ما فيه تقرير", next: "المكالمة الجاية", upcoming: "المكالمات اللي بعدها" },
+      weekOf: (date: string) => `أسبوع ${date}`,
+      savedAt: (time: string) => `وصل ${time}`,
+      plannedAt: (time: string) => `مخطّطة ${time}`,
     },
     herd: {
       label: "صحة الحلال المسجّل بالاسم",
@@ -78,6 +120,21 @@ export const visual = defineMessages({
       unknown: (count: string) => `${count} ما وصل عنها خبر`,
       unnamed: (count: string) => `${count} غير مسجّلة بالاسم`,
       dotsLabel: "الحلال، علامة لكل ناقة",
+      group: { sick: "مريضة", watch: "تحت الملاحظة", unknown: "ما وصل عنها خبر", healthy: "بصحة جيدة" },
+      more: (count: string) => `و${count} غيرها`,
+    },
+    composition: {
+      health: "الصحة",
+      type: "النوع",
+      age: "العمر",
+      female: (count: number) => (count === 1 ? "ناقة وحدة" : count >= 3 && count <= 10 ? `${count} نوق` : `${count} ناقة`),
+      male: (count: number) => (count === 1 ? "جمل واحد" : count >= 3 && count <= 10 ? `${count} جمال` : `${count} جمل`),
+      bands: {
+        young: (count: string) => `${count} أقل من 3 سنين`,
+        adult: (count: string) => `${count} من 3 إلى 8 سنين`,
+        older: (count: string) => `${count} من 9 سنين وفوق`,
+        unknown: (count: string) => `${count} عمرها غير مسجّل`,
+      },
     },
     week: {
       label: "مكالمات التقرير خلال الأسبوع",
@@ -112,6 +169,19 @@ export const visual = defineMessages({
       emptySaveDetail: "بدون تسجيل صوت",
       emptyBrief: "ناقة تتصل عليك",
       emptyBriefDetail: "بالمهم بس",
+      delivered: (time: string) => `وصلته تعليماتك · ${time}`,
+      deliveryMissed: "ما وصلته للحين",
+    },
+    activity: {
+      title: (days: number) => (days >= 14 ? "آخر أسبوعين" : days === 7 ? "آخر أسبوع" : `آخر ${days} أيام`),
+      summary: (total: number, reports: number, missed: number) =>
+        total === 0
+          ? "ما فيه مكالمات"
+          : [total === 1 ? "مكالمة وحدة" : total === 2 ? "مكالمتين" : `${total} مكالمات`, reports === 1 ? "تقرير واحد" : reports === 2 ? "تقريرين" : `${reports} تقارير`, missed ? `${missed} بدون رد` : null].filter(Boolean).join(" · "),
+      today: "اليوم",
+      report: "تقرير",
+      other: "مكالمة ثانية",
+      noAnswer: "بدون رد",
     },
     tasks: {
       given: "أعطيتها",

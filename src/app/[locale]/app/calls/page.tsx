@@ -1,19 +1,23 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ArrowRight, WarningCircle } from "@phosphor-icons/react";
-import { EmptyState, OutcomeBadge } from "@/components/dashboard/DashboardPrimitives";
-import { ReportAnswers } from "@/components/dashboard/ReportAnswers";
+import { useMemo, useState, type CSSProperties } from "react";
+import { ArrowRight, Check, CheckCircle, Minus, WarningCircle, X } from "@phosphor-icons/react";
+import { OutcomeBadge } from "@/components/dashboard/DashboardPrimitives";
+import { ReportSheet } from "@/components/dashboard/ReportSheet";
+import { callEntries, type CallChain, type CallGroup, type ReportStory } from "@/components/dashboard/callStories";
+import { useHashTarget } from "@/components/dashboard/useHashTarget";
 import { useCallSentence } from "@/components/schedule/ReportCallSection";
+import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
+import { CallActivity } from "@/components/visuals/CallActivity";
 import { ReportFlow, type FlowStep } from "@/components/visuals/ReportFlow";
-import { ButtonLink, Card, Segmented } from "@/components/ui";
+import { Button, ButtonLink, Card, Segmented } from "@/components/ui";
 import { dayKey } from "@/domain";
 import type { CallKind, CallLog, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
-import { useIsAccount, useWorkspace } from "@/store/workspace";
+import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
 
-type CallFilter = "all" | "worker" | "owner";
+type CallFilter = "all" | CallGroup;
 
 function callTitle(kind: CallKind, m: ReturnType<typeof useI18n>["m"]) {
   const labels: Record<CallKind, string> = {
@@ -30,189 +34,260 @@ function callTitle(kind: CallKind, m: ReturnType<typeof useI18n>["m"]) {
   return labels[kind];
 }
 
-/** The rail mark: who was on the other end, and whether it connected. Words beside it say the same. */
-function markClass(call: CallLog) {
-  if (call.outcome === "no_answer") return "border-2 border-warn bg-cream";
-  if (call.outcome === "rejected") return "border-2 border-faint bg-cream";
-  return call.party === "worker" ? "bg-info" : "bg-brown";
-}
-
 function Direction({ call, worker }: { call: CallLog; worker: string }) {
   const { m } = useI18n();
   const v = m.visual.calls;
   const other = call.party === "worker" ? worker : v.you;
   const [from, to] = call.direction === "inbound" ? [other, v.naqah] : [v.naqah, other];
   return (
-    <span className="inline-flex items-center gap-1.5" aria-label={v.direction(from, to)}>
+    <span className="inline-flex items-center gap-1.5">
+      {/* One sentence for screen readers ("NAQAH to Ahmed"); the arrow form is for the eye. */}
+      <span className="sr-only">{v.direction(from, to)}</span>
       <span aria-hidden>{from}</span>
-      <ArrowRight size={13} weight="bold" className="shrink-0 rtl:-scale-x-100" aria-hidden />
+      <ArrowRight size={12} weight="bold" className="shrink-0 rtl:-scale-x-100" aria-hidden />
       <span aria-hidden>{to}</span>
     </span>
   );
 }
 
-/** For a worker's report: did it reach NAQAH, and did NAQAH reach the owner afterwards. */
-function ReportPath({ ws, call, worker }: { ws: Workspace; call: CallLog; worker: string }) {
-  const { m, fmt } = useI18n();
+/** Each attempt of one call as a mark, in the order placed: filled = answered, amber ring = no answer. */
+function AttemptMarks({ calls }: { calls: CallLog[] }) {
+  return (
+    <span aria-hidden className="inline-flex items-center">
+      {calls.map((call, index) => (
+        <span key={call.id} className="inline-flex items-center">
+          {index ? <span className="h-0 w-2.5 border-t-2 border-dashed border-stone" /> : null}
+          <span className={cn("size-3 rounded-full", call.outcome === "no_answer" ? "border-2 border-warn bg-cream" : call.outcome === "rejected" ? "border-2 border-faint bg-cream" : call.party === "worker" ? "bg-brown" : "bg-sand")} />
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Whether a call connected, as a shape: a tick in a disc, a cross in an amber ring, a dash in grey. */
+function OutcomeMark({ outcome }: { outcome: CallLog["outcome"] }) {
+  if (outcome === "completed") {
+    return <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brown text-cream"><Check size={15} weight="bold" /></span>;
+  }
+  if (outcome === "no_answer") {
+    return <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full border-2 border-warn text-warn"><X size={14} weight="bold" /></span>;
+  }
+  return <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full border-2 border-faint text-muted"><Minus size={14} weight="bold" /></span>;
+}
+
+function StoryRow({ story, worker, onOpen }: { story: ReportStory; worker: string; onOpen: () => void }) {
+  const { m, t, fmt } = useI18n();
   const v = m.visual.calls;
-  const report = ws.reports.find((item) => item.id === call.reportId);
-  if (!report) return null;
-  const briefing = ws.calls
-    .filter((item) => item.kind === "owner_notification" && item.reportId === report.id)
-    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+  const c = m.app.calls;
+  const report = story.report;
+  const findings = report?.findings ?? [];
+  const briefing = story.briefings.find((call) => call.outcome === "completed") ?? story.briefings.at(-1);
   const steps: FlowStep[] = [
-    { key: "worker", title: worker, detail: <>{v.answered} · <time className="ltr-nums" dateTime={call.at}>{fmt.time(call.at)}</time></>, state: "done" },
-    { key: "naqah", title: v.naqah, detail: <>{v.saved} · {v.findings(report.findings.length)}</>, state: "done" },
+    { key: "worker", title: worker, detail: <>{v.answered} · <time className="ltr-nums" dateTime={story.call.at}>{fmt.time(story.call.at)}</time></>, state: "done" },
+    { key: "naqah", title: v.naqah, detail: report ? <>{v.saved} · {v.findings(findings.length)}</> : v.saved, state: "done" },
     briefing?.outcome === "completed"
       ? { key: "owner", title: v.you, detail: v.briefed(fmt.time(briefing.at)), state: "done" }
       : briefing
         ? { key: "owner", title: v.you, detail: v.briefMissed, state: "missed" }
         : { key: "owner", title: v.you, detail: v.briefPending, state: "waiting" },
   ];
-  return <ReportFlow steps={steps} label={v.flowLabel(worker)} className="mt-3 max-w-lg" />;
+  const delivery = story.deliveries.at(-1);
+  if (delivery) {
+    const done = delivery.find((call) => call.outcome === "completed");
+    steps.push(done
+      ? { key: "back", title: worker, detail: v.delivered(fmt.time(done.at)), state: "done" }
+      : { key: "back", title: worker, detail: v.deliveryMissed, state: "missed" });
+  }
+
+  return (
+    <article data-hash-target={report ? `report-${report.id}` : undefined} tabIndex={-1} className="flex gap-4 px-5 py-6 transition-colors duration-200 hover:bg-ivory/50 focus:outline-none sm:px-7">
+      <OutcomeMark outcome={story.call.outcome} />
+      <div className="min-w-0 flex-1">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-x-2 text-[0.8125rem] font-medium text-muted">
+            <time className="ltr-nums" dateTime={story.call.at}>{fmt.time(story.call.at)}</time>
+            <span aria-hidden>·</span>
+            <Direction call={story.call} worker={worker} />
+          </p>
+          <h3 className="naqah-name mt-1 text-[1.375rem] font-semibold leading-snug tracking-[-0.01em] text-espresso">{c.reportOf(worker)}</h3>
+          {findings.length ? (
+            <p className="mt-2 flex items-start gap-2 leading-relaxed text-espresso">
+              <WarningCircle size={18} weight="fill" className="mt-1 shrink-0 text-warn" aria-hidden />
+              <span>{t(findings[0].text)}{findings.length > 1 ? <span className="text-muted"> · {c.moreFindings(findings.length - 1)}</span> : null}</span>
+            </p>
+          ) : (
+            <p className="mt-2 flex items-center gap-2 text-muted">
+              <CheckCircle size={18} weight="fill" className="shrink-0 text-ok" aria-hidden />
+              {c.noFindings}
+            </p>
+          )}
+        </div>
+        {report ? (
+          <Button variant="secondary" size="sm" className="naqah-nudge h-11 shrink-0 max-sm:w-full" onClick={onOpen} aria-haspopup="dialog">
+            {c.viewReport}
+            <ArrowRight size={15} className="naqah-nudge-icon rtl:-scale-x-100" aria-hidden />
+          </Button>
+        ) : null}
+      </div>
+      <ReportFlow stack steps={steps} label={v.flowLabel(worker)} className="mt-5 max-w-2xl" />
+      </div>
+    </article>
+  );
+}
+
+function ChainRow({ ws, chain, worker }: { ws: Workspace; chain: CallChain; worker: string }) {
+  const { m, t, fmt } = useI18n();
+  const c = m.app.calls;
+  const last = chain.calls[chain.calls.length - 1];
+  const answered = chain.calls.find((call) => call.outcome === "completed");
+  const many = chain.calls.length > 1;
+  const task = last.ticketId ? ws.taskTickets.find((ticket) => ticket.id === last.ticketId) ?? null : null;
+  return (
+    <div className="flex gap-4 px-5 py-5 transition-colors duration-200 hover:bg-ivory/50 sm:px-7">
+      <OutcomeMark outcome={answered ? "completed" : last.outcome} />
+      <div className="min-w-0 flex-1">
+        <p className="flex flex-wrap items-center gap-x-2 text-[0.8125rem] font-medium text-muted">
+          <time className="ltr-nums" dateTime={last.at}>{fmt.time(last.at)}</time>
+          <span aria-hidden>·</span>
+          <Direction call={last} worker={worker} />
+        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+          <h3 className="text-[1.0625rem] font-semibold text-espresso">{callTitle(last.kind, m)}</h3>
+          {many ? null : <OutcomeBadge outcome={last.outcome} />}
+        </div>
+        {/* A follow-up names its task in the owner's words; otherwise the call's own summary. */}
+        <p className="mt-0.5 text-sm leading-relaxed text-espresso">{task ? task.instruction : t((answered ?? last).summary)}</p>
+        {many ? (
+          <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            <AttemptMarks calls={chain.calls} />
+            <span className={answered ? "text-muted" : "font-semibold text-warn"}>
+              {answered ? c.answeredOn(fmt.number(answered.attempt ?? chain.calls.indexOf(answered) + 1)) : c.attemptsNoAnswer(fmt.number(chain.calls.length))}
+            </span>
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function EmptyCalls({ ws, worker, account }: { ws: Workspace; worker: string; account: boolean }) {
+  const { m, fmt, href } = useI18n();
+  const firstCall = useCallSentence(ws);
+  // A saved time is only a promise once this deployment places scheduled calls.
+  const scheduledOff = useScheduledCallsOn() === false && account;
+  const v = m.visual.calls;
+  return (
+    <Card className="px-5 py-10 sm:px-10 sm:py-12">
+      <p className="text-center text-xl font-semibold text-espresso">{m.app.calls.empty}</p>
+      <p className="mx-auto mt-1 max-w-md text-center text-muted">{m.app.calls.emptyBody}</p>
+      <ReportFlow
+        stack
+        className="mx-auto mt-8 w-full max-w-xl"
+        label={v.flowLabel(worker)}
+        steps={[
+          { key: "worker", title: v.emptyAnswer(worker), detail: scheduledOff && firstCall ? m.app.overview.callingInactive : firstCall ? v.emptyAnswerDetail(fmt.dateTime(firstCall.next, { weekday: "short", day: undefined, month: undefined })) : v.emptyAnswerUnset, state: "waiting" },
+          { key: "naqah", title: v.emptySave, detail: v.emptySaveDetail, state: "waiting" },
+          { key: "owner", title: v.emptyBrief, detail: v.emptyBriefDetail, state: "waiting" },
+        ]}
+      />
+      {account ? null : (
+        <div className="mt-8 flex justify-center">
+          <ButtonLink href={href("/app/lab")} variant="secondary">{m.app.overview.simulateCall}</ButtonLink>
+        </div>
+      )}
+    </Card>
+  );
 }
 
 export default function CallsPage() {
-  const { m, t, fmt, href } = useI18n();
+  const { m, fmt } = useI18n();
+  const c = m.app.calls;
   const ws = useWorkspace();
+  const now = useNow();
   const account = useIsAccount();
   const [filter, setFilter] = useState<CallFilter>("all");
-  const firstCall = useCallSentence(ws);
+  const [openReportId, setOpenReportId] = useState<string | null>(null);
+  const linked = useHashTarget("report-", Boolean(ws));
 
-  const calls = useMemo(() => {
-    if (!ws) return [];
-    return [...ws.calls]
-      .filter((call) => filter === "all" || call.party === filter)
-      .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
-  }, [filter, ws]);
+  // A link to one report (from the Overview) opens it once; closing it clears the link.
+  const [seenLink, setSeenLink] = useState<string | null>(null);
+  if (linked !== seenLink) {
+    setSeenLink(linked);
+    if (linked) setOpenReportId(linked);
+  }
 
+  const entries = useMemo(() => (ws ? callEntries(ws) : []), [ws]);
   const days = useMemo(() => {
-    const groups = new Map<string, CallLog[]>();
-    for (const call of calls) {
-      const key = dayKey(new Date(call.at));
-      groups.set(key, [...(groups.get(key) ?? []), call]);
+    const groups = new Map<string, typeof entries>();
+    for (const entry of entries.filter((item) => filter === "all" || item.group === filter)) {
+      const key = dayKey(new Date(entry.at));
+      groups.set(key, [...(groups.get(key) ?? []), entry]);
     }
     return [...groups.entries()];
-  }, [calls]);
+  }, [entries, filter]);
 
   if (!ws) return null;
   const worker = ws.settings.worker.name.trim() || m.app.overview.unnamedWorker;
+  const openReport = openReportId ? ws.reports.find((report) => report.id === openReportId) ?? null : null;
+
+  function closeReport() {
+    setOpenReportId(null);
+    if (window.location.hash) history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
 
   return (
-    <div className="max-w-3xl space-y-5 pb-8">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.app.calls.title}</h1>
-        {ws.calls.length ? <Segmented
-          value={filter}
-          onChange={setFilter}
-          label={m.app.calls.filterLabel}
-          className="w-full justify-between [&>button]:min-h-11 sm:w-auto sm:justify-start"
-          options={[
-            { value: "all", label: m.app.calls.all },
-            { value: "worker", label: m.app.calls.worker },
-            { value: "owner", label: m.app.calls.owner },
-          ]}
-        /> : null}
+    <div className="max-w-4xl space-y-6 pb-8">
+      <header>
+        <h1 className="text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-espresso sm:text-[2.5rem]">{c.title}</h1>
+        <p className="mt-1 text-muted">{c.lead}</p>
       </header>
 
-      {calls.length ? (
-        <div className="space-y-6">
-          {days.map(([day, group]) => (
-            <section key={day} aria-labelledby={`calls-day-${day}`}>
-              <h2 id={`calls-day-${day}`} className="mb-3 flex items-baseline gap-2 text-sm font-bold text-espresso">
-                {fmt.date(group[0].at)}
-                <span className="font-medium text-muted">{m.visual.calls.dayCount(fmt.number(group.length))}</span>
-              </h2>
-              <Card>
-                <ol className="py-2">
-                  {group.map((call, index) => {
-                    const report = call.reportId ? ws.reports.find((item) => item.id === call.reportId) : null;
-                    // One report, one place for its details: the worker's report call when it is listed.
-                    const showDetails = Boolean(call.reportId) && (call.kind === "worker_report" || !calls.some((other) => other.reportId === call.reportId && other.kind === "worker_report"));
-                    const first = index === 0;
-                    const last = index === group.length - 1;
-                    return (
-                      <li key={call.id} className="relative py-4 pe-5 ps-11 sm:pe-6 sm:ps-[7.75rem]">
-                        <span className="absolute start-6 top-[1.05rem] hidden w-[4.1rem] text-sm font-medium text-muted sm:block">
-                          <time className="ltr-nums" dateTime={call.at}>{fmt.time(call.at)}</time>
-                        </span>
-                        <span
-                          aria-hidden
-                          className="absolute start-[1.59rem] w-px bg-stone sm:start-[6.34rem]"
-                          style={{ top: first ? "1.75rem" : 0, bottom: last ? "calc(100% - 1.75rem)" : 0 }}
-                        />
-                        <span aria-hidden className={cn("absolute start-5 top-[1.375rem] size-3 rounded-full sm:start-[6rem]", markClass(call))} />
-                        <p className="flex flex-wrap items-center gap-x-2 text-[0.8125rem] font-medium text-muted">
-                          <Direction call={call} worker={worker} />
-                          <span className="sm:hidden" aria-hidden>·</span>
-                          <time className="ltr-nums sm:hidden" dateTime={call.at}>{fmt.time(call.at)}</time>
-                        </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <h3 className="font-semibold text-espresso">{callTitle(call.kind, m)}</h3>
-                          <OutcomeBadge outcome={call.outcome} />
-                          {call.attempt !== null && call.attempt > 1 ? <span className="text-xs text-muted">{m.app.calls.attempt(fmt.number(call.attempt))}</span> : null}
-                        </div>
-                        <p className="mt-1 text-sm leading-relaxed text-espresso">{t(call.summary)}</p>
-                        {call.kind === "worker_report" && call.reportId ? <ReportPath ws={ws} call={call} worker={worker} /> : null}
+      {ws.calls.length ? (
+        <>
+          <Card className="px-5 py-5 sm:px-7 sm:py-6">
+            <CallActivity calls={ws.calls} now={now} />
+          </Card>
 
-                        {showDetails ? (
-                          <details className="mt-3 border-t border-stone/70 pt-2">
-                            <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold text-brown underline decoration-stone underline-offset-4">
-                              {m.app.calls.details}
-                            </summary>
-                            {report ? (
-                              <div className="space-y-4 pb-2 pt-1">
-                                <section>
-                                  <h4 className="mb-2 text-sm font-semibold">{m.app.calls.answers}</h4>
-                                  {report.answers.length ? <ReportAnswers answers={report.answers} /> : <p className="text-sm text-muted">{m.app.calls.noAnswers}</p>}
-                                </section>
-                                <section>
-                                  <h4 className="mb-2 text-sm font-semibold">{m.app.calls.findings}</h4>
-                                  {report.findings.length ? (
-                                    <ul className="space-y-2">
-                                      {report.findings.map((finding) => (
-                                        <li key={finding.id} className="flex items-start gap-2 text-sm leading-relaxed text-warn">
-                                          <WarningCircle size={17} weight="fill" className="mt-0.5 shrink-0" aria-hidden />
-                                          <span>{t(finding.text)}</span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  ) : <p className="text-sm text-muted">{m.app.calls.noFindings}</p>}
-                                </section>
-                              </div>
-                            ) : <p className="pb-2 text-sm text-muted">{m.app.calls.reportUnavailable}</p>}
-                          </details>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ol>
-              </Card>
-            </section>
-          ))}
-        </div>
-      ) : (
-        <Card>
-          {ws.calls.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 px-5 py-10 text-center sm:px-8">
-              <p className="font-semibold text-espresso">{m.app.calls.empty}</p>
-              {account ? <p className="max-w-md text-sm text-muted">{m.app.calls.emptyBody}</p> : null}
-              <ReportFlow
-                className="mt-5 w-full max-w-xl text-start"
-                label={m.visual.calls.flowLabel(worker)}
-                steps={[
-                  { key: "worker", title: m.visual.calls.emptyAnswer(worker), detail: firstCall ? m.visual.calls.emptyAnswerDetail(fmt.dateTime(firstCall.next, { weekday: "short", day: undefined, month: undefined })) : m.visual.calls.emptyAnswerUnset, state: "waiting" },
-                  { key: "naqah", title: m.visual.calls.emptySave, detail: m.visual.calls.emptySaveDetail, state: "waiting" },
-                  { key: "owner", title: m.visual.calls.emptyBrief, detail: m.visual.calls.emptyBriefDetail, state: "waiting" },
-                ]}
-              />
-              {account ? null : <ButtonLink href={href("/app/lab")} variant="secondary" className="mt-6">{m.app.overview.simulateCall}</ButtonLink>}
+          <Segmented
+            value={filter}
+            onChange={setFilter}
+            label={c.filterLabel}
+            className="w-full justify-between [&>button]:min-h-11 [&>button]:flex-1 sm:w-auto sm:justify-start sm:[&>button]:flex-none"
+            options={[
+              { value: "all", label: c.all },
+              { value: "reports", label: c.reports },
+              { value: "followUps", label: c.followUps },
+              { value: "yours", label: c.yours },
+            ]}
+          />
+
+          {days.length ? (
+            <div className="space-y-7">
+              {days.map(([day, group]) => (
+                <section key={day} aria-labelledby={`calls-day-${day}`}>
+                  <h2 id={`calls-day-${day}`} className="mb-3 flex items-baseline gap-2 text-sm font-semibold text-espresso">
+                    {fmt.date(group[0].at)}
+                  </h2>
+                  <Card className="naqah-stagger divide-y divide-stone/70 overflow-hidden">
+                    {group.map((entry, index) => (
+                      <div key={entry.id} style={{ "--i": index } as CSSProperties}>
+                        {entry.type === "report"
+                          ? <StoryRow story={entry} worker={worker} onOpen={() => entry.report && setOpenReportId(entry.report.id)} />
+                          : <ChainRow ws={ws} chain={entry} worker={worker} />}
+                      </div>
+                    ))}
+                  </Card>
+                </section>
+              ))}
             </div>
-          ) : <EmptyState title={m.app.calls.empty} />}
-        </Card>
-      )}
+          ) : (
+            <Card className="px-5 py-10 text-center text-muted">{c.emptyFilter}</Card>
+          )}
+        </>
+      ) : <EmptyCalls ws={ws} worker={worker} account={account} />}
 
-      {ws.calls.length ? <p className="text-[0.8125rem] text-muted">{m.app.calls.note}</p> : null}
+      {openReport ? <ReportSheet ws={ws} report={openReport} worker={worker} onClose={closeReport} /> : null}
     </div>
   );
 }

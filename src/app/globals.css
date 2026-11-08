@@ -241,3 +241,200 @@
   }
 }
 
+
+/* owner app — design B. Still state is the default; motion only adds arrival and feedback. */
+/* Owner-entered names (ranch, camels, worker) may be one long unbroken word: break it rather than
+   widen the page. Never truncate the only visible name. */
+.naqah-app main {
+  overflow-wrap: break-word;
+}
+.naqah-name {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+/* A row that scrolls sideways on a phone: thin themed scrollbar, no page jump. */
+.naqah-scroll-x {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-cream) 30%, transparent) transparent;
+  overscroll-behavior-x: contain;
+}
+/* Keyboard focus and in-page links land clear of the sticky top bar and the phone's bottom bar. */
+html:has(.naqah-app) {
+  scroll-padding-top: 7.5rem;
+  scroll-padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+}
+html:has(.naqah-app #settings-ranch) {
+  scroll-padding-top: 11rem;
+}
+@media (min-width: 1024px) {
+  html:has(.naqah-app) {
+    scroll-padding-top: 4.5rem;
+    scroll-padding-bottom: 1.5rem;
+  }
+  html:has(.naqah-app #settings-ranch) {
+    scroll-padding-top: 8rem;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* The next report call: a ring that breathes out twice on arrival, then rests. */
+  .naqah-beacon {
+    animation: naqah-pop 420ms var(--ease-expo) both;
+  }
+  .naqah-beacon::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    border: 2px solid currentColor;
+    color: var(--color-gold);
+    opacity: 0;
+    animation: naqah-ring-soft 1600ms var(--ease-standard) 700ms 2 both;
+  }
+  /* The first look: the header's lines arrive in reading order, once. Set --i on each. */
+  .naqah-enter {
+    animation: naqah-rise 560ms var(--ease-expo) both;
+    animation-delay: calc(var(--i, 0) * 70ms);
+  }
+  .naqah-stagger-item {
+    animation: naqah-rise 520ms var(--ease-expo) both;
+    animation-delay: calc(var(--i, 0) * 55ms + 180ms);
+  }
+  /* Rows and marks that arrive one after another. Set --i on each. */
+  .naqah-stagger > * {
+    animation: naqah-rise 520ms var(--ease-expo) both;
+    animation-delay: calc(var(--i, 0) * 45ms + 60ms);
+  }
+  /* Meters fill from the start edge once. */
+  .naqah-fill {
+    transform-origin: left center;
+    animation: naqah-fill 900ms var(--ease-expo) 200ms both;
+  }
+  .naqah-fill:dir(rtl) {
+    transform-origin: right center;
+  }
+  .naqah-fill-up {
+    transform-origin: bottom center;
+    animation: naqah-fill-up 900ms var(--ease-expo) 200ms both;
+  }
+  /* Sheets and dialogs: the panel rises (phones) or slides in from the end edge (wide screens). */
+  .naqah-sheet[data-state="open"] .naqah-sheet-backdrop {
+    animation: naqah-fade 240ms var(--ease-standard) both;
+  }
+  .naqah-sheet[data-state="open"] .naqah-sheet-panel {
+    animation: naqah-sheet-up 420ms var(--ease-expo) both;
+  }
+  @media (min-width: 768px) {
+    .naqah-sheet[data-state="open"] .naqah-sheet-panel {
+      animation-name: naqah-sheet-side;
+    }
+    .naqah-sheet[data-state="open"] .naqah-sheet-panel:dir(rtl) {
+      animation-name: naqah-sheet-side-rtl;
+    }
+  }
+  .naqah-sheet[data-state="closing"] .naqah-sheet-backdrop {
+    animation: naqah-fade-out 220ms var(--ease-standard) both;
+  }
+  .naqah-sheet[data-state="closing"] .naqah-sheet-panel {
+    animation: naqah-sheet-down 240ms var(--ease-standard) both;
+  }
+  @media (min-width: 768px) {
+    .naqah-sheet[data-state="closing"] .naqah-sheet-panel {
+      animation-name: naqah-sheet-out;
+    }
+    .naqah-sheet[data-state="closing"] .naqah-sheet-panel:dir(rtl) {
+      animation-name: naqah-sheet-out-rtl;
+    }
+  }
+  .naqah-toast {
+    animation: naqah-toast 420ms var(--ease-expo) both;
+  }
+  /* A link or button that leads somewhere nudges its arrow on hover. */
+  .naqah-nudge:hover .naqah-nudge-icon {
+    translate: 3px 0;
+  }
+  .naqah-nudge:dir(rtl):hover .naqah-nudge-icon {
+    translate: -3px 0;
+  }
+  .naqah-nudge-icon {
+    transition: translate var(--duration-micro) var(--ease-standard);
+  }
+}
+
+@keyframes naqah-ring-soft {
+  from {
+    opacity: 0.6;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 2.4;
+  }
+}
+
+@keyframes naqah-fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes naqah-fill-up {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes naqah-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes naqah-sheet-up {
+  from {
+    translate: 0 100%;
+  }
+}
+
+@keyframes naqah-sheet-side {
+  from {
+    translate: 100% 0;
+  }
+}
+
+@keyframes naqah-sheet-side-rtl {
+  from {
+    translate: -100% 0;
+  }
+}
+
+@keyframes naqah-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes naqah-sheet-down {
+  to {
+    translate: 0 100%;
+  }
+}
+
+@keyframes naqah-sheet-out {
+  to {
+    translate: 100% 0;
+  }
+}
+
+@keyframes naqah-sheet-out-rtl {
+  to {
+    translate: -100% 0;
+  }
+}
+
+@keyframes naqah-toast {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+    scale: 0.96;
+  }
+}
