@@ -23,7 +23,7 @@ import {
   startTaskVerification,
   submitOwnerInstruction,
 } from "../actions";
-import { fromRiyadh, MAX_RETRIES, REPORT_CALL_RETRIES, RETRY_DELAY_MS, riyadhParts } from "../clock";
+import { dayKey, fromRiyadh, MAX_RETRIES, REPORT_CALL_RETRIES, RETRY_DELAY_MS, riyadhParts } from "../clock";
 import { evaluateFindings, ownerBriefing, type ReportDraft } from "../findings";
 import { isHerdCount } from "../herd";
 import { uid } from "../id";
@@ -106,6 +106,8 @@ interface ConversationData {
   tempNote?: string | null;
   tempLevel?: Level;
   tempQuantity?: string;
+  /** The worker has been asked once about "enough" followed by "none left". */
+  quantityClarified?: boolean;
   tempCount?: number;
   /** The NAQAH → worker report call this conversation belongs to (report_call only). */
   reportCallId?: string;
@@ -115,6 +117,8 @@ interface ConversationData {
   instruction?: string;
   actionable?: boolean;
   scheduledFor?: string | null;
+  /** Riyadh calendar day (YYYY-MM-DD) chosen for a scheduled task. */
+  scheduleDay?: string;
   pendingCallIds?: string[];
   startedVerificationCallIds?: string[];
   pendingIndex?: number;
@@ -173,6 +177,7 @@ const copy = (en: string, ar: string): LocalizedText => ({ en, ar });
 const UNKNOWN_ANSWER = copy("I don’t know", "ما أدري");
 const HERD_COUNT_QUESTION = copy("How many camels are there in total today?", "كم عدد الحلال كله اليوم؟");
 const REPORT_CALL_ATTEMPTS = REPORT_CALL_RETRIES + 1;
+const LEVELS: readonly Level[] = ["good", "medium", "low", "critical", "unknown"];
 const noDraft = (): ReportDraft => ({
   answers: [],
   camelUpdates: [],
@@ -272,10 +277,19 @@ function workerTurn(session: CallSession, input: AnswerInput, now: Date): { sess
 
 export const isReportScenario = (scenario: Scenario) => scenario === "report_call" || scenario === "worker_inbound";
 
+/** Spelling a recogniser or a keyboard may vary: tashkeel, hamza forms, curly apostrophes. */
+const plainWords = (text: string) =>
+  text.replace(/[\u064B-\u065F\u0670\u0640]/g, "").replace(/[أإآ]/g, "ا").replace(/[’‘]/g, "'").replace(/[.,!?؟،]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+
+const UNKNOWN_PHRASES = new Set(["ما ادري", "ماادري", "مدري", "ما اعرف", "لا اعرف", "i don't know", "i do not know", "i dont know"]);
+const NOTHING_TO_ADD = new Set(["لا", "لاء", "لا والله", "لا شكرا", "ما فيه", "مافيه", "ما في", "مافي", "ما فيه شي", "مافيه شي", "ما في شي", "مافي شي", "ما عندي شي", "بدون ملاحظه", "بدون ملاحظة", "no", "none", "nothing", "no note"]);
+
 function isUnknown(value: string, text = ""): boolean {
-  const normalized = (value + " " + text).trim().toLowerCase();
-  return value === "unknown" || value === "dont_know" || normalized === "i don't know" || normalized === "i do not know" || normalized === "ما أدري";
+  return value === "unknown" || value === "dont_know" || UNKNOWN_PHRASES.has(plainWords(text || value));
 }
+
+/** «لا» to "any note?" means there is no note. It must not be saved as the note. */
+const addsNothing = (text: string) => NOTHING_TO_ADD.has(plainWords(text)) || isUnknown("", text);
 
 function atRiyadh(date: Date, locale: "ar" | "en", includeDate = false): string {
   return new Intl.DateTimeFormat(locale === "ar" ? "ar-SA-u-ca-gregory-nu-latn" : "en-GB", {
@@ -300,6 +314,19 @@ export function scenarioAvailability(ws: Workspace, now: Date): ScenarioAvailabi
     dueWorkerCallCount: dueWorkerCalls(ws, now).length,
     dueTaskVerificationCount: dueTaskVerifications(ws, now).length,
   };
+}
+
+/** Ultimate open tasks a worker can confirm now: Any Time, plus scheduled tasks whose time has come. */
+function tasksToConfirm(ws: Workspace, now: Date) {
+  if (!taskTicketsEnabled(ws)) return [];
+  const overdueIds = new Set(overdueScheduledTasks(ws, now).map((task) => task.id));
+  const seen = new Set<string>();
+  return openTaskTickets(ws).filter((task) => {
+    if (seen.has(task.id)) return false;
+    if (task.scheduledFor !== null && !overdueIds.has(task.id)) return false;
+    seen.add(task.id);
+    return true;
+  });
 }
 
 function heatDayReportItem(ws: Workspace, now: Date): ReportItem | null {
@@ -367,19 +394,14 @@ function reportQueue(ws: Workspace, now: Date): ReportItem[] {
       question: copy(question.text, question.text),
     })),
   );
-  if (taskTicketsEnabled(ws)) {
-    const overdueIds = new Set(overdueScheduledTasks(ws, now).map((task) => task.id));
-    queue.push(
-      ...openTaskTickets(ws)
-        .filter((task) => task.scheduledFor === null || overdueIds.has(task.id))
-        .map((task) => ({
-          kind: "task" as const,
-          id: "task_" + task.id,
-          taskId: task.id,
-          question: copy("Did you finish: " + task.instruction + "?", "خلصت المهمة: " + task.instruction + "؟"),
-        })),
-    );
-  }
+  queue.push(
+    ...tasksToConfirm(ws, now).map((task) => ({
+      kind: "task" as const,
+      id: "task_" + task.id,
+      taskId: task.id,
+      question: copy("Did you finish: " + task.instruction + "?", "خلصت المهمة: " + task.instruction + "؟"),
+    })),
+  );
   return queue;
 }
 
@@ -583,7 +605,7 @@ function startWorkerCallback(ws: Workspace, now: Date): EngineResult {
   const tickets = openNoAnswerTickets(ws).filter((ticket) => route.ticketIds.includes(ticket.id));
   const messagesEn = tickets.map((ticket) => ticket.message).join("; ");
   const messagesAr = tickets.map((ticket) => ticket.message).join("؛ ");
-  const callbackTaskIds = overdueScheduledTasks(ws, now).map((task) => task.id);
+  const callbackTaskIds = tasksToConfirm(ws, now).map((task) => task.id);
   const session = {
     ...blank("worker_callback", now),
     data: { callbackTaskIds, callbackTaskIndex: 0 },
@@ -803,13 +825,12 @@ function askReportItem(session: CallSession, ws: Workspace, now: Date): CallSess
     );
   }
   if (item.answerKind === "level" && item.resource) {
-    const values: Level[] = ["good", "medium", "low", "critical", "unknown"];
     return ask(
       current,
       item.question,
       now,
       "report_question",
-      values.map((value) => ({
+      LEVELS.map((value) => ({
         id: value,
         value,
         label: levelLabel(item.resource as ResourceKind, value),
@@ -879,14 +900,21 @@ function handleReportQuestion(
   if (item.kind === "task") {
     const unknown = isUnknown(value, input.text);
     const done = value === "yes";
-    const draft = {
-      ...current.session.draft,
-      taskConfirmations: [...current.session.draft.taskConfirmations, { taskId: item.taskId, done }],
-    };
+    // "I don't know" is neither done nor not done, so the summary must not read it back as either.
+    const explicitNo = value === "no";
+    const sessionWithConfirmation = !unknown && (done || explicitNo)
+      ? {
+          ...current.session,
+          draft: {
+            ...current.session.draft,
+            taskConfirmations: [...current.session.draft.taskConfirmations, { taskId: item.taskId, done }],
+          },
+        }
+      : current.session;
     const recorded = reportAnswer(
-      { ...current.session, draft },
+      sessionWithConfirmation,
       item,
-      unknown ? UNKNOWN_ANSWER : done ? copy("Yes, completed", "إيه، خلصت") : copy("Not yet", "باقي"),
+      unknown ? UNKNOWN_ANSWER : done ? copy("Yes, completed", "إيه، خلصت") : explicitNo ? copy("Not yet", "باقي") : (input.text ?? value),
       unknown ? "unknown" : "reported",
     );
     return { session: nextReportItem(recorded, ws, now) };
@@ -941,6 +969,16 @@ function handleReportQuestion(
   if (item.id === "herd_count") return handleHerdCount(current.session, ws, now, item, value, input);
 
   if (item.answerKind === "level" && item.resource) {
+    if (!LEVELS.includes(value as Level)) {
+      // "How much is left?" answered with a number: keep it, without inventing a level.
+      const count = (input.text ?? value).trim();
+      if ((item.resource === "feed" || item.resource === "water") && isQuantity(count)) {
+        const quantified = { ...current.session, data: { ...current.session.data, tempLevel: "unknown" as Level } };
+        return { session: askQuantityConfirm(quantified, item.resource, count, now) };
+      }
+      // Never carry a value that isn't a level: the save would refuse the whole report.
+      return { session: askReportItem(current.session, ws, now) };
+    }
     const level = value as Level;
     const certainty: Certainty = level === "unknown" ? "unknown" : "reported";
     if (item.resource === "feed" || item.resource === "water") {
@@ -1045,10 +1083,10 @@ function handleHerdCountDetail(session: CallSession, ws: Workspace, now: Date, i
   if (!item) return { session: current.session };
   const count = current.session.draft.herdCount;
   const base = typeof count === "number" ? camelsText(count) : null;
-  const unknown = isUnknown(current.value, input.text);
-  const detail = unknown ? "" : (input.text ?? current.value).trim();
+  const said = (input.text ?? current.value).trim();
+  const detail = isUnknown(current.value, input.text) || addsNothing(said) ? "" : said;
   // Free text stays exactly as said; the count keeps both languages when nothing was added.
-  const answer: string | LocalizedText = !detail ? (base ?? UNKNOWN_ANSWER) : base ? base.en + " — " + detail : detail;
+  const answer: string | LocalizedText = !detail ? (base ?? UNKNOWN_ANSWER) : base ? copy(base.en + " — " + detail, base.ar + " — " + detail) : detail;
   return { session: nextReportItem(reportAnswer(current.session, item, answer, "reported"), ws, now) };
 }
 
@@ -1121,7 +1159,7 @@ function handleHealthStatus(session: CallSession, ws: Workspace, now: Date, inpu
 
 function handleHealthNote(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
   const current = workerTurn(session, input, now);
-  const note = current.value === "skip_note" || !input.text?.trim() ? null : input.text.trim();
+  const note = current.value === "skip_note" || !input.text?.trim() || addsNothing(input.text) ? null : input.text.trim();
   const camel = ws.camels.find((entry) => entry.id === session.data.tempCamelId);
   if (!camel) return { session: askCamelToCheck(current.session, ws, now, copy("Choose a camel from the herd.", "اختر ناقة من الحلال.")) };
   const next = { ...current.session, data: { ...current.session.data, tempNote: note } };
@@ -1215,15 +1253,14 @@ function addResourceAnswer(
   session: CallSession,
   item: ReportItem,
   level: Level,
-  quantity: string | null,
+  quantity: { stored: string; text: LocalizedText } | null,
   certainty: Certainty,
 ): CallSession {
   if (item.kind !== "predefined" || !item.resource) return session;
-  const resourceUpdate = { kind: item.resource, level, quantity, note: null, certainty };
+  const resourceUpdate = { kind: item.resource, level, quantity: quantity?.stored ?? null, note: null, certainty };
   const label = levelLabel(item.resource, level);
-  const quantityEn = quantity ? " (" + quantity + ")" : "";
-  const answerEn = label.en + quantityEn;
-  const answerText = { en: answerEn, ar: label.ar + quantityEn };
+  const answerEn = label.en + (quantity ? " (" + quantity.text.en + ")" : "");
+  const answerText = { en: answerEn, ar: label.ar + (quantity ? " (" + quantity.text.ar + ")" : "") };
   const next = {
     ...session,
     draft: {
@@ -1242,7 +1279,7 @@ function addResourceAnswer(
       ],
     },
   };
-  return { ...next, data: { ...next.data, tempLevel: undefined, tempQuantity: undefined } };
+  return { ...next, data: { ...next.data, tempLevel: undefined, tempQuantity: undefined, quantityClarified: undefined } };
 }
 
 function handleQuantityInput(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
@@ -1255,7 +1292,7 @@ function handleQuantityInput(session: CallSession, ws: Workspace, now: Date, inp
     return { session: nextReportItem(addResourceAnswer(current.session, item, level, null, certainty), ws, now) };
   }
   const quantity = (input.text ?? current.value).trim();
-  if (!quantity || !Number.isFinite(Number(quantity)) || Number(quantity) < 0) {
+  if (!isQuantity(quantity)) {
     return {
       session: ask(
         current.session,
@@ -1269,21 +1306,44 @@ function handleQuantityInput(session: CallSession, ws: Workspace, now: Date, inp
       ),
     };
   }
-  const next = { ...current.session, data: { ...current.session.data, tempQuantity: quantity } };
-  const unitEn = item.resource === "feed" ? "bags" : "litres";
-  const unitAr = item.resource === "feed" ? "كيس" : "لتر";
-  return {
-    session: ask(
-      next,
-      copy(
-        "You mentioned about " + quantity + " " + unitEn + ". The quantity is approximate, correct?",
-        "ذكرت إن باقي تقريباً " + quantity + " " + unitAr + ". للتأكيد، الكمية تقديرية، صحيح؟",
-      ),
-      now,
-      "quantity_confirm",
-      [reply("yes", "Yes, approximate", "إيه، تقريبية"), reply("no", "Change it", "أبي أغيّرها")],
+  // "Enough" followed by "none left" can't both stand: ask once, then keep the zero without the level.
+  if (Number(quantity) === 0 && (level === "good" || level === "medium")) {
+    if (!session.data.quantityClarified) {
+      return {
+        session: ask(
+          { ...current.session, data: { ...current.session.data, quantityClarified: true } },
+          item.resource === "feed"
+            ? copy("You said there was enough, then that there’s none. Roughly how many bags are left?", "قلت إنه كافي، وبعدها إن ما فيه شي. كم باقي تقريباً من أكياس العلف؟")
+            : copy("You said there was enough, then that there’s none. Roughly how many litres are left?", "قلت إنه كافي، وبعدها إن ما فيه شي. كم باقي تقريباً من الماء باللتر؟"),
+          now,
+          "quantity_input",
+          [reply("quantity_unknown", "I don’t know", "ما أدري"), reply("quantity_skip", "Skip", "تخطي")],
+          "number",
+        ),
+      };
+    }
+    const unsure = { ...current.session, data: { ...current.session.data, tempLevel: "unknown" as Level } };
+    return { session: askQuantityConfirm(unsure, item.resource, quantity, now) };
+  }
+  return { session: askQuantityConfirm(current.session, item.resource, quantity, now) };
+}
+
+const isQuantity = (text: string) => text !== "" && Number.isFinite(Number(text)) && Number(text) >= 0;
+
+const quantityUnit = (resource: ResourceKind) => (resource === "feed" ? copy("bags", "كيس") : copy("litres", "لتر"));
+
+function askQuantityConfirm(session: CallSession, resource: ResourceKind, quantity: string, now: Date): CallSession {
+  const unit = quantityUnit(resource);
+  return ask(
+    { ...session, data: { ...session.data, tempQuantity: quantity } },
+    copy(
+      "You mentioned about " + quantity + " " + unit.en + ". The quantity is approximate, correct?",
+      "ذكرت إن باقي تقريباً " + quantity + " " + unit.ar + ". للتأكيد، الكمية تقديرية، صحيح؟",
     ),
-  };
+    now,
+    "quantity_confirm",
+    [reply("yes", "Yes, approximate", "إيه، تقريبية"), reply("no", "Change it", "أبي أغيّرها")],
+  );
 }
 
 function handleQuantityConfirm(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
@@ -1299,8 +1359,11 @@ function handleQuantityConfirm(session: CallSession, ws: Workspace, now: Date, i
       session: ask(next, question, now, "quantity_input", [reply("quantity_unknown", "I don’t know", "ما أدري"), reply("quantity_skip", "Skip", "تخطي")], "number"),
     };
   }
-  const unit = item.resource === "feed" ? "bags" : "litres";
-  const quantity = (session.data.tempQuantity ?? "") + " " + unit;
+  const count = session.data.tempQuantity ?? "";
+  const unit = quantityUnit(item.resource);
+  const text = copy(count + " " + unit.en, count + " " + unit.ar);
+  // Like the seed and every free-text answer, the stored quantity is in the worker's language.
+  const quantity = { stored: ws.settings.worker.language === "en" ? text.en : text.ar, text };
   return { session: nextReportItem(addResourceAnswer(current.session, item, session.data.tempLevel ?? "unknown", quantity, "approximate"), ws, now) };
 }
 
@@ -1334,8 +1397,10 @@ function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallS
     factsEn.push((confirmation.done ? "task finished: " : "task still open: ") + instruction);
     factsAr.push((confirmation.done ? "مهمة خلصت: " : "مهمة باقية: ") + instruction);
   }
-  const baseEn = factsEn.length ? factsEn.join("; ") : "no additional farm facts";
-  const baseAr = factsAr.length ? factsAr.join("، ") : "ما فيه معلومات إضافية عن العزبة";
+  // With no herd or supply facts, read back what was said: the worker must hear what they confirm.
+  const answers = session.draft.answers.slice(0, 8);
+  const baseEn = factsEn.length ? factsEn.join("; ") : answers.length ? answers.map((a) => a.answerText?.en ?? a.answer).join("; ") : "no additional farm facts";
+  const baseAr = factsAr.length ? factsAr.join("، ") : answers.length ? answers.map((a) => a.answerText?.ar ?? a.answer).join("، ") : "ما فيه معلومات إضافية عن العزبة";
   const findingEn = findings.length ? " Important for the owner: " + findings[0].text.en : "";
   const findingAr = findings.length ? " أهم ملاحظة للمالك: " + findings[0].text.ar : "";
   const text = copy(
@@ -1359,7 +1424,10 @@ function completeReport(session: CallSession, ws: Workspace, now: Date): EngineR
       ...session,
       next: { scenario: "owner_notification", reportId: completed.report.id },
     },
-    copy("Saved, thank you. NAQAH is now calling Abdullah with the update.", "تم حفظ التحديث، شكراً لك. ناقة تتصل الآن بعبدالله وتبلغه."),
+    copy(
+      "Saved, thank you. The update is ready for Abdullah. The call to him has not started.",
+      "تم حفظ التحديث، شكراً لك. التحديث جاهز لعبدالله، ومكالمته لم تبدأ بعد.",
+    ),
     now,
     true,
   );
@@ -1441,7 +1509,12 @@ function handleOwnerNotification(session: CallSession, ws: Workspace, now: Date,
           copy("When should it be done?", "متى ودك تنفذ المهمة؟"),
           now,
           "instruction_schedule",
-          [reply("any_time", "Any time", "في أي وقت"), reply("pick_time", "Choose a time today", "حدد وقت اليوم")],
+          [
+            reply("any_time", "Any time", "في أي وقت"),
+            reply("later_today", "Later today", "اليوم لاحقاً"),
+            reply("tomorrow", "Tomorrow", "بكرة"),
+            reply("future_date", "Another date", "تاريخ ثاني"),
+          ],
         ),
       };
     }
@@ -1449,36 +1522,141 @@ function handleOwnerNotification(session: CallSession, ws: Workspace, now: Date,
   }
   if (session.step === "instruction_schedule") {
     if (current.value === "any_time") return submitInstruction(current.session, ws, now, true, null);
-    return {
-      session: ask(
-        current.session,
-        copy("Choose a time today in Riyadh, for example 18:30.", "حدد وقت اليوم بتوقيت الرياض، مثل 18:30."),
-        now,
-        "instruction_time",
-        [reply("any_time", "Any time", "في أي وقت")],
-        "time",
-      ),
-    };
+    if (current.value === "future_date") {
+      return {
+        session: ask(
+          current.session,
+          copy(
+            "Enter a future date as YYYY-MM-DD, or a number of days from now. Example: 2026-11-15, or 10 days from now.",
+            "أدخل تاريخاً قادماً بصيغة YYYY-MM-DD، أو عدد الأيام من اليوم. مثال: 2026-11-15، أو بعد 10 أيام.",
+          ),
+          now,
+          "instruction_date",
+          [reply("any_time", "Any time", "في أي وقت")],
+          "text",
+        ),
+      };
+    }
+    const addDays = current.value === "tomorrow" ? 1 : 0;
+    const day = scheduleDayFrom(now, addDays);
+    return { session: askScheduleTime({ ...current.session, data: { ...current.session.data, scheduleDay: day } }, now) };
+  }
+  if (session.step === "instruction_date") {
+    if (current.value === "any_time") return submitInstruction(current.session, ws, now, true, null);
+    const parsed = parseScheduleInput(input.text ?? current.value, now);
+    if (!parsed.ok) {
+      const text = parsed.reason === "past"
+        ? copy("That date has already passed. Choose a later date.", "هذا التاريخ فات. اختر تاريخاً لاحقاً.")
+        : copy("That date is not clear. Use YYYY-MM-DD, such as 2026-11-15.", "التاريخ غير واضح. استخدم الصيغة YYYY-MM-DD، مثل 2026-11-15.");
+      return {
+        session: ask(current.session, text, now, "instruction_date", [reply("any_time", "Any time", "في أي وقت")], "text"),
+      };
+    }
+    const dated = { ...current.session, data: { ...current.session.data, scheduleDay: parsed.day } };
+    if (!parsed.time) return { session: askScheduleTime(dated, now) };
+    return submitInstruction(dated, ws, now, true, fromRiyadh(parsed.year, parsed.month, parsed.date, parsed.time.hours, parsed.time.minutes).toISOString());
   }
   if (session.step === "instruction_time") {
+    if (current.value === "any_time") return submitInstruction(current.session, ws, now, true, null);
     const value = (input.text ?? current.value).trim();
     const parts = value.split(":").map(Number);
     const valid = parts.length === 2 && Number.isInteger(parts[0]) && Number.isInteger(parts[1]) && parts[0] >= 0 && parts[0] <= 23 && parts[1] >= 0 && parts[1] <= 59;
-    if (!valid) {
-      return {
-        session: ask(current.session, copy("Enter a valid time such as 18:30.", "أدخل وقتاً صحيحاً مثل 18:30."), now, "instruction_time", [reply("any_time", "Any time", "في أي وقت")], "time"),
-      };
-    }
-    const p = riyadhParts(now);
-    const scheduled = fromRiyadh(p.year, p.month, p.day, parts[0], parts[1]);
-    if (scheduled.getTime() < now.getTime()) {
-      return {
-        session: ask(current.session, copy("Choose a later time today.", "اختر وقتاً لاحقاً اليوم."), now, "instruction_time", [reply("any_time", "Any time", "في أي وقت")], "time"),
-      };
+    if (!valid) return { session: askScheduleTime(current.session, now, copy("Enter a valid time such as 18:30.", "أدخل وقتاً صحيحاً مثل 18:30.")) };
+    const scheduled = scheduledInstant(current.session, now, parts[0], parts[1]);
+    if (!scheduled || scheduled.getTime() < now.getTime()) {
+      const today = (current.session.data.scheduleDay ?? dayKey(now)) === dayKey(now);
+      const text = today
+        ? copy("Choose a later time today.", "اختر وقتاً لاحقاً اليوم.")
+        : copy("That time has already passed. Choose a later time.", "هذا الوقت فات. اختر وقتاً لاحقاً.");
+      return { session: askScheduleTime(current.session, now, text) };
     }
     return submitInstruction(current.session, ws, now, true, scheduled.toISOString());
   }
   return { session: current.session };
+}
+
+function scheduleDayFrom(now: Date, addDays: number): string {
+  const p = riyadhParts(now);
+  return dayKey(fromRiyadh(p.year, p.month, p.day + addDays));
+}
+
+function scheduledInstant(session: CallSession, now: Date, hours: number, minutes: number): Date | null {
+  const day = session.data.scheduleDay ?? dayKey(now);
+  const [year, month, date] = day.split("-").map(Number);
+  if (!year || !month || !date) return null;
+  return fromRiyadh(year, month, date, hours, minutes);
+}
+
+function askScheduleTime(session: CallSession, now: Date, prompt?: LocalizedText): CallSession {
+  const day = session.data.scheduleDay ?? dayKey(now);
+  return ask(
+    session,
+    prompt ?? copy(
+      "Choose a Riyadh time for " + day + ", for example 18:30.",
+      "حدد الوقت بتوقيت الرياض لتاريخ " + day + "، مثل 18:30.",
+    ),
+    now,
+    "instruction_time",
+    [reply("any_time", "Any time", "في أي وقت")],
+    "time",
+  );
+}
+
+type ParsedSchedule =
+  | { ok: true; day: string; year: number; month: number; date: number; time?: { hours: number; minutes: number } }
+  | { ok: false; reason: "past" | "ambiguous" };
+
+function clockParts(hours: string, minutes: string): { hours: number; minutes: number } | null {
+  const h = Number(hours);
+  const m = Number(minutes);
+  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return { hours: h, minutes: m };
+}
+
+function calendarDay(year: number, month: number, date: number): { year: number; month: number; date: number } | null {
+  if (month < 1 || month > 12 || date < 1 || date > 31) return null;
+  const parts = riyadhParts(fromRiyadh(year, month, date));
+  if (parts.year !== year || parts.month !== month || parts.day !== date) return null;
+  return { year, month, date };
+}
+
+/** Accept a year-first date, or a clear day count. Slash dates stay ambiguous. */
+function parseScheduleInput(text: string, now: Date): ParsedSchedule {
+  const value = text.trim().replace(/\s+/g, " ");
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?$/);
+  const relative = value.match(/^(?:in\s+)?(\d+)\s+days?\s+from\s+now(?:\s+at\s+(\d{1,2}):(\d{2}))?$/i)
+    ?? value.match(/^in\s+(\d+)\s+days?(?:\s+at\s+(\d{1,2}):(\d{2}))?$/i);
+  const arabic = value.match(/^بعد\s+(\d+)\s+(?:يوم|أيام|يوماً?)(?:\s+الساعة\s+(\d{1,2}):(\d{2}))?$/);
+  let day: { year: number; month: number; date: number } | null = null;
+  let time: { hours: number; minutes: number } | undefined;
+  if (iso) {
+    day = calendarDay(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+    if (!day) return { ok: false, reason: "ambiguous" };
+    if (iso[4]) {
+      const parsed = clockParts(iso[4], iso[5]);
+      if (!parsed) return { ok: false, reason: "ambiguous" };
+      time = parsed;
+    }
+  } else if (relative || arabic) {
+    const match = (relative ?? arabic)!;
+    const add = Number(match[1]);
+    if (!Number.isInteger(add) || add < 0 || add > 366) return { ok: false, reason: "ambiguous" };
+    const parts = riyadhParts(fromRiyadh(riyadhParts(now).year, riyadhParts(now).month, riyadhParts(now).day + add));
+    day = { year: parts.year, month: parts.month, date: parts.day };
+    if (match[2]) {
+      const parsed = clockParts(match[2], match[3]);
+      if (!parsed) return { ok: false, reason: "ambiguous" };
+      time = parsed;
+    }
+  } else {
+    return { ok: false, reason: "ambiguous" };
+  }
+  const stamp = dayKey(fromRiyadh(day.year, day.month, day.date));
+  if (stamp < dayKey(now)) return { ok: false, reason: "past" };
+  if (time && fromRiyadh(day.year, day.month, day.date, time.hours, time.minutes).getTime() < now.getTime()) {
+    return { ok: false, reason: "past" };
+  }
+  return { ok: true, day: stamp, year: day.year, month: day.month, date: day.date, ...(time ? { time } : {}) };
 }
 
 function submitInstruction(
@@ -1498,17 +1676,17 @@ function submitInstruction(
     data: { ...session.data, scheduledFor, actionable },
   };
   if (created.taskId) {
-    next = addNotice(next, copy("A Task Ticket was opened and is waiting for Ahmed.", "فُتحت تذكرة مهمة وبانتظار أحمد."));
+    next = addNotice(next, copy("A Task Ticket is open and waiting for Ahmed.", "فُتحت تذكرة مهمة وبانتظار أحمد."));
     next = say(
       next,
-      copy("I’ve opened a task for Ahmed and will call him now with your instruction.", "فتحت مهمة لأحمد، وباتصل عليه الآن وأوصل له تعليماتك."),
+      copy("The task is open. The instruction is queued for Ahmed. The call has not started.", "المهمة مفتوحة. التعليمات جاهزة لأحمد، والمكالمة لم تبدأ."),
       now,
       true,
     );
   } else {
     next = say(
       next,
-      copy("Your message is ready. I’ll call Ahmed now.", "وصلت رسالتك. باتصل على أحمد الآن."),
+      copy("Your message is queued for Ahmed. The call has not started.", "رسالتك جاهزة لأحمد. المكالمة لم تبدأ."),
       now,
       true,
     );
@@ -1552,18 +1730,17 @@ function handleWorkerCallback(session: CallSession, ws: Workspace, now: Date, in
 
 function askNextCallbackTask(session: CallSession, ws: Workspace, now: Date): CallSession {
   const taskIds = session.data.callbackTaskIds ?? [];
-  const overdueIds = new Set(overdueScheduledTasks(ws, now).map((task) => task.id));
   let index = session.data.callbackTaskIndex ?? 0;
   while (index < taskIds.length) {
     const taskId = taskIds[index];
     const task = ws.taskTickets.find((item) => item.id === taskId && item.status === "open");
-    if (!task || !overdueIds.has(taskId)) {
+    if (!task) {
       index += 1;
       continue;
     }
     return ask(
       { ...session, data: { ...session.data, callbackTaskIndex: index } },
-      copy("Did you finish the overdue task: " + task.instruction + "?", "خلصت المهمة المتأخرة: " + task.instruction + "؟"),
+      copy("Did you finish: " + task.instruction + "?", "خلصت المهمة: " + task.instruction + "؟"),
       now,
       "callback_task_confirmation",
       [reply("yes", "Yes, complete", "إيه، خلصت"), reply("no", "No, not yet", "لا، باقي"), reply("unknown", "I don’t know", "ما أدري")],
@@ -1646,6 +1823,19 @@ function handleWorkerOutbound(session: CallSession, ws: Workspace, now: Date, in
     const callId = session.data.currentCallId;
     const call = ws.pendingWorkerCalls.find((item) => item.id === callId);
     if (!call?.taskTicketId) return { session: say(current.session, copy("No task ticket is attached to this call.", "ما فيه تذكرة مهمة مرتبطة بهذا الاتصال."), now, true) };
+    if (current.value !== "yes" && current.value !== "no") {
+      return {
+        session: advanceOutboundIndex(
+          say(
+            current.session,
+            copy("Ahmed could not confirm this task. It stays open.", "ما قدر أحمد يؤكد المهمة. تبقى مفتوحة."),
+            now,
+          ),
+          ws,
+          now,
+        ),
+      };
+    }
     const done = current.value === "yes";
     const updated = confirmTask(ws, now, call.taskTicketId, done, "worker_task_verification");
     const response = done

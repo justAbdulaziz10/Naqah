@@ -59,6 +59,9 @@ describe("negated speech never reads as yes", () => {
   it.each(["حفظ", "احفظه", "تأكيد وحفظ", "نعم", "confirm", "save"])("saves on a clear «%s»", (speech) => {
     expect(mapSpeechToInput(summary, speech, null, "ar")).toEqual({ value: "confirm_save" });
   });
+  it.each(["ما فيه مريض", "لا، ما فيه مشاكل", "no camels are sick", "all are well", "كلها بخير", "nothing is wrong"])("does not end or save the call on an unrelated farm answer «%s»", (speech) => {
+    expect(mapSpeechToInput(summary, speech, null, "ar", "0.8972015")).toBeNull();
+  });
   it.each(["مو كلها بخير", "مو بخير", "not all are well"])("doesn't mark the herd healthy on «%s»", (speech) => {
     expect(mapSpeechToInput(herd, speech, null, "ar")).toEqual({ value: "no" });
   });
@@ -159,9 +162,9 @@ describe("spoken numbers and times", () => {
 });
 
 describe("recognition quality and explicit confirmations", () => {
-  it.each(["0", "0.2", "0.49", "NaN", "", "-1", "1.1"])("repeats low-confidence or invalid confidence %s", (confidence) => {
-    expect(mapSpeechToInput(session("number"), "مية وخمسين", null, "ar", confidence)).toBeNull();
-    expect(mapSpeechToInput(session(), "yes", null, "en", confidence)).toBeNull();
+  it.each(["0", "0.2", "0.45", "0.49", "NaN", "", "-1", "1.1"])("does not discard recognized words on confidence %s alone", (confidence) => {
+    expect(mapSpeechToInput(session("number"), "مية وخمسين", null, "ar", confidence)).toEqual({ text: "150" });
+    expect(mapSpeechToInput(session(), "yes", null, "en", confidence)).toEqual({ value: "yes" });
   });
   it("accepts a missing confidence field and gives keypad input precedence", () => {
     expect(mapSpeechToInput(session("number"), "عشرين", null, "ar", null)).toEqual({ text: "20" });
@@ -182,6 +185,48 @@ describe("recognition quality and explicit confirmations", () => {
   it.each(["والله ما أدري", "ما أعرف والله", "I don't know honestly"])("keeps «%s» unknown", (speech) => {
     expect(mapSpeechToInput(session("number"), speech)).toEqual({ value: "unknown" });
     expect(mapSpeechToInput(session("text"), speech)).toEqual({ value: "unknown" });
+  });
+});
+
+describe("Saudi Arabic capture regressions", () => {
+  const options = (values: string[]): Reply[] => values.map((value) => ({ id: value, value, label: { ar: value, en: value } }));
+  const question = (id: string, answerKind: "level" | "herd-health" | "yesno", resource: "feed" | "water" | null, values: string[]): CallSession => ({
+    ...session("choices", options(values)), step: "report_question",
+    data: { reportIndex: 0, queue: [{ kind: "predefined", id, answerKind, resource, question: { ar: "", en: "" } }] },
+  });
+  const herd = question("herd_health", "herd-health", null, ["yes", "no", "unknown"]);
+  const feed = question("feed_level", "level", "feed", ["good", "medium", "low", "critical", "unknown"]);
+  const water = question("water_level", "level", "water", ["good", "medium", "low", "critical", "unknown"]);
+  const summary = { ...session("choices", options(["confirm_save", "end_without_save"])), step: "report_summary" };
+
+  it.each(["اوكي", "طيب", "ok", "okay"])("accepts summary confirmation %s even at zero confidence", (speech) => {
+    expect(mapSpeechToInput(summary, speech, null, "ar", "0.0")).toEqual({ value: "confirm_save" });
+  });
+  it.each(["تمام", "كل شي تمام", "تمام الحمد لله", "ما عليهم خلاف", "الحمد لله"])("does not turn reassurance %s into a sick-camel finding", (speech) => {
+    expect(mapSpeechToInput(herd, speech, null, "ar", "0.45")).toEqual({ value: "yes" });
+  });
+  it.each([["باقي شوي", "low"], ["شوي", "low"], ["النص", "medium"], ["باقي النص", "medium"], ["موجود", "good"]])("understands feed level %s", (speech, value) => {
+    expect(mapSpeechToInput(feed, speech, null, "ar", "0")).toEqual({ value });
+  });
+  it.each(["إيه", "نعم", "ايوه", "yes"])("does not invent a level from a bare affirmation %s", (speech) => {
+    expect(mapSpeechToInput(feed, speech, null, "ar")).toBeNull();
+  });
+  it.each([["عشرين كيس", "20"], ["باقي كيسين", "2"]])("passes the quantity %s to the feed or water engine", (speech, quantity) => {
+    expect(mapSpeechToInput(feed, speech, null, "ar")).toEqual({ text: quantity });
+    expect(mapSpeechToInput(water, speech, null, "ar")).toEqual({ text: quantity });
+  });
+  it.each([["ثلاث مية", 300], ["ألفين", 2000], ["اثنعش", 12], ["خمسطعش", 15], ["ثلاث مية وخمسين", 350], ["ألفين وخمسين", 2050]])("extracts colloquial quantity %s", (speech, quantity) => {
+    expect(extractNumber(speech)).toBe(quantity);
+  });
+  it.each(["خربان", "مكسور"])("reads fence damage %s as a problem", (speech) => {
+    expect(mapSpeechToInput(question("fences_condition", "yesno", null, ["yes", "no", "unknown"]), speech)).toEqual({ value: "no" });
+  });
+  it("matches camel names with or without the definite article", () => {
+    const camel = { ...session("choices", [{ id: "camel:test", value: "camel:test", label: { ar: "الحمرا", en: "Al Hamra" } }]), step: "health_pick" };
+    expect(mapSpeechToInput(camel, "حمرا")).toEqual({ value: "camel:test" });
+  });
+  it.each([["ما تاكل", "sick"], ["تعرج", "sick"], ["نراقبها", "watch"]])("captures the reported camel condition %s", (speech, value) => {
+    expect(mapSpeechToInput({ ...session("choices", options(["healthy", "sick", "watch", "unknown"])), step: "health_status" }, speech)).toEqual({ value });
   });
 });
 

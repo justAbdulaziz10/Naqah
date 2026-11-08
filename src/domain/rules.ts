@@ -4,7 +4,7 @@
  */
 import { PLAN_LIMITS, PREDEFINED_QUESTIONS } from "./catalog";
 import { sameDay, sameWeek } from "./clock";
-import type { PredefinedQuestion, Workspace } from "./types";
+import type { PendingWorkerCall, PredefinedQuestion, Workspace } from "./types";
 
 /** Phase 1: applicable predefined questions are mandatory; absent resources are skipped. */
 export function applicableQuestions(ws: Workspace): PredefinedQuestion[] {
@@ -92,14 +92,39 @@ export function overdueScheduledTasks(ws: Workspace, now: Date) {
   );
 }
 
-/** Ultimate: scheduled tasks ready for a verification call, except those with a pending call. */
-export function dueTaskVerifications(ws: Workspace, now: Date) {
-  const pendingTaskIds = new Set(
-    ws.pendingWorkerCalls
-      .filter((call) => call.purpose === "task_verification" && call.state === "pending")
-      .map((call) => call.taskTicketId),
+function instructionDelivered(ws: Workspace, call: PendingWorkerCall): boolean {
+  if (call.state === "delivered") return true;
+  if (call.state !== "no_answer_ticket") return false;
+  const exhaustedAt = call.attempts.at(-1)?.at;
+  if (!exhaustedAt) return false;
+  const tickets = ws.noAnswerTickets.filter(
+    (ticket) =>
+      ticket.purpose === call.purpose &&
+      ticket.taskTicketId === call.taskTicketId &&
+      ticket.message === call.message &&
+      Date.parse(ticket.createdAt) === Date.parse(exhaustedAt),
   );
-  return overdueScheduledTasks(ws, now).filter((task) => !pendingTaskIds.has(task.id));
+  return tickets.length > 0 && tickets.every((ticket) => ticket.status === "closed");
+}
+
+/**
+ * One verification cycle per scheduled task, once its time has come and its
+ * instruction has been delivered. Any existing verification call — pending,
+ * delivered, or exhausted — blocks another cycle. Retries stay on that call.
+ */
+export function dueTaskVerifications(ws: Workspace, now: Date) {
+  const verificationTaskIds = new Set<string>();
+  const instructionAwaitingDelivery = new Set<string>();
+  for (const call of ws.pendingWorkerCalls) {
+    if (call.purpose === "task_verification" && call.taskTicketId) verificationTaskIds.add(call.taskTicketId);
+    if (call.purpose === "instruction" && !instructionDelivered(ws, call)) {
+      if (call.taskTicketId) instructionAwaitingDelivery.add(call.taskTicketId);
+      for (const id of call.coveredTaskIds ?? []) instructionAwaitingDelivery.add(id);
+    }
+  }
+  return overdueScheduledTasks(ws, now).filter(
+    (task) => !verificationTaskIds.has(task.id) && !instructionAwaitingDelivery.has(task.id),
+  );
 }
 
 /** Worker calls with a retry due at or before `now`. */

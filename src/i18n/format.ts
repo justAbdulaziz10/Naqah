@@ -3,9 +3,15 @@ import { INTL_LOCALE, TIME_ZONE } from "./config";
 
 export const pick = (text: LocalizedText, locale: Locale) => text[locale];
 
+/** One clock everywhere: en-GB alone prints "pm", so English day periods are raised to AM/PM. Arabic ص/م is unaffected. */
+function formatClock(iso: string | Date, locale: Locale, opts: Intl.DateTimeFormatOptions) {
+  return new Intl.DateTimeFormat(INTL_LOCALE[locale], { timeZone: TIME_ZONE, ...opts })
+    .format(new Date(iso))
+    .replace(/\b[ap]m\b/, (period) => period.toUpperCase());
+}
+
 export function formatDateTime(iso: string | Date, locale: Locale, opts: Intl.DateTimeFormatOptions = {}) {
-  return new Intl.DateTimeFormat(INTL_LOCALE[locale], {
-    timeZone: TIME_ZONE,
+  return formatClock(iso, locale, {
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -13,13 +19,11 @@ export function formatDateTime(iso: string | Date, locale: Locale, opts: Intl.Da
     minute: "2-digit",
     hour12: true,
     ...opts,
-  }).format(new Date(iso));
+  });
 }
 
 export function formatTime(iso: string | Date, locale: Locale) {
-  return new Intl.DateTimeFormat(INTL_LOCALE[locale], { timeZone: TIME_ZONE, hour: "numeric", minute: "2-digit", hour12: true }).format(
-    new Date(iso),
-  );
+  return formatClock(iso, locale, { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
 export function formatDate(iso: string | Date, locale: Locale) {

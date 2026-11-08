@@ -24,7 +24,8 @@ export function Switch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 disabled:opacity-50",
+        // The ::after is the tap area: 44px tall while the visible track stays 28px.
+        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 after:absolute after:inset-x-[-4px] after:inset-y-[-8px] after:content-[''] disabled:opacity-50",
         checked ? "bg-brown" : "bg-stone",
         className,
       )}

@@ -120,6 +120,13 @@ describe("controlled-test allowlist", () => {
     expect(body.get("Record")).toBe("false");
     expect(body.get("StatusCallback")).toBe("https://naqah.test/y");
   });
+  it("requests each progress event separately when asked", async () => {
+    const fetchMock = ok();
+    await createTwilioCaller(config, fetchMock as unknown as typeof fetch).place({ ...request("+966501234567"), timeoutSeconds: 60, statusEvents: ["initiated", "ringing", "answered", "completed"] });
+    const body = (fetchMock.mock.calls[0] as unknown as [string, { body: URLSearchParams }])[1].body;
+    expect(body.get("Timeout")).toBe("60");
+    expect(body.getAll("StatusCallbackEvent")).toEqual(["initiated", "ringing", "answered", "completed"]);
+  });
 });
 
 describe("signed call tokens", () => {

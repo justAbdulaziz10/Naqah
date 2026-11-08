@@ -17,7 +17,7 @@ export function Logo({ locale, className, tone = "dark", href }: { locale: Local
     </span>
   );
   return href ? (
-    <Link href={href} aria-label={locale === "ar" ? "ناقة — الرئيسية" : "NAQAH — home"} className="rounded-lg">
+    <Link href={href} aria-label={locale === "ar" ? "ناقة — الرئيسية" : "NAQAH — home"} className="relative inline-flex w-fit rounded-lg after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']">
       {content}
     </Link>
   ) : (

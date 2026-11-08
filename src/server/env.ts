@@ -37,6 +37,38 @@ export function voiceOwnerInquiryEnabled(): boolean {
   return value("NAQAH_VOICE_OWNER_INQUIRY") === "1";
 }
 
+function bridgeUrl(): string | null {
+  try {
+    const url = new URL(value("NAQAH_BRIDGE_PUBLIC_URL"));
+    // Twilio rejects a query string on a Stream URL, so a URL with one could never connect.
+    return url.protocol === "wss:" && url.hostname && !url.username && !url.password && !url.search && !url.hash ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function httpsOrigin(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Realtime speech on report calls. Null unless every piece is valid, and null means the scripted
+ * call runs unchanged. The secret and public origin are checked too: without them no ticket or
+ * fallback URL could be made, and a call must not fail for that.
+ */
+export function realtimeVoiceConfig(): { bridgeUrl: string; baseUrl: string; secret: string } | null {
+  if (value("NAQAH_VOICE_ENGINE").toLowerCase() !== "realtime" || voiceMode() !== "farm") return null;
+  const bridge = bridgeUrl();
+  const baseUrl = httpsOrigin(value("NAQAH_PUBLIC_BASE_URL"));
+  const secret = value("NAQAH_VOICE_SECRET");
+  return bridge && baseUrl && secret ? { bridgeUrl: bridge, baseUrl, secret } : null;
+}
+
 export function voiceConfiguration() {
   return {
     secret: value("NAQAH_VOICE_SECRET"),

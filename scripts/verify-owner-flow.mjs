@@ -217,7 +217,7 @@ const call = await reportCall(farmA, runId, (text, xml) => {
 const saved = sql(`select r.herd_count_reported || '|' || run.state || '|' || (run.report_id = r.id) from report_call_runs run join reports r on r.farm_id = run.farm_id where run.id = ${q(runId)}`);
 check("the answered report call saves one report and completes its run", /\|completed\|true$/.test(saved), `${saved}\n${call.script.join("\n")}`);
 check("the worker's herd count is kept as a proposal, not the official count", /^40\|/.test(saved) && sql(`select herd_count from farms where id = ${q(farmA)}`) === "45", saved);
-check(`${INPUT} quantities are confirmed and saved without confusing # with a menu choice`, quantities === 3 && sql(`select count(*) from resources where farm_id = ${q(farmA)} and certainty = 'approximate' and ((kind = 'feed' and quantity = '30 bags') or (kind = 'water' and quantity = '150 litres'))`) === "2", call.script.join("\n"));
+check(`${INPUT} quantities are confirmed and saved without confusing # with a menu choice`, quantities === 3 && sql(`select count(*) from resources where farm_id = ${q(farmA)} and certainty = 'approximate' and ((kind = 'feed' and quantity = '30 كيس') or (kind = 'water' and quantity = '150 لتر'))`) === "2", call.script.join("\n"));
 check("no recording or transcript is stored", !/audio|recording|transcript/.test(sql(`select string_agg(column_name, ',') from information_schema.columns where table_schema = 'public'`)));
 
 await A.page.goto(`${BASE}/en/app`);

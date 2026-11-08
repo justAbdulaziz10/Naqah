@@ -14,19 +14,27 @@ import { loadFarm, requireFarm } from "@/server/db/queries";
 import { findCaller, findReportCallRun, recordedOutcome } from "@/server/db/service-repository";
 import { callOwnerAfterReport } from "@/server/calls/owner-call";
 import { afterResponse } from "@/server/calls/after";
-import type { CallToken } from "@/server/calls/token";
+import { signCallToken, type CallToken } from "@/server/calls/token";
 import {
   advanceVoiceSession, createVoiceSession, deleteStaleVoiceSessions, deleteVoiceSession, readVoiceSession,
   type VoiceSessionRow,
 } from "@/server/db/voice-sessions";
-import { voiceLocale, voiceOwnerInquiryEnabled } from "@/server/env";
+import { realtimeVoiceConfig, voiceLocale, voiceOwnerInquiryEnabled } from "@/server/env";
 import { applyVoiceEvent, parseVoiceEvent, type VoiceContext, type VoiceOutcome } from "./contract";
+import { logVoiceTurn } from "./diagnostics";
 import { mapSpeechToInput, unknownReply } from "./speech";
-import { twimlGather, twimlGoodbye } from "./twiml";
+import { newRealtimeState, realtimeOf } from "./realtime/state";
+import { isVerifiedConfirmation } from "./realtime/confirmation";
+import { rememberCallWorkspace } from "./realtime/call-workspace";
+import { buildInstructions } from "./realtime/instructions";
+import { promptFor } from "./realtime/tools";
+import { signRealtimeTicket } from "./realtime/ticket";
+import { spokenWording, twimlGather, twimlGoodbye, twimlStream } from "./twiml";
 
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
 type Copy = Record<Locale, string>;
+export type VoiceCallSession = CallSession & { voiceSilences?: number; voiceUnmatched?: number };
 
 const NOT_REGISTERED: Copy = { ar: "هذا الرقم غير مسجل لدى ناقة.", en: "This number is not registered with NAQAH." };
 const NOT_READY: Copy = {
@@ -64,6 +72,14 @@ const MISS_AGAIN: Copy = {
   ar: "معليش، ما وصلتني الإجابة. نعيد السؤال مرة أخيرة. ",
   en: "Sorry, I still didn't catch that. Let's try once more. ",
 };
+const SPOKEN_MISS: Copy = {
+  ar: "سمعتك، بس ما فهمت إجابتك على السؤال. تقدر تجاوب أو تستخدم الأزرار. ",
+  en: "I heard you, but could not match your answer to this question. Please answer or use the keypad. ",
+};
+const UNKNOWN_FALLBACK: Copy = {
+  ar: "ما قدرت أحدد الإجابة، بسجل هالسؤال غير معروف ونكمل. ",
+  en: "I could not determine that answer. I will mark this question unknown and continue. ",
+};
 const MISSED_TWICE: Copy = {
   ar: "ما قدرت أفهم إجابتك. تقدر تتصل مرة ثانية، يعطيك العافية.",
   en: "I couldn't understand your answer. Please call again. Thank you.",
@@ -83,10 +99,16 @@ function withoutTranscript(session: CallSession): CallSession {
 /** The engine's copy uses the sample names, so a farm missing either name must not reach it. */
 const namesReady = (ws: Workspace) => Boolean(ws.settings.worker.name.trim() && ws.settings.owner.name.trim());
 
+/** The agent's lines from a turn onwards, with the farm's real names. */
+export function spokenLines(session: CallSession, spokenFrom: number, ws: Workspace, locale: Locale): string[] {
+  const personalize = makePersonalizer(ws);
+  return session.turns.slice(spokenFrom).filter((turn) => turn.speaker === "agent").map((turn) => personalize(turn.text[locale]));
+}
+
 /** Everything the agent says for this step, including lines before the question. */
 function respond(session: CallSession, spokenFrom: number, ws: Workspace, locale: Locale, seq: number, prefix = ""): string {
   const personalize = makePersonalizer(ws);
-  const lines = session.turns.slice(spokenFrom).filter((turn) => turn.speaker === "agent").map((turn) => personalize(turn.text[locale]));
+  const lines = spokenLines(session, spokenFrom, ws, locale);
   if (session.done) return twimlGoodbye(locale, `${prefix}${lines.join(" ")}`);
   const earlier = lines.slice(0, -1).join(" ");
   const speakable = { ...session, ...personalizeTree({ turns: session.turns.slice(-1), replies: session.replies }, personalize) };
@@ -125,8 +147,10 @@ function eventFor(before: CallSession | null, result: EngineResult, input: Answe
 const contextFor = (party: VoiceSessionRow["party"]): VoiceContext =>
   party === "worker" ? { party: "worker" } : { party: "owner", call: "inquiry" };
 
-function save(client: SupabaseClient, farmId: string, party: VoiceSessionRow["party"] | VoiceContext, event: unknown, now: Date): Promise<VoiceOutcome> {
-  return applyVoiceEvent(client, farmId, typeof party === "string" ? contextFor(party) : party, parseVoiceEvent(event), now);
+function save(client: SupabaseClient, farmId: string, party: VoiceSessionRow["party"] | VoiceContext, event: unknown, now: Date, onAppliedWorkspace?: (workspace: Workspace) => void): Promise<VoiceOutcome> {
+  const context = typeof party === "string" ? contextFor(party) : party;
+  const parsed = parseVoiceEvent(event);
+  return onAppliedWorkspace ? applyVoiceEvent(client, farmId, context, parsed, now, onAppliedWorkspace) : applyVoiceEvent(client, farmId, context, parsed, now);
 }
 
 /** After a saved report: the farm owner's update call, when that paid channel is switched on. */
@@ -172,47 +196,43 @@ export async function startFarmCall(client: SupabaseClient, input: { from: strin
   return row?.last_response ?? response;
 }
 
+/** Stores the step from the turn it was read at. Null means another request got there first. */
+export async function advanceRow(client: SupabaseClient, row: VoiceSessionRow, session: VoiceCallSession, misses: number, response: string, onAdvanced?: () => Promise<void>, requireRealtimeOpen = false): Promise<VoiceSessionRow | null> {
+  const saved = await advanceVoiceSession(client, row.call_sid, row.seq, { session: withoutTranscript(session), misses, last_response: response }, requireRealtimeOpen);
+  if (saved) await onAdvanced?.();
+  return saved;
+}
+
 /** Stores the step and hands back what Twilio should play, or the first reply if a repeat won. */
-async function advance(client: SupabaseClient, row: VoiceSessionRow, session: CallSession, misses: number, response: string, onAdvanced?: () => Promise<void>): Promise<string> {
-  const saved = await advanceVoiceSession(client, row.call_sid, row.seq, { session: withoutTranscript(session), misses, last_response: response });
-  if (saved) {
-    await onAdvanced?.();
-    return saved.last_response;
-  }
+async function advance(client: SupabaseClient, row: VoiceSessionRow, session: VoiceCallSession, misses: number, response: string, onAdvanced?: () => Promise<void>): Promise<string> {
+  const saved = await advanceRow(client, row, session, misses, response, onAdvanced);
+  if (saved) return saved.last_response;
   return (await readVoiceSession(client, row.call_sid))?.last_response ?? response;
 }
 
-function missedInput(row: VoiceSessionRow): AnswerInput | "ask_again" | "give_up" {
-  if (row.misses >= 2) return "give_up";
-  if (row.misses === 1) {
-    const reply = unknownReply(row.session.replies);
-    if (reply) return { value: reply.value };
-  }
-  return "ask_again";
+export type TurnOutcome = "continue" | "saved" | "refused" | "retry_save" | "save_failed";
+
+/** One engine step, worked out and saved through the contract, but not yet stored on the call. */
+export interface TurnPlan {
+  session: VoiceCallSession;
+  misses: number;
+  /** The scripted TwiML for this position: what a repeated webhook or a fallback plays. */
+  response: string;
+  onAdvanced?: () => Promise<void>;
+  outcome: TurnOutcome;
+  /** The closing line when this step ends the call. */
+  goodbye: string | null;
 }
 
-export async function answerFarmCall(
-  client: SupabaseClient,
-  input: { callSid: string; seq: number; speech: string; digits: string | null; confidence?: string | null; now: Date },
-): Promise<string> {
-  const { callSid, seq, speech, digits, now } = input;
-  const row = await readVoiceSession(client, callSid);
-  if (!row) return twimlGoodbye(voiceLocale());
-  if (seq === row.seq - 1) return row.last_response;
-  if (seq !== row.seq || row.session.done) return twimlGoodbye(row.locale);
-
-  const { session, locale } = row;
-  const { workspace } = requireFarm(await loadFarm(client, { id: row.farm_id }));
-  const spoken = mapSpeechToInput(session, speech, digits, locale, input.confidence);
+/** Scripted and realtime calls share this, so an answer means the same on both. */
+export async function planTurn(
+  client: SupabaseClient, row: VoiceSessionRow, session: VoiceCallSession, workspace: Workspace, chosen: AnswerInput, now: Date, prefix = "",
+): Promise<TurnPlan> {
+  const { call_sid: callSid, locale } = row;
   const next = row.seq + 1;
-  const missed = spoken ? null : missedInput(row);
-  if (missed === "give_up") return advance(client, row, { ...session, done: true }, row.misses, twimlGoodbye(locale, MISSED_TWICE[locale]));
-  if (missed === "ask_again") {
-    const prefix = (row.misses === 0 ? MISS_ONCE : MISS_AGAIN)[locale];
-    return advance(client, row, session, row.misses + 1, respond(session, session.turns.length - 1, workspace, locale, next, prefix));
-  }
+  const closing = (ended: VoiceCallSession, misses: number, text: string, outcome: TurnOutcome, onAdvanced?: () => Promise<void>): TurnPlan =>
+    ({ session: ended, misses, response: twimlGoodbye(locale, text), outcome, goodbye: text, onAdvanced });
 
-  const chosen = (spoken ?? missed) as AnswerInput;
   const result = answer(session, workspace, now, chosen);
   const event = eventFor(session, result, chosen, callSid);
   let outcome: VoiceOutcome | null = null;
@@ -222,27 +242,67 @@ export async function answerFarmCall(
     } catch (error) {
       console.error(`[NAQAH] voice save failed (${error instanceof DbError ? error.code : "unknown"})`);
       const retry = row.misses === 0 && !(error instanceof DbError && error.code === "invalid_input");
-      if (!retry) return advance(client, row, { ...session, done: true }, row.misses, twimlGoodbye(locale, SAVE_FAILED[locale]));
-      return advance(client, row, session, 1, respond(session, session.turns.length - 1, workspace, locale, next, SAVE_RETRY[locale]));
+      if (!retry) return closing({ ...session, done: true }, row.misses, SAVE_FAILED[locale], "save_failed");
+      return { session, misses: 1, response: respond(session, session.turns.length - 1, workspace, locale, next, SAVE_RETRY[locale]), outcome: "retry_save", goodbye: null };
     }
   }
 
   if (session.step === "report_summary" && event?.type === "worker_report") {
     const reason = outcome?.status === "rejected" ? outcome.reason : null;
     const text = outcome?.status === "saved" ? SAVED : reason === "callback_required" ? CALLBACK_FIRST : reason === "call_not_active" ? CALL_NOT_ACTIVE : REFUSED;
-    return advance(client, row, result.session, 0, twimlGoodbye(locale, text[locale]), outcome?.status === "saved"
+    return closing(result.session, 0, text[locale], outcome?.status === "saved" ? "saved" : "refused", outcome?.status === "saved"
       ? () => notifyOwner(client, row.farm_id, (event.reportCallId as string | undefined) ?? null, now)
       : undefined);
   }
   // After a failed save the first attempt may still have landed, so "not saved" needs checking.
   if (session.step === "report_summary" && row.misses > 0) {
     const landed = await recordedOutcome<VoiceOutcome>(client, row.farm_id, `${callSid}:report`);
-    if (landed?.status === "saved") return advance(client, row, result.session, 0, twimlGoodbye(locale, SAVED[locale]));
+    if (landed?.status === "saved") return closing(result.session, 0, SAVED[locale], "saved");
   }
-  if (outcome?.status === "rejected") {
-    return advance(client, row, { ...session, done: true }, 0, twimlGoodbye(locale, SAVE_FAILED[locale]));
+  if (outcome?.status === "rejected") return closing({ ...session, done: true }, 0, SAVE_FAILED[locale], "save_failed");
+  const goodbye = result.session.done ? `${prefix}${spokenLines(result.session, session.turns.length, workspace, locale).join(" ")}` : null;
+  return { session: result.session, misses: 0, response: respond(result.session, session.turns.length, workspace, locale, next, prefix), outcome: "continue", goodbye };
+}
+
+export async function answerFarmCall(
+  client: SupabaseClient,
+  input: { callSid: string; seq: number; speech: string; digits: string | null; confidence?: string | null; now: Date },
+): Promise<string> {
+  const { callSid, seq, speech, digits, now } = input;
+  const row = await readVoiceSession(client, callSid);
+  if (!row) {
+    logVoiceTurn(input, "missing_session");
+    return twimlGoodbye(voiceLocale());
   }
-  return advance(client, row, result.session, 0, respond(result.session, session.turns.length, workspace, locale, next));
+  if (seq === row.seq - 1) {
+    logVoiceTurn(input, "duplicate");
+    return row.last_response;
+  }
+  if (seq !== row.seq || row.session.done) {
+    logVoiceTurn(input, "stale");
+    return twimlGoodbye(row.locale);
+  }
+
+  const { locale } = row;
+  const hasInput = Boolean(speech.trim() || digits);
+  const silenceCount = hasInput ? 0 : ((row.session as VoiceCallSession).voiceSilences ?? 0) + 1;
+  const session = { ...row.session, voiceSilences: 0 };
+  const { workspace } = requireFarm(await loadFarm(client, { id: row.farm_id }));
+  const mapped = mapSpeechToInput(session, speech, digits, locale, input.confidence);
+  const spoken = mapped?.value === "confirm_save" && !digits && !isVerifiedConfirmation(speech, session, locale) ? null : mapped;
+  const unmatched = !spoken && hasInput ? ((row.session as VoiceCallSession).voiceUnmatched ?? 0) + 1 : 0;
+  logVoiceTurn(input, spoken);
+  const next = row.seq + 1;
+  const fallback = !spoken && hasInput && row.misses >= 1 ? unknownReply(session.replies) : undefined;
+  if (!spoken && !fallback) {
+    if (silenceCount >= 3 || unmatched >= 6) return advance(client, row, { ...session, done: true }, row.misses, twimlGoodbye(locale, MISSED_TWICE[locale]));
+    const prefix = hasInput ? SPOKEN_MISS[locale] : (silenceCount === 1 ? MISS_ONCE : MISS_AGAIN)[locale];
+    return advance(client, row, { ...session, voiceSilences: silenceCount, voiceUnmatched: unmatched }, Math.min(row.misses + 1, 2), respond(session, session.turns.length - 1, workspace, locale, next, prefix));
+  }
+
+  const chosen = spoken ?? { value: fallback!.value };
+  const plan = await planTurn(client, row, { ...session, voiceUnmatched: 0 }, workspace, chosen, now, fallback ? UNKNOWN_FALLBACK[locale] : "");
+  return advance(client, row, plan.session, plan.misses, plan.response, plan.onAdvanced);
 }
 
 export async function endFarmCall(client: SupabaseClient, callSid: string): Promise<void> {
@@ -252,7 +312,7 @@ export async function endFarmCall(client: SupabaseClient, callSid: string): Prom
 type ReportToken = Extract<CallToken, { k: "report" }>;
 
 /** The CallSid, once stored on a run, must belong to the run the signed URL names. */
-async function boundElsewhere(client: SupabaseClient, token: ReportToken, callSid: string): Promise<boolean> {
+export async function boundElsewhere(client: SupabaseClient, token: ReportToken, callSid: string): Promise<boolean> {
   const bound = await findReportCallRun(client, callSid);
   return Boolean(bound && (bound.farmId !== token.f || bound.runId !== token.r));
 }
@@ -266,11 +326,20 @@ export async function answerReportCall(client: SupabaseClient, input: { token: R
   if (await boundElsewhere(client, token, callSid)) return twimlGoodbye(token.l);
   const repeated = await readVoiceSession(client, callSid);
   if (repeated) return repeated.farm_id === token.f ? repeated.last_response : twimlGoodbye(token.l);
-  await deleteStaleVoiceSessions(client, new Date(now.getTime() - STALE_AFTER_MS));
+  const realtime = realtimeVoiceConfig();
+  const cleanup = () => deleteStaleVoiceSessions(client, new Date(now.getTime() - STALE_AFTER_MS));
+  if (realtime) {
+    await afterResponse(async () => {
+      try { await cleanup(); } catch { console.error("[NAQAH] stale voice session cleanup failed"); }
+    });
+  } else {
+    await cleanup();
+  }
 
   const answered = { version: 1, eventId: `${callSid}:answered`, providerCallId: callSid, type: "report_call_attempt", reportCallId: token.r, attempt: token.n, answered: true };
-  await save(client, token.f, { party: "system" }, answered, now);
-  const { workspace } = requireFarm(await loadFarm(client, { id: token.f }));
+  let appliedWorkspace: Workspace | undefined;
+  await save(client, token.f, { party: "system" }, answered, now, realtime ? (workspace) => { appliedWorkspace = workspace; } : undefined);
+  const workspace = appliedWorkspace ?? requireFarm(await loadFarm(client, { id: token.f })).workspace;
   const locale: Locale = workspace.settings.worker.language === "en" ? "en" : "ar";
   const run = workspace.reportCalls?.find((item) => item.id === token.r);
   if (!run || run.state !== "answered") return twimlGoodbye(locale, CALL_NOT_ACTIVE[locale]);
@@ -284,15 +353,27 @@ export async function answerReportCall(client: SupabaseClient, input: { token: R
   if (result.commit) throw new DbError("invalid_input", "report call start has no voice event");
   const response = respond(result.session, 0, workspace, locale, 0);
   if (result.session.done) return response;
+  const state = realtime ? newRealtimeState(spokenWording(spokenLines(result.session, 0, workspace, locale).join(" "), locale)) : null;
+  if (state) {
+    const current = promptFor(result.session, spokenLines(result.session, result.session.turns.length - 1, workspace, locale), workspace, locale);
+    state.instructions = buildInstructions(locale, { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name }, current);
+    rememberCallWorkspace(callSid, workspace, now);
+  }
+  const stored = withoutTranscript(result.session);
   const row = await createVoiceSession(client, {
     call_sid: callSid,
     farm_id: token.f,
     party: "worker",
     locale,
-    session: withoutTranscript(result.session),
+    session: state ? ({ ...stored, realtime: state } as CallSession) : stored,
     last_response: response,
     created_at: now.toISOString(),
   });
+  // Only the request whose row got in may open the stream: a repeat plays the scripted question.
+  if (realtime && state && row && realtimeOf(row.session)?.jti === state.jti) {
+    const ticket = signRealtimeTicket({ sid: callSid, f: token.f, r: run.id, l: locale, j: state.jti, t: now.getTime() }, realtime.secret);
+    return twimlStream(`${realtime.baseUrl}/api/voice/realtime/after?s=${encodeURIComponent(signCallToken(token, realtime.secret))}`, realtime.bridgeUrl, ticket);
+  }
   return row?.last_response ?? response;
 }
 
@@ -309,7 +390,7 @@ export async function reportCallStatus(
   const { token, callSid, status, now } = input;
   if (!FINAL_STATUSES.has(status)) return;
   if (await boundElsewhere(client, token, callSid)) return;
-  const base = { version: 1, eventId: `${callSid}:final`, providerCallId: callSid, reportCallId: token.r, attempt: token.n };
+  const base = { version: 1, eventId: `${callSid}:final:${status}`, providerCallId: callSid, reportCallId: token.r, attempt: token.n };
   const event = status === "completed" ? { ...base, type: "report_call_ended" } : { ...base, type: "report_call_attempt", answered: false };
   await save(client, token.f, { party: "system" }, event, now);
   await deleteVoiceSession(client, callSid);

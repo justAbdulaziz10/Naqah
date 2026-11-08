@@ -189,7 +189,7 @@ describe("voice webhook routes", () => {
     expect(gatherAction(rejectedXml)).toBeNull();
   });
 
-  it("reprompts once, then selects the unknown reply when a second answer misses", async () => {
+  it("reprompts then moves an unmapped spoken answer to unknown without ending the report", async () => {
     const started = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966507782190" }));
     const initialXml = await started.text();
     const firstAction = gatherAction(initialXml)!;

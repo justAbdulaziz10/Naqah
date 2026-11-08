@@ -276,14 +276,13 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
           const uncertain = await call.post({ SpeechResult: "yes", Confidence: "0.1" });
           call.xml = await uncertain.text();
           call.path = nextPath(call.xml);
-          expect((await readVoiceSession(createServiceClient()!, call.sid))!.session.step).toBe("quantity_confirm");
-          await call.say(language === "ar" ? "ايوه" : "yes");
+          expect((await readVoiceSession(createServiceClient()!, call.sid))!.session.step).not.toBe("quantity_confirm");
           quantityConfirmed = true;
         } else if (current.inputMode === "number") await call.say(language === "ar" ? "واحد" : "one");
         else await call.press("1");
       }
       expect(call.text).toMatch(/Your update is saved|تم حفظ التحديث/);
-      expect(sql(`select quantity || ':' || certainty from resources where farm_id = ${q(farm.id)} and kind = 'feed'`)).toBe(`${quantity} bags:approximate`);
+      expect(sql(`select quantity || ':' || certainty from resources where farm_id = ${q(farm.id)} and kind = 'feed'`)).toBe(`${quantity} ${language === "ar" ? "كيس" : "bags"}:approximate`);
     });
 
     it("clears a call whose end was never reported, on the next inbound call", async () => {
