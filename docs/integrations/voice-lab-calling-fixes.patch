@@ -1,0 +1,118 @@
+diff --git a/src/domain/conversation/engine.capture.test.ts b/src/domain/conversation/engine.capture.test.ts
+index 468aa41..dacebe5 100644
+--- a/src/domain/conversation/engine.capture.test.ts
++++ b/src/domain/conversation/engine.capture.test.ts
+@@ -151,3 +151,36 @@ describe("answers captured on a real call", () => {
+     expect(saved.calls.at(-1)).toMatchObject({ kind: "worker_report", direction: "outbound", reportId: report.id });
+   });
+ });
++
++describe("answers that can't both be true", () => {
++  const atStep = (step: string) => {
++    const { ws, session } = answeredCall();
++    let current = session;
++    for (let turn = 0; turn < 60 && current.step !== step; turn += 1) {
++      const input = current.inputMode === "number" ? { text: "5" } : current.replies.length ? { value: current.replies[0].value } : { text: "تمام" };
++      current = reply(current, ws, input);
++    }
++    expect(current.step).toBe(step);
++    return { ws, current };
++  };
++
++  it("asks once about zero after enough, and accepts a real number", () => {
++    const { ws, current } = atStep("quantity_input");
++    const asked = reply(current, ws, { text: "0" });
++    expect(asked.step).toBe("quantity_input");
++    expect(asked.draft.resourceUpdates).toEqual(current.draft.resourceUpdates);
++    expect(reply(asked, ws, { text: "10" }).step).toBe("quantity_confirm");
++  });
++
++  it("drops the level when the worker repeats zero", () => {
++    const { ws, current } = atStep("quantity_input");
++    expect(reply(reply(current, ws, { text: "0" }), ws, { text: "0" }).data.tempLevel).toBe("unknown");
++  });
++
++  it("keeps an Arabic herd detail in Arabic", () => {
++    const { ws, current } = atStep("herd_count_detail");
++    const herd = reply(current, ws, { text: "شعلة ضايعة" }).draft.answers.at(-1)!;
++    expect(herd.answerText?.ar).toBe("5 من الحلال — شعلة ضايعة");
++    expect(herd.answerText?.en).toBe("5 camels — شعلة ضايعة");
++  });
++});
+diff --git a/src/domain/conversation/engine.ts b/src/domain/conversation/engine.ts
+index e0bcb6f..24a24f0 100644
+--- a/src/domain/conversation/engine.ts
++++ b/src/domain/conversation/engine.ts
+@@ -106,6 +106,8 @@ interface ConversationData {
+   tempNote?: string | null;
+   tempLevel?: Level;
+   tempQuantity?: string;
++  /** The worker has been asked once about "enough" followed by "none left". */
++  quantityClarified?: boolean;
+   tempCount?: number;
+   /** The NAQAH → worker report call this conversation belongs to (report_call only). */
+   reportCallId?: string;
+@@ -1073,7 +1075,7 @@ function handleHerdCountDetail(session: CallSession, ws: Workspace, now: Date, i
+   const said = (input.text ?? current.value).trim();
+   const detail = isUnknown(current.value, input.text) || addsNothing(said) ? "" : said;
+   // Free text stays exactly as said; the count keeps both languages when nothing was added.
+-  const answer: string | LocalizedText = !detail ? (base ?? UNKNOWN_ANSWER) : base ? base.en + " — " + detail : detail;
++  const answer: string | LocalizedText = !detail ? (base ?? UNKNOWN_ANSWER) : base ? copy(base.en + " — " + detail, base.ar + " — " + detail) : detail;
+   return { session: nextReportItem(reportAnswer(current.session, item, answer, "reported"), ws, now) };
+ }
+ 
+@@ -1266,7 +1268,7 @@ function addResourceAnswer(
+       ],
+     },
+   };
+-  return { ...next, data: { ...next.data, tempLevel: undefined, tempQuantity: undefined } };
++  return { ...next, data: { ...next.data, tempLevel: undefined, tempQuantity: undefined, quantityClarified: undefined } };
+ }
+ 
+ function handleQuantityInput(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
+@@ -1293,6 +1295,25 @@ function handleQuantityInput(session: CallSession, ws: Workspace, now: Date, inp
+       ),
+     };
+   }
++  // "Enough" followed by "none left" can't both stand: ask once, then keep the zero without the level.
++  if (Number(quantity) === 0 && (level === "good" || level === "medium")) {
++    if (!session.data.quantityClarified) {
++      return {
++        session: ask(
++          { ...current.session, data: { ...current.session.data, quantityClarified: true } },
++          item.resource === "feed"
++            ? copy("You said there was enough, then that there’s none. Roughly how many bags are left?", "قلت إنه كافي، وبعدها إن ما فيه شي. كم باقي تقريباً من أكياس العلف؟")
++            : copy("You said there was enough, then that there’s none. Roughly how many litres are left?", "قلت إنه كافي، وبعدها إن ما فيه شي. كم باقي تقريباً من الماء باللتر؟"),
++          now,
++          "quantity_input",
++          [reply("quantity_unknown", "I don’t know", "ما أدري"), reply("quantity_skip", "Skip", "تخطي")],
++          "number",
++        ),
++      };
++    }
++    const unsure = { ...current.session, data: { ...current.session.data, tempLevel: "unknown" as Level } };
++    return { session: askQuantityConfirm(unsure, item.resource, quantity, now) };
++  }
+   return { session: askQuantityConfirm(current.session, item.resource, quantity, now) };
+ }
+ 
+diff --git a/src/server/voice/realtime/instructions.ts b/src/server/voice/realtime/instructions.ts
+index a32ff2c..4d4200e 100644
+--- a/src/server/voice/realtime/instructions.ts
++++ b/src/server/voice/realtime/instructions.ts
+@@ -10,6 +10,7 @@ const AR = `أنت مساعد ناقة الآلي، تكلم عامل العزب
+ - بعد كل جواب نادِ الأداة فوراً وبدون أي كلام قبلها: لا تقول «بسجل» ولا «لحظة» ولا تذكر النظام أو الخطوات. تكلم بس بعد ما ترجع الأداة، وقل السؤال اللي رجعته مباشرة.
+ - لا تعدد خيارات replies إلا إذا طلبها العامل، ولا تضيف تنبيهات من عندك.
+ - إذا القيمة ضمن replies استخدم value. واستخدم text فقط إذا textAllowed صحيح، وإذا كان جواب العامل فيه معلومة محددة مرره في text بكلامه.
++- إذا جواب العامل ما يجاوب السؤال الحالي بوضوح (عن موضوع ثاني، أو ناقص، أو يحتمل أكثر من معنى)، لا تنادي الأداة ولا تفترض شي. اسأله سؤال توضيح قصير عن نفس السؤال وانتظر جوابه.
+ - «ما أدري» جواب مقبول: سجله كغير معروف، وما تضغط على العامل.
+ - لا تطلب تأكيد من عندك. إذا الجواب يحتاج تأكيد، الأداة بترجع سؤال التأكيد.
+ - إذا الأداة رفضت الجواب، وضّح للعامل وأعد السؤال.
+@@ -35,6 +36,7 @@ Questions:
+ - After every answer, call the tool at once with nothing said first: never say you are recording it or mention the system. Speak only after the tool returns, and ask the question it returned.
+ - Do not list the reply options unless the worker asks, and add no warnings of your own.
+ - Use value when the answer matches one of the replies. Use text only when textAllowed is true, and when the answer holds a specific fact pass it in text in the worker's words.
++- If the worker's answer does not clearly answer the current question (it is about something else, incomplete, or could mean more than one thing), do not call the tool and do not assume anything. Ask one short clarifying question about the same question and wait for the answer.
+ - "I don't know" is an accepted answer: record it as unknown and don't press the worker.
+ - Do not ask for confirmation yourself. If an answer needs confirming, the tool returns that question.
+ - If the tool refuses an answer, explain and ask the question again.

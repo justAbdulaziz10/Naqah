@@ -11,6 +11,7 @@ import {
   Flask,
   GearSix,
   House,
+  Microphone,
   PhoneList,
   Waveform,
   type Icon,
@@ -29,6 +30,9 @@ import { cn } from "@/lib/cn";
 import { useIsAccount, useNow, useWorkspaceStore } from "@/store/workspace";
 import { LocaleSwitcher } from "./LocaleSwitcher";
 import { getStartedPath } from "@/components/entry/paths";
+
+/** Only hides the link. The route itself checks the session and the owner allowlist. */
+const VOICE_LAB = process.env.NEXT_PUBLIC_NAQAH_VOICE_LAB === "1";
 
 type NavKey = "overview" | "herd" | "tickets" | "calls" | "settings";
 
@@ -171,6 +175,19 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           </div>
         )}
+        {VOICE_LAB ? (
+          <Link
+            href={href("/app/voice-lab")}
+            aria-current={isActive("/app/voice-lab") ? "page" : undefined}
+            className={cn(
+              "mt-2 flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-[0.95rem] font-semibold transition-colors duration-200",
+              isActive("/app/voice-lab") ? "bg-espresso/[0.07] text-espresso" : "text-muted hover:bg-espresso/5 hover:text-espresso",
+            )}
+          >
+            <span className="flex w-6 justify-center"><Microphone size={22} weight={isActive("/app/voice-lab") ? "fill" : "regular"} aria-hidden /></span>
+            {m.voiceLab.nav}
+          </Link>
+        ) : null}
         <div className="mt-auto space-y-3 px-2">
           <div className="border-t border-stone/70 pt-4">
             {ws.settings.owner.name.trim() ? <p className="truncate text-sm font-semibold">{ws.settings.owner.name}</p> : null}
@@ -188,6 +205,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Logo locale={locale} href={href("/")} className="min-h-11" />
             <div className="ms-auto flex items-center gap-1">
               <LocaleSwitcher />
+              {VOICE_LAB ? (
+                <Link href={href("/app/voice-lab")} aria-label={m.voiceLab.nav} className="inline-flex size-11 items-center justify-center rounded-full hover:bg-espresso/5">
+                  <Microphone size={22} aria-hidden />
+                </Link>
+              ) : null}
               <Link
                 href={href("/app/settings")}
                 aria-label={m.common.nav.settings}
