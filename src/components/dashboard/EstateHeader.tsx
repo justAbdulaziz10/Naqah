@@ -46,7 +46,7 @@ export function EstateHeader({ name, answer, tone, provenance, rhythm, next }: {
         <ToneMark tone={tone} />
         <span className="naqah-name min-w-0">{answer}</span>
       </p>
-      <p className="naqah-enter mt-1 ps-[calc(1.25rem+0.75rem)] text-sm leading-snug text-cream/70 sm:mt-2 sm:ps-[calc(1.75rem+0.75rem)] sm:text-[0.9375rem] sm:leading-relaxed" style={step(3)}>
+      <p className="naqah-enter mt-1 text-[0.8125rem] leading-snug text-cream/70 sm:mt-2 sm:ps-[calc(1.75rem+0.75rem)] sm:text-[0.9375rem] sm:leading-relaxed" style={step(3)}>
         {provenance}
       </p>
     </div>
