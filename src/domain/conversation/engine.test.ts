@@ -4,11 +4,11 @@ import { fromRiyadh, RETRY_DELAY_MS } from "../clock";
 import { evaluateFindings, ownerBriefing } from "../findings";
 import { herdCountProposal } from "../herd";
 import { placeReportCallAttempt, startReportCall } from "../reportCalls";
-import { dueTaskVerifications, routeOwnerInboundCall, routeWorkerInboundCall } from "../rules";
+import { routeOwnerInboundCall, routeWorkerInboundCall } from "../rules";
 import { createDemoWorkspace, createEmptyWorkspace } from "../seed";
 import { withDemoHeat } from "../weather";
 import type { Workspace } from "../types";
-import { answer, hangUp, start, type CallSession } from "./engine";
+import { answer, hangUp, scenarioAvailability, start, type CallSession } from "./engine";
 
 const NOW = fromRiyadh(2026, 11, 5, 17, 10);
 
@@ -163,7 +163,10 @@ describe("Call Lab conversation engine", () => {
 
     expect(current.taskTickets.find((item) => item.id === task.id)?.status).toBe("open");
     const tomorrow = fromRiyadh(2026, 11, 6, 9, 0);
-    expect(dueTaskVerifications(current, tomorrow).map((item) => item.id)).toContain(task.id);
+    const again = start(current, tomorrow, "worker_outbound");
+    const afterAgain = again.commit?.(current) ?? current;
+    expect(afterAgain.pendingWorkerCalls.filter((call) => call.purpose === "task_verification" && call.taskTicketId === task.id)).toHaveLength(1);
+    expect(scenarioAvailability(afterAgain, tomorrow).dueTaskVerificationCount).toBe(0);
     const report = reportCall(current, tomorrow).session;
     expect(report.data.queue?.some((item) => item.kind === "task" && item.taskId === task.id)).toBe(true);
   });
@@ -203,8 +206,15 @@ describe("Call Lab conversation engine", () => {
     expect(current.reports).toHaveLength(reportsBefore);
     expect(current.taskTickets.find((item) => item.id === task.id)?.status).toBe("open");
 
-    result = applyAnswer(session, current, callbackAt, { value: "yes" });
-    current = result.ws;
+    let guard = 0;
+    while (session.step === "callback_task_confirmation" && guard < 6) {
+      guard += 1;
+      const askingShade = session.turns.at(-1)?.text.en.includes("Check the shade net") ?? false;
+      result = applyAnswer(session, current, callbackAt, { value: askingShade ? "yes" : "no" });
+      session = result.session;
+      current = result.ws;
+      if (askingShade) break;
+    }
     const closed = current.taskTickets.find((item) => item.id === task.id);
     expect(closed?.status).toBe("closed");
     expect(closed?.closedVia).toBe("worker_callback");
@@ -556,5 +566,269 @@ describe("Call Lab conversation engine", () => {
     expect(committed.events.some((event) => event.text.en === "1 finding matches the owner's criteria")).toBe(true);
     expect(committed.taskTickets).toHaveLength(0);
     expect(committed.pendingWorkerCalls).toHaveLength(0);
+  });
+
+  it("starts one verification cycle and does not start another after not yet, retries, or a repeated outbound", () => {
+    const { ws, task } = scheduledTaskWorkspace();
+    const dueAt = fromRiyadh(2026, 11, 5, 19, 0);
+    const first = start(ws, dueAt, "worker_outbound");
+    const once = first.commit?.(ws) ?? ws;
+    const second = start(once, dueAt, "worker_outbound");
+    const twice = second.commit?.(once) ?? once;
+    expect(twice.pendingWorkerCalls.filter((call) => call.purpose === "task_verification" && call.taskTicketId === task.id)).toHaveLength(1);
+
+    const result = applyAnswer(first.session, once, dueAt, { value: "no_answer" });
+    const pending = result.ws.pendingWorkerCalls.find((call) => call.taskTicketId === task.id);
+    expect(new Date(pending?.nextAttemptAt ?? 0).getTime() - dueAt.getTime()).toBe(RETRY_DELAY_MS);
+
+    const exhausted = noAnswerFourTimes(once, dueAt);
+    expect(exhausted.ws.pendingWorkerCalls.filter((call) => call.purpose === "task_verification")).toHaveLength(1);
+    expect(exhausted.ws.pendingWorkerCalls[0]?.state).toBe("no_answer_ticket");
+    const afterExhaustion = start(exhausted.ws, exhausted.now, "worker_outbound");
+    const stillOne = afterExhaustion.commit?.(exhausted.ws) ?? exhausted.ws;
+    expect(stillOne.pendingWorkerCalls.filter((call) => call.purpose === "task_verification")).toHaveLength(1);
+    expect(scenarioAvailability(stillOne, exhausted.now).dueTaskVerificationCount).toBe(0);
+  });
+
+  it("does not verify a scheduled task before its instruction is delivered", () => {
+    const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    const due = fromRiyadh(2026, 11, 5, 18, 0);
+    const created = submitOwnerInstruction(ws, NOW, {
+      message: "Check the shade net",
+      actionable: true,
+      scheduledFor: due.toISOString(),
+    });
+    const blocked = start(created.ws, due, "worker_outbound");
+    const waiting = blocked.commit?.(created.ws) ?? created.ws;
+    expect(waiting.pendingWorkerCalls.filter((call) => call.purpose === "task_verification")).toHaveLength(0);
+    expect(waiting.pendingWorkerCalls.filter((call) => call.purpose === "instruction" && call.state === "pending")).toHaveLength(1);
+
+    const delivered = applyAnswer(blocked.session, waiting, due, { value: "answer" });
+    const verified = start(delivered.ws, due, "worker_outbound");
+    const ready = verified.commit?.(delivered.ws) ?? delivered.ws;
+    expect(ready.pendingWorkerCalls.filter((call) => call.purpose === "task_verification")).toHaveLength(1);
+  });
+
+  it("asks open Any Time and overdue tasks on a callback, and does not report the farm", () => {
+    const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    const pending = submitOwnerInstruction(ws, NOW, {
+      message: "Refill the trough",
+      actionable: true,
+      scheduledFor: null,
+    });
+    const missed = noAnswerFourTimes(pending.ws);
+    missed.ws.taskTickets.push(
+      {
+        id: "overdue-gate",
+        instruction: "Fix the gate",
+        createdAt: NOW.toISOString(),
+        scheduledFor: fromRiyadh(2026, 11, 5, 18, 0).toISOString(),
+        status: "open",
+        closedAt: null,
+        closedVia: null,
+      },
+      {
+        id: "future-barn",
+        instruction: "Paint the barn",
+        createdAt: NOW.toISOString(),
+        scheduledFor: fromRiyadh(2026, 11, 20, 9, 0).toISOString(),
+        status: "open",
+        closedAt: null,
+        closedVia: null,
+      },
+      {
+        id: "closed-old",
+        instruction: "Old task",
+        createdAt: NOW.toISOString(),
+        scheduledFor: null,
+        status: "closed",
+        closedAt: NOW.toISOString(),
+        closedVia: "worker_report",
+      },
+    );
+    const reportsBefore = missed.ws.reports.length;
+    const callbackAt = fromRiyadh(2026, 11, 6, 9, 0);
+    let session = start(missed.ws, callbackAt, "worker_callback").session;
+    expect(session.turns[0].text.en).toContain("not a farm update");
+    let result = applyAnswer(session, missed.ws, callbackAt, { value: "received" });
+    session = result.session;
+    let current = result.ws;
+    expect(current.noAnswerTickets.every((ticket) => ticket.status === "closed")).toBe(true);
+
+    const asked: string[] = [];
+    let guard = 0;
+    while (session.step === "callback_task_confirmation" && guard < 8) {
+      guard += 1;
+      const text = session.turns.at(-1)?.text.en ?? "";
+      asked.push(text);
+      const value = text.includes("Refill the trough") ? "unknown" : text.includes("Fix the gate") ? "yes" : "no";
+      result = applyAnswer(session, current, callbackAt, { value });
+      session = result.session;
+      current = result.ws;
+    }
+
+    expect(asked.filter((text) => text.includes("Refill the trough"))).toHaveLength(1);
+    expect(asked.some((text) => text.includes("Fix the gate"))).toBe(true);
+    expect(asked.some((text) => text.includes("Paint the barn") || text.includes("Old task"))).toBe(false);
+    expect(current.taskTickets.find((task) => task.instruction === "Refill the trough")?.status).toBe("open");
+    expect(current.taskTickets.find((task) => task.instruction === "Fix the gate")?.status).toBe("closed");
+    expect(current.events.some((event) => event.text.en.includes("Refill the trough") && event.text.en.toLowerCase().includes("not done"))).toBe(false);
+    expect(current.reports).toHaveLength(reportsBefore);
+    expect(reportCall(current, callbackAt).session.scenario).toBe("report_call");
+  });
+
+  it("schedules later today, tomorrow, and a future date, and rejects past or unclear input", () => {
+    const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    const openSchedule = () => {
+      let session = start(ws, NOW, "owner_notification").session;
+      let result = applyAnswer(session, ws, NOW, { value: "answer" });
+      session = result.session;
+      const saved = result.ws;
+      result = applyAnswer(session, saved, NOW, { value: "instruction_yes" });
+      session = result.session;
+      result = applyAnswer(session, saved, NOW, { text: "Check the shade net" });
+      session = result.session;
+      result = applyAnswer(session, saved, NOW, { value: "actionable" });
+      return { session: result.session, ws: saved };
+    };
+
+    const later = openSchedule();
+    let result = applyAnswer(later.session, later.ws, NOW, { value: "later_today" });
+    result = applyAnswer(result.session, later.ws, NOW, { text: "20:00" });
+    expect(result.ws.taskTickets.at(-1)?.scheduledFor).toBe(fromRiyadh(2026, 11, 5, 20, 0).toISOString());
+    expect(result.session.turns.at(-1)?.text.en).toContain("has not started");
+    expect(result.session.turns.at(-1)?.text.en.toLowerCase()).not.toContain("calling");
+
+    const tomorrow = openSchedule();
+    result = applyAnswer(tomorrow.session, tomorrow.ws, NOW, { value: "tomorrow" });
+    result = applyAnswer(result.session, tomorrow.ws, NOW, { text: "08:00" });
+    expect(result.ws.taskTickets.at(-1)?.scheduledFor).toBe(fromRiyadh(2026, 11, 6, 8, 0).toISOString());
+
+    const dated = openSchedule();
+    result = applyAnswer(dated.session, dated.ws, NOW, { value: "future_date" });
+    result = applyAnswer(result.session, dated.ws, NOW, { text: "2026-11-15" });
+    expect(result.session.step).toBe("instruction_time");
+    result = applyAnswer(result.session, dated.ws, NOW, { text: "18:00" });
+    expect(result.ws.taskTickets.at(-1)?.scheduledFor).toBe(fromRiyadh(2026, 11, 15, 18, 0).toISOString());
+
+    const relative = openSchedule();
+    result = applyAnswer(relative.session, relative.ws, NOW, { value: "future_date" });
+    result = applyAnswer(result.session, relative.ws, NOW, { text: "10 days from now at 18:00" });
+    expect(result.ws.taskTickets.at(-1)?.scheduledFor).toBe(fromRiyadh(2026, 11, 15, 18, 0).toISOString());
+
+    const anytime = openSchedule();
+    result = applyAnswer(anytime.session, anytime.ws, NOW, { value: "any_time" });
+    expect(result.ws.taskTickets.at(-1)?.scheduledFor).toBeNull();
+
+    const past = openSchedule();
+    result = applyAnswer(past.session, past.ws, NOW, { value: "future_date" });
+    result = applyAnswer(result.session, past.ws, NOW, { text: "2026-11-04" });
+    expect(result.session.step).toBe("instruction_date");
+    expect(result.ws.taskTickets.some((task) => task.instruction === "Check the shade net")).toBe(false);
+
+    const unclear = openSchedule();
+    result = applyAnswer(unclear.session, unclear.ws, NOW, { value: "future_date" });
+    result = applyAnswer(result.session, unclear.ws, NOW, { text: "06/11/2026" });
+    expect(result.session.step).toBe("instruction_date");
+    expect(result.session.turns.at(-1)?.text.en).toContain("not clear");
+
+    const early = openSchedule();
+    result = applyAnswer(early.session, early.ws, NOW, { value: "later_today" });
+    result = applyAnswer(result.session, early.ws, NOW, { text: "08:00" });
+    expect(result.session.step).toBe("instruction_time");
+    expect(result.ws.taskTickets.some((task) => task.instruction === "Check the shade net")).toBe(false);
+  });
+
+  it("keeps an unknown task answer open and closes a reported yes only when the report is saved", () => {
+    const ws = createEmptyWorkspace("ultimate");
+    ws.resources = ws.resources.map((resource) => ({ ...resource, present: false }));
+    ws.taskTickets.push({
+      id: "shade-task",
+      instruction: "Move the shade",
+      createdAt: NOW.toISOString(),
+      scheduledFor: null,
+      status: "open",
+      closedAt: null,
+      closedVia: null,
+    });
+    ws.settings.worker.phone = "+966500000002";
+    const unknownCall = reportCall(ws);
+    let session = answer(unknownCall.session, unknownCall.ws, NOW, { value: "unknown" }).session;
+    session = answer(session, unknownCall.ws, NOW, { value: "unknown" }).session;
+    expect(session.draft.taskConfirmations).toHaveLength(0);
+    expect(session.draft.answers.at(-1)?.certainty).toBe("unknown");
+    const savedUnknown = answer(session, unknownCall.ws, NOW, { value: "confirm_save" });
+    const unknownWs = savedUnknown.commit?.(unknownCall.ws) ?? unknownCall.ws;
+    expect(unknownWs.taskTickets[0]?.status).toBe("open");
+    expect(unknownWs.events.some((event) => event.text.en.toLowerCase().includes("not done"))).toBe(false);
+
+    const yesCall = reportCall(ws);
+    session = answer(yesCall.session, yesCall.ws, NOW, { value: "unknown" }).session;
+    session = answer(session, yesCall.ws, NOW, { value: "yes" }).session;
+    expect(ws.taskTickets[0]?.status).toBe("open");
+    const savedYes = answer(session, yesCall.ws, NOW, { value: "confirm_save" });
+    expect((savedYes.commit?.(yesCall.ws) ?? yesCall.ws).taskTickets[0]?.status).toBe("closed");
+    expect(savedYes.session.turns.at(-1)?.text.en).toContain("Saved");
+    expect(savedYes.session.turns.at(-1)?.text.en.toLowerCase()).not.toContain("calling");
+  });
+
+  it("does not record an unknown verification answer as not done", () => {
+    const { ws, task } = scheduledTaskWorkspace();
+    const dueAt = fromRiyadh(2026, 11, 5, 19, 0);
+    const started = start(ws, dueAt, "worker_outbound");
+    const prepared = started.commit?.(ws) ?? ws;
+    let result = applyAnswer(started.session, prepared, dueAt, { value: "answer" });
+    result = applyAnswer(result.session, result.ws, dueAt, { value: "unknown" });
+    expect(result.ws.taskTickets.find((item) => item.id === task.id)?.status).toBe("open");
+    expect(result.ws.events.some((event) => event.text.en.toLowerCase().includes("not done"))).toBe(false);
+    expect(result.session.turns.some((turn) => turn.text.en.includes("could not confirm"))).toBe(true);
+  });
+
+  it("asks applicable questions, skips absent resources, and keeps plan limits and emergency handling", () => {
+    const ultimate = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    const queue = reportCall(ultimate).session.data.queue?.map((item) => item.id) ?? [];
+    expect(queue).toEqual(expect.arrayContaining(["herd_health", "herd_count", "feed_level", "water_level", "fences_condition", "medicine_stock"]));
+    expect(queue).not.toContain("shelter_condition");
+
+    const bare = createEmptyWorkspace("ultimate");
+    bare.resources = bare.resources.map((resource) => ({ ...resource, present: false }));
+    bare.settings.worker.phone = "+966500000002";
+    const bareQueue = reportCall(bare).session.data.queue?.map((item) => item.id) ?? [];
+    expect(bareQueue).toContain("herd_health");
+    for (const id of ["herd_count", "feed_level", "water_level", "fences_condition", "medicine_stock", "shelter_condition"]) {
+      expect(bareQueue).not.toContain(id);
+    }
+
+    const basic = createDemoWorkspace("en", "basic", fromRiyadh(2026, 11, 3, 9, 0));
+    basic.reports[0].at = NOW.toISOString();
+    basic.lastUpdateAt = NOW.toISOString();
+    const weekly = start(basic, NOW, "report_call");
+    expect(weekly.session.done).toBe(true);
+    expect(weekly.session.turns[0].text.en).toMatch(/already in/i);
+
+    const dailyWs = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    dailyWs.reports[0].at = NOW.toISOString();
+    dailyWs.lastUpdateAt = NOW.toISOString();
+    const daily = start(dailyWs, NOW, "report_call");
+    expect(daily.session.done).toBe(true);
+    expect(daily.session.turns[0].text.en).toMatch(/already in/i);
+
+    let session = start(ultimate, NOW, "owner_notification").session;
+    let result = applyAnswer(session, ultimate, NOW, { value: "answer" });
+    session = result.session;
+    const ownerWs = result.ws;
+    result = applyAnswer(session, ownerWs, NOW, { value: "instruction_yes" });
+    session = result.session;
+    result = applyAnswer(session, ownerWs, NOW, { text: "Guests arrive Friday" });
+    session = result.session;
+    result = applyAnswer(session, ownerWs, NOW, { value: "information" });
+    expect(result.ws.taskTickets.some((task) => task.instruction === "Guests arrive Friday")).toBe(false);
+    expect(result.ws.relays.some((relay) => relay.message === "Guests arrive Friday")).toBe(true);
+    expect(result.session.turns.at(-1)?.text.en).toContain("has not started");
+
+    const emergency = start(ultimate, NOW, "emergency").session;
+    expect(emergency.done).toBe(true);
+    expect(emergency.turns[0].text.en).toContain("calls you directly");
+    expect(emergency.turns[0].text.en).toContain("does not dispatch");
   });
 });

@@ -6,6 +6,7 @@ import {
   recordOwnerInquiry,
   recordOwnerNotification,
   resolveWorkerCallAttempt,
+  startTaskVerification,
   submitOwnerInstruction,
 } from "./actions";
 import { fromRiyadh, isValidWindow, isWithinWindow, nextWindowStart, RETRY_DELAY_MS, weekKey } from "./clock";
@@ -16,6 +17,8 @@ import {
   applicableQuestions,
   canAddCustomQuestion,
   dueTaskVerifications,
+  dueWorkerCalls,
+  overdueScheduledTasks,
   routeOwnerInboundCall,
   routeWorkerInboundCall,
 } from "./rules";
@@ -155,20 +158,23 @@ describe("tickets (Phases 6 & 8)", () => {
     const at = fromRiyadh(2026, 11, 5, 19, 0).toISOString();
     const sub = submitOwnerInstruction(ultimate(), THU_1710, { message: "Fix the gate", actionable: true, scheduledFor: at });
     let ws = sub.ws;
-    const taskId = sub.taskId;
-    expect(taskId).not.toBeNull();
-    // Deadline passing does not close it.
-    expect(dueTaskVerifications(ws, fromRiyadh(2026, 11, 6, 9, 0)).map((t) => t.id)).toContain(taskId);
-    ws = confirmTask(ws, THU_1830, taskId!, false, "worker_task_verification");
+    const taskId = sub.taskId!;
+    const afterDeadline = fromRiyadh(2026, 11, 6, 9, 0);
     expect(ws.taskTickets.find((t) => t.id === taskId)?.status).toBe("open");
-    ws = confirmTask(ws, THU_1830, taskId!, true, "worker_task_verification");
+    expect(overdueScheduledTasks(ws, afterDeadline).map((t) => t.id)).toContain(taskId);
+    expect(dueTaskVerifications(ws, afterDeadline).map((t) => t.id)).not.toContain(taskId);
+    ws = resolveWorkerCallAttempt(ws, THU_1710, sub.pendingCallId, true).ws;
+    expect(dueTaskVerifications(ws, afterDeadline).map((t) => t.id)).toContain(taskId);
+    ws = confirmTask(ws, THU_1830, taskId, false, "worker_task_verification");
+    expect(ws.taskTickets.find((t) => t.id === taskId)?.status).toBe("open");
+    ws = confirmTask(ws, THU_1830, taskId, true, "worker_task_verification");
     expect(ws.taskTickets.find((t) => t.id === taskId)?.status).toBe("closed");
   });
   it("Ultimate information-only message creates no ticket", () => {
     const { taskId } = submitOwnerInstruction(ultimate(), THU_1710, { message: "Guests arrive Friday", actionable: false, scheduledFor: null });
     expect(taskId).toBeNull();
   });
-  it("keeps overdue tasks eligible after a verification call is delivered or ends in a No Answer Ticket", () => {
+  it("keeps an overdue task open for follow-up without another verification cycle", () => {
     const ws = ultimate();
     const task = "scheduled-review";
     const withDeliveredCall = {
@@ -194,7 +200,8 @@ describe("tickets (Phases 6 & 8)", () => {
       }],
     };
     const tomorrow = fromRiyadh(2026, 11, 6, 9, 0);
-    expect(dueTaskVerifications(withDeliveredCall, tomorrow).map((item) => item.id)).toContain(task);
+    expect(dueTaskVerifications(withDeliveredCall, tomorrow).map((item) => item.id)).not.toContain(task);
+    expect(overdueScheduledTasks(withDeliveredCall, tomorrow).map((item) => item.id)).toContain(task);
 
     const withPendingCall = {
       ...withDeliveredCall,
@@ -205,6 +212,7 @@ describe("tickets (Phases 6 & 8)", () => {
       }],
     };
     expect(dueTaskVerifications(withPendingCall, tomorrow).map((item) => item.id)).not.toContain(task);
+    expect(dueWorkerCalls(withPendingCall, tomorrow).map((call) => call.id)).toContain("verification-delivered");
 
     const withNoAnswerTicket = {
       ...withDeliveredCall,
@@ -214,7 +222,115 @@ describe("tickets (Phases 6 & 8)", () => {
         state: "no_answer_ticket" as const,
       }],
     };
-    expect(dueTaskVerifications(withNoAnswerTicket, tomorrow).map((item) => item.id)).toContain(task);
+    expect(dueTaskVerifications(withNoAnswerTicket, tomorrow).map((item) => item.id)).not.toContain(task);
+    expect(overdueScheduledTasks(withNoAnswerTicket, tomorrow).map((item) => item.id)).toContain(task);
+  });
+});
+
+describe("scheduled verification cycle", () => {
+  const dueAt = fromRiyadh(2026, 11, 5, 18, 0);
+
+  function deliveredScheduledTask() {
+    const sub = submitOwnerInstruction(ultimate(), THU_1710, {
+      message: "Check the shade net",
+      actionable: true,
+      scheduledFor: dueAt.toISOString(),
+    });
+    const delivered = resolveWorkerCallAttempt(sub.ws, THU_1710, sub.pendingCallId, true);
+    return { ws: delivered.ws, taskId: sub.taskId! };
+  }
+
+  it("starts one verification and does not create another for the same task", () => {
+    const { ws, taskId } = deliveredScheduledTask();
+    expect(dueTaskVerifications(ws, dueAt).map((task) => task.id)).toContain(taskId);
+    const first = startTaskVerification(ws, dueAt, taskId);
+    const verifications = (workspace: Workspace) =>
+      workspace.pendingWorkerCalls.filter((call) => call.purpose === "task_verification" && call.taskTicketId === taskId);
+    expect(verifications(first.ws)).toHaveLength(1);
+    expect(first.pendingCallId).toBe(verifications(first.ws)[0].id);
+    expect(dueTaskVerifications(first.ws, dueAt).map((task) => task.id)).not.toContain(taskId);
+    const second = startTaskVerification(first.ws, dueAt, taskId);
+    expect(second.pendingCallId).toBe(first.pendingCallId);
+    expect(verifications(second.ws)).toHaveLength(1);
+    expect(second.ws.pendingWorkerCalls).toHaveLength(first.ws.pendingWorkerCalls.length);
+  });
+
+  it("does not verify a scheduled task before its instruction is delivered", () => {
+    const sub = submitOwnerInstruction(ultimate(), THU_1710, {
+      message: "Check the shade net",
+      actionable: true,
+      scheduledFor: dueAt.toISOString(),
+    });
+    expect(dueTaskVerifications(sub.ws, dueAt).map((task) => task.id)).not.toContain(sub.taskId);
+    let ws = sub.ws;
+    for (let i = 0; i < 4; i++) {
+      ws = resolveWorkerCallAttempt(ws, new Date(THU_1710.getTime() + i * RETRY_DELAY_MS), sub.pendingCallId, false).ws;
+    }
+    expect(ws.pendingWorkerCalls.find((call) => call.id === sub.pendingCallId)?.state).toBe("no_answer_ticket");
+    expect(dueTaskVerifications(ws, new Date(dueAt.getTime() + 4 * RETRY_DELAY_MS)).map((task) => task.id)).not.toContain(sub.taskId);
+    expect(overdueScheduledTasks(ws, dueAt).map((task) => task.id)).toContain(sub.taskId);
+  });
+
+  it("retries the same verification three times, then blocks another cycle", () => {
+    const { ws, taskId } = deliveredScheduledTask();
+    const started = startTaskVerification(ws, dueAt, taskId);
+    let current = started.ws;
+    const outcomes: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const at = new Date(dueAt.getTime() + i * RETRY_DELAY_MS);
+      const result = resolveWorkerCallAttempt(current, at, started.pendingCallId, false);
+      current = result.ws;
+      outcomes.push(result.outcome);
+      if (i < 3) {
+        const call = current.pendingWorkerCalls.find((item) => item.id === started.pendingCallId);
+        expect(call?.state).toBe("pending");
+        expect(call?.nextAttemptAt).toBe(new Date(dueAt.getTime() + (i + 1) * RETRY_DELAY_MS).toISOString());
+        expect(dueWorkerCalls(current, new Date(dueAt.getTime() + (i + 1) * RETRY_DELAY_MS)).map((item) => item.id)).toContain(started.pendingCallId);
+        expect(dueTaskVerifications(current, new Date(dueAt.getTime() + (i + 1) * RETRY_DELAY_MS)).map((task) => task.id)).not.toContain(taskId);
+      }
+    }
+    expect(outcomes).toEqual(["retry_scheduled", "retry_scheduled", "retry_scheduled", "no_answer_ticket"]);
+    expect(current.taskTickets.find((task) => task.id === taskId)?.status).toBe("open");
+    expect(current.noAnswerTickets.some((ticket) => ticket.taskTicketId === taskId && ticket.status === "open")).toBe(true);
+    const again = startTaskVerification(current, new Date(dueAt.getTime() + 4 * RETRY_DELAY_MS), taskId);
+    expect(again.pendingCallId).toBe(started.pendingCallId);
+    expect(again.ws.pendingWorkerCalls.filter((call) => call.purpose === "task_verification" && call.taskTicketId === taskId)).toHaveLength(1);
+  });
+
+  it("leaves the ticket open after not yet and does not start another cycle", () => {
+    const { ws, taskId } = deliveredScheduledTask();
+    const started = startTaskVerification(ws, dueAt, taskId);
+    const answered = resolveWorkerCallAttempt(started.ws, dueAt, started.pendingCallId, true);
+    const open = confirmTask(answered.ws, dueAt, taskId, false, "worker_task_verification");
+    const later = fromRiyadh(2026, 11, 6, 9, 0);
+    expect(open.taskTickets.find((task) => task.id === taskId)?.status).toBe("open");
+    expect(dueTaskVerifications(open, later).map((task) => task.id)).not.toContain(taskId);
+    expect(overdueScheduledTasks(open, later).map((task) => task.id)).toContain(taskId);
+    const again = startTaskVerification(open, later, taskId);
+    expect(again.pendingCallId).toBe(started.pendingCallId);
+    expect(again.ws.pendingWorkerCalls.filter((call) => call.purpose === "task_verification" && call.taskTicketId === taskId)).toHaveLength(1);
+  });
+
+  it("closes only the confirmed task", () => {
+    const { ws, taskId } = deliveredScheduledTask();
+    const started = startTaskVerification(ws, dueAt, taskId);
+    const answered = resolveWorkerCallAttempt(started.ws, dueAt, started.pendingCallId, true);
+    const closed = confirmTask(answered.ws, dueAt, taskId, true, "worker_task_verification");
+    expect(closed.taskTickets.find((task) => task.id === taskId)?.status).toBe("closed");
+    expect(overdueScheduledTasks(closed, dueAt).map((task) => task.id)).not.toContain(taskId);
+    expect(dueTaskVerifications(closed, dueAt).map((task) => task.id)).not.toContain(taskId);
+  });
+
+  it("does not schedule a verification for an Any Time task", () => {
+    const sub = submitOwnerInstruction(ultimate(), THU_1710, {
+      message: "Move Wadha",
+      actionable: true,
+      scheduledFor: null,
+    });
+    const delivered = resolveWorkerCallAttempt(sub.ws, THU_1710, sub.pendingCallId, true).ws;
+    expect(dueTaskVerifications(delivered, dueAt).map((task) => task.id)).not.toContain(sub.taskId);
+    expect(overdueScheduledTasks(delivered, dueAt).map((task) => task.id)).not.toContain(sub.taskId);
+    expect(delivered.taskTickets.find((task) => task.id === sub.taskId)?.status).toBe("open");
   });
 });
 

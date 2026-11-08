@@ -23,7 +23,7 @@ import {
   startTaskVerification,
   submitOwnerInstruction,
 } from "../actions";
-import { fromRiyadh, MAX_RETRIES, REPORT_CALL_RETRIES, RETRY_DELAY_MS, riyadhParts } from "../clock";
+import { dayKey, fromRiyadh, MAX_RETRIES, REPORT_CALL_RETRIES, RETRY_DELAY_MS, riyadhParts } from "../clock";
 import { evaluateFindings, ownerBriefing, type ReportDraft } from "../findings";
 import { isHerdCount } from "../herd";
 import { uid } from "../id";
@@ -117,6 +117,8 @@ interface ConversationData {
   instruction?: string;
   actionable?: boolean;
   scheduledFor?: string | null;
+  /** Riyadh calendar day (YYYY-MM-DD) chosen for a scheduled task. */
+  scheduleDay?: string;
   pendingCallIds?: string[];
   startedVerificationCallIds?: string[];
   pendingIndex?: number;
@@ -310,8 +312,39 @@ export function scenarioAvailability(ws: Workspace, now: Date): ScenarioAvailabi
     ownerInquiry: routeOwnerInboundCall(ws, now),
     pendingWorkerCallCount: ws.pendingWorkerCalls.filter((call) => call.state === "pending").length,
     dueWorkerCallCount: dueWorkerCalls(ws, now).length,
-    dueTaskVerificationCount: dueTaskVerifications(ws, now).length,
+    dueTaskVerificationCount: tasksReadyForVerification(ws, now).length,
   };
+}
+
+/** One verification cycle per task. A cycle that was delivered or exhausted is not started again. */
+function verificationCycleExists(ws: Workspace, taskId: string): boolean {
+  return ws.pendingWorkerCalls.some((call) => call.purpose === "task_verification" && call.taskTicketId === taskId);
+}
+
+/** Wait until the instruction call is delivered. A missed instruction stays on the callback path. */
+function instructionAwaitingDelivery(ws: Workspace, taskId: string): boolean {
+  return ws.pendingWorkerCalls.some(
+    (call) => call.purpose === "instruction" && call.taskTicketId === taskId && call.state !== "delivered",
+  );
+}
+
+function tasksReadyForVerification(ws: Workspace, now: Date) {
+  return dueTaskVerifications(ws, now).filter(
+    (task) => !verificationCycleExists(ws, task.id) && !instructionAwaitingDelivery(ws, task.id),
+  );
+}
+
+/** Ultimate open tasks a worker can confirm now: Any Time, plus scheduled tasks whose time has come. */
+function tasksToConfirm(ws: Workspace, now: Date) {
+  if (!taskTicketsEnabled(ws)) return [];
+  const overdueIds = new Set(overdueScheduledTasks(ws, now).map((task) => task.id));
+  const seen = new Set<string>();
+  return openTaskTickets(ws).filter((task) => {
+    if (seen.has(task.id)) return false;
+    if (task.scheduledFor !== null && !overdueIds.has(task.id)) return false;
+    seen.add(task.id);
+    return true;
+  });
 }
 
 function heatDayReportItem(ws: Workspace, now: Date): ReportItem | null {
@@ -379,19 +412,14 @@ function reportQueue(ws: Workspace, now: Date): ReportItem[] {
       question: copy(question.text, question.text),
     })),
   );
-  if (taskTicketsEnabled(ws)) {
-    const overdueIds = new Set(overdueScheduledTasks(ws, now).map((task) => task.id));
-    queue.push(
-      ...openTaskTickets(ws)
-        .filter((task) => task.scheduledFor === null || overdueIds.has(task.id))
-        .map((task) => ({
-          kind: "task" as const,
-          id: "task_" + task.id,
-          taskId: task.id,
-          question: copy("Did you finish: " + task.instruction + "?", "خلصت المهمة: " + task.instruction + "؟"),
-        })),
-    );
-  }
+  queue.push(
+    ...tasksToConfirm(ws, now).map((task) => ({
+      kind: "task" as const,
+      id: "task_" + task.id,
+      taskId: task.id,
+      question: copy("Did you finish: " + task.instruction + "?", "خلصت المهمة: " + task.instruction + "؟"),
+    })),
+  );
   return queue;
 }
 
@@ -595,7 +623,7 @@ function startWorkerCallback(ws: Workspace, now: Date): EngineResult {
   const tickets = openNoAnswerTickets(ws).filter((ticket) => route.ticketIds.includes(ticket.id));
   const messagesEn = tickets.map((ticket) => ticket.message).join("; ");
   const messagesAr = tickets.map((ticket) => ticket.message).join("؛ ");
-  const callbackTaskIds = overdueScheduledTasks(ws, now).map((task) => task.id);
+  const callbackTaskIds = tasksToConfirm(ws, now).map((task) => task.id);
   const session = {
     ...blank("worker_callback", now),
     data: { callbackTaskIds, callbackTaskIndex: 0 },
@@ -642,7 +670,7 @@ function startWorkerOutbound(ws: Workspace, now: Date): EngineResult {
   let prepared = ws;
   let startedVerification = false;
   const startedVerificationCallIds: string[] = [];
-  const dueTasks = dueTaskVerifications(prepared, now);
+  const dueTasks = tasksReadyForVerification(prepared, now);
   for (const task of dueTasks) {
     const result = startTaskVerification(prepared, now, task.id);
     prepared = result.ws;
@@ -891,19 +919,20 @@ function handleReportQuestion(
     const unknown = isUnknown(value, input.text);
     const done = value === "yes";
     // "I don't know" is neither done nor not done, so the summary must not read it back as either.
-    const confirmed = unknown
-      ? current.session
-      : {
+    const explicitNo = value === "no";
+    const sessionWithConfirmation = !unknown && (done || explicitNo)
+      ? {
           ...current.session,
           draft: {
             ...current.session.draft,
             taskConfirmations: [...current.session.draft.taskConfirmations, { taskId: item.taskId, done }],
           },
-        };
+        }
+      : current.session;
     const recorded = reportAnswer(
-      confirmed,
+      sessionWithConfirmation,
       item,
-      unknown ? UNKNOWN_ANSWER : done ? copy("Yes, completed", "إيه، خلصت") : copy("Not yet", "باقي"),
+      unknown ? UNKNOWN_ANSWER : done ? copy("Yes, completed", "إيه، خلصت") : explicitNo ? copy("Not yet", "باقي") : (input.text ?? value),
       unknown ? "unknown" : "reported",
     );
     return { session: nextReportItem(recorded, ws, now) };
@@ -1413,7 +1442,10 @@ function completeReport(session: CallSession, ws: Workspace, now: Date): EngineR
       ...session,
       next: { scenario: "owner_notification", reportId: completed.report.id },
     },
-    copy("Saved, thank you. NAQAH is now calling Abdullah with the update.", "تم حفظ التحديث، شكراً لك. ناقة تتصل الآن بعبدالله وتبلغه."),
+    copy(
+      "Saved, thank you. The update is ready for Abdullah. The call to him has not started.",
+      "تم حفظ التحديث، شكراً لك. التحديث جاهز لعبدالله، ومكالمته لم تبدأ بعد.",
+    ),
     now,
     true,
   );
@@ -1495,7 +1527,12 @@ function handleOwnerNotification(session: CallSession, ws: Workspace, now: Date,
           copy("When should it be done?", "متى ودك تنفذ المهمة؟"),
           now,
           "instruction_schedule",
-          [reply("any_time", "Any time", "في أي وقت"), reply("pick_time", "Choose a time today", "حدد وقت اليوم")],
+          [
+            reply("any_time", "Any time", "في أي وقت"),
+            reply("later_today", "Later today", "اليوم لاحقاً"),
+            reply("tomorrow", "Tomorrow", "بكرة"),
+            reply("future_date", "Another date", "تاريخ ثاني"),
+          ],
         ),
       };
     }
@@ -1503,36 +1540,141 @@ function handleOwnerNotification(session: CallSession, ws: Workspace, now: Date,
   }
   if (session.step === "instruction_schedule") {
     if (current.value === "any_time") return submitInstruction(current.session, ws, now, true, null);
-    return {
-      session: ask(
-        current.session,
-        copy("Choose a time today in Riyadh, for example 18:30.", "حدد وقت اليوم بتوقيت الرياض، مثل 18:30."),
-        now,
-        "instruction_time",
-        [reply("any_time", "Any time", "في أي وقت")],
-        "time",
-      ),
-    };
+    if (current.value === "future_date") {
+      return {
+        session: ask(
+          current.session,
+          copy(
+            "Enter a future date as YYYY-MM-DD, or a number of days from now. Example: 2026-11-15, or 10 days from now.",
+            "أدخل تاريخاً قادماً بصيغة YYYY-MM-DD، أو عدد الأيام من اليوم. مثال: 2026-11-15، أو بعد 10 أيام.",
+          ),
+          now,
+          "instruction_date",
+          [reply("any_time", "Any time", "في أي وقت")],
+          "text",
+        ),
+      };
+    }
+    const addDays = current.value === "tomorrow" ? 1 : 0;
+    const day = scheduleDayFrom(now, addDays);
+    return { session: askScheduleTime({ ...current.session, data: { ...current.session.data, scheduleDay: day } }, now) };
+  }
+  if (session.step === "instruction_date") {
+    if (current.value === "any_time") return submitInstruction(current.session, ws, now, true, null);
+    const parsed = parseScheduleInput(input.text ?? current.value, now);
+    if (!parsed.ok) {
+      const text = parsed.reason === "past"
+        ? copy("That date has already passed. Choose a later date.", "هذا التاريخ فات. اختر تاريخاً لاحقاً.")
+        : copy("That date is not clear. Use YYYY-MM-DD, such as 2026-11-15.", "التاريخ غير واضح. استخدم الصيغة YYYY-MM-DD، مثل 2026-11-15.");
+      return {
+        session: ask(current.session, text, now, "instruction_date", [reply("any_time", "Any time", "في أي وقت")], "text"),
+      };
+    }
+    const dated = { ...current.session, data: { ...current.session.data, scheduleDay: parsed.day } };
+    if (!parsed.time) return { session: askScheduleTime(dated, now) };
+    return submitInstruction(dated, ws, now, true, fromRiyadh(parsed.year, parsed.month, parsed.date, parsed.time.hours, parsed.time.minutes).toISOString());
   }
   if (session.step === "instruction_time") {
+    if (current.value === "any_time") return submitInstruction(current.session, ws, now, true, null);
     const value = (input.text ?? current.value).trim();
     const parts = value.split(":").map(Number);
     const valid = parts.length === 2 && Number.isInteger(parts[0]) && Number.isInteger(parts[1]) && parts[0] >= 0 && parts[0] <= 23 && parts[1] >= 0 && parts[1] <= 59;
-    if (!valid) {
-      return {
-        session: ask(current.session, copy("Enter a valid time such as 18:30.", "أدخل وقتاً صحيحاً مثل 18:30."), now, "instruction_time", [reply("any_time", "Any time", "في أي وقت")], "time"),
-      };
-    }
-    const p = riyadhParts(now);
-    const scheduled = fromRiyadh(p.year, p.month, p.day, parts[0], parts[1]);
-    if (scheduled.getTime() < now.getTime()) {
-      return {
-        session: ask(current.session, copy("Choose a later time today.", "اختر وقتاً لاحقاً اليوم."), now, "instruction_time", [reply("any_time", "Any time", "في أي وقت")], "time"),
-      };
+    if (!valid) return { session: askScheduleTime(current.session, now, copy("Enter a valid time such as 18:30.", "أدخل وقتاً صحيحاً مثل 18:30.")) };
+    const scheduled = scheduledInstant(current.session, now, parts[0], parts[1]);
+    if (!scheduled || scheduled.getTime() < now.getTime()) {
+      const today = (current.session.data.scheduleDay ?? dayKey(now)) === dayKey(now);
+      const text = today
+        ? copy("Choose a later time today.", "اختر وقتاً لاحقاً اليوم.")
+        : copy("That time has already passed. Choose a later time.", "هذا الوقت فات. اختر وقتاً لاحقاً.");
+      return { session: askScheduleTime(current.session, now, text) };
     }
     return submitInstruction(current.session, ws, now, true, scheduled.toISOString());
   }
   return { session: current.session };
+}
+
+function scheduleDayFrom(now: Date, addDays: number): string {
+  const p = riyadhParts(now);
+  return dayKey(fromRiyadh(p.year, p.month, p.day + addDays));
+}
+
+function scheduledInstant(session: CallSession, now: Date, hours: number, minutes: number): Date | null {
+  const day = session.data.scheduleDay ?? dayKey(now);
+  const [year, month, date] = day.split("-").map(Number);
+  if (!year || !month || !date) return null;
+  return fromRiyadh(year, month, date, hours, minutes);
+}
+
+function askScheduleTime(session: CallSession, now: Date, prompt?: LocalizedText): CallSession {
+  const day = session.data.scheduleDay ?? dayKey(now);
+  return ask(
+    session,
+    prompt ?? copy(
+      "Choose a Riyadh time for " + day + ", for example 18:30.",
+      "حدد الوقت بتوقيت الرياض لتاريخ " + day + "، مثل 18:30.",
+    ),
+    now,
+    "instruction_time",
+    [reply("any_time", "Any time", "في أي وقت")],
+    "time",
+  );
+}
+
+type ParsedSchedule =
+  | { ok: true; day: string; year: number; month: number; date: number; time?: { hours: number; minutes: number } }
+  | { ok: false; reason: "past" | "ambiguous" };
+
+function clockParts(hours: string, minutes: string): { hours: number; minutes: number } | null {
+  const h = Number(hours);
+  const m = Number(minutes);
+  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return { hours: h, minutes: m };
+}
+
+function calendarDay(year: number, month: number, date: number): { year: number; month: number; date: number } | null {
+  if (month < 1 || month > 12 || date < 1 || date > 31) return null;
+  const parts = riyadhParts(fromRiyadh(year, month, date));
+  if (parts.year !== year || parts.month !== month || parts.day !== date) return null;
+  return { year, month, date };
+}
+
+/** Accept a year-first date, or a clear day count. Slash dates stay ambiguous. */
+function parseScheduleInput(text: string, now: Date): ParsedSchedule {
+  const value = text.trim().replace(/\s+/g, " ");
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?$/);
+  const relative = value.match(/^(?:in\s+)?(\d+)\s+days?\s+from\s+now(?:\s+at\s+(\d{1,2}):(\d{2}))?$/i)
+    ?? value.match(/^in\s+(\d+)\s+days?(?:\s+at\s+(\d{1,2}):(\d{2}))?$/i);
+  const arabic = value.match(/^بعد\s+(\d+)\s+(?:يوم|أيام|يوماً?)(?:\s+الساعة\s+(\d{1,2}):(\d{2}))?$/);
+  let day: { year: number; month: number; date: number } | null = null;
+  let time: { hours: number; minutes: number } | undefined;
+  if (iso) {
+    day = calendarDay(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+    if (!day) return { ok: false, reason: "ambiguous" };
+    if (iso[4]) {
+      const parsed = clockParts(iso[4], iso[5]);
+      if (!parsed) return { ok: false, reason: "ambiguous" };
+      time = parsed;
+    }
+  } else if (relative || arabic) {
+    const match = (relative ?? arabic)!;
+    const add = Number(match[1]);
+    if (!Number.isInteger(add) || add < 0 || add > 366) return { ok: false, reason: "ambiguous" };
+    const parts = riyadhParts(fromRiyadh(riyadhParts(now).year, riyadhParts(now).month, riyadhParts(now).day + add));
+    day = { year: parts.year, month: parts.month, date: parts.day };
+    if (match[2]) {
+      const parsed = clockParts(match[2], match[3]);
+      if (!parsed) return { ok: false, reason: "ambiguous" };
+      time = parsed;
+    }
+  } else {
+    return { ok: false, reason: "ambiguous" };
+  }
+  const stamp = dayKey(fromRiyadh(day.year, day.month, day.date));
+  if (stamp < dayKey(now)) return { ok: false, reason: "past" };
+  if (time && fromRiyadh(day.year, day.month, day.date, time.hours, time.minutes).getTime() < now.getTime()) {
+    return { ok: false, reason: "past" };
+  }
+  return { ok: true, day: stamp, year: day.year, month: day.month, date: day.date, ...(time ? { time } : {}) };
 }
 
 function submitInstruction(
@@ -1552,17 +1694,17 @@ function submitInstruction(
     data: { ...session.data, scheduledFor, actionable },
   };
   if (created.taskId) {
-    next = addNotice(next, copy("A Task Ticket was opened and is waiting for Ahmed.", "فُتحت تذكرة مهمة وبانتظار أحمد."));
+    next = addNotice(next, copy("A Task Ticket is open and waiting for Ahmed.", "فُتحت تذكرة مهمة وبانتظار أحمد."));
     next = say(
       next,
-      copy("I’ve opened a task for Ahmed and will call him now with your instruction.", "فتحت مهمة لأحمد، وباتصل عليه الآن وأوصل له تعليماتك."),
+      copy("The task is open. The instruction is queued for Ahmed. The call has not started.", "المهمة مفتوحة. التعليمات جاهزة لأحمد، والمكالمة لم تبدأ."),
       now,
       true,
     );
   } else {
     next = say(
       next,
-      copy("Your message is ready. I’ll call Ahmed now.", "وصلت رسالتك. باتصل على أحمد الآن."),
+      copy("Your message is queued for Ahmed. The call has not started.", "رسالتك جاهزة لأحمد. المكالمة لم تبدأ."),
       now,
       true,
     );
@@ -1606,18 +1748,17 @@ function handleWorkerCallback(session: CallSession, ws: Workspace, now: Date, in
 
 function askNextCallbackTask(session: CallSession, ws: Workspace, now: Date): CallSession {
   const taskIds = session.data.callbackTaskIds ?? [];
-  const overdueIds = new Set(overdueScheduledTasks(ws, now).map((task) => task.id));
   let index = session.data.callbackTaskIndex ?? 0;
   while (index < taskIds.length) {
     const taskId = taskIds[index];
     const task = ws.taskTickets.find((item) => item.id === taskId && item.status === "open");
-    if (!task || !overdueIds.has(taskId)) {
+    if (!task) {
       index += 1;
       continue;
     }
     return ask(
       { ...session, data: { ...session.data, callbackTaskIndex: index } },
-      copy("Did you finish the overdue task: " + task.instruction + "?", "خلصت المهمة المتأخرة: " + task.instruction + "؟"),
+      copy("Did you finish: " + task.instruction + "?", "خلصت المهمة: " + task.instruction + "؟"),
       now,
       "callback_task_confirmation",
       [reply("yes", "Yes, complete", "إيه، خلصت"), reply("no", "No, not yet", "لا، باقي"), reply("unknown", "I don’t know", "ما أدري")],
@@ -1700,6 +1841,19 @@ function handleWorkerOutbound(session: CallSession, ws: Workspace, now: Date, in
     const callId = session.data.currentCallId;
     const call = ws.pendingWorkerCalls.find((item) => item.id === callId);
     if (!call?.taskTicketId) return { session: say(current.session, copy("No task ticket is attached to this call.", "ما فيه تذكرة مهمة مرتبطة بهذا الاتصال."), now, true) };
+    if (current.value !== "yes" && current.value !== "no") {
+      return {
+        session: advanceOutboundIndex(
+          say(
+            current.session,
+            copy("Ahmed could not confirm this task. It stays open.", "ما قدر أحمد يؤكد المهمة. تبقى مفتوحة."),
+            now,
+          ),
+          ws,
+          now,
+        ),
+      };
+    }
     const done = current.value === "yes";
     const updated = confirmTask(ws, now, call.taskTicketId, done, "worker_task_verification");
     const response = done
