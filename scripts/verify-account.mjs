@@ -97,17 +97,38 @@ const settled = (page) => page.waitForFunction(() => ![...document.querySelector
 const next = (page, label) => page.getByRole("button", { name: label, exact: false }).first().click();
 const storedText = (page) => page.evaluate(() => JSON.stringify({ ...localStorage }));
 
-async function runWizard(page, locale, { owner, farm, worker, workerName, ownerPhone, workerPhone }) {
+async function runWizard(page, locale, { ownerId, plan = "basic", simulatePlanFailure = false, owner, farm, worker, workerName, ownerPhone, workerPhone }) {
   const go = locale === "ar" ? "متابعة" : "Continue";
   await page.goto(`${BASE}/${locale}/start`);
   await page.waitForURL(`**/${locale}/choose-plan*`, { timeout: 15_000 });
   const radios = page.locator('input[name="plan"]');
   check(`${locale}: account must choose an explicit plan`, await radios.evaluateAll((items) => items.every((item) => !item.checked)));
+  check(`${locale}: no farm exists before an owner confirms a plan`, sql(`select count(*) from farms where owner_id = ${q(ownerId)}`) === "0");
   const choose = page.getByRole("button", { name: locale === "ar" ? "كمّل على هذي الباقة" : "Continue with this plan", exact: true });
   check(`${locale}: cannot continue before a plan choice`, await choose.isDisabled());
-  await radios.nth(0).check();
+  await radios.nth(plan === "basic" ? 0 : 1).check();
+  check(`${locale}: selecting a card alone does not create or confirm a farm`, sql(`select count(*) from farms where owner_id = ${q(ownerId)}`) === "0");
+  if (simulatePlanFailure) {
+    let blocked = false;
+    await page.route("**/*", async (route) => {
+      if (!blocked && route.request().method() === "POST" && route.request().headers()["next-action"]) {
+        blocked = true;
+        await route.abort();
+      } else await route.continue();
+    });
+    await choose.click();
+    await page.getByRole("alert").waitFor({ timeout: 8_000 });
+    check(`${locale}: a failed plan save does not advance or create a farm`, blocked && page.url().includes(`/${locale}/choose-plan`) && sql(`select count(*) from farms where owner_id = ${q(ownerId)}`) === "0");
+    await page.unroute("**/*");
+    await page.reload();
+    await page.waitForURL(`**/${locale}/choose-plan*`, { timeout: 15_000 });
+    check(`${locale}: reloading after a failed plan save preserves the unconfirmed state`, sql(`select count(*) from farms where owner_id = ${q(ownerId)}`) === "0");
+    await radios.nth(plan === "basic" ? 0 : 1).check();
+  }
   await choose.click();
   await page.waitForURL(`**/${locale}/start`, { timeout: 15_000 });
+  const persisted = await waitFor(() => sql(`select plan || ':' || (plan_selected_at is not null) from farms where owner_id = ${q(ownerId)}`) === `${plan}:true`, `${plan} selection`);
+  check(`${locale}: Continue saves ${plan} before onboarding opens`, persisted);
   await settled(page);
   await page.getByLabel(locale === "ar" ? "اسم العزبة" : "Ranch name").waitFor();
   check(`${locale}: setup offers no sample data to a real owner`, await page.getByText(locale === "ar" ? /بيانات تجريبية|نموذج/ : /sample/i).count() === 0);
@@ -175,8 +196,8 @@ const workerA = phone();
 const ownerPhoneA = phone();
 const FARM_A = `مزرعة النخيل ${randomBytes(2).toString("hex")}`;
 const A = await open();
-await signIn(A.context, ownerA);
-await runWizard(A.page, "ar", { owner: "سالم", farm: FARM_A, worker: "يوسف", ownerPhone: ownerPhoneA, workerPhone: workerA });
+const tokenA = await signIn(A.context, ownerA);
+await runWizard(A.page, "ar", { ownerId: ownerA.id, plan: "basic", simulatePlanFailure: true, owner: "سالم", farm: FARM_A, worker: "يوسف", ownerPhone: ownerPhoneA, workerPhone: workerA });
 const farmA = sql(`select id from farms where owner_id = ${q(ownerA.id)}`);
 check("sign-in creates one farm for the owner", Boolean(farmA));
 check("setup reaches Supabase and starts on Basic", await waitFor(() => sql(`select plan || ':' || setup_complete || ':' || name from farms where id = ${q(farmA)}`) === `basic:true:${FARM_A}`, "setup saved"), sql(`select plan, setup_complete, name from farms where id = ${q(farmA)}`));
@@ -229,6 +250,12 @@ const planChange = await A.page.evaluate(async (farm) => (await fetch("/api/acco
   body: JSON.stringify({ op: "save", farm, changes: [{ kind: "profile", input: { plan: "ultimate" } }] }),
 })).json(), farmA);
 check("a forged plan change is refused by the owner action", planChange.data?.failed?.length === 1 && sql(`select plan from farms where id = ${q(farmA)}`) === "basic", JSON.stringify(planChange));
+const rpcPlanChange = await fetch(`${GATEWAY}/rest/v1/rpc/select_initial_plan`, {
+  method: "POST",
+  headers: { Authorization: `Bearer ${tokenA.access_token}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ p_plan: "ultimate" }),
+});
+check("the owner RPC cannot change a completed Basic account", rpcPlanChange.status === 409 && sql(`select plan || ':' || setup_complete from farms where id = ${q(farmA)}`) === "basic:true", rpcPlanChange.status);
 
 sql(`insert into report_call_runs (farm_id, occurrence, trigger, attempts, state) values (${q(farmA)}, now(), 'schedule', jsonb_build_array(jsonb_build_object('at', now(), 'result', 'no_answer')), 'missed')`);
 const ANSWER = "زارنا البيطري اليوم";
@@ -272,11 +299,8 @@ const ownerB = await createOwner();
 const workerB = phone();
 const B = await open({ width: 390, height: 844 });
 const tokenB = await signIn(B.context, ownerB);
-await B.page.goto(`${BASE}/en/start`);
-await settled(B.page);
+await runWizard(B.page, "en", { ownerId: ownerB.id, plan: "ultimate", owner: "Faisal", farm: "Rawdah Farm", worker: "Hamid", ownerPhone: phone(), workerPhone: workerB });
 const farmB = sql(`select id from farms where owner_id = ${q(ownerB.id)}`);
-sql(`update farms set plan = 'ultimate' where id = ${q(farmB)}`); // No billing yet: the service sets a plan.
-await runWizard(B.page, "en", { owner: "Faisal", farm: "Rawdah Farm", worker: "Hamid", ownerPhone: phone(), workerPhone: workerB });
 sql(`insert into report_call_runs (farm_id, occurrence, trigger, attempts, state) values (${q(farmB)}, now(), 'schedule', jsonb_build_array(jsonb_build_object('at', now(), 'result', 'no_answer')), 'missed')`);
 sql(`update workers set language = 'en' where farm_id = ${q(farmB)}`);
 check("Ultimate farm loads as Ultimate", (await B.page.locator("body").innerText()).includes("Rawdah Farm") && sql(`select plan from farms where id = ${q(farmB)}`) === "ultimate", (await B.page.locator("body").innerText()).slice(0, 240) + " :: " + sql(`select plan, owner_name, setup_complete from farms where id = ${q(farmB)}`));
@@ -285,6 +309,13 @@ check("owner B sees nothing of owner A", !body.includes(FARM_A) && !body.include
 const rest = (path, token) => fetch(`${GATEWAY}/rest/v1/${path}`, { headers: { Authorization: `Bearer ${token}` } }).then((response) => response.json());
 check("direct API: owner B reads none of owner A's reports", (await rest(`reports?farm_id=eq.${farmA}`, tokenB.access_token)).length === 0);
 check("direct API: owner B reads none of owner A's farm", (await rest(`farms?id=eq.${farmA}`, tokenB.access_token)).length === 0);
+const changedPlan = await fetch(`${GATEWAY}/rest/v1/farms?id=eq.${farmA}`, {
+  method: "PATCH",
+  headers: { Authorization: `Bearer ${tokenB.access_token}`, "Content-Type": "application/json", Prefer: "return=representation" },
+  body: JSON.stringify({ plan: "ultimate" }),
+});
+await changedPlan.text();
+check("direct API: owner B cannot change owner A's plan", sql(`select plan from farms where id = ${q(farmA)}`) === "basic" && sql(`select plan from farms where id = ${q(farmB)}`) === "ultimate");
 const write = await fetch(`${GATEWAY}/rest/v1/camels?farm_id=eq.${farmA}`, { method: "PATCH", headers: { Authorization: `Bearer ${tokenB.access_token}`, "Content-Type": "application/json", Prefer: "return=representation" }, body: JSON.stringify({ name: "hacked" }) });
 check("direct API: owner B changes none of owner A's camels", (await write.json()).length === 0 && sql(`select count(*) from camels where name = 'hacked'`) === "0");
 const removed = await fetch(`${GATEWAY}/rest/v1/farms?id=eq.${farmB}`, { method: "DELETE", headers: { Authorization: `Bearer ${tokenB.access_token}` } });

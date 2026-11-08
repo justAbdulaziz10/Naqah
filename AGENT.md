@@ -186,6 +186,8 @@ the same functions and swaps only the storage and the "who triggers it" layer.
   Local validation uses stand-in Supabase roles/Auth; it does not prove live activation. The existing Supabase project
   contains Auth test users; migrations 0001–0005 and both timestamped migrations are applied. The latter adds durable
   links from a pending worker call to multiple task tickets while retaining the legacy single-task field.
+  The plan-selection feature adds `20261108010000_initial_plan_selection.sql`; it is pending local and hosted
+  verification. Do not deploy that feature with account mode enabled until this migration is applied and verified.
   Status, plan and manual go-live list: `docs/integrations/supabase-backend.md`.
   One owner (`auth.users`) → one `farms` row (owner, settings, call time, herd count, primary worker) → 1–3 (Basic) or
   1–10 (Ultimate) `workers` rows; NAQAH calls the primary one. Scheduled report calls live in `report_call_runs`.
