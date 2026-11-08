@@ -35,14 +35,15 @@ export async function advanceVoiceSession(
   callSid: string,
   seq: number,
   next: Pick<VoiceSessionRow, "session" | "misses" | "last_response">,
+  requireRealtimeOpen = false,
 ): Promise<VoiceSessionRow | null> {
-  const { data, error } = await client
+  let query = client
     .from("voice_call_sessions")
     .update({ ...next, seq: seq + 1, updated_at: new Date().toISOString() })
     .eq("call_sid", callSid)
-    .eq("seq", seq)
-    .select("*")
-    .maybeSingle();
+    .eq("seq", seq);
+  if (requireRealtimeOpen) query = query.eq("session->realtime->closed", false);
+  const { data, error } = await query.select("*").maybeSingle();
   if (error) throw fromPostgrest(error);
   return data as VoiceSessionRow | null;
 }

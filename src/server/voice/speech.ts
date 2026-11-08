@@ -50,12 +50,14 @@ const NUMBER_WORDS: Record<string, number> = {
   "ثلاث": 3, "ثلاثه": 3, "اربع": 4, "اربعه": 4, "خمس": 5, "خمسه": 5, "ست": 6, "سته": 6,
   "سبع": 7, "سبعه": 7, "ثمان": 8, "ثماني": 8, "ثمانيه": 8, "تسع": 9, "تسعه": 9,
   "عشر": 10, "عشره": 10, "احد عشر": 11, "احدعشر": 11, "اثنا عشر": 12, "اثنى عشر": 12,
-  "اثناعشر": 12, "ثلاثه عشر": 13, "ثلاث عشر": 13, "اربع عشر": 14, "اربعه عشر": 14,
+  "اثناعشر": 12, "اثنعش": 12, "اثناعش": 12, "ثنعش": 12, "ثلاثه عشر": 13, "ثلاث عشر": 13, "اربع عشر": 14, "اربعه عشر": 14,
   "خمسه عشر": 15, "خمس عشر": 15, "سته عشر": 16, "ست عشر": 16, "سبعه عشر": 17,
   "سبع عشر": 17, "ثمانيه عشر": 18, "ثمان عشر": 18, "تسعه عشر": 19, "تسع عشر": 19,
   "عشرين": 20, "عشرون": 20, "ثلاثين": 30, "ثلاثون": 30, "اربعين": 40, "اربعون": 40,
   "خمسين": 50, "خمسون": 50, "ستين": 60, "ستون": 60, "سبعين": 70, "سبعون": 70,
   "ثمانين": 80, "ثمانون": 80, "تسعين": 90, "تسعون": 90,
+  "احدعش": 11, "حدعش": 11, "ثلاثطعش": 13, "اربعطعش": 14, "خمسطعش": 15, "خمستعش": 15,
+  "ستطعش": 16, "سبعطعش": 17, "ثمانطعش": 18, "تسعطعش": 19, "كيسين": 2, "كيسان": 2, "لترين": 2,
 };
 
 const HUNDREDS: Record<string, number> = {
@@ -94,15 +96,17 @@ export function extractNumber(input: string): number | null {
       if (numericValue(tokens[index + 1] ?? "") === undefined) return null;
       continue;
     }
-    if (["hundred", "thousand", "الف", "الاف"].includes(token)) {
+    if (["hundred", "ميه", "مئه", "مائه", "thousand", "الف", "الاف", "الفين", "الفان"].includes(token)) {
       if (ended) return null;
-      if (token === "hundred") {
+      if (["hundred", "ميه", "مئه", "مائه"].includes(token)) {
         if (group !== null && (group < 1 || group > 9)) return null;
         group = (group ?? 1) * 100;
         previous = group;
       } else {
         if (total || (group !== null && (!Number.isInteger(group) || group < 1 || group > 999))) return null;
-        total = (group ?? 1) * 1000;
+        const dual = token === "الفين" || token === "الفان";
+        if (dual && group !== null) return null;
+        total = (group ?? (dual ? 2 : 1)) * 1000;
         group = null;
         previous = null;
       }
@@ -199,18 +203,19 @@ const replyIsNegated = (reply: Reply) => isNegated(reply.label.ar) || isNegated(
  * «لا، ما فيه مريض» means every camel is fine, though it holds «لا» and «مريض». So words are read
  * as concepts, and a concept preceded by a negator (up to five words back) in the same clause counts as negated.
  */
-type Concept = "healthy" | "sick" | "watch" | "enough" | "low" | "medium" | "finished" | "pending" | "save" | "thing";
+type Concept = "healthy" | "sick" | "watch" | "damaged" | "enough" | "low" | "medium" | "finished" | "pending" | "save" | "thing";
 
 const CONCEPTS: Record<Concept, readonly string[]> = {
   healthy: ["بخير", "زين", "زينه", "زينين", "طيب", "طيبه", "طيبين", "سليم", "سليمه", "سالمه", "سالمين", "عال", "healthy", "well", "fine", "good", "ok", "okay", "alright"],
   sick: [
     "مريض", "مريضه", "مرضى", "مريضات", "تعبان", "تعبانه", "تعبانين", "مصاب", "مصابه", "مصابين", "عيان", "عيانه",
-    "مشكله", "مشاكل", "sick", "ill", "injured", "hurt", "unwell", "limping", "wrong", "problem", "problems", "issue", "issues",
+    "مشكله", "مشاكل", "تعرج", "sick", "ill", "injured", "hurt", "unwell", "limping", "wrong", "problem", "problems", "issue", "issues",
   ],
-  watch: ["متابعه", "ملاحظه", "مراقبه", "watch", "observation"],
-  enough: ["كافي", "كافيه", "يكفي", "تكفي", "يكفون", "كفايه", "متوفر", "متوفره", "وايد", "كثير", "enough", "plenty", "sufficient", "full"],
-  low: ["ناقص", "ناقصه", "نقص", "نقصت", "قليل", "قليله", "low", "short", "little"],
-  medium: ["متوسط", "متوسطه", "نص", "نصه", "half", "medium", "average"],
+  watch: ["متابعه", "ملاحظه", "مراقبه", "نراقبها", "watch", "observation"],
+  damaged: ["خربان", "خربانه", "مكسور", "مكسوره", "broken", "damaged"],
+  enough: ["كافي", "كافيه", "يكفي", "تكفي", "يكفون", "كفايه", "متوفر", "متوفره", "موجود", "موجوده", "وايد", "كثير", "enough", "plenty", "sufficient", "full"],
+  low: ["ناقص", "ناقصه", "نقص", "نقصت", "قليل", "قليله", "شوي", "شويه", "low", "short", "little"],
+  medium: ["متوسط", "متوسطه", "نص", "نصه", "النص", "نصف", "النصف", "half", "medium", "average"],
   finished: ["خلص", "خلصت", "خلصان", "خلصانه", "خلصتها", "خالص", "انتهيت", "انتهى", "انتهت", "نفد", "نفذ", "done", "finished", "complete", "completed", "empty"],
   pending: ["باقي", "لسه", "لسا", "yet"],
   save: ["احفظ", "احفظه", "احفظها", "تحفظ", "تحفظه", "حفظ", "اكد", "تاكيد", "اعتمد", "confirm", "save"],
@@ -219,13 +224,14 @@ const CONCEPTS: Record<Concept, readonly string[]> = {
 const CONCEPT_OF = new Map<string, Concept>(
   (Object.entries(CONCEPTS) as [Concept, readonly string[]][]).flatMap(([concept, list]) => list.map((word) => [word, concept] as const)),
 );
-const AFFIRM = new Set(["ايه", "ايوه", "نعم", "اي", "اكيد", "صح", "صحيح", "تمام", "yes", "yeah", "yep", "yup", "sure", "correct", "right"]);
+const AFFIRM = new Set(["ايه", "ايوه", "نعم", "اي", "اكيد", "صح", "صحيح", "تمام", "اوكي", "طيب", "ok", "okay", "yes", "yeah", "yep", "yup", "sure", "correct", "right"]);
+const WELLBEING = new Set(["تمام", "طيب", "اوكي", "ok", "okay"]);
 /** «لا» / "no" at the start of a clause answers the question; it doesn't negate what follows. */
 const INTERJECTIONS = new Set(["لا", "no", "nope", "nah"]);
 /** …unless it is a determiner: «لا يوجد», "no camel". */
 const DETERMINED = new Set(["يوجد", "احد", "شي", "شيء", "ناقه", "وحده", "camel", "camels", "one", "animal", "problem", "problems", "sign", "signs"]);
 const SCOPE_NEGATORS = new Set([
-  "ما", "مو", "مب", "مش", "ليس", "ليست", "لم", "لن", "لا", "ولا", "بدون", "غير", "مافي", "مافيه", "ماكو", "محد",
+  "ما", "ماهو", "ماهي", "مهو", "مهي", "مهوب", "مهيب", "مهب", "مو", "مب", "مش", "ليس", "ليست", "لم", "لن", "لا", "ولا", "بدون", "غير", "مافي", "مافيه", "ماكو", "محد",
   "not", "never", "without", "no", "none", "nothing", "nobody", "neither", "nor",
 ]);
 /** Words that are themselves "nothing at all". */
@@ -239,6 +245,7 @@ const NEGATION_SCOPE = 5;
 interface Reading {
   unknown: boolean;
   affirm: boolean;
+  wellbeing: boolean;
   deny: boolean;
   /** A negator with nothing to negate («مو», "not"). */
   bareNegation: boolean;
@@ -248,8 +255,10 @@ interface Reading {
 
 function readSpeech(transcript: string): Reading {
   const text = normalizeSpeech(transcript).replace(/n['’]t\b/g, " not").replace(/\bcannot\b/g, "can not")
-    .replace(/(?:قارب|قرب)\s+يخلص|بيخلص(?:ون)?|nearly\s+empty|almost\s+(?:gone|finished)/gu, " low ");
-  const reading: Reading = { unknown: false, affirm: false, deny: false, bareNegation: false, said: new Set(), negated: new Set() };
+    .replace(/(?:قارب|قرب)\s+يخلص|بيخلص(?:ون)?|nearly\s+empty|almost\s+(?:gone|finished)/gu, " low ")
+    .replace(/ما\s+عليهم\s+خلاف|الحمد\s+لله/gu, " بخير ")
+    .replace(/ما\s+تاكل/gu, " مريضه ");
+  const reading: Reading = { unknown: false, affirm: false, wellbeing: false, deny: false, bareNegation: false, said: new Set(), negated: new Set() };
   const plain = text.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   if (UNKNOWN_PHRASE.test(plain)) reading.unknown = true;
   if (DENY_PHRASE.test(plain)) reading.deny = true;
@@ -284,7 +293,10 @@ function readSpeech(transcript: string): Reading {
       }
       if (lookup({ get: (key: string) => AFFIRM.has(key) || undefined }, token)) {
         if (negatedHere) reading.deny = true;
-        else reading.affirm = true;
+        else {
+          reading.affirm = true;
+          if (WELLBEING.has(token)) reading.wellbeing = true;
+        }
         return;
       }
       const concept = lookup(CONCEPT_OF, token);
@@ -329,8 +341,14 @@ function intentReply(session: CallSession, reading: Reading): string | null {
   // "How are the camels? Is any camel sick?" — a plain «لا» means none is.
   if (item?.kind === "predefined" && item.answerKind === "herd-health" && values.has("yes") && values.has("no")) {
     const sick = has(reading, "sick") || has(reading, "healthy", true) || has(reading, "watch");
-    const well = has(reading, "healthy") || has(reading, "sick", true) || has(reading, "thing", true);
+    const well = reading.wellbeing || has(reading, "healthy") || has(reading, "sick", true) || has(reading, "thing", true);
     return oneSide(well, sick, "yes", "no") ?? (reading.deny && !reading.affirm ? "yes" : reading.affirm && !reading.deny ? "no" : null);
+  }
+  if (item?.kind === "predefined" && item.id === "fences_condition") {
+    const intact = has(reading, "healthy") || has(reading, "damaged", true);
+    const damaged = has(reading, "damaged") || has(reading, "healthy", true);
+    const condition = oneSide(intact, damaged, "yes", "no");
+    if (condition) return condition;
   }
   if (values.has("not_enough")) {
     const short = has(reading, "low") || has(reading, "enough", true) || has(reading, "thing", true) || has(reading, "finished");
@@ -349,11 +367,12 @@ function intentReply(session: CallSession, reading: Reading): string | null {
   if (values.has("healthy") && values.has("sick")) {
     if (has(reading, "watch") && values.has("watch")) return "watch";
     const sick = has(reading, "sick") || has(reading, "healthy", true);
-    const well = has(reading, "healthy") || has(reading, "sick", true) || has(reading, "thing", true);
+    const well = reading.wellbeing || has(reading, "healthy") || has(reading, "sick", true) || has(reading, "thing", true);
     return oneSide(well, sick, "healthy", "sick");
   }
   if (values.has("confirm_save") && values.has("end_without_save")) {
-    // Saving is for good, so any negation ends the call unsaved.
+    if (!has(reading, "save") && !has(reading, "save", true) &&
+      (reading.said.size > 0 || reading.negated.size > 0)) return null;
     if (reading.deny || negatedSomething) return "end_without_save";
     return reading.affirm || has(reading, "save") ? "confirm_save" : null;
   }
@@ -404,6 +423,12 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   const normalized = compact(transcript);
   const exact = session.replies.find((item) => [item.value, item.label.ar, item.label.en].some((text) => compact(text) === normalized));
   if (exact) return { value: exact.value };
+  if (session.step === "health_pick") {
+    const nameKey = (text: string) => compact(text).split(" ").map((word) => word.startsWith("ال") && word.length > 3 ? word.slice(2) : word).join(" ");
+    const names = session.replies.filter((reply) => [reply.label.ar, reply.label.en].some((label) => nameKey(label) === nameKey(transcript)));
+    if (names.length === 1) return { value: names[0].value };
+    if (names.length > 1) return null;
+  }
 
   const reading = readSpeech(transcript);
   if (needsClearAnswer(session) && /(?:^|\s)(?:يمكن|اظن|اعتقد|اتوقع|maybe|perhaps|probably|possibly|i\s+think)(?:\s|$)/u.test(normalized)) return null;
@@ -411,6 +436,8 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   const intended = intentReply(session, reading);
   if (intended) return { value: intended };
   if (reading.unknown) return null;
+  if (session.step === "report_summary") return null;
+  if (session.replies.some((reply) => reply.value === "good") && session.replies.some((reply) => reply.value === "critical")) return null;
 
   const words = normalized.replaceAll(" ", "_");
   if (YES_WORDS.has(normalized) || YES_WORDS.has(words)) {
@@ -436,6 +463,7 @@ export function mapSpeechToInput(
   locale: Locale = "ar",
   confidence: string | null = null,
 ): AnswerInput | null {
+  void confidence;
   if (session.inputMode === "none") return null;
   if (session.inputMode === "number" && digits && /^\d{1,6}$/.test(digits)) return { text: digits };
   if (digits && /^\d$/.test(digits)) {
@@ -449,7 +477,6 @@ export function mapSpeechToInput(
   }
 
   if (digits) return null;
-  if (confidence !== null && (!confidence.trim() || !Number.isFinite(Number(confidence)) || Number(confidence) < 0.5 || Number(confidence) > 1)) return null;
   const raw = transcript.trim().slice(0, 300);
   // Spelling varies by recogniser, and «ما ادري» saved as free text would read as a reported fact.
   if (session.inputMode !== "choices" && ((session.inputMode === "number" && UNKNOWN_PHRASE.test(compact(raw))) || UNKNOWN_WORDS.has(compact(raw)) ||
@@ -465,6 +492,11 @@ export function mapSpeechToInput(
   if (session.inputMode === "time") {
     const time = extractTime(raw);
     return time ? { text: time } : null;
+  }
+  const item = currentItem(session);
+  if (item?.kind === "predefined" && item.answerKind === "level" && (item.resource === "feed" || item.resource === "water")) {
+    const quantity = extractNumber(raw);
+    if (quantity !== null) return { text: String(quantity) };
   }
   return choiceInput(session, raw, locale);
 }

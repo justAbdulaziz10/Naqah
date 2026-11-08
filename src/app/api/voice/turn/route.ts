@@ -2,6 +2,7 @@ import { shouldRefuseUnsignedVoice, voiceConfiguration, voiceLocale, voiceMode }
 import { answerFarmCall } from "@/server/voice/farm-call";
 import { farmResponse, farmWebhook } from "@/server/voice/farm-webhook";
 import { replayVoiceState, trailingMissCount, voiceActionUrl } from "@/server/voice/conversation";
+import { logVoiceTurn } from "@/server/voice/diagnostics";
 import { mapSpeechToInput, unknownReply } from "@/server/voice/speech";
 import { VOICE_MISS_VALUE, signVoiceState, verifyVoiceState } from "@/server/voice/state";
 import { scheduleOwnerSummary } from "@/server/voice/summary";
@@ -76,21 +77,20 @@ export async function POST(request: Request): Promise<Response> {
     const current = replayVoiceState(state);
     if (current.session.done) return hangUpWithCurrentTurn(current.session, state.l);
     const input = mapSpeechToInput(current.session, form.get("SpeechResult") ?? "", form.get("Digits"), state.l, form.get("Confidence"));
+    logVoiceTurn({
+      callSid: form.get("CallSid") ?? "", seq: state.a.length, speech: form.get("SpeechResult") ?? "",
+      digits: form.get("Digits"), confidence: form.get("Confidence"),
+    }, input);
 
     if (!input) {
       const misses = trailingMissCount(state.a);
-      if (misses >= 2) return twimlResponse(twimlGoodbye(state.l, MISSED_TWICE[state.l]));
-      if (misses === 1) {
-        const reply = unknownReply(current.session.replies);
-        if (reply) {
-          state.a.push({ value: reply.value });
-        } else {
-          state.a.push({ value: VOICE_MISS_VALUE });
-          return responseForState(request, state, MISS_AGAIN[state.l]).response;
-        }
-      } else {
+      const hasInput = Boolean(form.get("SpeechResult")?.trim() || form.get("Digits"));
+      if (misses >= 2 && !hasInput) return twimlResponse(twimlGoodbye(state.l, MISSED_TWICE[state.l]));
+      const fallback = misses >= 1 ? unknownReply(current.session.replies) : undefined;
+      if (fallback) state.a.push({ value: fallback.value });
+      else {
         state.a.push({ value: VOICE_MISS_VALUE });
-        return responseForState(request, state, MISS_ONCE[state.l]).response;
+        return responseForState(request, state, (misses >= 1 ? MISS_AGAIN : MISS_ONCE)[state.l]).response;
       }
     } else {
       state.a.push(input);

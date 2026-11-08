@@ -329,19 +329,23 @@ export async function applyVoiceEvent(
   context: VoiceContext,
   event: VoiceEvent,
   now: Date,
+  onAppliedWorkspace?: (workspace: Workspace) => void,
 ): Promise<VoiceOutcome> {
   // The first change after placing a report call stores Twilio's CallSid on its run.
   const runId = "reportCallId" in event ? event.reportCallId : undefined;
   if (!eventAllowed(context, event)) return { status: "rejected", reason: "not_allowed" };
-  const { result } = await runFarmAction<VoiceOutcome>(
+  let appliedWorkspace: Workspace | undefined;
+  const { result, status } = await runFarmAction<VoiceOutcome>(
     client,
     farmId,
     (ws) => {
       const step = voiceStep(ws, now, event);
+      appliedWorkspace = step.ws;
       const same = JSON.stringify(step.ws) === JSON.stringify(ws);
       return { ws: step.ws, result: same && step.result.status === "saved" ? { status: "unchanged" } : step.result };
     },
     { eventId: event.eventId, providerCallId: event.providerCallId, ...(runId ? { reportCallProviderIds: { [runId]: event.providerCallId } } : {}) },
   );
+  if (status !== "replayed" && appliedWorkspace) onAppliedWorkspace?.(appliedWorkspace);
   return result;
 }

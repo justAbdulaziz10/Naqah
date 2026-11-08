@@ -8,6 +8,7 @@ import {
   abandonReportCallAttempt, claimDueReportCall, dialableWorkerPhone, placeReportCallAttempt, startReportCall,
   type ReportCallBlock,
 } from "@/domain/reportCalls";
+import { REPORT_CALL_RING_SECONDS } from "@/domain/clock";
 import type { Locale } from "@/domain/types";
 import { DbError } from "@/server/db/errors";
 import { toDbId } from "@/server/db/ids";
@@ -75,6 +76,8 @@ async function dial(
     to: claim.phone,
     url: `${baseUrl}/api/voice/outbound?${query}`,
     statusCallback: `${baseUrl}/api/voice/outbound/status?${query}`,
+    timeoutSeconds: REPORT_CALL_RING_SECONDS,
+    statusEvents: ["initiated", "ringing", "answered", "completed"],
   });
   if (placed.placed) return { sid: placed.sid };
   await runFarmAction(client, farmId, (ws) => ({ ws: abandonReportCallAttempt(ws, now, runId, claim.attempt, retry), result: null }));

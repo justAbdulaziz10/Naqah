@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { formatSaudiMobile } from "@/components/setup/phone";
 import { ConfirmDialog } from "@/components/ui";
-import { dialableWorkerPhone, latestReportCall } from "@/domain/reportCalls";
+import { dialableWorkerPhone, latestReportCall, reportCallIsLive } from "@/domain/reportCalls";
 import { REPORT_CALL_RETRIES } from "@/domain/clock";
 import type { Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
@@ -25,12 +25,14 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // Which run was latest when a call was placed, so "NAQAH is calling" ends with that call.
+  const [placedAfter, setPlacedAfter] = useState<{ runId: string | null } | null>(null);
   // A double click on "Call now" must send one request; state updates arrive too late to stop the second.
   const sending = useRef(false);
   const phone = dialableWorkerPhone(ws); // Shown isolated (U+2066…U+2069) so it reads left to right in Arabic.
 
   const run = latestReportCall(ws);
-  const active = run?.state === "calling" || run?.state === "answered";
+  const active = run ? reportCallIsLive(run, now) : false;
 
   useEffect(() => {
     if (!account) return;
@@ -63,10 +65,11 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
     setConfirming(false);
     setPending(true);
     setNotice(null);
+    setPlacedAfter(null);
     try {
       const result = await reportCallNow.call();
       if (!result.ok) setNotice(result.error === "unauthenticated" ? d.callNowResult.signedOut : result.error === "unavailable" ? d.callNowResult.unavailable : d.callNowResult.failed);
-      else if (result.data.status === "placed") setNotice(d.callNowResult.placed(worker));
+      else if (result.data.status === "placed") setPlacedAfter({ runId: run?.id ?? null });
       else setNotice(d.callNowResult[result.data.reason]);
       void accountSync.refresh();
     } catch {
@@ -77,7 +80,9 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
     }
   }
 
-  if (!status && !available && !notice) return null;
+  const placedNotice = placedAfter && (active || (run?.id ?? null) === placedAfter.runId) ? d.callNowResult.placed(worker) : null;
+  const message = notice ?? placedNotice;
+  if (!status && !available && !message) return null;
   return (
     <div className="mt-3 space-y-2">
       {status ? <p className="text-sm font-medium text-cream" role="status">{status}</p> : null}
@@ -91,7 +96,7 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
           {pending ? d.calling : d.callNow(worker)}
         </button>
       ) : null}
-      {notice ? <p className="text-sm text-cream/80" role="status">{notice}</p> : null}
+      {message ? <p className="text-sm text-cream/80" role="status">{message}</p> : null}
       {confirming && phone ? (
         <ConfirmDialog
           title={d.confirmTitle(worker)}
