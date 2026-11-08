@@ -73,13 +73,16 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
                   {many ? (
                     <div className="mb-3 flex min-h-11 items-center justify-between gap-3">
                       <label className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3">
-                        <input
-                          type="radio"
-                          name="primary-worker"
-                          checked={primary}
-                          onChange={() => editList((list) => list, index)}
-                          className="size-5 shrink-0 accent-brown"
-                        />
+                        {/* 44px tap area around the 20px radio; the negative margin keeps it in place. */}
+                        <span className="-mx-3 inline-flex size-11 shrink-0 items-center justify-center">
+                          <input
+                            type="radio"
+                            name="primary-worker"
+                            checked={primary}
+                            onChange={() => editList((list) => list, index)}
+                            className="size-5 shrink-0 accent-brown"
+                          />
+                        </span>
                         <span className="min-w-0 truncate text-[1.0625rem] font-semibold text-espresso">{label}</span>
                         <span className={primary ? "shrink-0 text-[0.9375rem] font-medium text-brown" : "sr-only"}>{s.primary}</span>
                       </label>

@@ -7,6 +7,7 @@ import { Logo } from "@/components/brand/Logo";
 import { ACCOUNT_DATA } from "@/components/entry/paths";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
 import { REPORT_CALL_RETRIES, RETRY_DELAY_MS } from "@/domain/clock";
+import { formatTime } from "@/i18n/format";
 import { getMessages } from "@/i18n/messages";
 import { CallStory } from "./CallStory";
 import { EstatePhoto } from "./EstatePhoto";
@@ -38,18 +39,15 @@ function Arrow({ size = 18 }: { size?: number }) {
 function RetryRail({ locale }: { locale: Locale }) {
   const { retry } = getMessages(locale).landing.principles;
   const minutes = RETRY_DELAY_MS / 60_000;
-  const start = 17 * 60 + 40; // The sample evening's call time.
-  const tries = Array.from({ length: REPORT_CALL_RETRIES + 1 }, (_, index) => {
-    const at = start + index * minutes;
-    return `${Math.floor(at / 60)}:${String(at % 60).padStart(2, "0")}`;
-  });
+  const start = Date.parse("2026-01-01T17:40:00+03:00"); // The sample evening's call time.
+  const tries = Array.from({ length: REPORT_CALL_RETRIES + 1 }, (_, index) => formatTime(new Date(start + index * RETRY_DELAY_MS), locale));
   return (
     <div role="img" aria-label={retry.label(REPORT_CALL_RETRIES, minutes)} className="mb-7 mt-4 flex max-w-sm items-center pe-2">
       {tries.map((time, index) => (
         <span key={time} className="flex flex-1 items-center">
           <span className={`relative flex flex-col ${index ? "items-center" : "items-start"}`}>
             <span aria-hidden className={`size-3 rounded-full border-2 ${index ? "border-sand bg-espresso" : "border-sand bg-sand"}`} />
-            <span aria-hidden className={`ltr-nums absolute top-5 text-[0.8125rem] tabular-nums text-cream/70 ${index ? "" : "start-0"}`}>{time}</span>
+            <span aria-hidden className={`ltr-nums absolute top-5 whitespace-nowrap text-[0.8125rem] tabular-nums text-cream/70 ${index ? "" : "start-0"}`}>{time}</span>
           </span>
           <span aria-hidden className="h-0 flex-1 border-t-2 border-dashed border-sand/50" />
         </span>

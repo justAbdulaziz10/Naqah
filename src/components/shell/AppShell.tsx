@@ -58,6 +58,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const ws = useWorkspaceStore((s) => s.workspace);
   const startDemo = useWorkspaceStore((s) => s.startDemo);
   const account = useIsAccount();
+  // The Voice Lab needs a signed-in owner, so demo visitors are not shown a door they can't open.
+  const voiceLab = VOICE_LAB && account;
   const nav = NAV;
   const [confirmingDemo, setConfirmingDemo] = useState(false);
 
@@ -175,7 +177,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           </div>
         )}
-        {VOICE_LAB ? (
+        {voiceLab ? (
           <Link
             href={href("/app/voice-lab")}
             aria-current={isActive("/app/voice-lab") ? "page" : undefined}
@@ -205,7 +207,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Logo locale={locale} href={href("/")} className="min-h-11" />
             <div className="ms-auto flex items-center gap-1">
               <LocaleSwitcher />
-              {VOICE_LAB ? (
+              {voiceLab ? (
                 <Link href={href("/app/voice-lab")} aria-label={m.voiceLab.nav} className="inline-flex size-11 items-center justify-center rounded-full hover:bg-espresso/5">
                   <Microphone size={22} aria-hidden />
                 </Link>
