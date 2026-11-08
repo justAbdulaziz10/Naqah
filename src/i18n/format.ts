@@ -1,3 +1,4 @@
+import { riyadhParts } from "@/domain/clock";
 import type { Locale, LocalizedText } from "@/domain/types";
 import { INTL_LOCALE, TIME_ZONE } from "./config";
 
@@ -32,7 +33,16 @@ export function formatDate(iso: string | Date, locale: Locale) {
   );
 }
 
-/** "3 hours ago" relative to the workspace clock `now`. */
+/** Whole Riyadh calendar days from `from` to `to`, so a call on the next date is one day away however many hours that is. */
+function calendarDays(from: Date, to: Date) {
+  const day = (date: Date) => {
+    const { year, month, day: dayOfMonth } = riyadhParts(date);
+    return Date.UTC(year, month - 1, dayOfMonth);
+  };
+  return Math.round((day(to) - day(from)) / 86_400_000);
+}
+
+/** "3 hours ago" relative to the workspace clock `now`. Beyond a day it counts Riyadh dates: "tomorrow" means the next date. */
 export function formatRelative(iso: string | Date, now: Date, locale: Locale) {
   const diff = new Date(iso).getTime() - now.getTime();
   const abs = Math.abs(diff);
@@ -40,7 +50,7 @@ export function formatRelative(iso: string | Date, now: Date, locale: Locale) {
   if (abs < 60_000) return rtf.format(0, "second");
   if (abs < 3_600_000) return rtf.format(Math.round(diff / 60_000), "minute");
   if (abs < 86_400_000) return rtf.format(Math.round(diff / 3_600_000), "hour");
-  return rtf.format(Math.round(diff / 86_400_000), "day");
+  return rtf.format(calendarDays(now, new Date(iso)), "day");
 }
 
 export function formatNumber(n: number, locale: Locale) {

@@ -83,8 +83,10 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
                             className="size-5 shrink-0 accent-brown"
                           />
                         </span>
-                        <span className="max-w-[55%] shrink-0 truncate text-[1.0625rem] font-semibold text-espresso">{label}</span>
-                        <span className={primary ? "min-w-0 text-[0.9375rem] font-medium leading-5 text-brown" : "sr-only"}>{s.primary}</span>
+                        <span className="flex min-w-0 flex-wrap items-baseline gap-x-3">
+                          <span className="min-w-0 break-words text-[1.0625rem] font-semibold text-espresso">{label}</span>
+                          <span className={primary ? "text-[0.9375rem] font-medium leading-5 text-brown" : "sr-only"}>{s.primary}</span>
+                        </span>
                       </label>
                       <button
                         type="button"
