@@ -54,7 +54,7 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
     if (run.state === "answered") status = d.run.answered(worker);
     else if (run.state === "calling" && last?.result === "pending") status = d.run.ringing(worker);
     else if (run.state === "calling" && run.nextAttemptAt) status = d.run.retry(fmt.dateTime(run.nextAttemptAt, time), run.attempts.length + 1, REPORT_CALL_RETRIES + 1);
-    else if (run.state === "missed") status = d.run.missed(worker);
+    else if (run.state === "missed") status = last?.result === "answered" ? d.run.unsaved(worker) : d.run.missed(worker);
   }
 
   async function call() {
