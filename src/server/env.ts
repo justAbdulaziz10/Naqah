@@ -31,6 +31,15 @@ export function voiceOwnerInquiryEnabled(): boolean {
   return value("NAQAH_VOICE_OWNER_INQUIRY") === "1";
 }
 
+/** Server-only model name. The key itself is read by the Gemini client and is never returned. */
+export function geminiModel(): string {
+  return value("GEMINI_MODEL") || "gemini-3.5-flash";
+}
+
+export function geminiConfigured(): boolean {
+  return Boolean(value("GEMINI_API_KEY"));
+}
+
 export function voiceConfiguration() {
   return {
     secret: value("NAQAH_VOICE_SECRET"),

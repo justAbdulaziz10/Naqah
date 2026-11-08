@@ -268,6 +268,78 @@ export function submitOwnerInstruction(
 }
 
 /**
+ * Approved instructions from one owner conversation.
+ * Each Ultimate actionable item gets its own Task Ticket. Basic relays them.
+ * All of them go out on one worker call, and a repeated batchId changes nothing.
+ */
+export function submitOwnerInstructionBatch(
+  input: Workspace,
+  now: Date,
+  instructions: InstructionInput[],
+  batchId: string,
+  deliveryMessage?: string,
+): { ws: Workspace; pendingCallId: string | null; taskIds: string[]; created: boolean } {
+  const existing = input.pendingWorkerCalls.find((call) => call.batchId === batchId);
+  if (existing) {
+    return { ws: clone(input), pendingCallId: existing.id, taskIds: existing.coveredTaskIds ?? [], created: false };
+  }
+  if (!batchId.trim() || instructions.length === 0 || instructions.some((item) => !item.message.trim())) {
+    return { ws: clone(input), pendingCallId: null, taskIds: [], created: false };
+  }
+
+  const ws = clone(input);
+  const at = iso(now);
+  const taskIds: string[] = [];
+  const relayed: string[] = [];
+  for (const instr of instructions) {
+    if (ws.settings.plan === "ultimate" && instr.actionable) {
+      const taskId = uid("tsk");
+      taskIds.push(taskId);
+      ws.taskTickets.push({
+        id: taskId,
+        instruction: instr.message,
+        createdAt: at,
+        scheduledFor: instr.scheduledFor,
+        status: "open",
+        closedAt: null,
+        closedVia: null,
+      });
+      pushEvent(ws, now, "attention", {
+        ar: `فُتحت مهمة جديدة: «${instr.message}»`,
+        en: `Task ticket opened: “${instr.message}”`,
+      });
+    } else {
+      relayed.push(instr.message);
+    }
+  }
+
+  let relayId: string | null = null;
+  if (relayed.length) {
+    relayId = uid("rly");
+    ws.relays.push({ id: relayId, at, message: relayed.join("\n"), delivered: false });
+    pushEvent(ws, now, "neutral", {
+      ar: "رسالة المالك ستُنقل للعامل بدون تذكرة",
+      en: "Owner's message will be relayed without a ticket",
+    });
+  }
+
+  const pending: PendingWorkerCall = {
+    id: uid("pwc"),
+    purpose: "instruction",
+    message: deliveryMessage?.trim() || instructions.map((item) => item.message).join("\n"),
+    taskTicketId: taskIds.length === 1 ? taskIds[0] : null,
+    relayId,
+    attempts: [],
+    nextAttemptAt: at,
+    state: "pending",
+    batchId,
+    coveredTaskIds: taskIds,
+  };
+  ws.pendingWorkerCalls.push(pending);
+  return { ws, pendingCallId: pending.id, taskIds, created: true };
+}
+
+/**
  * Phase 7/8: at a task's scheduled time the AI calls the worker to verify completion.
  * One call record per task. A repeated call returns that record and does not add another.
  */

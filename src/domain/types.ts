@@ -266,6 +266,13 @@ export interface PendingWorkerCall {
   /** When the next attempt is due; null when finished. */
   nextAttemptAt: string | null;
   state: "pending" | "delivered" | "no_answer_ticket";
+  /**
+   * Set when several approved instructions share this one delivery call.
+   * A retry with the same id must not create another call or more tickets.
+   */
+  batchId?: string;
+  /** Every task whose instruction is still waiting on this delivery call. */
+  coveredTaskIds?: string[];
 }
 
 /** A message relayed to the worker (Basic relays without a ticket). */

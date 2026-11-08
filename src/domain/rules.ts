@@ -101,9 +101,11 @@ export function dueTaskVerifications(ws: Workspace, now: Date) {
   const verificationTaskIds = new Set<string>();
   const instructionAwaitingDelivery = new Set<string>();
   for (const call of ws.pendingWorkerCalls) {
-    if (!call.taskTicketId) continue;
-    if (call.purpose === "task_verification") verificationTaskIds.add(call.taskTicketId);
-    if (call.purpose === "instruction" && call.state !== "delivered") instructionAwaitingDelivery.add(call.taskTicketId);
+    if (call.purpose === "task_verification" && call.taskTicketId) verificationTaskIds.add(call.taskTicketId);
+    if (call.purpose === "instruction" && call.state !== "delivered") {
+      if (call.taskTicketId) instructionAwaitingDelivery.add(call.taskTicketId);
+      for (const id of call.coveredTaskIds ?? []) instructionAwaitingDelivery.add(id);
+    }
   }
   return overdueScheduledTasks(ws, now).filter(
     (task) => !verificationTaskIds.has(task.id) && !instructionAwaitingDelivery.has(task.id),

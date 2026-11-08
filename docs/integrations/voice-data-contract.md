@@ -46,7 +46,7 @@ How the telephony layer (Twilio + voice model) reports to the farm. Code:
 | `worker_callback` | none | `completeWorkerCallback`; not a farm update |
 | `task_confirmation` | `taskId`, `done`, `via` | `confirmTask`; only the worker's confirmation closes a task |
 | `owner_inquiry` | none | `routeOwnerInboundCall`, then `recordOwnerInquiry` or `rejectOwnerInquiry` |
-| `owner_instruction` | `message`, `actionable`, `scheduledFor` | `submitOwnerInstruction` |
+| `owner_instruction` | `message`, `actionable`, `scheduledFor`. Optional `items` (the approved list) and `deliveryMessage` (what the worker hears). A single instruction omits `items` and still uses `submitOwnerInstruction`. | `submitOwnerInstruction`, or `submitOwnerInstructionBatch` when `items` is present. One batch is one worker call and, on Ultimate, one Task Ticket per actionable item. The same `eventId` is the batch id, so a retry does not create a second call. |
 | `owner_notification` | `reportId`, `answered` | `recordOwnerNotification` |
 | `task_verification_start` | `taskId` | `startTaskVerification`, once per task |
 | `worker_call_attempt` | `pendingCallId`, `answered` | `resolveWorkerCallAttempt` (20 min × 3, then No Answer ticket) |
@@ -85,7 +85,32 @@ each result as `worker_call_attempt`. `pending_worker_calls_due` indexes the que
 per attempt.
 
 Each task gets one automatic verification call. After that it is asked about during the worker's
-own calls. Use `tasksToVerify`, not `dueTaskVerifications`, which keeps finished tasks eligible.
+own calls. `dueTaskVerifications` already excludes a task that has any verification call, or whose
+instruction is still undelivered. `tasksToVerify` is the scheduler's list.
+
+## Gemini conversation agent
+
+Team B can drive a call without replacing the scripted engine or the Twilio routes. The public
+surface is `openAgentCall` and `agentTurn` in `src/server/gemini/agent.ts`, with
+`liveGeminiClient()` from `src/server/gemini/client.ts`.
+
+- One model request per turn. There is no retry. The request aborts after `GEMINI_TIMEOUT_MS`
+  (8s), inside the 12s webhook limit.
+- A plain `نعم` or `لا` on a confirmation stage does not call the model. `نعم` accepts the
+  pending point. `لا` rejects it. Neither writes a report or an instruction by itself.
+- Pass a `SaveHandler` that calls `voiceStep` / `applyVoiceEvent`. The agent says the update was
+  saved only when that handler returns `saved`. The default handler is in-memory `voiceStep`.
+- Text languages are `ar`, `en`, `ur`, `hi`, `bn`, and `fil`. Live phone languages stay `ar` and `en`.
+- The current Twilio routes still use the scripted engine. Connecting them is Team B's change.
+
+## Team A: batch fields are not stored
+
+`PendingWorkerCall.batchId` and `coveredTaskIds` exist only in memory. `pending_worker_calls` has
+`task_ticket_id` and `relay_id`, and `toRows` writes those, not the batch fields. After a Supabase
+reload, a multi-ticket instruction still has one call row, but the link from that call to every
+covered ticket is gone, so `dueTaskVerifications` can treat those tickets as eligible again. A
+retried voice event still does not create a second batch, because the event id is the batch id.
+Persisting the two fields needs a Team A migration. This change does not add one.
 
 ## Changing the contract
 
