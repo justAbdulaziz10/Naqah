@@ -23,6 +23,8 @@ import { uid } from "@/domain/id";
 import type { Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { setup as setupMessages } from "@/i18n/messages/setup";
+import { planSelectionResumePath } from "@/lib/account/plan-selection-paths";
+import { safeReturnPath } from "@/lib/supabase/auth-input";
 import { useIsAccount, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
 
 /**
@@ -49,6 +51,7 @@ function Onboarding() {
   const ws = useWorkspaceStore((state) => state.workspace);
   const startOnboarding = useWorkspaceStore((state) => state.startOnboarding);
   const account = useIsAccount();
+  const returnTo = safeReturnPath(params.get("returnTo"));
   const saveFailed = useSaveStatus((state) => state.status === "failed") && !account; // The account banner covers it.
   const step = stepFromQuery(params.get("step"));
   const [showErrors, setShowErrors] = useState(false);
@@ -62,8 +65,8 @@ function Onboarding() {
 
   useEffect(() => {
     // A farm finished elsewhere goes straight on; one finished here first shows its moment (see finish()).
-    if (finished && !finishing) router.replace(href("/app"));
-  }, [finished, finishing, href, router]);
+    if (finished && !finishing) router.replace(account ? planSelectionResumePath(locale, true, returnTo) : href("/app"));
+  }, [account, finished, finishing, href, locale, returnTo, router]);
 
   // Focus the heading once per step, not on every keystroke.
   useEffect(() => {
@@ -84,7 +87,10 @@ function Onboarding() {
     const target = Math.max(0, Math.min(next, steps.length - 1));
     setShowErrors(false);
     if (target === step) return;
-    router.push(target === 0 ? href("/start") : `${href("/start")}?step=${target + 1}`, { scroll: false });
+    const query = new URLSearchParams();
+    if (target > 0) query.set("step", String(target + 1));
+    if (returnTo) query.set("returnTo", returnTo);
+    router.push(`${href("/start")}${query.size ? `?${query}` : ""}`, { scroll: false });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -119,7 +125,8 @@ function Onboarding() {
     }));
     // A short, calm completion moment, then the dashboard (at once with reduced motion).
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    window.setTimeout(() => router.replace(href("/app")), reduced ? 0 : 1400);
+    const destination = account ? planSelectionResumePath(locale, true, returnTo) : href("/app");
+    window.setTimeout(() => router.replace(destination), reduced ? 0 : 1400);
   }
 
   const content = (() => {

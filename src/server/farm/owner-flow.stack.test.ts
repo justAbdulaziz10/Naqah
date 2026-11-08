@@ -16,7 +16,7 @@ import { applyOwnerChanges } from "./changes";
 const gateway = process.env.NAQAH_TEST_GATEWAY;
 const anonKey = process.env.NAQAH_TEST_ANON_KEY ?? "";
 
-async function ownerSession() {
+async function signedInOwner() {
   const email = `owner-${Math.random().toString(16).slice(2, 10)}@example.test`;
   const password = "local-test-password";
   const made = await fetch(`${gateway}/__test/users`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
@@ -28,8 +28,10 @@ async function ownerSession() {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${token.access_token}` } },
   });
-  return createOwnerRepository(client, token.user.id);
+  return { client, ownerId: token.user.id, repository: createOwnerRepository(client, token.user.id) };
 }
+
+async function ownerSession() { return (await signedInOwner()).repository; }
 
 async function save(repository: Awaited<ReturnType<typeof ownerSession>>, base: Workspace, next: Workspace) {
   const result = await applyOwnerChanges(repository, ownerChanges(base, next));
@@ -39,11 +41,14 @@ async function save(repository: Awaited<ReturnType<typeof ownerSession>>, base: 
 describe.skipIf(!gateway)("owner setup through the local Supabase stack", () => {
   it("saves the ranch, workers, primary, herd count, questions and call time, and reloads them", async () => {
     const repository = await ownerSession();
+    await repository.selectInitialPlan("basic");
+    await repository.selectInitialPlan("basic"); // Retried submission of the same choice is idempotent.
     await repository.ensureFarm();
     await repository.ensureFarm(); // A repeated first sign-in adds nothing.
     const base = (await repository.load()).workspace;
     expect(allWorkers(base.settings)).toHaveLength(1);
     expect(base.setupComplete).toBe(false);
+    expect(base.settings.plan).toBe("basic");
 
     const ahmed = { ...newWorker("ar"), name: "Ahmed", phone: "0501234567" };
     const salem = { ...newWorker("ur"), name: "Salem", phone: "+966507654321" };
@@ -99,14 +104,48 @@ describe.skipIf(!gateway)("owner setup through the local Supabase stack", () => 
 
   it("never lets one owner see or pick another owner's worker", async () => {
     const a = await ownerSession();
+    await a.selectInitialPlan("basic");
     await a.ensureFarm();
     const aWorker = (await a.load()).workspace.settings.worker.id!;
     const b = await ownerSession();
+    await b.selectInitialPlan("basic");
     await b.ensureFarm();
     const bLoaded = (await b.load()).workspace;
     expect(allWorkers(bLoaded.settings).some((w) => w.id === aWorker)).toBe(false);
     await expect(b.setPrimaryWorker(aWorker)).rejects.toBeTruthy();
     await expect(b.updateWorker(aWorker, { name: "Hijacked" })).rejects.toMatchObject({ code: "not_found" });
     expect((await a.load()).workspace.settings.worker.name).toBe("");
+  });
+
+  it("requires an explicit choice, preserves Ultimate after reload and rejects plan bypasses", async () => {
+    const { client, ownerId, repository } = await signedInOwner();
+    await expect(repository.ensureFarm()).rejects.toMatchObject({ code: "not_found" });
+    await repository.selectInitialPlan("ultimate");
+    await repository.ensureFarm();
+    const first = await repository.load();
+    expect(first.workspace.settings.plan).toBe("ultimate");
+    await repository.ensureFarm();
+    expect((await repository.load()).workspace.settings.plan).toBe("ultimate");
+    await expect(repository.selectInitialPlan("basic")).rejects.toMatchObject({ code: "conflict" });
+
+    const changed = await client.from("farms").update({ plan: "basic" }).eq("owner_id", ownerId).select("id");
+    expect(changed.error?.code).toBe("42501");
+    expect((await repository.load()).workspace.settings.plan).toBe("ultimate");
+  });
+
+  it("applies Ultimate's approved setup limits after selection and reload", async () => {
+    const repository = await ownerSession();
+    await repository.selectInitialPlan("ultimate");
+    await repository.ensureFarm();
+    for (let index = 0; index < 6; index += 1) {
+      await repository.addCustomQuestion(`Ultimate question ${index + 1}`, `question_${index + 1}`);
+    }
+    for (let index = 0; index < 9; index += 1) {
+      await repository.addWorker({ name: `Worker ${index + 2}`, phone: "0501234567", language: "ar" }, `worker_${index + 2}`);
+    }
+    const reloaded = (await repository.load()).workspace;
+    expect(reloaded.settings.plan).toBe("ultimate");
+    expect(reloaded.settings.customQuestions).toHaveLength(6);
+    expect(allWorkers(reloaded.settings)).toHaveLength(10);
   });
 });

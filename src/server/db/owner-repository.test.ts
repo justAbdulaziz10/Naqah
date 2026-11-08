@@ -11,6 +11,10 @@ type Reply = { data: unknown; error: { code: string; message?: string } | null }
 function fakeClient(replies: Record<string, Reply>) {
   const calls: { table: string; op: string; args: unknown[] }[] = [];
   const client = {
+    rpc(name: string, args: unknown) {
+      calls.push({ table: name, op: "rpc", args: [args] });
+      return Promise.resolve(replies[`rpc:${name}`] ?? { data: null, error: null });
+    },
     from(table: string) {
       const reply = replies[table] ?? { data: [{ id: "row" }], error: null };
       const chain: Record<string, unknown> = {
@@ -27,7 +31,7 @@ function fakeClient(replies: Record<string, Reply>) {
 
 describe("owner repository", () => {
   beforeEach(() => vi.clearAllMocks());
-  const farms = { data: { id: farmId }, error: null };
+  const farms = { data: { id: farmId, plan_selected_at: "2026-11-08T00:00:00.000Z", setup_complete: false }, error: null };
 
   it("scopes every write to the owner's farm", async () => {
     const { client, calls } = fakeClient({ farms });
@@ -70,6 +74,26 @@ describe("owner repository", () => {
     const { client } = fakeClient({ farms: { data: null, error: { code: "XX000", message: "secret detail" } } });
     await expect(createOwnerRepository(client, "owner").load()).rejects.toMatchObject({ code: "unavailable", message: "XX000" });
   });
+  it("requires an explicit plan for a new owner instead of creating a default-Basic farm", async () => {
+    const { client, calls } = fakeClient({ farms: { data: null, error: null } });
+    const repository = createOwnerRepository(client, "owner");
+    expect(await repository.initialPlanState()).toEqual({ required: true, setupComplete: false, existingFarm: false });
+    await expect(repository.ensureFarm()).rejects.toMatchObject({ code: "not_found" });
+    expect(calls.some((call) => call.op === "upsert" && call.table === "farms")).toBe(false);
+  });
+  it("requires an explicit confirmation for an incomplete legacy farm, but leaves completed farms alone", async () => {
+    const incomplete = fakeClient({ farms: { data: { id: farmId, plan_selected_at: null, setup_complete: false }, error: null } });
+    expect(await createOwnerRepository(incomplete.client, "owner").initialPlanState()).toEqual({ required: true, setupComplete: false, existingFarm: true });
+    await expect(createOwnerRepository(incomplete.client, "owner").load()).rejects.toMatchObject({ code: "plan_required" });
+    const complete = fakeClient({ farms: { data: { id: farmId, plan_selected_at: null, setup_complete: true }, error: null } });
+    expect(await createOwnerRepository(complete.client, "owner").initialPlanState()).toEqual({ required: false, setupComplete: true, existingFarm: true });
+  });
+  it("records the plan through the narrow RPC and leaves the choice stable", async () => {
+    const { client, calls } = fakeClient({ farms, "rpc:select_initial_plan": { data: null, error: null } });
+    const repository = createOwnerRepository(client, "owner");
+    await repository.selectInitialPlan("ultimate");
+    expect(calls).toContainEqual({ table: "select_initial_plan", op: "rpc", args: [{ p_plan: "ultimate" }] });
+  });
   it("skips first-time setup when it already finished", async () => {
     const { client, calls } = fakeClient({ farms, workers: { data: [{ id: "w" }], error: null } });
     await createOwnerRepository(client, "owner").ensureFarm();
@@ -79,15 +103,14 @@ describe("owner repository", () => {
     const { client, calls } = fakeClient({ farms, workers: { data: [], error: null } });
     await createOwnerRepository(client, "owner").ensureFarm();
     const upserts = calls.filter((c) => c.op === "upsert");
-    expect(upserts.map((c) => c.table)).toEqual(["farms", "resources", "criteria", "emergency_categories", "workers"]);
-    expect(upserts[0].args[0]).toEqual({ owner_id: "owner" });
+    expect(upserts.map((c) => c.table)).toEqual(["resources", "criteria", "emergency_categories", "workers"]);
     expect(calls.at(-2)).toMatchObject({ table: "farms", op: "eq", args: ["id", farmId] });
     expect(calls.at(-1)).toEqual({ table: "farms", op: "is", args: ["primary_worker_id", null] });
     const repeat = fakeClient({ farms, workers: { data: [], error: null } });
     await createOwnerRepository(repeat.client, "owner").ensureFarm();
     const again = repeat.calls.filter((c) => c.op === "upsert");
-    expect(again[2].args[0]).toEqual(upserts[2].args[0]);
-    expect(again[4].args[0]).toEqual(upserts[4].args[0]); // Same primary worker id: a retry adds no second worker.
+    expect(again[1].args[0]).toEqual(upserts[1].args[0]);
+    expect(again[3].args[0]).toEqual(upserts[3].args[0]); // Same primary worker id: a retry adds no second worker.
   });
   it("makes a worker added in the same save the primary, by the id it was stored under", async () => {
     const { client, calls } = fakeClient({ farms });

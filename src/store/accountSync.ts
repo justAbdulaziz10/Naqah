@@ -164,7 +164,7 @@ export function createAccountSync(api: AccountApi, identity: AccountIdentity) {
     return request.generation === generation && request.authVersion === authVersion && request.ownerId === ownerId;
   }
 
-  function close(status: "demo" | "signedOut" = "demo") {
+  function close(status: "demo" | "signedOut" | "planRequired" = "demo") {
     generation++;
     opening++;
     const wasActive = accountLink.active;
@@ -226,6 +226,7 @@ export function createAccountSync(api: AccountApi, identity: AccountIdentity) {
     }
     if (!result.ok) {
       if (result.error === "unauthenticated") return close("signedOut");
+      if (result.error === "plan_required") return close("planRequired");
       if (result.error === "conflict") {
         // These edits belong to a previous farm. Never flush them while discovering the
         // current owner, and invalidate any queued flush/refresh from that generation.
@@ -303,6 +304,7 @@ export function createAccountSync(api: AccountApi, identity: AccountIdentity) {
     const accepted = await accepts(request, result.ok ? result.data : undefined);
     if (attempt !== opening || !accepted || !isCurrent(request)) return;
     if (!result.ok) {
+      if (result.error === "plan_required") return close("planRequired");
       if (result.error === "unauthenticated" || !hasSession()) return close();
       return useAccountState.setState({ status: "error" });
     }
@@ -352,6 +354,7 @@ export function createAccountSync(api: AccountApi, identity: AccountIdentity) {
       if (!accountLink.active || !accepted || !isCurrent(request)) return;
       if (!result.ok) {
         if (result.error === "unauthenticated") close("signedOut");
+        else if (result.error === "plan_required") close("planRequired");
         return;
       }
       if (saving || timer || current() !== before) return;

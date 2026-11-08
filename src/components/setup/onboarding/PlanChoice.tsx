@@ -10,6 +10,14 @@ import type { SetupFieldsProps } from "../types";
 
 const PLANS: Plan[] = ["basic", "ultimate"];
 
+type InitialPlanChoiceProps = {
+  mode: "initial";
+  selected: Plan | null;
+  onSelect: (plan: Plan) => void;
+  disabled?: boolean;
+};
+type WorkspacePlanChoiceProps = SetupFieldsProps & { mode?: "workspace" };
+
 /** A plan's week in seven dots: Basic marks its one day (once chosen), Ultimate marks them all. */
 export function PlanRhythm({ plan, day, tone = "light", className }: { plan: Plan; day: Weekday | null; tone?: "light" | "dark"; className?: string }) {
   const daily = plan === "ultimate";
@@ -29,17 +37,23 @@ export function PlanRhythm({ plan, day, tone = "light", className }: { plan: Pla
  * The plan as a choice between two weeks. In the demo the owner can switch; in an account the plan is
  * set by the NAQAH team, so only theirs is shown, read-only.
  */
-export function PlanChoice({ ws, onChange }: SetupFieldsProps) {
+export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoiceProps) {
   const { m } = useI18n();
   const p = m.setup.plans;
   const account = useIsAccount();
-  const current = ws.settings.plan;
-  const day = ws.settings.callSchedule?.day ?? null;
-  const tooManyForBasic = ws.settings.customQuestions.length > PLAN_LIMITS.basic.customQuestions;
+  const initial = props.mode === "initial";
+  const ws = "ws" in props ? props.ws : null;
+  const current = initial ? props.selected : ws!.settings.plan;
+  const day = ws?.settings.callSchedule?.day ?? null;
+  const tooManyForBasic = ws ? ws.settings.customQuestions.length > PLAN_LIMITS.basic.customQuestions : false;
 
   function choose(plan: Plan) {
+    if (initial) {
+      if (!props.disabled) props.onSelect(plan);
+      return;
+    }
     if (account || plan === current || (plan === "basic" && tooManyForBasic)) return;
-    onChange((latest) => ({ ...latest, settings: { ...latest.settings, plan } }));
+    props.onChange((latest) => ({ ...latest, settings: { ...latest.settings, plan } }));
   }
 
   const card = (plan: Plan, selectable: boolean) => {
@@ -87,7 +101,7 @@ export function PlanChoice({ ws, onChange }: SetupFieldsProps) {
           value={plan}
           className="sr-only"
           checked={selected}
-          disabled={blocked}
+          disabled={blocked || (initial && props.disabled === true)}
           aria-label={p.rhythmLabel(m.common.plans[plan], plan === "basic")}
           onChange={() => choose(plan)}
         />
@@ -99,15 +113,15 @@ export function PlanChoice({ ws, onChange }: SetupFieldsProps) {
   return (
     <fieldset className="min-w-0">
       <legend className="mb-4 text-[1.0625rem] font-bold text-espresso">{p.choose}</legend>
-      {account ? (
+      {!initial && account ? (
         <div className="grid gap-3">
-          {card(current, false)}
+          {card(ws!.settings.plan, false)}
           <p className="text-[0.9375rem] leading-relaxed text-muted">{p.change}</p>
         </div>
       ) : (
         <div className="grid gap-3">
           <div className="grid gap-3 sm:grid-cols-2">{PLANS.map((plan) => <div key={plan} className="contents">{card(plan, true)}</div>)}</div>
-          <p className="text-[0.9375rem] leading-relaxed text-muted">{p.chooseDemo}</p>
+          {initial ? null : <p className="text-[0.9375rem] leading-relaxed text-muted">{p.chooseDemo}</p>}
         </div>
       )}
     </fieldset>

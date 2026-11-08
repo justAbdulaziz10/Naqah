@@ -37,7 +37,7 @@ export const useSaveStatus = create<{ status: SaveStatus }>(() => ({ status: "id
  * Whose data this is. `active` means a signed-in owner's farm from Supabase: then nothing touches
  * localStorage, and the demo-only actions below do nothing. See `accountSync.ts`.
  */
-export type AccountStatus = "checking" | "demo" | "ready" | "error" | "signedOut";
+export type AccountStatus = "checking" | "demo" | "ready" | "error" | "signedOut" | "planRequired";
 export const useAccountState = create<{ active: boolean; status: AccountStatus; notice: "plan" | "refused" | null }>(() => ({
   active: false,
   status: process.env.NEXT_PUBLIC_NAQAH_ACCOUNT_DATA === "1" ? "checking" : "demo",

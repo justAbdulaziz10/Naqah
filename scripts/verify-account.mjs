@@ -100,6 +100,14 @@ const storedText = (page) => page.evaluate(() => JSON.stringify({ ...localStorag
 async function runWizard(page, locale, { owner, farm, worker, workerName, ownerPhone, workerPhone }) {
   const go = locale === "ar" ? "متابعة" : "Continue";
   await page.goto(`${BASE}/${locale}/start`);
+  await page.waitForURL(`**/${locale}/choose-plan*`, { timeout: 15_000 });
+  const radios = page.locator('input[name="plan"]');
+  check(`${locale}: account must choose an explicit plan`, await radios.evaluateAll((items) => items.every((item) => !item.checked)));
+  const choose = page.getByRole("button", { name: locale === "ar" ? "كمّل على هذي الباقة" : "Continue with this plan", exact: true });
+  check(`${locale}: cannot continue before a plan choice`, await choose.isDisabled());
+  await radios.nth(0).check();
+  await choose.click();
+  await page.waitForURL(`**/${locale}/start`, { timeout: 15_000 });
   await settled(page);
   await page.getByLabel(locale === "ar" ? "اسم العزبة" : "Ranch name").waitFor();
   check(`${locale}: setup offers no sample data to a real owner`, await page.getByText(locale === "ar" ? /بيانات تجريبية|نموذج/ : /sample/i).count() === 0);
@@ -172,6 +180,7 @@ await runWizard(A.page, "ar", { owner: "سالم", farm: FARM_A, worker: "يوس
 const farmA = sql(`select id from farms where owner_id = ${q(ownerA.id)}`);
 check("sign-in creates one farm for the owner", Boolean(farmA));
 check("setup reaches Supabase and starts on Basic", await waitFor(() => sql(`select plan || ':' || setup_complete || ':' || name from farms where id = ${q(farmA)}`) === `basic:true:${FARM_A}`, "setup saved"), sql(`select plan, setup_complete, name from farms where id = ${q(farmA)}`));
+check("the Basic choice was explicit, not the database default", sql(`select plan || ':' || (plan_selected_at is not null) from farms where id = ${q(farmA)}`) === "basic:true");
 check("worker and phone saved", sql(`select name || ':' || phone from workers where farm_id = ${q(farmA)}`) === `يوسف:${workerA}`);
 check("dashboard shows the real farm, with no demo notice", (await A.page.locator("body").innerText()).includes("سالم") && await A.page.getByRole("note").count() === 0);
 check("no Call Lab for a real farm", await A.page.locator('a[href$="/app/lab"]').count() === 0);

@@ -1,14 +1,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { farmAlerts, farmInstructions } from "@/domain/alerts";
 import { createEmptyWorkspace } from "@/domain/seed";
+import type { Plan } from "@/domain/types";
 import {
   parseCamelPatch, parseCriterion, parseEmergency, parseFarmProfile, parseNewCamel, parseResource, parseWorker, requiredText,
 } from "@/server/farm/input";
 import { DbError, fromPostgrest } from "./errors";
 import { isUuid, toDbId } from "./ids";
 import { loadFarm, requireFarm, type LoadedFarm } from "./queries";
+import type { FarmRow } from "./rows";
 
 type Result = { data: unknown; error: { code?: string; message?: string } | null };
+
+export type InitialPlanState =
+  | { required: true; setupComplete: false; existingFarm: boolean }
+  | { required: false; setupComplete: boolean; existingFarm: true };
 
 function assertOk(result: Result) {
   if (result.error) throw fromPostgrest(result.error);
@@ -34,11 +40,14 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
 
   async function currentFarmId() {
     if (farmId) return farmId;
-    const { data, error } = await client.from("farms").select("id").eq("owner_id", ownerId).maybeSingle();
+    const { data, error } = await client.from("farms").select("id, plan_selected_at, setup_complete").eq("owner_id", ownerId).maybeSingle();
     if (error) throw fromPostgrest(error);
     if (!data) throw new DbError("not_found");
-    farmId = data.id as string;
-    return farmId;
+    const row = data as Pick<FarmRow, "id" | "plan_selected_at" | "setup_complete">;
+    if (!row.setup_complete && row.plan_selected_at === null) throw new DbError("plan_required");
+    const id = row.id;
+    farmId = id;
+    return id;
   }
 
   async function updateRow(table: string, id: unknown, values: Record<string, unknown>) {
@@ -67,13 +76,32 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
   }
 
   return {
+    /** Read-only routing signal. A missing/default plan is never treated as owner consent. */
+    async initialPlanState(): Promise<InitialPlanState> {
+      const { data, error } = await client.from("farms")
+        .select("plan_selected_at, setup_complete")
+        .eq("owner_id", ownerId)
+        .maybeSingle();
+      if (error) throw fromPostgrest(error);
+      if (!data) return { required: true, setupComplete: false, existingFarm: false };
+      const row = data as Pick<FarmRow, "plan_selected_at" | "setup_complete">;
+      if (row.setup_complete) return { required: false, setupComplete: true, existingFarm: true };
+      if (row.plan_selected_at === null) return { required: true, setupComplete: false, existingFarm: true };
+      return { required: false, setupComplete: false, existingFarm: true };
+    },
+
+    /** Database RPC is the only owner-facing path for setting the service-controlled plan column. */
+    async selectInitialPlan(plan: Plan): Promise<void> {
+      const result = await client.rpc("select_initial_plan", { p_plan: plan });
+      assertOk(result);
+      farmId = null;
+    },
+
     /**
-     * First sign-in. Safe to repeat after a failure: every step skips what exists, and the
-     * primary worker row goes last, so it marks a finished setup. Plan stays Basic until billing or
-     * the service changes it; owners cannot grant themselves a plan.
+     * Called only after the owner has explicitly selected a plan. Farm creation happens in that
+     * selection RPC, so sign-in alone never assigns the default Basic plan or creates a farm.
      */
     async ensureFarm(): Promise<string> {
-      assertOk(await client.from("farms").upsert({ owner_id: ownerId }, { onConflict: "owner_id", ignoreDuplicates: true }));
       const farm = await currentFarmId();
       const worker = await client.from("workers").select("id").eq("farm_id", farm).limit(1);
       assertOk(worker);
@@ -101,7 +129,8 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
     },
 
     async load(): Promise<LoadedFarm> {
-      return requireFarm(await loadFarm(client, { owner_id: ownerId }));
+      const farm = await currentFarmId();
+      return requireFarm(await loadFarm(client, { id: farm }));
     },
 
     /** Read models: reports, alerts and instructions are written by calls, never by owners. */

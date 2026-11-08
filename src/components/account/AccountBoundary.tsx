@@ -9,6 +9,8 @@ import { LogoutButton } from "@/components/auth/LogoutButton";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
 import { Button } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
+import { planSelectionGatePath, planSelectionResumePath } from "@/lib/account/plan-selection-paths";
+import { safeReturnPath } from "@/lib/supabase/auth-input";
 import { accountSync, watchAccountAuth } from "@/store/account";
 import { useAccountState, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
 
@@ -20,7 +22,7 @@ const REFRESH_MS = 30_000;
  * sees that, never the demo in its place.
  */
 export function AccountBoundary({ area, children }: { area: "app" | "start"; children: ReactNode }) {
-  const { m, href } = useI18n();
+  const { locale, m, href } = useI18n();
   const router = useRouter();
   const pathname = usePathname() ?? "";
   const status = useAccountState((state) => state.status);
@@ -36,7 +38,9 @@ export function AccountBoundary({ area, children }: { area: "app" | "start"; chi
   const visitorTarget = ACCOUNT_DATA && status === "demo" && hydrated
     ? area === "start" ? `/signup?next=${encodeURIComponent(href("/start"))}` : !setupComplete ? "/login" : null
     : null;
-  const target = !ready
+  const target = status === "planRequired"
+    ? "/choose-plan"
+    : !ready
     ? visitorTarget
     : area === "start"
       ? setupComplete ? "/app" : null
@@ -50,8 +54,14 @@ export function AccountBoundary({ area, children }: { area: "app" | "start"; chi
   }, []);
 
   useEffect(() => {
-    if (target) router.replace(href(target));
-  }, [href, router, target]);
+    if (status === "planRequired") {
+      const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      router.replace(planSelectionGatePath(locale, current));
+    } else if (target && area === "start" && ready && setupComplete) {
+      const returnTo = safeReturnPath(new URLSearchParams(window.location.search).get("returnTo"));
+      router.replace(planSelectionResumePath(locale, true, returnTo ?? href("/app")));
+    } else if (target) router.replace(href(target));
+  }, [area, href, locale, ready, router, setupComplete, status, target]);
 
   useEffect(() => {
     if (status === "signedOut") router.replace(href("/login"));
