@@ -200,3 +200,19 @@ The six-colour gallery (الوضح، الشعل، الصفر، الشقح، ال
 - Have a camel owner confirm each colour, especially الصفر and الشعل, whose shades the sources describe least consistently.
 - Format: 4:5 portrait (also cropped 4:3 on desktop), calm single animal, plain background, ≥ 1200 px wide, no identifiable people, no branding.
 - Add each as `public/images/landing/colours/<id>.jpg` and an entry in `src/components/landing/photos.ts` under the matching id (`wadh`, `shul`, `sufr`, `shaqh`, `humr`, `majaheem`); the gallery then shows the photograph instead of the plate automatically.
+
+## Product Experience 2.0 (2026-11-08)
+
+Two photographs from the unmerged `design/landing-refresh-v2` branch (commit `4d96e8b`) are now used on the landing.
+**Verified for release 2026-11-08:** each source page and licence page was re-read (both photos marked free, commercial
+website use allowed, no attribution required), and each file was compared with its source image. Credits stay visible in the landing footer even though neither licence
+requires attribution. Neither is presented as a NAQAH estate, herd, worker or client.
+
+| Slot | File | Shows | Stated location | Creator | Licence | Source |
+|---|---|---|---|---|---|---|
+| `hero` | `hero-herd-dusk.jpg` (2560 × 1706) | Camels walking across dunes at sunset | Saudi Arabia, per Pexels | Mo Eid | Pexels License — https://www.pexels.com/license/ | https://www.pexels.com/photo/camels-trekking-through-the-desert-at-sunset-28844446/ |
+| `closing` | `call-hisma-sunset.jpg` (2400 × 1600) | The sun setting over the Hisma desert | Hisma Desert, NEOM, Saudi Arabia | NEOM | Unsplash License — https://unsplash.com/license | https://unsplash.com/photos/the-sun-is-setting-over-a-desert-landscape-WpOMM4uE-F8 |
+
+`hero-herder.jpg` (SPA, CC BY-SA 4.0) moves from the landing hero to the onboarding panel, where it shows the
+kind of worker NAQAH calls. `evening.jpg`, `closing.jpg` and `herd-profile.jpg` stay in the repository but are no
+longer shown on the landing; only shown photographs are credited there.

@@ -156,6 +156,20 @@
     transition: clip-path 800ms var(--ease-weave);
     transition-delay: var(--reveal-delay, 0ms);
   }
+  /* Dashboard: what follows the estate header rises in once, so the eye lands on the header first. */
+  .naqah-rise {
+    animation: naqah-rise 480ms var(--ease-expo) 80ms both;
+  }
+  /* Data visuals: what has happened draws in along the reading direction once, then "now" settles. */
+  .naqah-draw {
+    animation: naqah-draw 720ms var(--ease-expo) 120ms both;
+  }
+  .naqah-draw:dir(rtl) {
+    animation-name: naqah-draw-rtl;
+  }
+  .naqah-pop {
+    animation: naqah-pop 420ms var(--ease-expo) 560ms both;
+  }
   /* The hero photograph settles once on arrival; no perpetual zoom. */
   .naqah-settle img {
     animation: naqah-settle 1600ms var(--ease-soft) both;
@@ -172,6 +186,38 @@
   }
   [data-reveal="pending"] .naqah-ring::after {
     animation: none;
+  }
+}
+
+@keyframes naqah-rise {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+@keyframes naqah-draw {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes naqah-draw-rtl {
+  from {
+    clip-path: inset(0 0 0 100%);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes naqah-pop {
+  from {
+    opacity: 0;
+    scale: 0.4;
   }
 }
 
@@ -195,96 +241,200 @@
   }
 }
 
-/*
- * Woven logo reveal: threads weave in, unweave to reveal the unchanged mark, then a script flies
- * the mark into the navbar. Without a script the overlay fades by itself (failsafe). Shown once per
- * session (html[data-intro-seen] is set before paint) and never under reduced motion.
- */
-.naqah-intro {
-  animation: naqah-intro-failsafe 450ms var(--ease-standard) 1900ms forwards;
+
+/* owner app — design B. Still state is the default; motion only adds arrival and feedback. */
+/* Owner-entered names (ranch, camels, worker) may be one long unbroken word: break it rather than
+   widen the page. Never truncate the only visible name. */
+.naqah-app main {
+  overflow-wrap: break-word;
 }
-.naqah-intro-thread {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation:
-    naqah-thread-in 420ms var(--ease-expo) calc(var(--i) * 45ms) both,
-    naqah-thread-out 420ms var(--ease-weave) calc(560ms + var(--i) * 25ms) forwards;
+.naqah-name {
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
-.naqah-intro-mark {
-  animation: naqah-mark-in 520ms var(--ease-expo) 340ms both;
+/* A row that scrolls sideways on a phone: thin themed scrollbar, no page jump. */
+.naqah-scroll-x {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-cream) 30%, transparent) transparent;
+  overscroll-behavior-x: contain;
 }
-html[data-intro-seen] .naqah-intro {
-  display: none;
+/* Keyboard focus and in-page links land clear of the sticky top bar and the phone's bottom bar. */
+html:has(.naqah-app) {
+  scroll-padding-top: 7.5rem;
+  scroll-padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
 }
-html[data-intro-playing] header [data-brand-mark] {
-  visibility: hidden;
+html:has(.naqah-app #settings-ranch) {
+  scroll-padding-top: 11rem;
 }
-@media (prefers-reduced-motion: reduce) {
-  .naqah-intro {
-    display: none;
+@media (min-width: 1024px) {
+  html:has(.naqah-app) {
+    scroll-padding-top: 4.5rem;
+    scroll-padding-bottom: 1.5rem;
+  }
+  html:has(.naqah-app #settings-ranch) {
+    scroll-padding-top: 8rem;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* The next report call: a ring that breathes out twice on arrival, then rests. */
+  .naqah-beacon {
+    animation: naqah-pop 420ms var(--ease-expo) both;
+  }
+  .naqah-beacon::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    border: 2px solid currentColor;
+    color: var(--color-gold);
+    opacity: 0;
+    animation: naqah-ring-soft 1600ms var(--ease-standard) 700ms 2 both;
+  }
+  /* The first look: the header's lines arrive in reading order, once. Set --i on each. */
+  .naqah-enter {
+    animation: naqah-rise 560ms var(--ease-expo) both;
+    animation-delay: calc(var(--i, 0) * 70ms);
+  }
+  .naqah-stagger-item {
+    animation: naqah-rise 520ms var(--ease-expo) both;
+    animation-delay: calc(var(--i, 0) * 55ms + 180ms);
+  }
+  /* Rows and marks that arrive one after another. Set --i on each. */
+  .naqah-stagger > * {
+    animation: naqah-rise 520ms var(--ease-expo) both;
+    animation-delay: calc(var(--i, 0) * 45ms + 60ms);
+  }
+  /* Meters fill from the start edge once. */
+  .naqah-fill {
+    transform-origin: left center;
+    animation: naqah-fill 900ms var(--ease-expo) 200ms both;
+  }
+  .naqah-fill:dir(rtl) {
+    transform-origin: right center;
+  }
+  .naqah-fill-up {
+    transform-origin: bottom center;
+    animation: naqah-fill-up 900ms var(--ease-expo) 200ms both;
+  }
+  /* Sheets and dialogs: the panel rises (phones) or slides in from the end edge (wide screens). */
+  .naqah-sheet[data-state="open"] .naqah-sheet-backdrop {
+    animation: naqah-fade 240ms var(--ease-standard) both;
+  }
+  .naqah-sheet[data-state="open"] .naqah-sheet-panel {
+    animation: naqah-sheet-up 420ms var(--ease-expo) both;
+  }
+  @media (min-width: 768px) {
+    .naqah-sheet[data-state="open"] .naqah-sheet-panel {
+      animation-name: naqah-sheet-side;
+    }
+    .naqah-sheet[data-state="open"] .naqah-sheet-panel:dir(rtl) {
+      animation-name: naqah-sheet-side-rtl;
+    }
+  }
+  .naqah-sheet[data-state="closing"] .naqah-sheet-backdrop {
+    animation: naqah-fade-out 220ms var(--ease-standard) both;
+  }
+  .naqah-sheet[data-state="closing"] .naqah-sheet-panel {
+    animation: naqah-sheet-down 240ms var(--ease-standard) both;
+  }
+  @media (min-width: 768px) {
+    .naqah-sheet[data-state="closing"] .naqah-sheet-panel {
+      animation-name: naqah-sheet-out;
+    }
+    .naqah-sheet[data-state="closing"] .naqah-sheet-panel:dir(rtl) {
+      animation-name: naqah-sheet-out-rtl;
+    }
+  }
+  .naqah-toast {
+    animation: naqah-toast 420ms var(--ease-expo) both;
+  }
+  /* A link or button that leads somewhere nudges its arrow on hover. */
+  .naqah-nudge:hover .naqah-nudge-icon {
+    translate: 3px 0;
+  }
+  .naqah-nudge:dir(rtl):hover .naqah-nudge-icon {
+    translate: -3px 0;
+  }
+  .naqah-nudge-icon {
+    transition: translate var(--duration-micro) var(--ease-standard);
   }
 }
 
-@keyframes naqah-intro-failsafe {
-  to {
-    opacity: 0;
-    visibility: hidden;
-  }
-}
-@keyframes naqah-thread-in {
+@keyframes naqah-ring-soft {
   from {
-    scale: 0 1;
-  }
-  to {
-    scale: 1 1;
-  }
-}
-@keyframes naqah-thread-out {
-  to {
-    translate: calc(var(--dir) * 65%) 0;
-    opacity: 0;
-  }
-}
-@keyframes naqah-mark-in {
-  from {
-    opacity: 0;
-    scale: 0.96;
-  }
-  to {
-    opacity: 1;
+    opacity: 0.6;
     scale: 1;
   }
+  to {
+    opacity: 0;
+    scale: 2.4;
+  }
 }
 
-/*
- * Desert Journey stage. JourneyScene writes --p (0..1 across the viewport), --travel and --walk;
- * the camel travels in the reading direction and each dune plane drifts a little, nearer planes
- * further. Only transforms move.
- */
-.naqah-journey {
-  --dir: 1;
-}
-[dir="rtl"] .naqah-journey {
-  --dir: -1;
-}
-.naqah-journey-camel {
-  transform: translateX(calc(var(--p) * var(--travel) * var(--dir)));
-  will-change: transform;
-}
-.naqah-journey [data-plane="far"] {
-  transform: translateX(calc((var(--p) - 0.5) * -24px * var(--dir)));
-}
-.naqah-journey [data-plane="mid"] {
-  transform: translateX(calc((var(--p) - 0.5) * -52px * var(--dir)));
-}
-.naqah-journey [data-plane="near"] {
-  transform: translateX(calc((var(--p) - 0.5) * -96px * var(--dir)));
+@keyframes naqah-fill {
+  from {
+    transform: scaleX(0);
+  }
 }
 
-/* Welcome → onboarding: the reading pane fades while navigation is already under way (Handoff §04). */
-.naqah-welcome-pane {
-  transition: opacity 300ms var(--ease-standard);
+@keyframes naqah-fill-up {
+  from {
+    transform: scaleY(0);
+  }
 }
-html[data-welcome-leaving] .naqah-welcome-pane {
-  opacity: 0;
+
+@keyframes naqah-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes naqah-sheet-up {
+  from {
+    translate: 0 100%;
+  }
+}
+
+@keyframes naqah-sheet-side {
+  from {
+    translate: 100% 0;
+  }
+}
+
+@keyframes naqah-sheet-side-rtl {
+  from {
+    translate: -100% 0;
+  }
+}
+
+@keyframes naqah-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes naqah-sheet-down {
+  to {
+    translate: 0 100%;
+  }
+}
+
+@keyframes naqah-sheet-out {
+  to {
+    translate: 100% 0;
+  }
+}
+
+@keyframes naqah-sheet-out-rtl {
+  to {
+    translate: -100% 0;
+  }
+}
+
+@keyframes naqah-toast {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+    scale: 0.96;
+  }
 }

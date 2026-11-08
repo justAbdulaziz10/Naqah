@@ -42,8 +42,9 @@ export async function POST(request: Request): Promise<Response> {
   const caller = normalizePhone(form.get("From") ?? "");
   const worker = normalizePhone(config.workerPhone);
   const owner = normalizePhone(config.ownerPhone);
-  let scenario: "worker_report" | "owner_inquiry";
-  if (caller && caller === worker) scenario = "worker_report";
+  // On the sample line the worker hears a sample of the call NAQAH places at the report time.
+  let scenario: "report_call" | "owner_inquiry";
+  if (caller && caller === worker) scenario = "report_call";
   else if (caller && owner && caller === owner) scenario = "owner_inquiry";
   else {
     return twimlResponse(

@@ -1,0 +1,12 @@
+/* landing & onboarding: the sign-in card settles in once. */
+@media (prefers-reduced-motion: no-preference) {
+  .naqah-auth-in {
+    animation: naqah-auth-in 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+@keyframes naqah-auth-in {
+  from {
+    opacity: 0;
+    translate: 0 16px;
+  }
+}

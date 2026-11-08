@@ -4,7 +4,8 @@ import type { Locale } from "@/domain/types";
 
 export interface VoiceState {
   v: 1;
-  sc: Extract<Scenario, "worker_report" | "owner_inquiry">;
+  /** report_call: the sample of NAQAH's scheduled call to the worker. */
+  sc: Extract<Scenario, "report_call" | "owner_inquiry">;
   l: Locale;
   t: number;
   callSid?: string;
@@ -58,7 +59,7 @@ export function verifyVoiceState(
     const state = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Partial<VoiceState>;
     if (
       state.v !== 1 ||
-      (state.sc !== "worker_report" && state.sc !== "owner_inquiry") ||
+      (state.sc !== "report_call" && state.sc !== "owner_inquiry") ||
       (state.l !== "ar" && state.l !== "en") ||
       !Number.isSafeInteger(state.t) ||
       (state.callSid !== undefined && (typeof state.callSid !== "string" || state.callSid.length > 128)) ||

@@ -3,7 +3,7 @@
  * Pure functions, no side effects. Covered by `src/domain/rules.test.ts`.
  */
 import { PLAN_LIMITS, PREDEFINED_QUESTIONS } from "./catalog";
-import { isValidWindow, isWithinWindow, sameDay, sameWeek } from "./clock";
+import { sameDay, sameWeek } from "./clock";
 import type { PredefinedQuestion, Workspace } from "./types";
 
 /** Phase 1: applicable predefined questions are mandatory; absent resources are skipped. */
@@ -25,7 +25,7 @@ export const taskTicketsEnabled = (ws: Workspace) => ws.settings.plan === "ultim
 export type WorkerInboundRoute =
   | { kind: "callback"; ticketIds: string[] }
   | { kind: "report" }
-  | { kind: "rejected"; reason: "outside_window" | "weekly_done" | "daily_done" | "no_window" };
+  | { kind: "rejected"; reason: "wait_for_call" | "weekly_done" | "daily_done" };
 
 /** The most recent successful farm report, if any. */
 export function lastReportAt(ws: Workspace): string | null {
@@ -33,24 +33,24 @@ export function lastReportAt(ws: Workspace): string | null {
 }
 
 /**
- * Phase 2: what happens when the worker calls the AI number.
- * An open No Answer Ticket takes priority: the callback is always answered
- * (even outside Basic's window) but is NOT a farm report.
+ * What happens when the worker calls the NAQAH number. NAQAH calls the worker for the report, so an
+ * inbound call is either a callback for a No Answer Ticket (always answered, not a farm report) or the
+ * worker returning a report call they missed this period. Otherwise NAQAH tells them it will call.
  */
 export function routeWorkerInboundCall(ws: Workspace, now: Date): WorkerInboundRoute {
   const open = ws.noAnswerTickets.filter((t) => t.status === "open");
   if (open.length) return { kind: "callback", ticketIds: open.map((t) => t.id) };
 
   const last = lastReportAt(ws);
-  if (ws.settings.plan === "basic") {
-    const w = ws.settings.window;
-    if (!w || !isValidWindow(w)) return { kind: "rejected", reason: "no_window" };
-    if (!isWithinWindow(now, w)) return { kind: "rejected", reason: "outside_window" };
-    if (last && sameWeek(last, now)) return { kind: "rejected", reason: "weekly_done" };
-    return { kind: "report" };
+  const basic = ws.settings.plan === "basic";
+  if (last && (basic ? sameWeek(last, now) : sameDay(last, now))) {
+    return { kind: "rejected", reason: basic ? "weekly_done" : "daily_done" };
   }
-  if (last && sameDay(last, now)) return { kind: "rejected", reason: "daily_done" };
-  return { kind: "report" };
+  const samePeriod = (at: string) => (basic ? sameWeek(at, now) : sameDay(at, now));
+  const returning = (ws.reportCalls ?? []).some(
+    (run) => (run.state === "missed" || run.state === "calling") && run.attempts.length > 0 && samePeriod(run.attempts[0].at),
+  );
+  return returning ? { kind: "report" } : { kind: "rejected", reason: "wait_for_call" };
 }
 
 export type OwnerInboundRoute =

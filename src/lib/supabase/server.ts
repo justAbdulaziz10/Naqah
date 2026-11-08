@@ -1,18 +1,24 @@
 import 'server-only';
 import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { connection } from 'next/server';
-import { getSupabaseConfig, sessionCookieOptions } from './config';
+import { getSupabaseConfig, sessionCookieOptionsFor } from './config';
 import { withTimeout } from './timeout';
 
 const OWNER_CHECK_TIMEOUT_MS = 3_000;
+
+/** The origin this request was served on: the Host header, as the browser sent it (no forwarded hosts). */
+async function requestOrigin() {
+  const host = (await headers()).get('host') ?? '';
+  try { return new URL(`http://${host}`); } catch { return null; }
+}
 
 export async function createClient() {
   const config = getSupabaseConfig();
   if (!config) return null;
   const store = await cookies();
   return createServerClient(config.url, config.key, {
-    cookieOptions: sessionCookieOptions,
+    cookieOptions: sessionCookieOptionsFor(await requestOrigin()),
     cookies: {
       getAll: () => store.getAll(),
       setAll(values) {
@@ -41,7 +47,7 @@ export async function createWritableClient() {
   if (!config) return null;
   const store = await cookies();
   return createServerClient(config.url, config.key, {
-    cookieOptions: sessionCookieOptions,
+    cookieOptions: sessionCookieOptionsFor(await requestOrigin()),
     cookies: {
       getAll: () => store.getAll(),
       setAll: (values) => values.forEach(({ name, value, options }) => store.set(name, value, options)),

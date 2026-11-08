@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Card, CardBody, CardHeader } from "@/components/ui";
+import { Button } from "@/components/ui";
+import { SettingsDisclosure } from "@/components/setup/sections/SettingsDisclosure";
 import { useI18n } from "@/i18n/client";
 import { useWeatherRefresh } from "@/components/dashboard/useWeatherRefresh";
 import { regionForCoords } from "@/lib/geo/regions";
@@ -71,57 +72,50 @@ export function WeatherCard() {
             ? weatherMessages.locationUnavailable
             : null;
 
-  return (
-    <Card>
-      <CardHeader title={weatherMessages.title} />
-      <CardBody className="space-y-4">
-        <div className="space-y-2 text-sm">
-          <p>
-            <span className="font-semibold text-espresso">{weatherMessages.locationLabel}: </span>
-            <span>{locationName}</span>
-          </p>
-          <p className="text-muted">
-            <span className="font-semibold text-espresso">{weatherMessages.locationStatus}: </span>
-            {coords ? (
-              <>
-                {weatherMessages.coordinatesSet} <bdi className="ltr-nums">({coords.lat.toFixed(3)}, {coords.lon.toFixed(3)})</bdi>
-              </>
-            ) : weatherMessages.coordinatesNotSet}
-          </p>
-        </div>
+  const weather = workspace.weather;
+  const temperatures = weather ? (
+    <>
+      <bdi dir="ltr" className="ltr-nums">{fmt.number(Math.round(weather.maxTempC))}°</bdi> {weatherMessages.maximum}
+      {weather.minTempC !== null ? (
+        <> <span aria-hidden="true">·</span> <bdi dir="ltr" className="ltr-nums">{fmt.number(Math.round(weather.minTempC))}°</bdi> {weatherMessages.minimum}</>
+      ) : null}
+    </>
+  ) : null;
+  const summary = !coords
+    ? weatherMessages.noLocationShort
+    : temperatures ? <>{locationName} <span aria-hidden="true">·</span> {temperatures}</> : locationName;
 
-        <div className="space-y-1.5">
-          {workspace.weather ? (
-            <>
-              <p className="text-sm font-semibold text-espresso">{weatherMessages.forecast}</p>
-              <p className="font-medium text-espresso">
-                <bdi dir="ltr" className="ltr-nums">{fmt.number(Math.round(workspace.weather.maxTempC))}°</bdi> {weatherMessages.maximum}
-                {workspace.weather.minTempC !== null ? (
-                  <> <span aria-hidden="true">·</span> <bdi dir="ltr" className="ltr-nums">{fmt.number(Math.round(workspace.weather.minTempC))}°</bdi> {weatherMessages.minimum}</>
-                ) : null}
-              </p>
-              <p className="text-sm text-muted">
-                {weatherMessages.lastForecast}: <time className="ltr-nums" dateTime={workspace.weather.fetchedAt}>{fmt.dateTime(workspace.weather.fetchedAt)}</time>
-              </p>
-            </>
-          ) : (
-            <p className="text-sm text-muted">{weatherMessages.forecastUnavailable}</p>
-          )}
-        </div>
+  return (
+    <SettingsDisclosure id="settings-weather" title={weatherMessages.title} summary={summary}>
+      <div className="space-y-4">
+        {!coords ? (
+          <p className="text-sm leading-relaxed text-muted">{weatherMessages.noLocation}</p>
+        ) : weather ? (
+          <div>
+            <p className="font-medium text-espresso">{weatherMessages.todayLabel(locationName)} {temperatures}</p>
+            <p className="mt-0.5 text-sm text-muted">
+              {weatherMessages.lastForecast} <time className="ltr-nums" dateTime={weather.fetchedAt}>{fmt.dateTime(weather.fetchedAt)}</time>
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted">{weatherMessages.forecastUnavailable}</p>
+        )}
 
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" className="min-h-11" disabled={locating} onClick={useDeviceLocation}>
+          <Button variant={coords ? "ghost" : "secondary"} className="min-h-11" disabled={locating} onClick={useDeviceLocation}>
             {locating ? weatherMessages.gettingLocation : weatherMessages.useMyLocation}
           </Button>
-          <Button variant="secondary" className="min-h-11" disabled={!coords || refreshing} onClick={() => void refresh()}>
-            {refreshing ? weatherMessages.refreshingForecast : weatherMessages.refreshForecast}
-          </Button>
+          {coords ? (
+            <Button variant="secondary" className="min-h-11" disabled={refreshing} onClick={() => void refresh()}>
+              {refreshing ? weatherMessages.refreshingForecast : weatherMessages.refreshForecast}
+            </Button>
+          ) : null}
         </div>
 
         {feedbackCopy ? (
           <p className="text-sm text-muted" role={locationFeedback === "saved" ? "status" : "alert"}>{feedbackCopy}</p>
         ) : null}
-      </CardBody>
-    </Card>
+      </div>
+    </SettingsDisclosure>
   );
 }

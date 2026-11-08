@@ -10,7 +10,7 @@ const replies: Reply[] = [
 
 function session(inputMode: CallSession["inputMode"] = "choices", options = replies): CallSession {
   return {
-    scenario: "worker_report", step: "test", turns: [], replies: options, inputMode, done: false,
+    scenario: "report_call", step: "test", turns: [], replies: options, inputMode, done: false,
     startedAt: "2026-01-01T00:00:00.000Z",
     draft: { answers: [], camelUpdates: [], resourceUpdates: [], herdAccountedFor: null, taskConfirmations: [] },
     data: {}, notices: [],
@@ -62,8 +62,8 @@ describe("negated speech never reads as yes", () => {
   it.each(["مو كلها بخير", "مو بخير", "not all are well"])("doesn't mark the herd healthy on «%s»", (speech) => {
     expect(mapSpeechToInput(herd, speech, null, "ar")).toEqual({ value: "no" });
   });
-  it("doesn't read a plain «يكفي» as not enough", () => {
-    expect(mapSpeechToInput(heat, "يكفي", null, "ar")).toBeNull();
+  it("reads a plain «يكفي» as enough, never as not enough", () => {
+    expect(mapSpeechToInput(heat, "يكفي", null, "ar")).toEqual({ value: "yes" });
     expect(mapSpeechToInput(heat, "ما يكفي", null, "ar")).toEqual({ value: "not_enough" });
   });
 });
@@ -119,6 +119,20 @@ describe("yes, no, and unknown choice matching", () => {
 
 describe("spoken numbers and times", () => {
   it.each([
+    ["ثلاثين كيس", 30], ["مية وخمسين لتر", 150], ["مائة وخمسة وعشرين لتر", 125],
+    ["تقريبا عشرة", 10], ["٤٠", 40], ["٤٠،", 40], ["حوالي ١٠٠ وخمسين", 150],
+    ["عشرين وخمسة", 25], ["ميتين وثلاثين", 230], ["ألف ومية وخمسين", 1150],
+    ["thirty bags", 30], ["one hundred and fifty litres", 150], ["a hundred and fifty litres", 150], ["about ten", 10],
+    ["twenty-five", 25], ["about 40 litres", 40], ["12.5 litres", 12.5], ["١٢٫٥ لتر", 12.5],
+  ])("understands worker quantity «%s» as %s", (speech, quantity) => {
+    expect(mapSpeechToInput(session("number"), speech)).toEqual({ text: String(quantity) });
+  });
+  it.each(["عشرين أو ثلاثين", "20 bags and 30 litres", "twenty thirty", "zero twenty", "صفر عشرين", "minus twenty", "-20", "سالب عشرة", "constructor", "ما", "one hundred and"]) (
+    "does not guess an ambiguous or partial quantity «%s»", (speech) => {
+      expect(mapSpeechToInput(session("number"), speech)).toBeNull();
+    },
+  );
+  it.each([
     ["٠", 0], ["واحد", 1], ["اثنين", 2], ["ثلاث", 3], ["أربعة", 4], ["خمسة", 5],
     ["ستة", 6], ["سبعة", 7], ["ثمانية", 8], ["تسعة", 9], ["عشرة", 10], ["أحد عشر", 11],
     ["اثنا عشر", 12], ["ثلاثة عشر", 13], ["أربعة عشر", 14], ["خمسة عشر", 15], ["ستة عشر", 16],
@@ -142,4 +156,102 @@ describe("spoken numbers and times", () => {
     expect(mapSpeechToInput(session("number"), "كثير", null, "ar")).toBeNull();
     expect(mapSpeechToInput(session("none"), "yes", null, "en")).toBeNull();
   });
+});
+
+describe("recognition quality and explicit confirmations", () => {
+  it.each(["0", "0.2", "0.49", "NaN", "", "-1", "1.1"])("repeats low-confidence or invalid confidence %s", (confidence) => {
+    expect(mapSpeechToInput(session("number"), "مية وخمسين", null, "ar", confidence)).toBeNull();
+    expect(mapSpeechToInput(session(), "yes", null, "en", confidence)).toBeNull();
+  });
+  it("accepts a missing confidence field and gives keypad input precedence", () => {
+    expect(mapSpeechToInput(session("number"), "عشرين", null, "ar", null)).toEqual({ text: "20" });
+    expect(mapSpeechToInput(session("number"), "", "150", "ar", "0.1")).toEqual({ text: "150" });
+    expect(mapSpeechToInput(session(), "no", "1", "en", "0.1")).toEqual({ value: "yes" });
+    expect(mapSpeechToInput(session("number"), "20", "1234567")).toBeNull();
+  });
+  it.each(["quantity_confirm", "herd_count_confirm", "health_name_confirm"])("requires clear speech at %s", (step) => {
+    const confirmation = { ...session(), step };
+    expect(mapSpeechToInput(confirmation, "نعم لا")).toBeNull();
+    expect(mapSpeechToInput(confirmation, "yes no")).toBeNull();
+    expect(mapSpeechToInput(confirmation, "ايوه يمكن")).toBeNull();
+    expect(mapSpeechToInput(confirmation, "yes maybe")).toBeNull();
+    expect(mapSpeechToInput(confirmation, "ما أدري")).toEqual({ value: "unknown" });
+    expect(mapSpeechToInput(confirmation, "ايوه")).toEqual({ value: "yes" });
+    expect(mapSpeechToInput(confirmation, "لا والله")).toEqual({ value: "no" });
+  });
+  it.each(["والله ما أدري", "ما أعرف والله", "I don't know honestly"])("keeps «%s» unknown", (speech) => {
+    expect(mapSpeechToInput(session("number"), speech)).toEqual({ value: "unknown" });
+    expect(mapSpeechToInput(session("text"), speech)).toEqual({ value: "unknown" });
+  });
+});
+
+describe("negation reads as what was meant", () => {
+  const unknownReply: Reply = { id: "unknown", value: "unknown", label: { en: "I don’t know", ar: "ما أدري" } };
+  const herdHealth: CallSession = {
+    ...session("choices", [
+      { id: "yes", value: "yes", label: { en: "All are well", ar: "كلها بخير" } },
+      { id: "no", value: "no", label: { en: "One needs attention", ar: "فيه وحدة تحتاج متابعة" } },
+      unknownReply,
+    ]),
+    step: "report_question",
+    data: {
+      reportIndex: 0,
+      queue: [{ kind: "predefined", id: "herd_health", question: { ar: "", en: "" }, answerKind: "herd-health", resource: null }],
+    },
+  };
+  const level = session("choices", ["good", "medium", "low", "critical", "unknown"].map((value) => ({
+    id: value, value, label: { en: value === "good" ? "Enough" : value === "low" ? "Running low" : value, ar: value },
+  })));
+  const health = session("choices", [
+    { id: "healthy", value: "healthy", label: { en: "Healthy", ar: "بصحة جيدة" } },
+    { id: "watch", value: "watch", label: { en: "Under watch", ar: "تحت الملاحظة" } },
+    { id: "sick", value: "sick", label: { en: "Sick", ar: "مريضة" } },
+    unknownReply,
+  ]);
+  const heat = session("choices", [
+    { id: "yes", value: "yes", label: { en: "Yes", ar: "إيه" } },
+    { id: "not_enough", value: "not_enough", label: { en: "Not enough", ar: "ما يكفي" } },
+    unknownReply,
+  ]);
+
+  it.each([
+    "لا، ما فيه مريض", "لا ما فيه مريض", "ما في شي", "مو تعبانة", "لا والله ما شفت شي", "لا",
+    "no, none are sick", "nothing wrong", "no I don't think so", "كلها بخير", "all fine",
+  ])("«%s» on «is any camel sick?» means all are well", (speech) => {
+    expect(mapSpeechToInput(herdHealth, speech, null, "ar")).toEqual({ value: "yes" });
+  });
+  it.each(["فيه وحدة مريضة", "إيه، وحدة تعبانة", "مو كلها بخير", "one is sick", "not all of them are well", "something is wrong"])(
+    "«%s» on «is any camel sick?» means one needs attention", (speech) => {
+      expect(mapSpeechToInput(herdHealth, speech, null, "ar")).toEqual({ value: "no" });
+    },
+  );
+  it("still takes «ما أدري» as unknown though it holds «ما»", () => {
+    expect(mapSpeechToInput(herdHealth, "والله ما أدري", null, "ar")).toEqual({ value: "unknown" });
+  });
+
+  it.each([["ما نقص العلف", "good"], ["not low", "good"], ["كافي", "good"], ["مو كافي", "low"], ["ناقص شوي", "low"], ["قارب يخلص", "low"], ["running low", "low"], ["nearly empty", "low"], ["not nearly empty", "good"], ["ما قارب يخلص", "good"], ["خلص العلف", "critical"], ["ما باقي شي", "critical"]])(
+    "reads «%s» as feed level %s", (speech, value) => {
+      expect(mapSpeechToInput(level, speech, null, "ar")).toEqual({ value });
+    },
+  );
+  it.each([["مو تعبانة", "healthy"], ["ما فيها شي", "healthy"], ["not sick", "healthy"], ["سليم", "healthy"], ["مو بخير", "sick"], ["تعبانة", "sick"], ["تحت الملاحظة", "watch"]])(
+    "reads «%s» as camel health %s", (speech, value) => {
+      expect(mapSpeechToInput(health, speech, null, "ar")).toEqual({ value });
+    },
+  );
+  it.each([["لا ما يكفي", "not_enough"], ["not enough", "not_enough"], ["ما فيه ظل", "not_enough"], ["إيه يكفي", "yes"], ["no problem, they have plenty", "yes"]])(
+    "reads «%s» on the heat-day question as %s", (speech, value) => {
+      expect(mapSpeechToInput(heat, speech, null, "ar")).toEqual({ value });
+    },
+  );
+  it.each([["no I don't think so", "no"], ["لا والله", "no"], ["ما أظن", "no"], ["إيه أكيد", "yes"], ["yes, correct", "yes"]])(
+    "reads «%s» on a yes/no question as %s", (speech, value) => {
+      expect(mapSpeechToInput(session(), speech, null, "en")).toEqual({ value });
+    },
+  );
+  it.each([["ما في ولا وحدة", 0], ["none", 0], ["not a single one", 0], ["ما في الا وحدة", 1], ["ولا شي", 0], ["اثنين وأربعين", 42]])(
+    "extracts «%s» as %s", (speech, number) => {
+      expect(extractNumber(speech)).toBe(number);
+    },
+  );
 });

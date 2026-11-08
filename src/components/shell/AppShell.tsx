@@ -6,6 +6,7 @@
  * Also gates every /app page: no workspace → friendly start screen.
  */
 import {
+  ArrowRight,
   ClipboardText,
   Flask,
   GearSix,
@@ -21,20 +22,20 @@ import { CamelMark } from "@/components/brand/CamelMark";
 import { EventNotifier } from "@/components/pwa/EventNotifier";
 import { Logo } from "@/components/brand/Logo";
 import { hasOwnSetupData } from "@/components/setup/draft";
-import { Button, ButtonLink, ConfirmDialog } from "@/components/ui";
+import { Button, ButtonLink, ConfirmDialog, Toaster } from "@/components/ui";
 import { openNoAnswerTickets, openTaskTickets } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useIsAccount, useNow, useWorkspaceStore } from "@/store/workspace";
 import { LocaleSwitcher } from "./LocaleSwitcher";
-import { useSetupHref } from "@/components/welcome/WelcomeActions";
+import { getStartedPath } from "@/components/entry/paths";
 
-type NavKey = "overview" | "herd" | "lab" | "tickets" | "calls" | "settings";
+type NavKey = "overview" | "herd" | "tickets" | "calls" | "settings";
 
+/** The owner's places. The Call Lab is a demo tool, so it lives with the demo controls, not here. */
 const NAV: { key: NavKey; path: string; icon: Icon | "camel" }[] = [
   { key: "overview", path: "/app", icon: House },
   { key: "herd", path: "/app/herd", icon: "camel" },
-  { key: "lab", path: "/app/lab", icon: Waveform },
   { key: "tickets", path: "/app/tickets", icon: ClipboardText },
   { key: "calls", path: "/app/calls", icon: PhoneList },
   { key: "settings", path: "/app/settings", icon: GearSix },
@@ -52,9 +53,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const hydrated = useWorkspaceStore((s) => s.hydrated);
   const ws = useWorkspaceStore((s) => s.workspace);
   const startDemo = useWorkspaceStore((s) => s.startDemo);
-  const setupHref = useSetupHref();
   const account = useIsAccount();
-  const nav = account ? NAV.filter((item) => item.key !== "lab") : NAV; // The Call Lab simulates, so a real farm never sees it.
+  const nav = NAV;
   const [confirmingDemo, setConfirmingDemo] = useState(false);
 
   const isActive = (path: string) => {
@@ -82,8 +82,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Button onClick={() => (hasOwnSetupData(ws) ? setConfirmingDemo(true) : startDemo(locale))} size="lg">
             {m.common.actions.startDemo}
           </Button>
-          <ButtonLink href={setupHref} variant="secondary" size="lg">
-            {m.common.actions.setUp}
+          <ButtonLink href={getStartedPath(locale)} variant="secondary" size="lg">
+            {m.common.actions.getStarted}
           </ButtonLink>
         </div>
         <LocaleSwitcher />
@@ -107,14 +107,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   const openTasks = (ws.settings.plan === "ultimate" ? openTaskTickets(ws).length : 0) + openNoAnswerTickets(ws).length;
 
   return (
-    <div className="min-h-dvh lg:grid lg:grid-cols-[260px_1fr]">
+    <div className="naqah-app min-h-dvh lg:grid lg:grid-cols-[260px_1fr]">
+      <a
+        href="#main"
+        className="fixed start-4 top-3 z-[60] -translate-y-24 rounded-full bg-espresso px-5 py-3 text-sm font-semibold text-cream shadow-lift transition-transform focus-visible:translate-y-0"
+      >
+        {m.common.nav.skip}
+      </a>
       <EventNotifier />
+      <Toaster />
       {/* Sidebar (desktop) */}
       <aside className="sticky top-0 hidden h-dvh flex-col border-e border-stone/70 bg-cream/60 px-4 py-6 lg:flex">
         <div className="px-2">
           <Logo locale={locale} href={href("/")} />
           <p className="mt-5 truncate font-semibold text-espresso">{ws.settings.farm.name.trim() || m.app.overview.estateFallback}</p>
-          <p className="text-sm text-muted">{m.common.plans[ws.settings.plan]}</p>
+          <Link href={`${href("/app/settings")}#settings-plan`} className="-mx-1 inline-flex min-h-11 items-center rounded-lg px-1 text-sm text-muted underline-offset-4 hover:text-espresso hover:underline">
+            {m.common.plans[ws.settings.plan]}
+          </Link>
         </div>
         <nav aria-label={m.common.nav.main} className="mt-6 flex flex-col gap-1">
           {nav.map((item) => {
@@ -125,10 +134,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                 href={href(item.path)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex h-11 items-center gap-3 rounded-xl px-3 text-[0.95rem] font-semibold transition",
+                  "relative flex h-11 items-center gap-3 rounded-xl px-3 text-[0.95rem] font-semibold transition-colors duration-200 active:scale-[0.99]",
                   active ? "bg-espresso/[0.07] text-espresso" : "text-muted hover:bg-espresso/5 hover:text-espresso",
                 )}
               >
+                <span aria-hidden className={cn("absolute inset-y-2.5 start-0 w-[3px] rounded-full bg-brown transition-[opacity,transform] duration-300", active ? "opacity-100" : "scale-y-0 opacity-0")} />
                 <span className="flex w-6 justify-center">
                   <NavIcon icon={item.icon} active={active} />
                 </span>
@@ -142,6 +152,25 @@ export function AppShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
+        {account ? null : (
+          <div className="mt-6 border-t border-stone/70 pt-4">
+            <p className="px-3 text-xs font-semibold text-muted">{m.common.demo.label}</p>
+            <Link
+              href={href("/app/lab")}
+              aria-current={isActive("/app/lab") ? "page" : undefined}
+              className={cn(
+                "relative mt-1 flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 transition-colors duration-200",
+                isActive("/app/lab") ? "bg-espresso/[0.07] text-espresso" : "text-muted hover:bg-espresso/5 hover:text-espresso",
+              )}
+            >
+              <span className="flex w-6 justify-center"><Waveform size={22} weight={isActive("/app/lab") ? "fill" : "regular"} aria-hidden /></span>
+              <span className="min-w-0">
+                <span className="block text-[0.95rem] font-semibold">{m.common.nav.lab}</span>
+                <span className="block text-xs text-muted">{m.common.demo.labHint}</span>
+              </span>
+            </Link>
+          </div>
+        )}
         <div className="mt-auto space-y-3 px-2">
           <div className="border-t border-stone/70 pt-4">
             {ws.settings.owner.name.trim() ? <p className="truncate text-sm font-semibold">{ws.settings.owner.name}</p> : null}
@@ -171,7 +200,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {account ? null : <DemoNotice showSimulate={!isActive("/app/lab")} labHref={href("/app/lab")} />}
         </header>
 
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">{children}</main>
+        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-6 focus:outline-none sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">{children}</main>
       </div>
 
       {/* Bottom tabs (mobile) */}
@@ -179,7 +208,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-label={m.common.nav.main}
         className="fixed inset-x-0 bottom-0 z-40 border-t border-stone/70 bg-cream pb-[env(safe-area-inset-bottom)] lg:hidden"
       >
-        <div className={cn("mx-auto grid max-w-lg", account ? "grid-cols-4" : "grid-cols-5")}>
+        <div className="mx-auto grid max-w-lg grid-cols-4">
           {nav.filter((n) => n.key !== "settings").map((item) => {
             const active = isActive(item.path);
             return (
@@ -188,14 +217,15 @@ export function AppShell({ children }: { children: ReactNode }) {
                 href={href(item.path)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex h-16 flex-col items-center justify-center gap-1 text-[0.7rem] font-semibold transition",
+                  "relative flex h-16 flex-col items-center justify-center gap-1 text-[0.72rem] font-semibold transition-colors duration-200 active:scale-95",
                   active ? "text-espresso" : "text-muted",
                 )}
               >
+                <span aria-hidden className={cn("absolute inset-x-6 top-0 h-[3px] rounded-b-full bg-brown transition-[opacity,transform] duration-300", active ? "opacity-100" : "scale-x-0 opacity-0")} />
                 <NavIcon icon={item.icon} active={active} />
-                <span className="max-w-full truncate px-1">{item.key === "lab" ? m.common.nav.labShort : m.common.nav[item.key]}</span>
+                <span className="max-w-full truncate px-1">{m.common.nav[item.key]}</span>
                 {item.key === "tickets" && openTasks > 0 ? (
-                  <span className="absolute top-2 start-1/2 ms-2.5 min-w-4 rounded-full bg-brown px-1 text-center text-[0.65rem] leading-4 text-cream">
+                  <span className="ltr-nums absolute top-2 start-1/2 ms-2.5 min-w-4 rounded-full bg-brown px-1 text-center text-[0.65rem] leading-4 text-cream">
                     {openTasks}
                   </span>
                 ) : null}
@@ -220,15 +250,17 @@ function DemoNotice({ showSimulate, labHref }: { showSimulate: boolean; labHref:
         <Flask size={16} className="shrink-0 text-brown" aria-hidden />
         <span className="shrink-0 font-semibold text-brown">{m.common.demo.label}</span>
         <span aria-hidden className="text-muted">·</span>
-        <span className="min-w-0 truncate text-muted xl:hidden">{m.common.demo.noticeShort}</span>
+        <span className="min-w-0 truncate text-muted sm:hidden">{m.common.demo.badge}</span>
+        <span className="hidden min-w-0 truncate text-muted sm:inline xl:hidden">{m.common.demo.noticeShort}</span>
         <span className="hidden min-w-0 truncate text-muted xl:inline">{m.common.demo.notice}</span>
         <div className="ms-auto flex shrink-0 items-center gap-1">
           <div className="max-sm:hidden">
             <DemoClock />
           </div>
           {showSimulate ? (
-            <Link href={labHref} className="hidden min-h-11 items-center gap-1.5 font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown sm:inline-flex">
+            <Link href={labHref} className="naqah-nudge inline-flex min-h-11 items-center gap-1 font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
               {m.common.demo.simulateCall}
+              <ArrowRight size={14} className="naqah-nudge-icon rtl:-scale-x-100" aria-hidden />
             </Link>
           ) : null}
         </div>

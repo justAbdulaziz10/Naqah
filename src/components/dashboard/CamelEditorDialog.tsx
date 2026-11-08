@@ -59,11 +59,11 @@ export function CamelEditorDialog({
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
-      className="max-h-[min(90dvh,48rem)] w-[calc(100vw-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-stone bg-cream p-0 text-espresso shadow-lift backdrop:bg-espresso/40"
+      className="fixed inset-0 m-auto h-fit max-h-[min(90dvh,48rem)] w-[calc(100vw-1.5rem)] max-w-2xl overflow-hidden rounded-[1.75rem] border border-stone bg-cream p-0 text-espresso shadow-lift backdrop:bg-espresso/40"
     >
-      <form onSubmit={submit} className="flex max-h-[min(90dvh,48rem)] flex-col">
-        <div className="flex items-center justify-between gap-3 border-b border-stone px-5 py-4 sm:px-6">
-          <h2 id="camel-dialog-title" className="text-lg font-bold">
+      <form onSubmit={submit} className="flex max-h-[min(90dvh,48rem)] min-h-0 flex-col">
+        <div className="flex items-center justify-between gap-3 border-b border-stone px-5 py-4 sm:px-7 sm:py-5">
+          <h2 id="camel-dialog-title" className="text-xl font-bold sm:text-2xl">
             {camel ? m.app.herd.editCamel : m.app.herd.newCamel}
           </h2>
           <IconButton label={m.common.actions.close} className="min-h-11 min-w-11" onClick={onClose}>
@@ -71,7 +71,7 @@ export function CamelEditorDialog({
           </IconButton>
         </div>
 
-        <div className="grid gap-4 overflow-y-auto px-5 py-5 sm:grid-cols-2 sm:px-6">
+        <div className="grid min-h-0 gap-x-5 gap-y-5 overflow-y-auto px-5 py-6 sm:grid-cols-2 sm:px-7 sm:py-7">
           <Field label={m.app.herd.name}>
             {(id) => <Input id={id} autoFocus required value={name} onChange={(event) => setName(event.target.value)} />}
           </Field>
@@ -97,7 +97,7 @@ export function CamelEditorDialog({
               />
             )}
           </Field>
-          <Field label={m.app.herd.health} className="sm:col-span-2">
+          <Field label={m.app.herd.health}>
             {(id) => (
               <Select id={id} value={health} onChange={(event) => setHealth(event.target.value as HealthStatus)}>
                 <option value="healthy">{m.app.labels.healthy}</option>
@@ -121,10 +121,12 @@ export function CamelEditorDialog({
           </Field>
         </div>
 
-        <div className="flex flex-wrap justify-end gap-2 border-t border-stone px-5 py-4 sm:px-6">
-          {camel ? <Button variant="ghost" className="me-auto text-danger!" onClick={onRemove}>{m.app.herd.removeCamel}</Button> : null}
-          <Button variant="secondary" onClick={onClose}>{m.common.actions.cancel}</Button>
-          <Button type="submit">{m.common.actions.save}</Button>
+        <div className="flex flex-col-reverse gap-3 border-t border-stone px-5 py-4 sm:flex-row-reverse sm:items-center sm:px-7 sm:py-5">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+            <Button type="submit" className="order-2 min-h-12 px-6 rtl:order-1">{m.common.actions.save}</Button>
+            <Button variant="secondary" className="order-1 min-h-12 px-6 rtl:order-2" onClick={onClose}>{m.common.actions.cancel}</Button>
+          </div>
+          {camel ? <Button variant="ghost" className="min-h-11 justify-center text-danger! sm:me-auto" onClick={onRemove}>{m.app.herd.removeCamel}</Button> : null}
         </div>
       </form>
     </dialog>

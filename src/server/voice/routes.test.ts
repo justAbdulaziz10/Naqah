@@ -21,6 +21,7 @@ const envNames = [
   "NAQAH_VOICE_ARABIC_VOICE", "NAQAH_VOICE_ENGLISH_VOICE", "TWILIO_AUTH_TOKEN", "TWILIO_ACCOUNT_SID",
   "TWILIO_PHONE_NUMBER", "NAQAH_CALL_OWNER", "NEXT_PUBLIC_NAQAH_PHONE_NUMBER", "WHATSAPP_PHONE_NUMBER_ID",
   "WHATSAPP_TOKEN", "NAQAH_OWNER_WHATSAPP", "WHATSAPP_TEMPLATE_NAME", "WHATSAPP_TEMPLATE_LANGUAGE",
+  "NEXT_PUBLIC_NAQAH_BUILD_COMMIT",
 ];
 
 function request(url: string, fields: Record<string, string> = {}) {
@@ -119,7 +120,7 @@ describe("voice webhook routes", () => {
   });
 
   it("replays the same seeded report with stable IDs, turns, and timestamps", () => {
-    const state = { v: 1 as const, sc: "worker_report" as const, l: "ar" as const, t: 1_798_900_000_000, a: [] };
+    const state = { v: 1 as const, sc: "report_call" as const, l: "ar" as const, t: 1_798_900_000_000, a: [] };
     const first = replayVoiceState(state);
     const second = replayVoiceState(state);
     expect(first.session).toEqual(second.session);
@@ -129,7 +130,7 @@ describe("voice webhook routes", () => {
   });
 
   it("keeps completed report, call, and event IDs and times stable across a full replay", () => {
-    const base = { v: 1 as const, sc: "worker_report" as const, l: "en" as const, t: Date.parse("2026-11-05T10:00:00.000Z"), a: [] as { value?: string; text?: string }[] };
+    const base = { v: 1 as const, sc: "report_call" as const, l: "en" as const, t: Date.parse("2026-11-05T10:00:00.000Z"), a: [] as { value?: string; text?: string }[] };
     let inputs: { value?: string; text?: string }[] = [];
     let replay = replayVoiceState(base);
     for (let turnNumber = 0; !replay.session.done && turnNumber < 40; turnNumber += 1) {
@@ -250,7 +251,7 @@ describe("voice webhook routes", () => {
     const inboundUrl = "https://naqah.test/api/voice/inbound";
     const fields = { From: "+966507782190", CallSid: "CA-signature-check" };
     expect((await inbound(request(inboundUrl, fields))).status).toBe(403);
-    const state = signVoiceState({ v: 1, sc: "worker_report", l: "ar", t: Date.now(), a: [] });
+    const state = signVoiceState({ v: 1, sc: "report_call", l: "ar", t: Date.now(), a: [] });
     const action = `https://naqah.test/api/voice/turn?s=${encodeURIComponent(state)}`;
     expect((await turn(request(action, { SpeechResult: "نعم", CallSid: "CA-signature-check" }))).status).toBe(403);
     const bad = new Request(inboundUrl, {
@@ -386,7 +387,7 @@ describe("voice webhook routes", () => {
   it("catches turn replay errors and returns a 200 goodbye without logging the message", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(voiceConversation, "replayVoiceState").mockImplementationOnce(() => { throw new RangeError("private answer content"); });
-    const state = signVoiceState({ v: 1, sc: "worker_report", l: "en", t: Date.now(), a: [] });
+    const state = signVoiceState({ v: 1, sc: "report_call", l: "en", t: Date.now(), a: [] });
     const response = await turn(request(`https://naqah.test/api/voice/turn?s=${encodeURIComponent(state)}`, { SpeechResult: "answer" }));
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("<Hangup/>");
@@ -421,6 +422,13 @@ describe("voice webhook routes", () => {
     });
     expect(result.status).toBe(1);
     expect(JSON.parse(result.stdout).reason).toBe("set --worker-phone or NAQAH_WORKER_PHONE to a registered caller ID");
+  });
+
+  it("reports a full build commit only, never arbitrary environment text", async () => {
+    vi.stubEnv("NEXT_PUBLIC_NAQAH_BUILD_COMMIT", "a".repeat(40));
+    expect((await (await status()).json()).version.commit).toBe("a".repeat(40));
+    vi.stubEnv("NEXT_PUBLIC_NAQAH_BUILD_COMMIT", "not-a-commit-or-a-secret");
+    expect((await (await status()).json()).version.commit).toBeNull();
   });
 
   it("reports whether Twilio signature validation is enabled without exposing the token", async () => {

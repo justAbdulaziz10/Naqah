@@ -1,23 +1,12 @@
-export { CallSetupStatus, getCallSetupGaps, hasCallLanguageNote, hasCompleteWindow } from "./CallSetupStatus";
+export { CallSetupStatus, getCallSetupGaps, hasCallLanguageNote } from "./CallSetupStatus";
 export type { CallSetupGap } from "./CallSetupStatus";
 export { EmergencySection } from "./sections/EmergencySection";
-export { OwnerFarmSection } from "./sections/OwnerFarmSection";
-export { PlanSection } from "./sections/PlanSection";
-export { QuestionsSection } from "./sections/QuestionsSection";
 export { ResourcesSection } from "./sections/ResourcesSection";
-export { ScheduleSection } from "./sections/ScheduleSection";
 export { WhatMattersSection } from "./sections/WhatMattersSection";
-export { WorkerSection } from "./sections/WorkerSection";
-export {
-  clearReplacementDraft,
-  createOnboardingSample,
-  createReplacementDraft,
-  hasOwnSetupData,
-  readReplacementDraft,
-  replacementLoss,
-  saveReplacementDraft,
-  subscribeReplacementDraft,
-} from "./draft";
-export type { SetupSectionProps, WorkspaceUpdate } from "./types";
+export { RanchFields } from "./fields/RanchFields";
+export { TeamFields } from "./fields/TeamFields";
+export { QuestionsFields } from "./fields/QuestionsFields";
+export { createOnboardingSample, hasOwnSetupData } from "./draft";
+export type { SetupFieldsProps, SetupSectionProps, WorkspaceUpdate } from "./types";
 export { formatSaudiMobile, isSaudiMobile, phoneNeedsFixing } from "./phone";
 export { SaveState } from "./SaveState";

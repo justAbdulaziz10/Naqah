@@ -16,12 +16,12 @@ export function generateStaticParams() {
 const META = {
   ar: {
     title: "ناقة | اطمئنان، دون انشغال",
-    description: "مساعد صوتي ذكي لإدارة عزب الإبل: العامل يتصل، ناقة تسأل وتحفظ، وأنت تصلك الخلاصة باتصال.",
+    description: "مساعد صوتي لإدارة عزب الإبل: ناقة تتصل على العامل في وقتك، تسأل وتحفظ، وتصلك الخلاصة باتصال.",
   },
   en: {
     title: "NAQAH | Peace of mind, without the busyness",
     description:
-      "An AI voice agent for private camel ranches. Your worker calls, NAQAH asks and records, and you get the essentials in a call.",
+      "An AI voice agent for private camel ranches. NAQAH calls your worker at your set time, asks and records, and you get the essentials in a call.",
   },
 } as const;
 
@@ -48,7 +48,7 @@ export default async function LocaleLayout({ children, params }: LayoutProps<"/[
   const { locale } = await params;
   if (!isLocale(locale)) notFound();
   return (
-    // suppressHydrationWarning: the landing intro may add data-intro-seen to <html> before hydration.
+    // suppressHydrationWarning: browser extensions may add attributes to <html> before hydration.
     <html
       lang={locale}
       dir={dirOf(locale)}

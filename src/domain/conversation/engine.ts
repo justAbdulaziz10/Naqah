@@ -23,9 +23,22 @@ import {
   startTaskVerification,
   submitOwnerInstruction,
 } from "../actions";
-import { dayKey, fromRiyadh, MAX_RETRIES, RETRY_DELAY_MS, riyadhParts, nextWindowStart } from "../clock";
+import { dayKey, fromRiyadh, MAX_RETRIES, REPORT_CALL_RETRIES, RETRY_DELAY_MS, riyadhParts } from "../clock";
 import { evaluateFindings, ownerBriefing, type ReportDraft } from "../findings";
+import { isHerdCount } from "../herd";
 import { uid } from "../id";
+import {
+  activeReportCall,
+  dueScheduledReportCall,
+  endReportCallWithoutReport,
+  placeReportCallAttempt,
+  reportCallBlock,
+  reportCallRuns,
+  resolveReportCallAttempt,
+  startReportCall as openReportCallRun,
+  type ReportCallBlock,
+} from "../reportCalls";
+import { nextScheduledCall } from "../schedule";
 import { heatLevel, heatWaterFinding, weatherForToday } from "../weather";
 import {
   applicableQuestions,
@@ -44,12 +57,19 @@ import type {
   Level,
   LocalizedText,
   PredefinedQuestion,
+  ReportCallRun,
   ResourceKind,
   Workspace,
 } from "../types";
 
+/**
+ * report_call: NAQAH calls the primary worker for the farm report (scheduled or "Call now").
+ * worker_inbound: the worker calls NAQAH. That is a No Answer callback, the worker returning a
+ * report call they missed, or a polite "NAQAH will call you at <time>".
+ */
 export type Scenario =
-  | "worker_report"
+  | "report_call"
+  | "worker_inbound"
   | "worker_callback"
   | "owner_notification"
   | "worker_outbound"
@@ -86,6 +106,11 @@ interface ConversationData {
   tempNote?: string | null;
   tempLevel?: Level;
   tempQuantity?: string;
+  tempCount?: number;
+  /** The NAQAH → worker report call this conversation belongs to (report_call only). */
+  reportCallId?: string;
+  /** Set when this session opened the run, so hanging up before the first answer can undo it. */
+  startedReportCallId?: string;
   reportId?: string;
   instruction?: string;
   actionable?: boolean;
@@ -126,8 +151,20 @@ export interface AnswerInput {
   text?: string;
 }
 
+export interface ReportCallAvailability {
+  /** Why "Call now" can't start, or null. */
+  block: ReportCallBlock | null;
+  /** The run ringing, waiting for a retry, or in conversation. */
+  active: ReportCallRun | null;
+  /** The scheduled slot due now, if any. */
+  due: Date | null;
+  /** The next scheduled slot, or null while the schedule is unfinished. */
+  next: Date | null;
+}
+
 export interface ScenarioAvailability {
-  workerReport: ReturnType<typeof routeWorkerInboundCall>;
+  reportCall: ReportCallAvailability;
+  workerInbound: ReturnType<typeof routeWorkerInboundCall>;
   ownerInquiry: ReturnType<typeof routeOwnerInboundCall>;
   pendingWorkerCallCount: number;
   dueWorkerCallCount: number;
@@ -136,6 +173,8 @@ export interface ScenarioAvailability {
 
 const copy = (en: string, ar: string): LocalizedText => ({ en, ar });
 const UNKNOWN_ANSWER = copy("I don’t know", "ما أدري");
+const HERD_COUNT_QUESTION = copy("How many camels are there in total today?", "كم عدد الحلال كله اليوم؟");
+const REPORT_CALL_ATTEMPTS = REPORT_CALL_RETRIES + 1;
 const noDraft = (): ReportDraft => ({
   answers: [],
   camelUpdates: [],
@@ -186,6 +225,18 @@ function ask(
   };
 }
 
+/** A call-status line (ringing, retries). Shown in the Call Lab, never spoken on a real call. */
+function status(
+  session: CallSession,
+  text: LocalizedText,
+  now: Date,
+  step: string,
+  replies: Reply[] = [],
+  done = false,
+): CallSession {
+  return { ...turn(session, "system", text, now), step, replies, inputMode: replies.length ? "choices" : "none", done };
+}
+
 function say(session: CallSession, text: LocalizedText, now: Date, done = false): CallSession {
   return {
     ...turn(session, "agent", text, now),
@@ -213,11 +264,15 @@ function selectedAnswer(session: CallSession, input: AnswerInput): { value: stri
 
 function workerTurn(session: CallSession, input: AnswerInput, now: Date): { session: CallSession; value: string } {
   const selected = selectedAnswer(session, input);
+  // The Lab's "Answer / No answer" choice is the simulation's, not something the worker said.
+  if (session.step === "report_ring" || session.step === "report_wait") return { session, value: selected.value };
   return {
     session: turn(session, session.scenario === "owner_notification" || session.scenario === "owner_inquiry" ? "owner" : "worker", selected.text, now),
     value: selected.value,
   };
 }
+
+export const isReportScenario = (scenario: Scenario) => scenario === "report_call" || scenario === "worker_inbound";
 
 function isUnknown(value: string, text = ""): boolean {
   const normalized = (value + " " + text).trim().toLowerCase();
@@ -235,7 +290,13 @@ function atRiyadh(date: Date, locale: "ar" | "en", includeDate = false): string 
 
 export function scenarioAvailability(ws: Workspace, now: Date): ScenarioAvailability {
   return {
-    workerReport: routeWorkerInboundCall(ws, now),
+    reportCall: {
+      block: reportCallBlock(ws, now),
+      active: activeReportCall(ws),
+      due: dueScheduledReportCall(ws, now),
+      next: nextScheduledCall(now, ws.settings.plan, ws.settings.callSchedule),
+    },
+    workerInbound: routeWorkerInboundCall(ws, now),
     ownerInquiry: routeOwnerInboundCall(ws, now),
     pendingWorkerCallCount: ws.pendingWorkerCalls.filter((call) => call.state === "pending").length,
     dueWorkerCallCount: dueWorkerCalls(ws, now).length,
@@ -292,12 +353,14 @@ function heatDayReportItem(ws: Workspace, now: Date): ReportItem | null {
 export function start(
   ws: Workspace,
   now: Date,
-  scenario: Scenario = "worker_report",
-  options: { reportId?: string } = {},
+  scenario: Scenario = "report_call",
+  options: { reportId?: string; reportCallId?: string } = {},
 ): EngineResult {
   switch (scenario) {
-    case "worker_report":
-      return startWorkerReport(ws, now);
+    case "report_call":
+      return startReportCallScenario(ws, now, options.reportCallId);
+    case "worker_inbound":
+      return startWorkerInbound(ws, now);
     case "worker_callback":
       return startWorkerCallback(ws, now);
     case "owner_notification":
@@ -311,48 +374,21 @@ export function start(
   }
 }
 
-function startWorkerReport(ws: Workspace, now: Date): EngineResult {
-  const route = routeWorkerInboundCall(ws, now);
-  if (route.kind === "callback") return startWorkerCallback(ws, now);
-  if (route.kind === "rejected") {
-    const session = blank("worker_report", now);
-    let text: LocalizedText;
-    if (route.reason === "outside_window" && ws.settings.window) {
-      const next = nextWindowStart(now, ws.settings.window);
-      const at = atRiyadh(next, "en", true);
-      const atAr = atRiyadh(next, "ar", true);
-      text = copy(
-        "Our weekly reporting window is closed. The next window begins " + at + " Riyadh time.",
-        "نافذة التقرير الأسبوعية مقفلة. تفتح النافذة القادمة " + atAr + " بتوقيت الرياض.",
-      );
-    } else if (route.reason === "weekly_done") {
-      text = copy(
-        "We have already received this week’s update. There is no need to repeat it.",
-        "وصلنا تحديث هذا الأسبوع، وما يحتاج تعيده.",
-      );
-    } else if (route.reason === "daily_done") {
-      text = copy(
-        "We have already received today’s update. There is no need to repeat it.",
-        "وصلنا تحديث اليوم، وما يحتاج تعيده.",
-      );
-    } else {
-      text = copy(
-        "A weekly reporting window has not been set yet. Please check with Abdullah.",
-        "ما تحددت نافذة التقرير الأسبوعية إلى الآن. فضلاً تواصل مع عبدالله.",
-      );
-    }
-    const completed = say(session, text, now, true);
-    return { session: completed, commit: commitTo(rejectWorkerReport(ws, now, route.reason)) };
-  }
+/** Herd size the worker's count is compared with: the owner's official count, else the camel list. */
+function expectedHerd(ws: Workspace): number | null {
+  if (isHerdCount(ws.settings.herdCount)) return ws.settings.herdCount;
+  return ws.camels.length > 0 ? ws.camels.length : null;
+}
 
+function reportQueue(ws: Workspace, now: Date): ReportItem[] {
   // Ask the single weather check first, only when today's forecast and farm coordinates exist.
   const heatQuestion = heatDayReportItem(ws, now);
   const queue: ReportItem[] = applicableQuestions(ws)
-    .filter((question) => question.id !== "herd_count" || ws.camels.length > 0)
+    .filter((question) => question.id !== "herd_count" || expectedHerd(ws) !== null)
     .map((question) => ({
       kind: "predefined",
       id: question.id,
-      question: question.text,
+      question: question.id === "herd_count" ? HERD_COUNT_QUESTION : question.text,
       answerKind: question.answerKind,
       resource: question.requires,
     }));
@@ -372,20 +408,193 @@ function startWorkerReport(ws: Workspace, now: Date): EngineResult {
       question: copy("Did you finish: " + task.instruction + "?", "خلصت المهمة: " + task.instruction + "؟"),
     })),
   );
+  return queue;
+}
 
-  const session = {
-    ...blank("worker_report", now),
-    data: { queue, reportIndex: 0 },
-  };
+/** The worker is on the line: greet, then the report questions one at a time. */
+function beginReportQuestions(session: CallSession, ws: Workspace, now: Date, returning = false): CallSession {
+  const withQueue = { ...session, data: { ...session.data, queue: reportQueue(ws, now), reportIndex: 0 } };
   const introduced = say(
-    session,
-    copy(
-      "Hello Ahmed, I’m NAQAH’s automated assistant. We’ll go through today’s questions one at a time.",
-      "هلا أحمد، معك مساعد ناقة الآلي. بنمشي على أسئلة اليوم وحدة وحدة.",
-    ),
+    withQueue,
+    returning
+      ? copy(
+          "Hello Ahmed, I’m NAQAH’s automated assistant. Thanks for calling back about the report call you missed. We’ll go through the questions one at a time.",
+          "هلا أحمد، معك مساعد ناقة الآلي. شكراً إنك رجعت تتصل على مكالمة التقرير اللي فاتتك. بنمشي على الأسئلة وحدة وحدة.",
+        )
+      : copy(
+          "Hello Ahmed, I’m NAQAH’s automated assistant, calling for the farm report. We’ll go through the questions one at a time.",
+          "هلا أحمد، معك مساعد ناقة الآلي، أتصل عشان تقرير العزبة. بنمشي على الأسئلة وحدة وحدة.",
+        ),
     now,
   );
-  return { session: askReportItem(introduced, ws, now) };
+  return askReportItem(introduced, ws, now);
+}
+
+function blockedReportCallText(reason: ReportCallBlock | "duplicate" | null): LocalizedText {
+  if (reason === "no_worker_phone") {
+    return copy(
+      "NAQAH can’t call Ahmed yet: his phone number needs the country code, for example +966 5X XXX XXXX.",
+      "ما تقدر ناقة تتصل بأحمد إلى الآن: رقمه يحتاج رمز الدولة، مثل ‎+966 5X XXX XXXX.",
+    );
+  }
+  if (reason === "already_reported") {
+    return copy("This period’s report is already in. NAQAH calls again at the next scheduled time.", "وصل تقرير هذه الفترة. ناقة تتصل مرة ثانية في الموعد الجاي.");
+  }
+  return copy("A report call is already in progress.", "فيه مكالمة تقرير شغالة الآن.");
+}
+
+/**
+ * NAQAH → primary worker. With `reportCallId` (a real call the worker picked up) the questions
+ * start at once. Without it, the Call Lab simulates the ringing: open or reuse a run, then let the
+ * investor choose whether Ahmed answers. Every ringing line says it is a simulation.
+ */
+function startReportCallScenario(ws: Workspace, now: Date, reportCallId?: string): EngineResult {
+  const session = blank("report_call", now);
+  if (reportCallId) {
+    const run = reportCallRuns(ws).find((item) => item.id === reportCallId);
+    const ringing = run?.state === "calling" && run.attempts.at(-1)?.result === "pending";
+    if (!run || (!ringing && run.state !== "answered")) {
+      return { session: say(session, copy("This report call is no longer active. Thank you.", "مكالمة التقرير هذه انتهت. يعطيك العافية."), now, true) };
+    }
+    const prepared = ringing ? resolveReportCallAttempt(ws, now, run.id, true).ws : ws;
+    return {
+      session: beginReportQuestions({ ...session, data: { reportCallId: run.id } }, prepared, now),
+      ...(prepared !== ws ? { commit: commitTo(prepared) } : {}),
+    };
+  }
+
+  let prepared = ws;
+  let run = activeReportCall(ws);
+  let startedReportCallId: string | undefined;
+  if (!run) {
+    const slot = dueScheduledReportCall(ws, now);
+    const opened = openReportCallRun(ws, now, slot ? "schedule" : "manual", slot ?? now);
+    if (!opened.run) return { session: say(session, blockedReportCallText(opened.blocked), now, true) };
+    prepared = opened.ws;
+    run = opened.run;
+    startedReportCallId = run.id;
+  }
+  const withRun = { ...session, data: { reportCallId: run.id, startedReportCallId } };
+  if (run.state === "answered") {
+    return { session: beginReportQuestions(withRun, prepared, now), ...(prepared !== ws ? { commit: commitTo(prepared) } : {}) };
+  }
+  const rung = ringReportCall(withRun, prepared, now);
+  return { session: rung.session, ...(rung.ws !== ws ? { commit: commitTo(rung.ws) } : {}) };
+}
+
+/** Lab only: place the due attempt and ask whether Ahmed answers, or show when the retry is due. */
+function ringReportCall(session: CallSession, ws: Workspace, now: Date): { session: CallSession; ws: Workspace } {
+  const run = reportCallRuns(ws).find((item) => item.id === session.data.reportCallId);
+  if (!run || run.state !== "calling") {
+    return { session: status(session, copy("This report call is no longer active.", "مكالمة التقرير هذه انتهت."), now, "report_ended", [], true), ws };
+  }
+  let current = ws;
+  let attempt = run.attempts.length;
+  if (run.attempts.at(-1)?.result !== "pending") {
+    if (run.nextAttemptAt && new Date(run.nextAttemptAt).getTime() > now.getTime()) {
+      const at = new Date(run.nextAttemptAt);
+      return {
+        session: status(
+          session,
+          copy(
+            "Simulation: the next attempt is at " + atRiyadh(at, "en") + " Riyadh time. Move the demo clock forward 20 minutes to continue.",
+            "محاكاة: المحاولة الجاية " + atRiyadh(at, "ar") + " بتوقيت الرياض. قدّم ساعة العرض 20 دقيقة للمتابعة.",
+          ),
+          now,
+          "report_wait",
+          [reply("skip_20", "Skip 20 minutes", "تجاوز 20 دقيقة")],
+        ),
+        ws,
+      };
+    }
+    const placed = placeReportCallAttempt(ws, now, run.id);
+    current = placed.ws;
+    attempt = placed.attempt ?? attempt;
+  }
+  return {
+    session: status(
+      session,
+      copy(
+        "Simulation: NAQAH is calling Ahmed for the report (attempt " + attempt + " of " + REPORT_CALL_ATTEMPTS + "). Does Ahmed answer?",
+        "محاكاة: ناقة تتصل بأحمد عشان التقرير (المحاولة " + attempt + " من " + REPORT_CALL_ATTEMPTS + "). يرد أحمد؟",
+      ),
+      now,
+      "report_ring",
+      [reply("answer", "Ahmed answers", "أحمد يرد"), reply("no_answer", "No answer", "ما يرد")],
+    ),
+    ws: current,
+  };
+}
+
+function handleReportRinging(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
+  const runId = session.data.reportCallId ?? "";
+  if (session.step === "report_wait") {
+    const updated = advanceClock(ws, RETRY_DELAY_MS);
+    const later = new Date(now.getTime() + RETRY_DELAY_MS);
+    const noticed = addNotice(session, copy("Demo clock advanced by 20 minutes.", "تقدمت ساعة العرض 20 دقيقة."));
+    const rung = ringReportCall(noticed, updated, later);
+    return { session: rung.session, commit: commitTo(rung.ws) };
+  }
+  const answered = (input.value ?? input.text) === "answer";
+  const result = resolveReportCallAttempt(ws, now, runId, answered);
+  if (result.outcome === "ignored") {
+    return { session: status(session, copy("This report call is no longer active.", "مكالمة التقرير هذه انتهت."), now, "report_ended", [], true) };
+  }
+  if (answered) {
+    const picked = status(session, copy("Simulation: Ahmed answered.", "محاكاة: رد أحمد."), now, "report_answered");
+    return { session: beginReportQuestions(picked, result.ws, now), commit: commitTo(result.ws) };
+  }
+  if (result.outcome === "retry_scheduled") {
+    const run = reportCallRuns(result.ws).find((item) => item.id === runId);
+    const at = new Date(run?.nextAttemptAt ?? now.getTime() + RETRY_DELAY_MS);
+    const text = copy(
+      "Ahmed didn’t answer. NAQAH tries again at " + atRiyadh(at, "en") + " Riyadh time.",
+      "ما رد أحمد. ناقة تعيد الاتصال " + atRiyadh(at, "ar") + " بتوقيت الرياض.",
+    );
+    const waiting = status(
+      addNotice(session, text),
+      copy(
+        "Simulation: " + text.en + " Move the demo clock forward 20 minutes to continue.",
+        "محاكاة: " + text.ar + " قدّم ساعة العرض 20 دقيقة للمتابعة.",
+      ),
+      now,
+      "report_wait",
+      [reply("skip_20", "Skip 20 minutes", "تجاوز 20 دقيقة")],
+    );
+    return { session: waiting, commit: commitTo(result.ws) };
+  }
+  const missed = copy(
+    "Ahmed didn’t answer after " + REPORT_CALL_ATTEMPTS + " attempts. There is no report for this period yet, and Abdullah sees that on the dashboard. Ahmed can call NAQAH back to give the report.",
+    "ما رد أحمد بعد " + REPORT_CALL_ATTEMPTS + " محاولات. ما فيه تقرير لهذه الفترة إلى الآن، ويشوف عبدالله هذا في لوحة العزبة. يقدر أحمد يتصل على ناقة ويعطي التقرير.",
+  );
+  return { session: status(addNotice(session, missed), missed, now, "report_missed", [], true), commit: commitTo(result.ws) };
+}
+
+/** Worker → NAQAH. NAQAH calls for the report, so this is a callback, a returned missed call, or a polite "we'll call". */
+function startWorkerInbound(ws: Workspace, now: Date): EngineResult {
+  const route = routeWorkerInboundCall(ws, now);
+  if (route.kind === "callback") return startWorkerCallback(ws, now);
+  const session = blank("worker_inbound", now);
+  if (route.kind === "report") return { session: beginReportQuestions(session, ws, now, true) };
+
+  let text: LocalizedText;
+  if (route.reason === "weekly_done") {
+    text = copy("We have already received this week’s update. There is no need to repeat it.", "وصلنا تحديث هذا الأسبوع، وما يحتاج تعيده.");
+  } else if (route.reason === "daily_done") {
+    text = copy("We have already received today’s update. There is no need to repeat it.", "وصلنا تحديث اليوم، وما يحتاج تعيده.");
+  } else {
+    const next = nextScheduledCall(now, ws.settings.plan, ws.settings.callSchedule);
+    text = next
+      ? copy(
+          "Thanks for calling, Ahmed. NAQAH will call you for the report " + atRiyadh(next, "en", true) + " Riyadh time. There is nothing to report now.",
+          "شكراً لاتصالك يا أحمد. ناقة بتتصل عليك عشان التقرير " + atRiyadh(next, "ar", true) + " بتوقيت الرياض. ما فيه شيء مطلوب الآن.",
+        )
+      : copy(
+          "Thanks for calling, Ahmed. Abdullah hasn’t set a report time yet. NAQAH will call you once it is set.",
+          "شكراً لاتصالك يا أحمد. عبدالله ما حدد موعد التقرير إلى الآن. ناقة بتتصل عليك أول ما يتحدد.",
+        );
+  }
+  return { session: say(session, text, now, true), commit: commitTo(rejectWorkerReport(ws, now, route.reason)) };
 }
 
 function startWorkerCallback(ws: Workspace, now: Date): EngineResult {
@@ -409,7 +618,7 @@ function startWorkerCallback(ws: Workspace, now: Date): EngineResult {
   };
   const text = copy(
     "You missed our call. Message from the owner: " + (messagesEn || "Please call Abdullah back.") + " This is a message delivery call, not a farm update.",
-    "فاتتك مكالمتنا. رسالة المالك: " + (messagesAr || "فضلاً تواصل مع عبدالله.") + " هذا اتصال لتسليم رسالة، وليس تحديثاً للمزرعة.",
+    "فاتتك مكالمتنا. رسالة المالك: " + (messagesAr || "فضلاً تواصل مع عبدالله.") + " هذا اتصال لتسليم رسالة، مو تحديث للعزبة.",
   );
   return {
     session: ask(
@@ -609,17 +818,13 @@ function askReportItem(session: CallSession, ws: Workspace, now: Date): CallSess
       [reply("yes", "All are well", "كلها بخير"), reply("no", "One needs attention", "فيه وحدة تحتاج متابعة"), reply("unknown", "I don’t know", "ما أدري")],
     );
   }
+  if (item.id === "herd_count") {
+    return ask(current, item.question, now, "report_question", [reply("unknown", "I don’t know", "ما أدري")], "number");
+  }
   if (item.answerKind === "yesno") {
-    const question = item.id === "herd_count"
-      ? copy(
-          "Are all " + ws.camels.length + " camels accounted for?",
-          "الحلال كله موجود وكامل العدد؟ (" + ws.camels.length + " نوق)",
-        )
-      : item.question;
-    const updated = { ...current, data: { ...current.data, currentQuestionId: item.id }, };
     return ask(
-      updated,
-      question,
+      current,
+      item.question,
       now,
       "report_question",
       [reply("yes", "Yes", "إيه"), reply("no", "No", "لا"), reply("unknown", "I don’t know", "ما أدري")],
@@ -767,32 +972,7 @@ function handleReportQuestion(
     };
   }
 
-  if (item.answerKind === "yesno") {
-    if (item.id === "herd_count") {
-      if (value === "yes") {
-        const draft = { ...current.session.draft, herdAccountedFor: true };
-        const recorded = reportAnswer({ ...current.session, draft }, item, copy("All camels are accounted for", "الحلال كامل العدد"), "reported");
-        return { session: nextReportItem(recorded, ws, now) };
-      }
-      if (value === "no") {
-        const draft = { ...current.session.draft, herdAccountedFor: false };
-        const counted = { ...current.session, draft };
-        return {
-          session: ask(
-            counted,
-            copy("Which camel is missing, or how many are missing?", "أي ناقة ناقصة؟ أو كم ناقة ناقصة؟"),
-            now,
-            "herd_count_detail",
-            [reply("unknown", "I don’t know", "ما أدري")],
-            "text",
-          ),
-        };
-      }
-      const draft = { ...current.session.draft, herdAccountedFor: null };
-      const recorded = reportAnswer({ ...current.session, draft }, item, UNKNOWN_ANSWER, "unknown");
-      return { session: nextReportItem(recorded, ws, now) };
-    }
-  }
+  if (item.id === "herd_count") return handleHerdCount(current.session, ws, now, item, value, input);
 
   if (item.answerKind === "level" && item.resource) {
     const level = value as Level;
@@ -819,6 +999,91 @@ function handleReportQuestion(
   const unknown = isUnknown(value, input.text);
   const recorded = reportAnswer(current.session, item, unknown ? UNKNOWN_ANSWER : value, unknown ? "unknown" : "reported");
   return { session: nextReportItem(recorded, ws, now) };
+}
+
+
+const camelsText = (count: number) => copy(count + (count === 1 ? " camel" : " camels"), count + " من الحلال");
+
+/** The worker's count is a proposal for the owner. Confirmed back before it is kept, like any quantity. */
+function handleHerdCount(session: CallSession, ws: Workspace, now: Date, item: ReportItem, value: string, input: AnswerInput): EngineResult {
+  if (isUnknown(value, input.text)) {
+    const draft = { ...session.draft, herdAccountedFor: null };
+    return { session: nextReportItem(reportAnswer({ ...session, draft }, item, UNKNOWN_ANSWER, "unknown"), ws, now) };
+  }
+  const count = Number((input.text ?? value).trim());
+  if (!isHerdCount(count)) {
+    return {
+      session: ask(
+        session,
+        copy("Please say the number of camels, for example 42.", "قل عدد الحلال بالأرقام، مثل 42."),
+        now,
+        "report_question",
+        [reply("unknown", "I don’t know", "ما أدري")],
+        "number",
+      ),
+    };
+  }
+  return {
+    session: ask(
+      { ...session, data: { ...session.data, tempCount: count } },
+      copy("You counted " + count + " camels in total. Is that right?", "عدّيت " + count + " من الحلال. صحيح؟"),
+      now,
+      "herd_count_confirm",
+      [reply("yes", "Yes, that’s right", "إيه، صحيح"), reply("no", "Change it", "أبي أغيّره")],
+    ),
+  };
+}
+
+function handleHerdCountConfirm(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
+  const current = workerTurn(session, input, now);
+  const item = session.data.queue?.[session.data.reportIndex ?? 0];
+  const count = session.data.tempCount;
+  if (!item || count === undefined) return { session: current.session };
+  if (current.value !== "yes") {
+    return {
+      session: ask(
+        { ...current.session, data: { ...current.session.data, tempCount: undefined } },
+        item.question,
+        now,
+        "report_question",
+        [reply("unknown", "I don’t know", "ما أدري")],
+        "number",
+      ),
+    };
+  }
+  const expected = expectedHerd(ws);
+  const short = expected !== null && count < expected;
+  const draft = { ...current.session.draft, herdCount: count, herdAccountedFor: expected === null ? null : !short };
+  const counted = { ...current.session, draft };
+  if (short) {
+    return {
+      session: ask(
+        counted,
+        copy(
+          "That’s fewer than the " + expected + " on record. Do you know which camels are missing?",
+          "هذا أقل من " + expected + " المسجلة. تعرف أي النوق ناقصة؟",
+        ),
+        now,
+        "herd_count_detail",
+        [reply("unknown", "I don’t know", "ما أدري")],
+        "text",
+      ),
+    };
+  }
+  return { session: nextReportItem(reportAnswer(counted, item, camelsText(count), "reported"), ws, now) };
+}
+
+function handleHerdCountDetail(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
+  const current = workerTurn(session, input, now);
+  const item = session.data.queue?.[session.data.reportIndex ?? 0];
+  if (!item) return { session: current.session };
+  const count = current.session.draft.herdCount;
+  const base = typeof count === "number" ? camelsText(count) : null;
+  const unknown = isUnknown(current.value, input.text);
+  const detail = unknown ? "" : (input.text ?? current.value).trim();
+  // Free text stays exactly as said; the count keeps both languages when nothing was added.
+  const answer: string | LocalizedText = !detail ? (base ?? UNKNOWN_ANSWER) : base ? base.en + " — " + detail : detail;
+  return { session: nextReportItem(reportAnswer(current.session, item, answer, "reported"), ws, now) };
 }
 
 function askCamelToCheck(session: CallSession, ws: Workspace, now: Date, question: LocalizedText): CallSession {
@@ -1089,6 +1354,10 @@ function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallS
     factsEn.push(label.en + ": " + level.en + (update.quantity ? " (" + update.quantity + ")" : ""));
     factsAr.push(label.ar + ": " + level.ar + (update.quantity ? " (" + update.quantity + ")" : ""));
   }
+  if (typeof session.draft.herdCount === "number") {
+    factsEn.push("camels counted: " + session.draft.herdCount);
+    factsAr.push("عدد الحلال: " + session.draft.herdCount);
+  }
   if (session.draft.herdAccountedFor === false) {
     factsEn.push("not all camels are accounted for");
     factsAr.push("الحلال غير مكتمل العدد");
@@ -1100,7 +1369,7 @@ function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallS
     factsAr.push((confirmation.done ? "مهمة خلصت: " : "مهمة باقية: ") + instruction);
   }
   const baseEn = factsEn.length ? factsEn.join("; ") : "no additional farm facts";
-  const baseAr = factsAr.length ? factsAr.join("، ") : "ما فيه معلومات إضافية عن المزرعة";
+  const baseAr = factsAr.length ? factsAr.join("، ") : "ما فيه معلومات إضافية عن العزبة";
   const findingEn = findings.length ? " Important for the owner: " + findings[0].text.en : "";
   const findingAr = findings.length ? " أهم ملاحظة للمالك: " + findings[0].text.ar : "";
   const text = copy(
@@ -1117,7 +1386,8 @@ function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallS
 }
 
 function completeReport(session: CallSession, ws: Workspace, now: Date): EngineResult {
-  const completed = completeWorkerReport(ws, now, session.draft);
+  const reportCallId = session.scenario === "report_call" ? session.data.reportCallId : undefined;
+  const completed = completeWorkerReport(ws, now, session.draft, reportCallId);
   const next = say(
     {
       ...session,
@@ -1447,7 +1717,7 @@ function askNextCallbackTask(session: CallSession, ws: Workspace, now: Date): Ca
   }
   return say(
     { ...session, data: { ...session.data, callbackTaskIndex: index } },
-    copy("This call did not create a farm update.", "هذا الاتصال ما أنشأ تحديثاً للمزرعة."),
+    copy("This call did not create a farm update.", "هذا الاتصال ما أنشأ تحديث للعزبة."),
     now,
     true,
   );
@@ -1626,14 +1896,14 @@ function inquiryTopicAnswer(ws: Workspace, topic: string): LocalizedText {
     }));
     return copy(lines.map((line) => line.en).join(" "), lines.map((line) => line.ar).join(" "));
   }
-  if (!latest) return copy("No farm update has been saved yet.", "ما انحفظ تحديث للمزرعة إلى الآن.");
+  if (!latest) return copy("No farm update has been saved yet.", "ما انحفظ تحديث للعزبة إلى الآن.");
   const answers = latest.answers.slice(0, 3);
   const dateEn = atRiyadh(new Date(latest.at), "en", true);
   const dateAr = atRiyadh(new Date(latest.at), "ar", true);
   if (!answers.length) {
     return copy(
       "The last farm update was saved " + dateEn + ". Its full details are on the website.",
-      "آخر تحديث للمزرعة حُفظ " + dateAr + ". تفاصيله كاملة موجودة في الموقع.",
+      "آخر تحديث للعزبة انحفظ " + dateAr + ". تفاصيله كاملة موجودة في الموقع.",
     );
   }
   const lines = answers.map((answer) => {
@@ -1675,7 +1945,9 @@ function handleOwnerInquiry(session: CallSession, ws: Workspace, now: Date, inpu
 export function answer(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
   if (session.done) return { session };
   switch (session.scenario) {
-    case "worker_report":
+    case "report_call":
+    case "worker_inbound":
+      if (session.step === "report_ring" || session.step === "report_wait") return handleReportRinging(session, ws, now, input);
       if (session.step === "report_question") return handleReportQuestion(session, ws, now, input);
       if (session.step === "health_pick") return handleHealthPick(session, ws, now, input);
       if (session.step === "health_status") return handleHealthStatus(session, ws, now, input);
@@ -1691,32 +1963,22 @@ export function answer(session: CallSession, ws: Workspace, now: Date, input: An
         const final = finishCamelHealth(current.session, ws, now);
         return { session: final };
       }
-      if (session.step === "herd_count_detail") {
-        const current = workerTurn(session, input, now);
-        const item = session.data.queue?.[session.data.reportIndex ?? 0];
-        if (!item) return { session: current.session };
-        const unknown = isUnknown(current.value, input.text);
-        const recorded = reportAnswer(
-          current.session,
-          item,
-          unknown ? UNKNOWN_ANSWER : (input.text ?? current.value).trim(),
-          unknown ? "unknown" : "reported",
-        );
-        return { session: nextReportItem(recorded, ws, now) };
-      }
+      if (session.step === "herd_count_confirm") return handleHerdCountConfirm(session, ws, now, input);
+      if (session.step === "herd_count_detail") return handleHerdCountDetail(session, ws, now, input);
       if (session.step === "quantity_input") return handleQuantityInput(session, ws, now, input);
       if (session.step === "quantity_confirm") return handleQuantityConfirm(session, ws, now, input);
       if (session.step === "report_summary") {
         const current = workerTurn(session, input, now);
         if (current.value === "confirm_save") return completeReport(current.session, ws, now);
-        return {
-          session: say(
-            current.session,
-            copy("The update was not saved. End this call and start a new one to record it again.", "ما انحفظ التحديث. أنهِ الاتصال وابدأ مكالمة جديدة لتسجيله من جديد."),
-            now,
-            true,
-          ),
-        };
+        const ended = say(
+          current.session,
+          copy("The update was not saved. Thank you, Ahmed.", "ما انحفظ التحديث. يعطيك العافية يا أحمد."),
+          now,
+          true,
+        );
+        const runId = session.scenario === "report_call" ? session.data.reportCallId : undefined;
+        const updated = runId ? endReportCallWithoutReport(ws, now, runId) : ws;
+        return { session: ended, ...(updated !== ws ? { commit: commitTo(updated) } : {}) };
       }
       return { session };
     case "owner_notification":
@@ -1736,6 +1998,7 @@ export function answer(session: CallSession, ws: Workspace, now: Date, input: An
 export function hangUp(session: CallSession, ws: Workspace, now: Date): EngineResult {
   if (session.done) return { session };
   const ended = say(session, copy("This call has ended.", "انتهى الاتصال."), now, true);
+  if (session.scenario === "report_call") return { session: ended, ...hangUpReportCall(session, ws, now) };
   if (session.scenario !== "worker_outbound") return { session: ended };
 
   const startedIds = new Set(session.data.startedVerificationCallIds ?? []);
@@ -1745,4 +2008,19 @@ export function hangUp(session: CallSession, ws: Workspace, now: Date): EngineRe
   );
   if (pendingWorkerCalls.length === ws.pendingWorkerCalls.length) return { session: ended };
   return { session: ended, commit: commitTo({ ...ws, pendingWorkerCalls }) };
+}
+
+/**
+ * Ending a report call. Ringing on the attempt this session opened: undo the run, nothing was
+ * said. Ringing on a later attempt: nobody answered it. Mid-questions: the call ended unsaved.
+ */
+function hangUpReportCall(session: CallSession, ws: Workspace, now: Date): Pick<EngineResult, "commit"> {
+  const run = reportCallRuns(ws).find((item) => item.id === session.data.reportCallId);
+  if (!run) return {};
+  if (run.state === "answered") return { commit: commitTo(endReportCallWithoutReport(ws, now, run.id)) };
+  if (session.step !== "report_ring" || run.attempts.at(-1)?.result !== "pending") return {};
+  if (session.data.startedReportCallId === run.id && run.attempts.length === 1) {
+    return { commit: commitTo({ ...ws, reportCalls: reportCallRuns(ws).filter((item) => item.id !== run.id) }) };
+  }
+  return { commit: commitTo(resolveReportCallAttempt(ws, now, run.id, false).ws) };
 }

@@ -11,9 +11,9 @@ their code being present does not mean the live project has been migrated or act
 
 ## 1. Product in one paragraph
 
-NAQAH is private camel-ranch operations management for **one owner, one farm, one worker**. The **worker** uses an ordinary
-phone (no app): they call the NAQAH AI voice agent, which asks the owner-configured questions, records structured facts
-(never audio), and updates the farm. Right after a successful update the AI **calls the owner** with only what matters.
+NAQAH is private camel-ranch operations management for **one owner, one farm**, with up to 3 registered workers (Basic)
+or 10 (Ultimate). At the time the owner chooses, **NAQAH calls the primary worker** on an ordinary phone (no app); the AI
+voice agent asks the owner-configured questions, records structured facts (never audio), and updates the farm. Right after a successful update the AI **calls the owner** with only what matters.
 The **owner** uses a website (this app) to set up the farm, see the latest state, and track tickets.
 Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. Personality: *The Quiet Steward*.
 
@@ -23,7 +23,9 @@ Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. P
 |---|---|---|
 | Custom questions (owner-written) | up to **5** | unlimited |
 | Predefined questions (NAQAH team) | mandatory when applicable; skipped if the resource is absent | same |
-| Worker reporting | **one per week**, only inside the owner's weekly window (owner sets day + start + end; no default duration) | **one per day**, whenever the worker chooses (marks the end of their workday) |
+| Report call (NAQAH → primary worker) | **one per week**, on the weekday and exact time the owner sets (Asia/Riyadh) | **one per day**, at the exact time the owner sets |
+| Report call unanswered | retry after **20 min**, up to **2 retries**, then the run is *missed*; the worker may call back that period to report | same |
+| Registered workers / herd | up to **3** workers; the owner keeps the official herd count, a worker's count is a proposal | up to **10** workers; same |
 | Owner calls the AI | **one call per week** (an answered notification call consumes it) | unlimited |
 | Missed notification | owner may call back **once** (this MVP counts it as the weekly call — *open decision*) | unlimited anyway |
 | Owner instructions during post-update call | relayed to the worker, **no ticket** | actionable → **Task Ticket** (OPEN) with a time or "any time"; information-only → no ticket |
@@ -38,7 +40,9 @@ accepts «ما أدري» / "I don't know"; confirms quantities and camel names;
 "saved/notified/created" before the system confirms; labels facts as *reported / approximate / unknown / verified*;
 never presents old data as new; stores extracted facts only (**no recordings**).
 
-**Do not add** (not approved): native apps, a website chatbot, multiple farms/workers, diagnosis, purchasing,
+The old Basic From/To *reporting window* (worker calls in) is **retired** (Nov 2026): columns remain only so old rows load.
+
+**Do not add** (not approved): native apps, a website chatbot, multiple farms, diagnosis, purchasing,
 extra reporting updates, new channels, automated emergency dispatch.
 
 ## 3. Architecture
@@ -102,7 +106,7 @@ window). Always get "now" with `useNow()` (client) or `nowFor(ws)` — never `ne
 - **Icons:** Phosphor (`@phosphor-icons/react`; in Server Components import from `@phosphor-icons/react/dist/ssr`).
   The camel logo is **not** an icon — use `<CamelMark/>`, never redraw/outline/distort it.
 - **Copy:** quiet, warm, direct («Warm Discretion»). No hype, no exclamation marks, no emoji. Contemporary Saudi Arabic,
-  not stiff MSA. Cut helper text a layout doesn't need.
+  not stiff MSA. Cut helper text a layout doesn't need. The ranch is «عزبة» in Arabic and "ranch" in English, everywhere.
 - **Accessibility:** 44px touch targets, visible focus, labels on every control, `prefers-reduced-motion` respected.
 - **Client vs server:** pages that read the workspace are client components (`"use client"`); the landing page can
   be a server component with client islands.
@@ -177,11 +181,12 @@ the same functions and swaps only the storage and the "who triggers it" layer.
 
 ### 8.1 Database — Supabase (free tier is enough to start)
 - Schema, applied in order: `0001_init.sql`, `0002_backend_foundation.sql`, `0003_voice_call_sessions.sql`,
-  `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql` under `supabase/migrations/` (Postgres 15+).
+  `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql`, `0006_owner_flow.sql` under `supabase/migrations/` (Postgres 15+).
   Local validation uses stand-in Supabase roles/Auth; it does not prove live activation. The existing Supabase project
-  contains Auth test users; the latest team report says application migrations have not been applied (issue #6).
+  contains Auth test users; migrations 0001–0006 are applied (0006 recorded live as `20261107213717_owner_flow`).
   Status, plan and manual go-live list: `docs/integrations/supabase-backend.md`.
-  One owner (`auth.users`) → one `farms` row (holds owner + settings + Basic window) → one `workers` row.
+  One owner (`auth.users`) → one `farms` row (owner, settings, call time, herd count, primary worker) → 1–3 (Basic) or
+  1–10 (Ultimate) `workers` rows; NAQAH calls the primary one. Scheduled report calls live in `report_call_runs`.
   Child tables mirror `types.ts`: `camels`, `resources`, `custom_questions` (DB trigger enforces Basic ≤ 5),
   `criteria`, `emergency_categories`, `calls`, `reports` + `report_answers` + `findings`, `task_tickets`, `relays`,
   `pending_worker_calls` + `worker_call_attempts`, `no_answer_tickets`, `events`, `predefined_questions` (global).
@@ -211,14 +216,16 @@ are recognised by caller ID (`workers.phone`) — an identification signal only,
 ### 8.4 Webhook → domain action map
 The implemented contract is `docs/integrations/voice-data-contract.md`.
 
-| Event | Route handler (suggested) | Domain functions |
+| Event | Route handler | Domain functions |
 |---|---|---|
-| Worker calls in | `POST /api/voice/inbound` (caller = worker) | `routeWorkerInboundCall` → report / `rejectWorkerReport` / callback |
+| Report call due (built) | `GET /api/cron/report-calls` every ~5 min, `Bearer CRON_SECRET` | `claimDueReportCall` → Twilio dial (`src/server/calls`) |
+| Report call answered / ended (built) | `POST /api/voice/outbound`, `/api/voice/outbound/status` (signed token, not caller ID) | report conversation, `resolveReportCallAttempt` (20 min × 2 retries → missed), `endReportCallWithoutReport` |
+| Worker calls in | `POST /api/voice/inbound` (caller = worker) | `routeWorkerInboundCall` → callback / returned missed report call / "NAQAH will call you" |
 | Report finished | tool `save_report` | `evaluateFindings`, `completeWorkerReport` |
 | Notify owner | outbound call right after save | `ownerBriefing`, `recordOwnerNotification(answered)` |
 | Owner gives instruction | tool `submit_instruction` | `submitOwnerInstruction` (Ultimate actionable → task ticket) |
-| Retry scheduler | Vercel Cron every 5 min → `GET /api/cron/worker-calls` | `dueWorkerCalls`, `resolveWorkerCallAttempt` (20 min × 3 → No Answer ticket) |
-| Scheduled task check | same cron | `dueTaskVerifications`, `startTaskVerification`, `confirmTask` |
+| Instruction retries (not dialled yet) | a future cron | `dueWorkerCalls`, `resolveWorkerCallAttempt` (20 min × 3 → No Answer ticket) |
+| Scheduled task check (not dialled yet) | a future cron | `dueTaskVerifications`, `startTaskVerification`, `confirmTask` |
 | Worker returns missed call | `POST /api/voice/inbound` | `completeWorkerCallback` (not a farm update) |
 | Owner calls in | `POST /api/voice/inbound` (caller = owner) | `routeOwnerInboundCall` → `recordOwnerInquiry` / `rejectOwnerInquiry` |
 | Emergency | none: the worker calls the owner directly | — |
@@ -243,15 +250,24 @@ for the demo.
   and console errors. **Always run it against `npm run build && npx next start`**, not only `next dev` — two bugs
   below only showed up in production.
 
-### Design rules (from the 2026-11 distill pass)
+### Design rules (2026-11 distill pass, updated by Product Experience 2.0)
 
-- No pills for status. `Badge`, `HealthBadge`, `CertaintyBadge` and `OutcomeBadge` render coloured text (with an optional dot). Certainty is quiet provenance text, never a chip.
+These rules keep NAQAH from looking generic. They are guardrails, not a ceiling: the owner wants a premium,
+visually rich product, so a rule may be broken deliberately when it clearly blocks a better result. Record the
+exception here.
+
+- No pills for status. `Badge`, `HealthBadge`, `CertaintyBadge` and `OutcomeBadge` render coloured text (with an optional dot). Certainty is quiet provenance text, never a chip. Status is never shown by colour alone.
 - No icon tiles, eyebrow labels, numbered 01/02/03 steps, same-size icon card grids, or decorative SVG waves/blobs. `CardHeader` shows an icon inline only, never in a tinted square.
-- Cards have a hairline border and no shadow. Do not nest cards, and do not tint cards with gold or other status colours to call attention.
-- The Overview is the estate ledger: one espresso estate header, the matters row, then one surface divided by hairlines. Camels appear by name. Espresso is the only filled field, and only there. Numbers sit inline with their label, never in separate cells.
-- Calling the worker from NAQAH is not connected, so `EstateHeader` shows it as a disabled control that says so. No `tel:` links on the dashboard: the demo's numbers are samples. Simulation lives only in the demo strip and the Call Lab, and always says it is a simulation.
-- The landing is one editorial page: hero plus the call ledger (`LiveTranscript`), the owner quote (`OwnerCall`), the rules list, the plan table, and the final band. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`.
+- Cards have a hairline border and no shadow, and are never nested. Overlays are the exception: `Sheet` and dialogs sit on a dimmed backdrop with elevation.
+- Visuals carry real data only (labelled samples in the demo and the landing) and must read well with one report or none. Timelines share one language from `src/components/visuals/`: a filled mark happened, a ring is still to come. Every visual has a text equivalent for screen readers.
+- The Overview answers first: the espresso estate header holds the ranch name, a one-sentence answer, the report rhythm strip and the next call. Below it, what needs attention, the latest report as a timestamped ledger, and the herd. Say each fact once. Camels appear by name and open their sheet.
+- Espresso fill is reserved for the estate header and the "your ranch's week" card in onboarding and Settings.
+- Soft tints are allowed only for: findings inside a report, an unanswered check inside its task, the emergency strip (sand), and a warning that would lose unsaved work. Never tint whole cards to call attention.
+- The herd count may sit large beside the herd mark field; other numbers stay inline with their label.
+- The dashboard has no call control unless "Call now" is genuinely available (account mode, `ReportCallNow`). Copy distinguishes three states: no call time yet, a time saved but report calls not switched on, and "Call now" available. No `tel:` links on the dashboard: the demo's numbers are samples. Simulation lives only in the demo strip and the Call Lab, and always says it is a simulation.
+- The landing is one photographic story: hero with the sample evening rail, the scroll-led `CallStory` (worker's call → report → owner's call → dashboard), principles with the retry rail, `PlanWeeks` with "Compare every detail", and the closing invitation. Dark scrims under text on photos are allowed for contrast. Times above story steps are timeline markers, not eyebrows. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`. Photos and their credits are tracked in `docs/design/asset-ledger.md`.
 - Arabic pages lead with Alexandria (`--font-arabic`). next/font's "Montserrat Fallback" covers every codepoint, so with Montserrat first, Arabic renders in Arial.
+- Motion is subtle and meaningful (entrances, state changes, sheets), never hides content, and stops under `prefers-reduced-motion`.
 
 ### Known pitfalls (learned the hard way)
 - **Store hydration:** localStorage rehydration runs *inside* zustand's `create()`, before `useWorkspaceStore` is
@@ -262,5 +278,11 @@ for the demo.
   Create such values in an event handler, an effect, or only when actually needed on the client.
 - **Answers in two languages:** fixed-choice answers carry `answerText {ar,en}`; free text stays in `answer` exactly
   as said. Render `answerText ? t(answerText) : answer`.
+- **`.ltr-nums` sets `direction` on the element itself,** which flips its own `start-*`/`end-*` positioning. Position a
+  wrapper instead and keep `.ltr-nums` on the inner text.
+- **Arabic has no short weekday names** (`weekday: "short"` returns the full name). Tight seven-day strips use the
+  one-letter `narrow` forms (ح ن ث …) and keep the full name for screen readers.
+- **Heavy client SDKs:** load the Supabase browser client through `src/lib/supabase/lazy-client.ts` everywhere except
+  sign-in forms, so the landing, onboarding and the demo never download it.
 - **Names in the Call Lab:** engine and lab copy were written with the sample names; `personalize.ts` swaps them.
   When the real voice agent arrives, pass names explicitly instead (TODO in that file).

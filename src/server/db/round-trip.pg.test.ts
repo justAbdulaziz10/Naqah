@@ -4,6 +4,7 @@ import { completeWorkerCallback, completeWorkerReport, confirmTask, recordOwnerI
 import { createDemoWorkspace } from "@/domain/seed";
 import { heatWaterFinding } from "@/domain/weather";
 import type { Workspace } from "@/domain/types";
+import { placeReportCallAttempt, resolveReportCallAttempt, startReportCall } from "@/domain/reportCalls";
 import { diffWorkspace } from "./diff";
 import { toDbId } from "./ids";
 import { workspaceFromRows } from "./mappers";
@@ -33,7 +34,7 @@ const all = <T>(table: string, farmId: string) => json<T[]>(`select coalesce(jso
 function loadRows(farmId: string): { rows: FarmRows; revision: number } {
   const farm = json<FarmRows["farm"]>(`select row_to_json(f) from farms f where id = ${quote(farmId)}`);
   const reports = json<FarmRows["reports"]>(`select coalesce(json_agg(json_build_object(
-      'id', r.id, 'farm_id', r.farm_id, 'call_id', r.call_id, 'at', r.at,
+      'id', r.id, 'farm_id', r.farm_id, 'call_id', r.call_id, 'at', r.at, 'herd_count_reported', r.herd_count_reported,
       'report_answers', (select coalesce(json_agg(a), '[]') from report_answers a where a.report_id = r.id),
       'findings', (select coalesce(json_agg(f), '[]') from findings f where f.report_id = r.id))), '[]')
     from reports r where r.farm_id = ${quote(farmId)}`);
@@ -44,7 +45,7 @@ function loadRows(farmId: string): { rows: FarmRows; revision: number } {
     revision: farm.revision,
     rows: {
       farm,
-      worker: all<NonNullable<FarmRows["worker"]>>("workers", farmId)[0] ?? null,
+      workers: all("workers", farmId),
       camels: all("camels", farmId),
       resources: all("resources", farmId),
       customQuestions: all("custom_questions", farmId),
@@ -55,6 +56,7 @@ function loadRows(farmId: string): { rows: FarmRows; revision: number } {
       taskTickets: all("task_tickets", farmId),
       noAnswerTickets: all("no_answer_tickets", farmId),
       pendingWorkerCalls: pending,
+      reportCallRuns: all("report_call_runs", farmId),
       relays: all("relays", farmId),
       events: all("events", farmId),
     },
@@ -204,6 +206,29 @@ describe.skipIf(!database)("domain flows through the real schema", () => {
     expect(current.taskTickets[0].status).toBe("open");
     save(confirmTask(current, minutes(130), task.id, true, "worker_report"), "CA-done");
     expect(current.taskTickets[0]).toMatchObject({ status: "closed", closedVia: "worker_report" });
+  });
+
+  it("takes a report call through a missed attempt to an answered report with a herd count", () => {
+    const day = (n: number) => minutes(24 * 60 + n);
+    const started = startReportCall(current, day(0), "schedule");
+    expect(started.blocked).toBeNull();
+    save(started.ws, "CA-run-start");
+    const runId = current.reportCalls![0].id;
+    save(placeReportCallAttempt(current, day(0), runId).ws, "CA-run-1");
+    save(resolveReportCallAttempt(current, day(1), runId, false).ws, "CA-run-1-status");
+    expect(current.reportCalls![0]).toMatchObject({ state: "calling", attempts: [{ result: "no_answer" }] });
+    expect(current.calls.at(-1)?.kind).toBe("worker_report_missed");
+
+    save(placeReportCallAttempt(current, day(21), runId).ws, "CA-run-2");
+    save(resolveReportCallAttempt(current, day(21), runId, true).ws, "CA-run-2-status");
+    const report = completeWorkerReport(current, day(25), {
+      answers: [], camelUpdates: [], resourceUpdates: [], herdAccountedFor: true, taskConfirmations: [], herdCount: 40,
+    }, runId);
+    save(report.ws, "CA-run-2");
+    expect(current.reportCalls![0]).toMatchObject({ state: "completed", reportId: current.reports.at(-1)!.id });
+    expect(current.reports.at(-1)!.herdCountReported).toBe(40);
+    expect(current.settings.herdCount ?? null).toBeNull(); // A worker's count never becomes the official one.
+    expect(startReportCall(current, day(30), "manual", day(0)).blocked).not.toBeNull();
   });
 
   it("stores no audio or transcript column", () => {

@@ -1,13 +1,18 @@
-import { after } from "next/server";
 import type { FarmReport, Locale } from "@/domain/types";
+import { afterResponse } from "@/server/calls/after";
 import { summaryCredentials } from "@/server/env";
 import { callOwnerWithSummary } from "@/server/twilio/rest";
 import { sendWhatsAppText } from "@/server/whatsapp/cloud";
 
 /** Only the sample line sends these, so they must not read as a saved farm update. */
 const SAMPLE_HEADLINE = {
-  ar: "تحديث تجريبي من المزرعة النموذجية، ولم يُحفظ لمزرعة حقيقية.",
+  ar: "تحديث تجريبي من العزبة النموذجية، وما انحفظ لأي عزبة حقيقية.",
   en: "Sample update from the demo farm. It was not saved to a real farm.",
+} as const;
+/** A real farm's update call. Short: the details are on the website. */
+const FARM_HEADLINE = {
+  ar: "تحديث جديد من ناقة عن عزبتك. التفاصيل كاملة في الموقع.",
+  en: "A new update from NAQAH about your farm. Full details are on the website.",
 } as const;
 
 export function buildOwnerSummary(report: FarmReport, locale: Locale): string {
@@ -29,9 +34,9 @@ export function buildOwnerSummary(report: FarmReport, locale: Locale): string {
   return lines.join("\n").slice(0, 4_000);
 }
 
-export function buildOwnerCallSummary(report: FarmReport, locale: Locale): string {
+export function buildOwnerCallSummary(report: FarmReport, locale: Locale, source: "sample" | "farm" = "sample"): string {
   const findings = report.findings.map((finding) => finding.text[locale]);
-  const lines: string[] = [SAMPLE_HEADLINE[locale]];
+  const lines: string[] = [(source === "farm" ? FARM_HEADLINE : SAMPLE_HEADLINE)[locale]];
   if (findings.length) {
     lines.push(locale === "ar" ? "أهم الملاحظات:" : "Important findings:");
     lines.push(...findings.map((finding) => `• ${finding}`));
@@ -52,22 +57,5 @@ async function sendOwnerSummary(report: FarmReport, locale: Locale): Promise<voi
 }
 
 export async function scheduleOwnerSummary(report: FarmReport, locale: Locale): Promise<void> {
-  const task = () => sendOwnerSummary(report, locale);
-  try {
-    after(task);
-    return;
-  } catch {
-    // Direct Route Handler calls and non-Next hosts have no Next request scope.
-  }
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      task(),
-      new Promise<void>((resolve) => {
-        timeout = setTimeout(resolve, 4_000);
-      }),
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
+  await afterResponse(() => sendOwnerSummary(report, locale));
 }

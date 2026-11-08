@@ -1,10 +1,145 @@
 # Twilio activation: one authorized test call
 
-Status: code and local tests only. **No number is bought, no webhook is set, no migration is
-applied, and nothing is deployed.** Every step below needs the owner's approval first.
+Status (2026-11-08): the NAQAH **Twilio subaccount** is connected in the local preview (git-ignored
+`.env.local` of the `NAQAH-owner-flow` worktree; never in git). One manual test reached Twilio and ended `no-answer`. Webhooks are
+verified over HTTPS through an ngrok tunnel. Unattended scheduled calls are off.
 
-Milestone: worker calls → answers configured questions → structured report saves to Supabase →
-owner sees it on the dashboard. All of it is built and passes locally with Twilio and Auth mocked.
+| Item | State |
+|---|---|
+| Account | NAQAH subaccount, active, full (not trial). Bills to the parent account's balance. |
+| Caller ID | `+447447199952` (UK, voice-capable), `TWILIO_PHONE_NUMBER` |
+| Saudi (+966) | Allowed: the subaccount inherits the parent's voice geo permissions (Saudi low-risk on) |
+| Credentials | The subaccount's own SID and auth token (Twilio signs its webhooks with that token) |
+| Public origin | the local ngrok domain (kept out of the repo) → `next start -p 3300`, set as `NAQAH_PUBLIC_BASE_URL` |
+| Number's own Voice URL | Not set (only needed for workers phoning in; outbound calls carry their own URLs) |
+
+## Controlled test switches (all server-side, all off unless set)
+
+| Variable | Effect |
+|---|---|
+| `NAQAH_MANUAL_REPORT_CALLS=1` | Shows the owner's **Call {worker} now** on the dashboard. The farm comes from the owner's session (RLS) and the number from that farm's saved primary worker; nothing in the request chooses who is called. |
+| `NAQAH_CALL_ALLOWLIST=+9665…` | Only these E.164 numbers can ring (scheduled, manual and owner calls). Unset = no extra limit. Set to anything invalid (e.g. `none-yet`) = nothing can ring. |
+| `NAQAH_SCHEDULED_CALLS=1` | Lets `/api/cron/report-calls` dial. Without it the route answers `skipped: scheduled_calls_off` even with the right `CRON_SECRET`. |
+| `NAQAH_CALL_OWNER=1` | After a saved report, calls the farm's `owner_phone` with the findings (paid). |
+
+`GET /api/integrations/status` reports `outbound.configured`, `manualCalls`, `scheduledCalls` and the
+number of allowlisted numbers (never the numbers or secrets).
+
+### Local preview sign-in
+
+Supabase Auth only returns Google sign-in to callback URLs on its allow-list (Authentication → URL
+Configuration). `http://localhost:3300/{ar,en}/login/callback?**` was added on 2026-11-08 next to the
+production, Vercel-preview and `localhost:3000/3002` entries; the Site URL stays `https://naqah.vercel.app`.
+A preview on any other port needs its own two entries, or Google returns to production with no session.
+On plain-http loopback the session cookies are not `Secure` (Safari drops Secure cookies on
+`http://localhost`); every other origin keeps them Secure (`sessionCookieOptionsFor`).
+
+### One controlled call
+
+Before the owner authorizes dialing, build the checked-out revision with
+`NEXT_PUBLIC_NAQAH_BUILD_COMMIT="$(git rev-parse HEAD)" NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1 npm run build`,
+then restart the server. The public status exposes only that build's commit, not credentials.
+From this checkout, with its own server environment loaded, run:
+
+```sh
+node --env-file=.env.local scripts/preflight-call.mjs --base https://<exact-public-origin> --expect +9665XXXXXXXX --locale ar
+```
+
+Use comma-separated `--expect` numbers if the consenting owner notification recipient is also enabled.
+All checks must pass: current build, exact local **and server** allowlist, farm mode/locale, scheduled
+calls off, recording/stored transcription off, and unsigned/wrongly signed rejection plus a signed
+probe on inbound/outbound/turn. `?preflight=1` returns before caller lookup, session handling, saving or
+dialing, even if call fields are supplied. No Twilio API, SMS or WhatsApp requests are made. The script
+does not load another checkout's environment or print tokens/numbers. HTTP is allowed only on loopback
+for local testing. A pass is not carrier/audio proof, consent, or approval to call. Quantities accept
+speech or multiple keypad digits followed by `#`; spoken quantities and camel names still need confirmation.
+
+1. The owner signs in on the preview, finishes setup with the consenting worker's mobile (`+9665…`) as
+   the worker NAQAH calls, and a call time.
+2. Put exactly that number in `NAQAH_CALL_ALLOWLIST` and restart `next start` (server env is read at start).
+3. Dashboard → **Call {worker} now**. NAQAH places one call; status shows on the dashboard every 5 s.
+4. The worker answers the scripted questions (Twilio speech recognition, `ar-SA`; keypad works too).
+5. The report appears on the dashboard; the run is `completed`. An unanswered manual call ends after one attempt. A new attempt requires another owner confirmation.
+6. Afterwards set the allowlist back to `none-yet` (or remove `NAQAH_MANUAL_REPORT_CALLS`).
+
+## Report calls: NAQAH calls the worker
+
+The worker no longer phones in to report. NAQAH calls the farm's primary worker at the owner's
+schedule (`farms.call_day` / `call_time`, Asia/Riyadh): Basic once a week, Ultimate once a day.
+
+1. **Scheduler.** Something outside the app calls `GET /api/cron/report-calls` every ~5 minutes with
+   `Authorization: Bearer $CRON_SECRET`. It refuses every request while `CRON_SECRET` is unset, places
+   nothing unless `NAQAH_VOICE_MODE=farm`, and answers `503 not_configured` with the missing variable
+   names when Twilio or Supabase isn't set.
+2. For each farm from `listScheduledFarmIds`, it claims the due slot or the due retry
+   (`claimDueReportCall`) and saves that attempt **before** dialling, in one revision-checked write.
+   A slot is called once (`report_call_runs` is unique per farm and occurrence), so two scheduler runs
+   can't call twice. Slots more than an hour old are skipped.
+3. It asks Twilio to place the call (`src/server/calls/twilio.ts`, `Record=false`, 30 s ring). The
+   `Url` and `StatusCallback` carry a signed token with the farm, run and attempt. If Twilio refuses
+   or can't be reached, the attempt is undone (not logged as unanswered) and retried in 20 minutes,
+   for up to 3 hours.
+4. **Answered:** Twilio posts to `/api/voice/outbound?s=…`. The signature must verify, and the farm
+   and run come from the token, never from caller ID. The run is marked answered, its CallSid is stored
+   on it, and the scripted questions run through `/api/voice/turn` exactly as before. The report saves
+   with `completeWorkerReport(…, runId)`; the worker's camel count is kept as a proposal
+   (`reports.herd_count_reported`), never the official count.
+5. **Not answered** (`no-answer`, `busy`, `failed`, `canceled` at `/api/voice/outbound/status?s=…`):
+   retry after 20 minutes, 2 retries, then the run is `missed` and the owner sees it on the dashboard.
+   Each unanswered attempt is a `worker_report_missed` call.
+6. **Answered then hung up before saving** (`completed` with the run still answered): the run ends
+   `missed`; nothing is saved.
+7. **The worker phones in.** A No Answer ticket is delivered first. If the worker missed this
+   period's report call, their call takes the report. Otherwise NAQAH thanks them and says when it
+   will call.
+8. **Owner update call** (optional, paid): with `NAQAH_CALL_OWNER=1`, after a saved report NAQAH calls
+   the farm's own `owner_phone` with the findings. Its final status records `owner_notification`
+   (answered or missed). It never uses `NAQAH_OWNER_PHONE`. WhatsApp summaries stay sample-line only.
+
+### Activate real worker calls
+
+Each step needs the owner's approval. Do the inbound steps below first.
+
+1. **Twilio number that can call Saudi mobiles.** Upgrade the account, buy a voice number, and enable
+   Saudi Arabia in Voice geographic permissions. A Saudi caller ID needs a regulatory bundle (business
+   registration or ID and a signed Letter of Authorization); a US number works for a first test.
+2. **Server variables** (never `NEXT_PUBLIC_`):
+
+   ```sh
+   NAQAH_VOICE_MODE=farm
+   NAQAH_PUBLIC_BASE_URL=https://<exact public origin>   # https only
+   NAQAH_VOICE_SECRET=<random, at least 32 bytes>          # signs the call tokens
+   TWILIO_ACCOUNT_SID=<AC...>
+   TWILIO_AUTH_TOKEN=<primary auth token>
+   TWILIO_PHONE_NUMBER=<+E.164 caller ID>
+   SUPABASE_SECRET_KEY=<sb_secret_...>                     # or SUPABASE_SERVICE_ROLE_KEY
+   NEXT_PUBLIC_SUPABASE_URL=https://ydsgmzxqjimwbamnksxe.supabase.co
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<sb_publishable_...>
+   CRON_SECRET=<random>
+   # optional, paid: NAQAH_CALL_OWNER=1
+   ```
+3. **Migration `0006_owner_flow.sql`** applied with the others, in the authorized activation phase.
+4. **A scheduler every ~5 minutes.** Vercel Hobby cron runs once a day, which misses both the call
+   time and the 20-minute retries. Use one of:
+   - Vercel Pro cron on `/api/cron/report-calls` (Vercel sends `Authorization: Bearer $CRON_SECRET`).
+   - Supabase `pg_cron` + `pg_net`:
+     ```sql
+     select cron.schedule('naqah-report-calls', '*/5 * * * *', $$
+       select net.http_get('https://<origin>/api/cron/report-calls',
+         headers := jsonb_build_object('Authorization', 'Bearer <CRON_SECRET>'))
+     $$);
+     ```
+     Keep the secret in Vault rather than inline if the project uses it.
+   - Any external scheduler that can send the header.
+5. **Test farm.** In Settings, set the worker's number with the country code (`+9665…`) and a report
+   time two or three minutes ahead. Check the scheduler by hand once:
+   `curl -H "Authorization: Bearer $CRON_SECRET" https://<origin>/api/cron/report-calls` → `placed: 1`.
+6. **Check:** the phone rings, the report saves, `select state, attempts, provider_call_id from
+   report_call_runs` shows `completed`, and Twilio's log shows no recording. Let one call ring out to
+   see the 20-minute retry.
+
+Rollback: unset `CRON_SECRET` (the route then refuses everything) or `NAQAH_VOICE_MODE`, and remove
+the scheduler job.
 
 ## How a real call works
 
@@ -158,10 +293,18 @@ that farm's history.
   scheduler once one exists.
 - **Quantity units.** Stored and spoken in English even on an Arabic call: «العلف: كافٍ (12 bags)».
 - **Heat-day question.** Weather isn't stored on the server, so real calls don't ask it.
-- **Retries and tasks.** The scheduler for 20-minute retries and task verification calls isn't
-  built, so those outbound calls don't happen yet. Outcomes from worker-initiated calls do save.
+- **Instruction and task-verification calls.** The scheduler places report calls only. Owner
+  instructions and scheduled task checks (`pending_worker_calls`) are not dialled yet.
+- **Answering machines.** A voicemail that picks up counts as answered; the questions play to it and
+  the run ends unsaved. Twilio `MachineDetection` is not enabled.
+- **Owner update call.** It reads the findings and hangs up; owner instructions by phone after a
+  real report aren't built. A voicemail counts as answered.
+- **Scheduler size.** Farms are handled one after another in one request. Fine for a pilot; batch it
+  before many farms share one schedule time.
 - **Caller ID is not proof.** A valid signature shows the request came through Twilio, not who is
-  calling. A spoofed worker number could file that farm's report.
+  calling. On report calls NAQAH places, the farm comes from the signed token instead. On a call the
+  worker places, a spoofed worker number could file that farm's report, but only after that farm's
+  report call was missed this period.
 
 - **Phone numbers aren't verified.** See `supabase-backend.md`. Keep sign-up closed until decided.
 

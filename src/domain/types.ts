@@ -1,7 +1,7 @@
 /**
  * NAQAH domain model.
  *
- * One owner → one farm → one worker (MVP scope). Everything the owner sees and
+ * One owner → one farm → one primary reporting worker (plus optional registered workers). Everything the owner sees and
  * everything the AI voice agent does is derived from a single `Workspace`
  * document. Pure functions in `src/domain/*` transform it; the store in
  * `src/store/workspace.ts` persists it.
@@ -71,6 +71,8 @@ export interface WeatherSnapshot {
 }
 
 export interface Worker {
+  /** Stable id for registered workers. The primary worker of older workspaces may lack one. */
+  id?: string;
   name: string;
   /** Registered number. Used as an identification signal only, not proof. */
   phone: string;
@@ -168,12 +170,26 @@ export interface EmergencyCategory {
 /** 0 = Sunday … 6 = Saturday (Asia/Riyadh). */
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
-/** Basic only. Owner sets start AND end explicitly — no default duration is assumed. */
+/**
+ * RETIRED. The old Basic worker-calls-in window. NAQAH now calls the worker at `CallSchedule`.
+ * Kept only so stored data and the existing DB columns still load; no rule or screen reads it.
+ */
 export interface ReportingWindow {
   day: Weekday;
   /** "HH:MM", 24h, Asia/Riyadh */
   start: string;
   end: string;
+}
+
+/**
+ * When NAQAH calls the worker for the farm report. Basic: once a week on `day` at `time`.
+ * Ultimate: every day at `time` (`day` is ignored). Not yet stored in Supabase: see docs/integrations/call-schedule.md.
+ */
+export interface CallSchedule {
+  /** Basic only. null until the owner chooses a day. */
+  day: Weekday | null;
+  /** "HH:MM", 24h, Asia/Riyadh. "" until the owner chooses a time. */
+  time: string;
 }
 
 export interface ReportAnswer {
@@ -200,11 +216,17 @@ export interface FarmReport {
   callId: string;
   answers: ReportAnswer[];
   findings: Finding[];
+  /**
+   * Camels the worker counted on this call, if asked. A proposal only: the official
+   * `settings.herdCount` changes only when the owner accepts it.
+   */
+  herdCountReported?: number | null;
 }
 
 export type CallKind =
-  | "worker_report" // worker → AI, regular farm update
-  | "worker_report_rejected" // worker → AI, outside window / limit used
+  | "worker_report" // regular farm update (NAQAH → worker on schedule, or the worker returning a missed report call)
+  | "worker_report_rejected" // worker → AI, not returning a report call / limit used
+  | "worker_report_missed" // NAQAH → worker, report call unanswered (one log per attempt)
   | "worker_callback" // worker → AI, returning a missed AI call (No Answer Ticket)
   | "worker_instruction" // AI → worker, delivering owner's instruction / task
   | "worker_task_verification" // AI → worker, at a task's scheduled time
@@ -275,6 +297,27 @@ export interface PendingWorkerCall {
   coveredTaskIds?: string[];
 }
 
+/** Result of one placed report-call attempt. "pending" while the phone is ringing. */
+export type ReportCallAttemptResult = "pending" | "answered" | "no_answer";
+
+/**
+ * One scheduled (or owner-triggered) report call: NAQAH → primary worker.
+ * Initial attempt + up to 2 retries, 20 minutes apart, then "missed".
+ * `occurrence` is unique per farm, so a re-run scheduler can never call twice for the same slot.
+ */
+export interface ReportCallRun {
+  id: string;
+  /** ISO time of the scheduled slot, or of the owner's "Call now" press. */
+  occurrence: string;
+  trigger: "schedule" | "manual";
+  attempts: { at: string; result: ReportCallAttemptResult }[];
+  /** When the next attempt should be placed; null while ringing or when finished. */
+  nextAttemptAt: string | null;
+  /** calling: attempts remain · answered: the worker picked up · completed: report saved · missed: no answer after retries. */
+  state: "calling" | "answered" | "completed" | "missed";
+  reportId: string | null;
+}
+
 /** A message relayed to the worker (Basic relays without a ticket). */
 export interface Relay {
   id: string;
@@ -297,12 +340,21 @@ export interface Settings {
   plan: Plan;
   owner: Owner;
   farm: Farm;
+  /** The primary reporting worker: the one NAQAH calls for the report. */
   worker: Worker;
+  /** Other registered workers. Primary + others ≤ PLAN_LIMITS[plan].workers. Optional: older workspaces lack it. */
+  otherWorkers?: Worker[];
+  /** Official camel count. Owner-controlled; a worker's count is only a proposal. null = not entered. */
+  herdCount?: number | null;
+  /** Reports at or before this time have had their reported count reviewed by the owner. */
+  herdCountReviewedAt?: string | null;
   customQuestions: CustomQuestion[];
   criteria: Criterion[];
   emergencies: EmergencyCategory[];
-  /** Basic only. */
+  /** RETIRED worker-calls-in window. Never read by rules or screens; kept for stored data. */
   window: ReportingWindow | null;
+  /** NAQAH → worker report call time. Optional: older workspaces lack it. */
+  callSchedule?: CallSchedule | null;
   integrations?: Integrations;
 }
 
@@ -321,6 +373,8 @@ export interface Workspace {
   taskTickets: TaskTicket[];
   noAnswerTickets: NoAnswerTicket[];
   pendingWorkerCalls: PendingWorkerCall[];
+  /** Scheduled report calls NAQAH placed (or is placing). Optional: older workspaces lack it. */
+  reportCalls?: ReportCallRun[];
   relays: Relay[];
   events: PlatformEvent[];
   /** Simulated clock for the investor demo: now = real now + offset. */

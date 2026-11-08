@@ -10,6 +10,11 @@ import { isAccountDataEnabled } from "./account-mode";
 import type { AccountWorkspace } from "@/lib/account/types";
 import type { LoadedFarm } from "@/server/db/queries";
 import { isUuid } from "@/server/db/ids";
+import { manualCallsEnabled, outboundCallMissing, outboundConfig } from "@/server/calls/config";
+import { requestReportCallNow, type CallNowResult } from "@/server/calls/scheduler";
+import { createTwilioCaller } from "@/server/calls/twilio";
+import { createServiceClient } from "@/server/db/service-client";
+import { farmVoiceMissing, voiceMode } from "@/server/env";
 
 const DB_TIMEOUT_MS = 8_000;
 
@@ -83,3 +88,28 @@ export async function deleteCriterion(id: unknown) { return asOwner((r) => r.del
 export async function addEmergency(input: unknown) { return asOwner((r) => r.addEmergency(input)); }
 export async function updateEmergency(id: unknown, input: unknown) { return asOwner((r) => r.updateEmergency(id, input)); }
 export async function deleteEmergency(id: unknown) { return asOwner((r) => r.deleteEmergency(id)); }
+
+/** Whether this deployment can place the owner's controlled "Call now". Names nothing secret. */
+function callNowReady(): boolean {
+  return manualCallsEnabled() && voiceMode() === "farm" && !farmVoiceMissing().length && !outboundCallMissing().length;
+}
+
+export async function callNowAvailable() {
+  return asOwner(async () => callNowReady());
+}
+
+/**
+ * One report call now, for the signed-in owner's own farm. The farm comes from the session (RLS
+ * resolves it), the number from that farm's saved primary worker: nothing in the request chooses
+ * who is called. Off unless NAQAH_MANUAL_REPORT_CALLS=1 and real calls are fully configured.
+ */
+export async function callWorkerNow(): Promise<ActionResult<CallNowResult>> {
+  if (!callNowReady()) return { ok: false, error: "unavailable" };
+  return asOwner(async (r) => {
+    const { farmId } = await r.load(); // Proves the session owns this farm, under RLS.
+    const service = createServiceClient();
+    const config = outboundConfig();
+    if (!service || !config) throw new DbError("unavailable");
+    return requestReportCallNow(service, createTwilioCaller(config), farmId, { baseUrl: config.baseUrl, now: new Date(), allowlist: config.allowlist });
+  });
+}

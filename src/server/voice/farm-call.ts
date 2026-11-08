@@ -11,7 +11,10 @@ import type { ReportDraft } from "@/domain/findings";
 import type { Locale, Workspace } from "@/domain/types";
 import { DbError } from "@/server/db/errors";
 import { loadFarm, requireFarm } from "@/server/db/queries";
-import { findCaller, recordedOutcome } from "@/server/db/service-repository";
+import { findCaller, findReportCallRun, recordedOutcome } from "@/server/db/service-repository";
+import { callOwnerAfterReport } from "@/server/calls/owner-call";
+import { afterResponse } from "@/server/calls/after";
+import type { CallToken } from "@/server/calls/token";
 import {
   advanceVoiceSession, createVoiceSession, deleteStaleVoiceSessions, deleteVoiceSession, readVoiceSession,
   type VoiceSessionRow,
@@ -27,7 +30,7 @@ type Copy = Record<Locale, string>;
 
 const NOT_REGISTERED: Copy = { ar: "هذا الرقم غير مسجل لدى ناقة.", en: "This number is not registered with NAQAH." };
 const NOT_READY: Copy = {
-  ar: "إعداد هذه المزرعة ما اكتمل. فضلاً تواصل مع صاحب المزرعة.",
+  ar: "إعداد هذي العزبة ما اكتمل. فضلاً تواصل مع صاحب العزبة.",
   en: "This farm's setup isn't finished yet. Please contact the farm owner.",
 };
 const OWNER_LINE_CLOSED: Copy = {
@@ -36,8 +39,12 @@ const OWNER_LINE_CLOSED: Copy = {
 };
 const SAVED: Copy = { ar: "تم حفظ التحديث، شكراً لك. مع السلامة.", en: "Your update is saved. Thank you. Goodbye." };
 const REFUSED: Copy = {
-  ar: "ما انحفظ هذا التحديث، لأن تحديث هذه الفترة وصلنا أو نافذته مقفلة. يعطيك العافية.",
-  en: "This update wasn't saved, because this period's update is already in or its window is closed. Thank you.",
+  ar: "ما انحفظ هذا التحديث، لأن تحديث هذه الفترة وصلنا. يعطيك العافية.",
+  en: "This update wasn't saved, because this period's update is already in. Thank you.",
+};
+const CALL_NOT_ACTIVE: Copy = {
+  ar: "ما انحفظ هذا التحديث، لأن مكالمة التقرير هذه انتهت. ناقة بتتصل في الموعد الجاي. يعطيك العافية.",
+  en: "This update wasn't saved, because this report call is no longer active. NAQAH will call at the next report time. Thank you.",
 };
 const CALLBACK_FIRST: Copy = {
   ar: "ما انحفظ هذا التحديث، لأن عندك مكالمة فائتة منا. فضلاً اتصل مرة ثانية عشان توصلك الرسالة.",
@@ -91,16 +98,21 @@ function wireDraft({ extraFindings, ...draft }: ReportDraft) {
   return { ...draft, ...(extraFindings?.length ? { heatWaterNeeded: true } : {}) };
 }
 
+type WireEvent = Record<string, unknown> & { type: string };
+
 /** Which contract event an engine commit stands for. A commit with no event must not pass silently. */
-function eventFor(before: CallSession | null, result: EngineResult, input: AnswerInput | null, callSid: string): unknown | null {
+function eventFor(before: CallSession | null, result: EngineResult, input: AnswerInput | null, callSid: string): WireEvent | null {
   if (!result.commit) return null;
   const base = { version: 1, providerCallId: callSid };
   const report = (extra: object = {}) => ({ ...base, eventId: `${callSid}:report`, type: "worker_report", draft: wireDraft(result.session.draft), ...extra });
   if (!before) {
-    if (result.session.scenario === "worker_report") return report({ refusedAtStart: true });
+    if (result.session.scenario === "worker_inbound") return report({ refusedAtStart: true });
     if (result.session.scenario === "owner_inquiry") return { ...base, eventId: `${callSid}:inquiry`, type: "owner_inquiry" };
   } else if (before.step === "report_summary") {
-    return report();
+    const reportCallId = before.scenario === "report_call" ? before.data.reportCallId : undefined;
+    if (input?.value === "confirm_save") return report(reportCallId ? { reportCallId } : {});
+    // Only a report call commits here: the worker ended it without saving.
+    if (reportCallId) return { ...base, eventId: `${callSid}:ended`, type: "report_call_ended", reportCallId };
   } else if (before.step === "callback_acknowledge") {
     return { ...base, eventId: `${callSid}:callback`, type: "worker_callback" };
   } else if (before.step === "callback_task_confirmation") {
@@ -113,8 +125,16 @@ function eventFor(before: CallSession | null, result: EngineResult, input: Answe
 const contextFor = (party: VoiceSessionRow["party"]): VoiceContext =>
   party === "worker" ? { party: "worker" } : { party: "owner", call: "inquiry" };
 
-function save(client: SupabaseClient, farmId: string, party: VoiceSessionRow["party"], event: unknown, now: Date): Promise<VoiceOutcome> {
-  return applyVoiceEvent(client, farmId, contextFor(party), parseVoiceEvent(event), now);
+function save(client: SupabaseClient, farmId: string, party: VoiceSessionRow["party"] | VoiceContext, event: unknown, now: Date): Promise<VoiceOutcome> {
+  return applyVoiceEvent(client, farmId, typeof party === "string" ? contextFor(party) : party, parseVoiceEvent(event), now);
+}
+
+/** After a saved report: the farm owner's update call, when that paid channel is switched on. */
+function notifyOwner(client: SupabaseClient, farmId: string, reportCallId: string | null, now: Date): Promise<void> {
+  return afterResponse(async () => {
+    const placed = await callOwnerAfterReport(client, { farmId, reportCallId, now });
+    if (placed && !placed.placed) console.info(`[NAQAH] owner update call not placed (${placed.reason})`);
+  });
 }
 
 export async function startFarmCall(client: SupabaseClient, input: { from: string; callSid: string; now: Date }): Promise<string> {
@@ -132,7 +152,8 @@ export async function startFarmCall(client: SupabaseClient, input: { from: strin
   const locale = caller.kind === "worker" ? (workspace.settings.worker.language === "en" ? "en" : "ar") : fallback;
   if (!workspace.setupComplete || !namesReady(workspace)) return twimlGoodbye(locale, NOT_READY[locale]);
 
-  const result = start(workspace, now, caller.kind === "worker" ? "worker_report" : "owner_inquiry");
+  // A worker calling in gets their missed message, returns a missed report call, or hears when NAQAH calls.
+  const result = start(workspace, now, caller.kind === "worker" ? "worker_inbound" : "owner_inquiry");
   const event = eventFor(null, result, null, callSid);
   const outcome = event ? await save(client, caller.farmId, caller.kind, event, now) : null;
   if (result.session.done) return respond(result.session, 0, workspace, locale, 0);
@@ -152,9 +173,12 @@ export async function startFarmCall(client: SupabaseClient, input: { from: strin
 }
 
 /** Stores the step and hands back what Twilio should play, or the first reply if a repeat won. */
-async function advance(client: SupabaseClient, row: VoiceSessionRow, session: CallSession, misses: number, response: string): Promise<string> {
+async function advance(client: SupabaseClient, row: VoiceSessionRow, session: CallSession, misses: number, response: string, onAdvanced?: () => Promise<void>): Promise<string> {
   const saved = await advanceVoiceSession(client, row.call_sid, row.seq, { session: withoutTranscript(session), misses, last_response: response });
-  if (saved) return saved.last_response;
+  if (saved) {
+    await onAdvanced?.();
+    return saved.last_response;
+  }
   return (await readVoiceSession(client, row.call_sid))?.last_response ?? response;
 }
 
@@ -169,7 +193,7 @@ function missedInput(row: VoiceSessionRow): AnswerInput | "ask_again" | "give_up
 
 export async function answerFarmCall(
   client: SupabaseClient,
-  input: { callSid: string; seq: number; speech: string; digits: string | null; now: Date },
+  input: { callSid: string; seq: number; speech: string; digits: string | null; confidence?: string | null; now: Date },
 ): Promise<string> {
   const { callSid, seq, speech, digits, now } = input;
   const row = await readVoiceSession(client, callSid);
@@ -179,7 +203,7 @@ export async function answerFarmCall(
 
   const { session, locale } = row;
   const { workspace } = requireFarm(await loadFarm(client, { id: row.farm_id }));
-  const spoken = mapSpeechToInput(session, speech, digits, locale);
+  const spoken = mapSpeechToInput(session, speech, digits, locale, input.confidence);
   const next = row.seq + 1;
   const missed = spoken ? null : missedInput(row);
   if (missed === "give_up") return advance(client, row, { ...session, done: true }, row.misses, twimlGoodbye(locale, MISSED_TWICE[locale]));
@@ -203,9 +227,12 @@ export async function answerFarmCall(
     }
   }
 
-  if (session.step === "report_summary" && event) {
-    const text = outcome?.status === "saved" ? SAVED : outcome?.status === "rejected" && outcome.reason === "callback_required" ? CALLBACK_FIRST : REFUSED;
-    return advance(client, row, result.session, 0, twimlGoodbye(locale, text[locale]));
+  if (session.step === "report_summary" && event?.type === "worker_report") {
+    const reason = outcome?.status === "rejected" ? outcome.reason : null;
+    const text = outcome?.status === "saved" ? SAVED : reason === "callback_required" ? CALLBACK_FIRST : reason === "call_not_active" ? CALL_NOT_ACTIVE : REFUSED;
+    return advance(client, row, result.session, 0, twimlGoodbye(locale, text[locale]), outcome?.status === "saved"
+      ? () => notifyOwner(client, row.farm_id, (event.reportCallId as string | undefined) ?? null, now)
+      : undefined);
   }
   // After a failed save the first attempt may still have landed, so "not saved" needs checking.
   if (session.step === "report_summary" && row.misses > 0) {
@@ -220,4 +247,81 @@ export async function answerFarmCall(
 
 export async function endFarmCall(client: SupabaseClient, callSid: string): Promise<void> {
   await deleteVoiceSession(client, callSid);
+}
+
+type ReportToken = Extract<CallToken, { k: "report" }>;
+
+/** The CallSid, once stored on a run, must belong to the run the signed URL names. */
+async function boundElsewhere(client: SupabaseClient, token: ReportToken, callSid: string): Promise<boolean> {
+  const bound = await findReportCallRun(client, callSid);
+  return Boolean(bound && (bound.farmId !== token.f || bound.runId !== token.r));
+}
+
+/**
+ * The worker picked up NAQAH's report call. The run comes from the signed URL, never from caller
+ * ID. It is marked answered first, then the questions run exactly like an inbound call.
+ */
+export async function answerReportCall(client: SupabaseClient, input: { token: ReportToken; callSid: string; now: Date }): Promise<string> {
+  const { token, callSid, now } = input;
+  if (await boundElsewhere(client, token, callSid)) return twimlGoodbye(token.l);
+  const repeated = await readVoiceSession(client, callSid);
+  if (repeated) return repeated.farm_id === token.f ? repeated.last_response : twimlGoodbye(token.l);
+  await deleteStaleVoiceSessions(client, new Date(now.getTime() - STALE_AFTER_MS));
+
+  const answered = { version: 1, eventId: `${callSid}:answered`, providerCallId: callSid, type: "report_call_attempt", reportCallId: token.r, attempt: token.n, answered: true };
+  await save(client, token.f, { party: "system" }, answered, now);
+  const { workspace } = requireFarm(await loadFarm(client, { id: token.f }));
+  const locale: Locale = workspace.settings.worker.language === "en" ? "en" : "ar";
+  const run = workspace.reportCalls?.find((item) => item.id === token.r);
+  if (!run || run.state !== "answered") return twimlGoodbye(locale, CALL_NOT_ACTIVE[locale]);
+  if (!workspace.setupComplete || !namesReady(workspace)) {
+    await save(client, token.f, { party: "system" }, { version: 1, eventId: `${callSid}:ended`, providerCallId: callSid, type: "report_call_ended", reportCallId: run.id }, now);
+    return twimlGoodbye(locale, NOT_READY[locale]);
+  }
+
+  const result = start(workspace, now, "report_call", { reportCallId: run.id });
+  // The run was answered above, so the engine has nothing left to commit at the start.
+  if (result.commit) throw new DbError("invalid_input", "report call start has no voice event");
+  const response = respond(result.session, 0, workspace, locale, 0);
+  if (result.session.done) return response;
+  const row = await createVoiceSession(client, {
+    call_sid: callSid,
+    farm_id: token.f,
+    party: "worker",
+    locale,
+    session: withoutTranscript(result.session),
+    last_response: response,
+    created_at: now.toISOString(),
+  });
+  return row?.last_response ?? response;
+}
+
+const FINAL_STATUSES = new Set(["completed", "busy", "failed", "no-answer", "canceled"]);
+
+/**
+ * Twilio's final status for a report call. Not answered → retry in 20 minutes or missed.
+ * Answered but ended before a save → the run ends unsaved. A saved report is left alone.
+ */
+export async function reportCallStatus(
+  client: SupabaseClient,
+  input: { token: ReportToken; callSid: string; status: string; now: Date },
+): Promise<void> {
+  const { token, callSid, status, now } = input;
+  if (!FINAL_STATUSES.has(status)) return;
+  if (await boundElsewhere(client, token, callSid)) return;
+  const base = { version: 1, eventId: `${callSid}:final`, providerCallId: callSid, reportCallId: token.r, attempt: token.n };
+  const event = status === "completed" ? { ...base, type: "report_call_ended" } : { ...base, type: "report_call_attempt", answered: false };
+  await save(client, token.f, { party: "system" }, event, now);
+  await deleteVoiceSession(client, callSid);
+}
+
+/** The owner's update call ended: answered or missed, as the domain records it. */
+export async function ownerCallStatus(
+  client: SupabaseClient,
+  input: { token: Extract<CallToken, { k: "owner" }>; callSid: string; status: string; now: Date },
+): Promise<void> {
+  const { token, callSid, status, now } = input;
+  if (!FINAL_STATUSES.has(status)) return;
+  const event = { version: 1, eventId: `${callSid}:owner`, providerCallId: callSid, type: "owner_notification", reportId: token.r, answered: status === "completed" };
+  await save(client, token.f, { party: "system" }, event, now);
 }

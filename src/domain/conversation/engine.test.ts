@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { recordOwnerInquiry, submitOwnerInstruction } from "../actions";
 import { fromRiyadh, RETRY_DELAY_MS } from "../clock";
 import { evaluateFindings, ownerBriefing } from "../findings";
-import { routeOwnerInboundCall } from "../rules";
+import { herdCountProposal } from "../herd";
+import { placeReportCallAttempt, startReportCall } from "../reportCalls";
+import { routeOwnerInboundCall, routeWorkerInboundCall } from "../rules";
 import { createDemoWorkspace, createEmptyWorkspace } from "../seed";
 import { withDemoHeat } from "../weather";
 import type { Workspace } from "../types";
@@ -18,6 +20,14 @@ function applyAnswer(
 ) {
   const result = answer(session, ws, now, input);
   return { session: result.session, ws: result.commit ? result.commit(ws) : ws };
+}
+
+/** NAQAH calls Ahmed for the report and he picks up on the first ring. */
+function reportCall(ws: Workspace, now = NOW) {
+  const started = start(ws, now, "report_call");
+  expect(started.session.step).toBe("report_ring");
+  const ringing = started.commit?.(ws) ?? ws;
+  return applyAnswer(started.session, ringing, now, { value: "answer" });
 }
 
 function scheduledTaskWorkspace() {
@@ -70,8 +80,7 @@ function noAnswerFourTimes(ws: Workspace, startAt = NOW) {
 
 describe("Call Lab conversation engine", () => {
   it("completes a sick-camel and low-feed report, then briefs the owner", () => {
-    let ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
-    let session = start(ws, NOW, "worker_report").session;
+    let { ws, session } = reportCall(createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0)));
     let guard = 0;
 
     while (session.step !== "report_summary" && guard < 40) {
@@ -80,7 +89,7 @@ describe("Call Lab conversation engine", () => {
       if (session.step === "report_question") {
         const questionId = session.data.currentQuestionId;
         if (questionId === "herd_health") input = { value: "no" };
-        else if (questionId === "herd_count") input = { value: "yes" };
+        else if (questionId === "herd_count") input = { text: "42" };
         else if (questionId === "feed_level") input = { value: "low" };
         else if (questionId === "water_level" || questionId === "fences_condition" || questionId === "medicine_stock") input = { value: "good" };
         else if (questionId?.startsWith("task_")) input = { value: "no" };
@@ -95,6 +104,8 @@ describe("Call Lab conversation engine", () => {
         input = { value: "yes" };
       } else if (session.step === "health_more") {
         input = { value: "no" };
+      } else if (session.step === "herd_count_confirm") {
+        input = { value: "yes" };
       } else if (session.step === "quantity_input") {
         input = session.data.currentQuestionId === "feed_level" ? { text: "12" } : { value: "quantity_skip" };
       } else if (session.step === "quantity_confirm") {
@@ -113,6 +124,9 @@ describe("Call Lab conversation engine", () => {
     ws = saved.ws;
 
     expect(ws.reports).toHaveLength(2);
+    expect(ws.reports[1].herdCountReported).toBe(42);
+    expect(ws.reportCalls?.at(-1)).toMatchObject({ state: "completed", reportId: ws.reports[1].id });
+    expect(ws.calls.find((call) => call.reportId === ws.reports[1].id)?.direction).toBe("outbound");
     expect(ws.reports[1].findings.map((finding) => finding.text.en)).toEqual(
       expect.arrayContaining([
         expect.stringContaining("Wadha is sick"),
@@ -128,10 +142,9 @@ describe("Call Lab conversation engine", () => {
   });
 
   it("records an I don’t know answer with unknown certainty", () => {
-    const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
-    let session = start(ws, NOW, "worker_report").session;
-    session = answer(session, ws, NOW, { value: "unknown" }).session;
-    expect(session.draft.answers[0].certainty).toBe("unknown");
+    const { ws, session } = reportCall(createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0)));
+    const next = answer(session, ws, NOW, { value: "unknown" }).session;
+    expect(next.draft.answers[0].certainty).toBe("unknown");
   });
 
   it("repeats an overdue scheduled task in the next report after the worker says not yet", () => {
@@ -154,7 +167,7 @@ describe("Call Lab conversation engine", () => {
     const afterAgain = again.commit?.(current) ?? current;
     expect(afterAgain.pendingWorkerCalls.filter((call) => call.purpose === "task_verification" && call.taskTicketId === task.id)).toHaveLength(1);
     expect(scenarioAvailability(afterAgain, tomorrow).dueTaskVerificationCount).toBe(0);
-    const report = start(current, tomorrow, "worker_report").session;
+    const report = reportCall(current, tomorrow).session;
     expect(report.data.queue?.some((item) => item.kind === "task" && item.taskId === task.id)).toBe(true);
   });
 
@@ -219,25 +232,144 @@ describe("Call Lab conversation engine", () => {
     expect(afterHangUp).toEqual(ws);
   });
 
-  it("does not save an unfinished worker report when hung up", () => {
-    const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
-    const session = start(ws, NOW, "worker_report").session;
+  it("does not save an unfinished report when hung up, and marks the answered call ended", () => {
+    const { ws, session } = reportCall(createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0)));
     const partial = answer(session, ws, NOW, { value: "no" }).session;
     const ended = hangUp(partial, ws, NOW);
+    const after = ended.commit?.(ws) ?? ws;
 
     expect(ended.session.done).toBe(true);
-    expect(ended.commit).toBeUndefined();
-    expect(ws.reports).toHaveLength(1);
+    expect(after.reports).toHaveLength(1);
+    expect(after.reportCalls?.at(-1)?.state).toBe("missed");
   });
 
-  it("rejects a Basic report outside its weekly window and records the rejection", () => {
+  it("undoes a report call hung up on its first ring", () => {
+    const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    const started = start(ws, NOW, "report_call");
+    const ringing = started.commit!(ws);
+    expect(ringing.reportCalls).toHaveLength(1);
+    const ended = hangUp(started.session, ringing, NOW);
+    expect(ended.commit!(ringing).reportCalls).toEqual([]);
+  });
+
+  it("says every ringing line is a simulation and never speaks it as the agent", () => {
+    const ws = createDemoWorkspace("ar", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    const ringing = start(ws, NOW, "report_call").session;
+    expect(ringing.turns).toHaveLength(1);
+    expect(ringing.turns[0].speaker).toBe("system");
+    expect(ringing.turns[0].text.en).toMatch(/^Simulation:/);
+    expect(ringing.turns[0].text.ar).toMatch(/^محاكاة:/);
+  });
+
+  it("retries an unanswered report call 20 minutes apart, then marks it missed", () => {
+    let ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    const started = start(ws, NOW, "report_call");
+    let session = started.session;
+    ws = started.commit!(ws);
+    let now = NOW;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      expect(session.step).toBe("report_ring");
+      expect(session.turns.at(-1)?.text.en).toContain(`attempt ${attempt} of 3`);
+      let result = applyAnswer(session, ws, now, { value: "no_answer" });
+      session = result.session;
+      ws = result.ws;
+      if (attempt < 3) {
+        expect(session.step).toBe("report_wait");
+        expect(ws.reportCalls?.[0].nextAttemptAt).toBe(new Date(now.getTime() + RETRY_DELAY_MS).toISOString());
+        result = applyAnswer(session, ws, now, { value: "skip_20" });
+        session = result.session;
+        ws = result.ws;
+        now = new Date(now.getTime() + RETRY_DELAY_MS);
+      }
+    }
+    expect(session.done).toBe(true);
+    expect(session.step).toBe("report_missed");
+    expect(ws.reportCalls?.[0].state).toBe("missed");
+    expect(ws.calls.filter((call) => call.kind === "worker_report_missed")).toHaveLength(3);
+    expect(ws.clockOffsetMs).toBe(2 * RETRY_DELAY_MS);
+    expect(ws.reports).toHaveLength(1);
+
+    // Ahmed returns the missed call: the report is taken on his call, not as a callback.
+    expect(routeWorkerInboundCall(ws, now)).toEqual({ kind: "report" });
+    const returned = start(ws, now, "worker_inbound").session;
+    expect(returned.scenario).toBe("worker_inbound");
+    expect(returned.turns[0].text.en).toContain("calling back about the report call you missed");
+    expect(returned.step).toBe("report_question");
+  });
+
+  it("starts at the questions when a real report call is answered", () => {
+    const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    const opened = startReportCall(ws, NOW, "schedule");
+    const placed = placeReportCallAttempt(opened.ws, NOW, opened.run!.id).ws;
+    const result = start(placed, NOW, "report_call", { reportCallId: opened.run!.id });
+    expect(result.session.step).toBe("report_question");
+    expect(result.session.turns.every((item) => item.speaker === "agent")).toBe(true);
+    expect(result.commit!(placed).reportCalls?.[0].state).toBe("answered");
+
+    const stale = start(ws, NOW, "report_call", { reportCallId: "rcl_gone" });
+    expect(stale.session.done).toBe(true);
+    expect(stale.commit).toBeUndefined();
+  });
+
+  it("refuses a report call when the worker number can't be dialled", () => {
+    const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    ws.settings.worker.phone = "0501234567";
+    const result = start(ws, NOW, "report_call");
+    expect(result.session.done).toBe(true);
+    expect(result.session.turns[0].text.en).toContain("country code");
+    expect(result.commit).toBeUndefined();
+  });
+
+  it("keeps the worker's herd count as a proposal and asks about missing camels", () => {
+    const { ws, session: first } = reportCall(createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0)));
+    let session = answer(first, ws, NOW, { value: "yes" }).session;
+    expect(session.data.currentQuestionId).toBe("herd_count");
+    expect(session.turns.at(-1)?.text.en).toBe("How many camels are there in total today?");
+    expect(session.inputMode).toBe("number");
+    session = answer(session, ws, NOW, { text: "lots" }).session;
+    expect(session.turns.at(-1)?.text.en).toContain("for example 42");
+    session = answer(session, ws, NOW, { text: "40" }).session;
+    expect(session.step).toBe("herd_count_confirm");
+    expect(session.turns.at(-1)?.text.en).toContain("You counted 40 camels");
+    session = answer(session, ws, NOW, { value: "yes" }).session;
+    expect(session.step).toBe("herd_count_detail");
+    expect(session.turns.at(-1)?.text.en).toContain("fewer than the 42 on record");
+    session = answer(session, ws, NOW, { text: "Wadha and Shaha" }).session;
+    expect(session.draft).toMatchObject({ herdCount: 40, herdAccountedFor: false });
+    expect(session.draft.answers.at(-1)).toMatchObject({ questionId: "herd_count", answer: "40 camels — Wadha and Shaha", certainty: "reported" });
+  });
+
+  it("saves the counted herd as a proposal without touching the official count", () => {
+    let { ws, session } = reportCall(createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0)));
+    for (let guard = 0; session.step !== "report_summary" && guard < 40; guard += 1) {
+      const input = session.data.currentQuestionId === "herd_count" && session.step === "report_question"
+        ? { text: "45" }
+        : session.inputMode === "choices" ? { value: session.replies[0].value } : session.inputMode === "number" ? { value: "quantity_skip" } : { text: "Nothing new" };
+      ({ ws, session } = applyAnswer(session, ws, NOW, input));
+    }
+    expect(session.turns.at(-1)?.text.en).toContain("camels counted: 45");
+    ({ ws, session } = applyAnswer(session, ws, NOW, { value: "confirm_save" }));
+    expect(ws.reports.at(-1)?.herdCountReported).toBe(45);
+    expect(ws.settings.herdCount).toBe(42);
+    expect(herdCountProposal(ws)).toMatchObject({ reported: 45, official: 42 });
+  });
+
+  it("tells a worker who calls in without a missed report call when NAQAH will call", () => {
     const ws = createDemoWorkspace("en", "basic", fromRiyadh(2026, 11, 3, 9, 0));
-    const session = start(ws, fromRiyadh(2026, 11, 5, 18, 30), "worker_report");
+    const session = start(ws, fromRiyadh(2026, 11, 5, 18, 30), "worker_inbound");
     expect(session.session.done).toBe(true);
-    expect(session.session.turns[0].text.en).toContain("weekly reporting window is closed");
+    expect(session.session.turns[0].text.en).toContain("NAQAH will call you for the report");
+    expect(session.session.turns[0].text.en).toContain("12 Nov");
     const updated = session.commit?.(ws) ?? ws;
     expect(updated.calls.at(-1)?.kind).toBe("worker_report_rejected");
     expect(updated.calls.at(-1)?.outcome).toBe("rejected");
+  });
+
+  it("says no report time is set yet when the owner hasn't chosen one", () => {
+    const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
+    ws.settings.callSchedule = null;
+    const session = start(ws, NOW, "worker_inbound").session;
+    expect(session.turns[0].text.en).toContain("hasn’t set a report time yet");
   });
 
   it("creates an Ultimate task ticket and relays the same instruction on Basic", () => {
@@ -276,7 +408,7 @@ describe("Call Lab conversation engine", () => {
     });
     const missed = noAnswerFourTimes(pending.ws);
     const reportsBefore = missed.ws.reports.length;
-    const callback = start(missed.ws, missed.now, "worker_report").session;
+    const callback = start(missed.ws, missed.now, "worker_inbound").session;
     expect(callback.scenario).toBe("worker_callback");
     expect(callback.turns[0].text.en).toContain("Message from the owner");
 
@@ -346,8 +478,9 @@ describe("Call Lab conversation engine", () => {
   });
 
   it("records an unspecified herd-health concern when the herd is empty and skips herd count", () => {
-    const ws = createEmptyWorkspace("ultimate");
-    const session = start(ws, NOW, "worker_report").session;
+    const empty = createEmptyWorkspace("ultimate");
+    empty.settings.worker.phone = "+966507782190";
+    const { ws, session } = reportCall(empty);
     expect(session.data.currentQuestionId).toBe("herd_health");
     expect(session.data.queue?.some((item) => item.id === "herd_count")).toBe(false);
 
@@ -364,9 +497,9 @@ describe("Call Lab conversation engine", () => {
   });
 
   it("keeps a confirmed camel report when the worker does not know about another camel", () => {
-    const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
-    let session = start(ws, NOW, "worker_report").session;
-    session = answer(session, ws, NOW, { value: "no" }).session;
+    const called = reportCall(createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0)));
+    const ws = called.ws;
+    let session = answer(called.session, ws, NOW, { value: "no" }).session;
     session = answer(session, ws, NOW, { value: "camel:" + ws.camels[0].id }).session;
     session = answer(session, ws, NOW, { value: "healthy" }).session;
     session = answer(session, ws, NOW, { value: "skip_note" }).session;
@@ -382,7 +515,7 @@ describe("Call Lab conversation engine", () => {
 
   it("asks the heat-day question first only for a current hot forecast with farm coordinates", () => {
     const ws = withDemoHeat(createDemoWorkspace("en", "ultimate", NOW), NOW);
-    const hot = start(ws, NOW, "worker_report").session;
+    const hot = reportCall(ws).session;
 
     expect(hot.data.currentQuestionId).toBe("weather_heat_water");
     expect(hot.turns.at(-2)?.text.en).toContain("Hello Ahmed");
@@ -391,24 +524,26 @@ describe("Call Lab conversation engine", () => {
 
     const normalWs = structuredClone(ws);
     normalWs.weather!.maxTempC = 39.9;
-    expect(start(normalWs, NOW, "worker_report").session.data.currentQuestionId).not.toBe("weather_heat_water");
+    expect(reportCall(normalWs).session.data.currentQuestionId).not.toBe("weather_heat_water");
 
     const staleWs = structuredClone(ws);
     staleWs.weather!.date = "2026-11-04";
-    expect(start(staleWs, NOW, "worker_report").session.data.currentQuestionId).not.toBe("weather_heat_water");
+    expect(reportCall(staleWs).session.data.currentQuestionId).not.toBe("weather_heat_water");
 
     const noCoordsWs = structuredClone(ws);
     noCoordsWs.settings.farm.coords = null;
-    expect(start(noCoordsWs, NOW, "worker_report").session.data.currentQuestionId).not.toBe("weather_heat_water");
+    expect(reportCall(noCoordsWs).session.data.currentQuestionId).not.toBe("weather_heat_water");
   });
 
   it("stores a heat-day water and shade finding when the worker answers not enough", () => {
     const ws = createEmptyWorkspace("ultimate");
+    ws.settings.worker.phone = "+966507782190";
     ws.settings.farm.coords = { lat: 24.155, lon: 47.334 };
     ws.resources = ws.resources.map((resource) => ({ ...resource, present: false }));
-    const heated = withDemoHeat(ws, NOW);
+    const called = reportCall(withDemoHeat(ws, NOW));
+    const heated = called.ws;
 
-    let session = start(heated, NOW, "worker_report").session;
+    let session = called.session;
     expect(session.data.currentQuestionId).toBe("weather_heat_water");
     session = answer(session, heated, NOW, { value: "not_enough" }).session;
     const heatAnswer = session.draft.answers.find((item) => item.questionId === "weather_heat_water");
@@ -539,7 +674,7 @@ describe("Call Lab conversation engine", () => {
     expect(current.taskTickets.find((task) => task.instruction === "Fix the gate")?.status).toBe("closed");
     expect(current.events.some((event) => event.text.en.includes("Refill the trough") && event.text.en.toLowerCase().includes("not done"))).toBe(false);
     expect(current.reports).toHaveLength(reportsBefore);
-    expect(start(current, callbackAt, "worker_report").session.scenario).toBe("worker_report");
+    expect(reportCall(current, callbackAt).session.scenario).toBe("report_call");
   });
 
   it("schedules later today, tomorrow, and a future date, and rejects past or unclear input", () => {
@@ -616,22 +751,23 @@ describe("Call Lab conversation engine", () => {
       closedAt: null,
       closedVia: null,
     });
-    let session = start(ws, NOW, "worker_report").session;
-    session = answer(session, ws, NOW, { value: "unknown" }).session;
-    session = answer(session, ws, NOW, { value: "unknown" }).session;
+    ws.settings.worker.phone = "+966500000002";
+    const unknownCall = reportCall(ws);
+    let session = answer(unknownCall.session, unknownCall.ws, NOW, { value: "unknown" }).session;
+    session = answer(session, unknownCall.ws, NOW, { value: "unknown" }).session;
     expect(session.draft.taskConfirmations).toHaveLength(0);
     expect(session.draft.answers.at(-1)?.certainty).toBe("unknown");
-    const savedUnknown = answer(session, ws, NOW, { value: "confirm_save" });
-    const unknownWs = savedUnknown.commit?.(ws) ?? ws;
+    const savedUnknown = answer(session, unknownCall.ws, NOW, { value: "confirm_save" });
+    const unknownWs = savedUnknown.commit?.(unknownCall.ws) ?? unknownCall.ws;
     expect(unknownWs.taskTickets[0]?.status).toBe("open");
     expect(unknownWs.events.some((event) => event.text.en.toLowerCase().includes("not done"))).toBe(false);
 
-    session = start(ws, NOW, "worker_report").session;
-    session = answer(session, ws, NOW, { value: "unknown" }).session;
-    session = answer(session, ws, NOW, { value: "yes" }).session;
+    const yesCall = reportCall(ws);
+    session = answer(yesCall.session, yesCall.ws, NOW, { value: "unknown" }).session;
+    session = answer(session, yesCall.ws, NOW, { value: "yes" }).session;
     expect(ws.taskTickets[0]?.status).toBe("open");
-    const savedYes = answer(session, ws, NOW, { value: "confirm_save" });
-    expect((savedYes.commit?.(ws) ?? ws).taskTickets[0]?.status).toBe("closed");
+    const savedYes = answer(session, yesCall.ws, NOW, { value: "confirm_save" });
+    expect((savedYes.commit?.(yesCall.ws) ?? yesCall.ws).taskTickets[0]?.status).toBe("closed");
     expect(savedYes.session.turns.at(-1)?.text.en).toContain("Saved");
     expect(savedYes.session.turns.at(-1)?.text.en.toLowerCase()).not.toContain("calling");
   });
@@ -650,13 +786,14 @@ describe("Call Lab conversation engine", () => {
 
   it("asks applicable questions, skips absent resources, and keeps plan limits and emergency handling", () => {
     const ultimate = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
-    const queue = start(ultimate, NOW, "worker_report").session.data.queue?.map((item) => item.id) ?? [];
+    const queue = reportCall(ultimate).session.data.queue?.map((item) => item.id) ?? [];
     expect(queue).toEqual(expect.arrayContaining(["herd_health", "herd_count", "feed_level", "water_level", "fences_condition", "medicine_stock"]));
     expect(queue).not.toContain("shelter_condition");
 
     const bare = createEmptyWorkspace("ultimate");
     bare.resources = bare.resources.map((resource) => ({ ...resource, present: false }));
-    const bareQueue = start(bare, NOW, "worker_report").session.data.queue?.map((item) => item.id) ?? [];
+    bare.settings.worker.phone = "+966500000002";
+    const bareQueue = reportCall(bare).session.data.queue?.map((item) => item.id) ?? [];
     expect(bareQueue).toContain("herd_health");
     for (const id of ["herd_count", "feed_level", "water_level", "fences_condition", "medicine_stock", "shelter_condition"]) {
       expect(bareQueue).not.toContain(id);
@@ -665,16 +802,16 @@ describe("Call Lab conversation engine", () => {
     const basic = createDemoWorkspace("en", "basic", fromRiyadh(2026, 11, 3, 9, 0));
     basic.reports[0].at = NOW.toISOString();
     basic.lastUpdateAt = NOW.toISOString();
-    const weekly = start(basic, NOW, "worker_report");
+    const weekly = start(basic, NOW, "report_call");
     expect(weekly.session.done).toBe(true);
-    expect(weekly.session.turns[0].text.en).toContain("this week");
+    expect(weekly.session.turns[0].text.en).toMatch(/already in/i);
 
     const dailyWs = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
     dailyWs.reports[0].at = NOW.toISOString();
     dailyWs.lastUpdateAt = NOW.toISOString();
-    const daily = start(dailyWs, NOW, "worker_report");
+    const daily = start(dailyWs, NOW, "report_call");
     expect(daily.session.done).toBe(true);
-    expect(daily.session.turns[0].text.en).toContain("today");
+    expect(daily.session.turns[0].text.en).toMatch(/already in/i);
 
     let session = start(ultimate, NOW, "owner_notification").session;
     let result = applyAnswer(session, ultimate, NOW, { value: "answer" });

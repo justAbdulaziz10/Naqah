@@ -22,3 +22,21 @@ export function formatSaudiMobile(value: string) {
   const phone = toE164(value);
   return phone ? `+966 ${phone.slice(4, 6)} ${phone.slice(6, 9)} ${phone.slice(9)}` : value;
 }
+
+/** What the owner sees after the fixed +966: "50 123 4567" for a saved number, anything else as typed. */
+export function localSaudiPart(value: string) {
+  const phone = toE164(value);
+  if (phone) return `${phone.slice(4, 6)} ${phone.slice(6, 9)} ${phone.slice(9)}`;
+  return value.replace(/^\s*\+966\s*/, "");
+}
+
+/**
+ * What is stored for what the owner typed after +966. A number they typed in full (05…, +966…, 00966…)
+ * is kept as typed, so nothing they meant is lost; the rest gets the country code in front.
+ */
+export function fromLocalSaudiPart(typed: string) {
+  const text = latinDigits(typed).trim();
+  if (!text) return "";
+  if (/^(?:0|\+|00)/.test(text)) return text;
+  return `+966 ${text}`;
+}

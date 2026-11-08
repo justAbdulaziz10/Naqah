@@ -37,6 +37,10 @@ echo "-- 0002 checks"
 fresh
 $PSQL -d "$DB" -A -t -f backend_foundation.sql | grep -E "PASS|FAIL|^[0-9]+\|[0-9]+$"
 
+echo "-- 0006 checks"
+fresh
+$PSQL -d "$DB" -A -t -f owner_flow.sql | grep -E "FAIL|^[0-9]+\|[0-9]+$"
+
 echo "-- 0001 isolation suite on the combined schema"
 fresh
 # Expect one FAIL: "no functions in public" predates apply_farm_changes, the single RPC, which

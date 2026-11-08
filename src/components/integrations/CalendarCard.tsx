@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardBody, CardHeader } from "@/components/ui";
+import { SettingsDisclosure } from "@/components/setup/sections/SettingsDisclosure";
 import { useI18n } from "@/i18n/client";
 import { generateIcs } from "@/lib/calendar/ics";
 import { downloadIcs, googleSubscribeUrl, webcalUrl } from "@/lib/calendar/links";
@@ -49,9 +49,7 @@ export function CalendarCard() {
   };
 
   return (
-    <Card>
-      <CardHeader title={m.integrations.calendar.title} />
-      <CardBody className="pt-3">
+    <SettingsDisclosure id="settings-calendar" title={m.integrations.calendar.title} summary={m.integrations.calendar.summary}>
         {ws ? (
           <>
             <div className="flex flex-col items-start gap-1 sm:flex-row sm:flex-wrap sm:gap-x-5">
@@ -80,12 +78,11 @@ export function CalendarCard() {
                 {m.integrations.calendar.download}
               </button>
             </div>
-            <p className="mt-2 text-sm text-muted">{m.integrations.calendar.note}</p>
+            <p className="mt-1 text-sm text-muted">{m.integrations.calendar.note}</p>
             {downloadFailed ? <p className="mt-2 text-sm text-danger" role="alert">{m.integrations.calendar.downloadUnavailable}</p> : null}
             {scheduleTooLarge ? <p className="mt-2 text-sm text-danger" role="alert">{m.integrations.calendar.oversized}</p> : null}
           </>
         ) : null}
-      </CardBody>
-    </Card>
+    </SettingsDisclosure>
   );
 }

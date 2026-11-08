@@ -1,4 +1,5 @@
 import type { Locale } from "@/domain/types";
+import { callAllowlist, manualCallsEnabled, outboundCallMissing, scheduledCallsEnabled } from "@/server/calls/config";
 
 const value = (name: string) => process.env[name]?.trim() ?? "";
 
@@ -22,8 +23,13 @@ export function voiceMode(): "farm" | "sample" {
 
 /** Names only, so it is safe to log. Farm calls need every one of these. */
 export function farmVoiceMissing(): string[] {
+  // Legacy names for the same Supabase keys count too (see src/lib/supabase/config.ts).
+  const legacy: Record<string, string> = {
+    SUPABASE_SECRET_KEY: "SUPABASE_SERVICE_ROLE_KEY",
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  };
   return ["TWILIO_AUTH_TOKEN", "NAQAH_PUBLIC_BASE_URL", "SUPABASE_SECRET_KEY", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"]
-    .filter((name) => !value(name));
+    .filter((name) => !value(name) && !(legacy[name] && value(legacy[name])));
 }
 
 /** Caller ID can be spoofed and an inquiry reads farm data aloud, so it stays off until decided. */
@@ -79,6 +85,13 @@ export function integrationsStatus() {
     },
     ownerCall: {
       configured: mode === "sample" && value("NAQAH_CALL_OWNER") === "1" && twilioReady,
+    },
+    // Calls NAQAH places to workers. Flags and counts only, never numbers or secrets.
+    outbound: {
+      configured: mode === "farm" && !farmVoiceMissing().length && !outboundCallMissing().length,
+      manualCalls: manualCallsEnabled(),
+      scheduledCalls: scheduledCallsEnabled(),
+      allowlistedNumbers: callAllowlist()?.length ?? null,
     },
   };
 }

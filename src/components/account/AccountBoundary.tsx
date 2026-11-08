@@ -1,8 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { CamelMark } from "@/components/brand/CamelMark";
+import { ACCOUNT_DATA } from "@/components/entry/paths";
+import { LogoutButton } from "@/components/auth/LogoutButton";
+import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
 import { Button } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { accountSync, watchAccountAuth } from "@/store/account";
@@ -24,10 +28,16 @@ export function AccountBoundary({ area, children }: { area: "app" | "start"; chi
   const notice = useAccountState((state) => state.notice);
   const saveFailed = useSaveStatus((state) => state.status === "failed");
   const setupComplete = useWorkspaceStore((state) => state.workspace?.setupComplete);
+  const hydrated = useWorkspaceStore((state) => state.hydrated);
 
   const ready = status === "ready" && active;
+  // Where accounts exist, a visitor without a session doesn't get a browser-only "farm" that looks
+  // real: setup needs an account, and /app is the demo only once the demo has been opened.
+  const visitorTarget = ACCOUNT_DATA && status === "demo" && hydrated
+    ? area === "start" ? `/signup?next=${encodeURIComponent(href("/start"))}` : !setupComplete ? "/login" : null
+    : null;
   const target = !ready
-    ? null
+    ? visitorTarget
     : area === "start"
       ? setupComplete ? "/app" : null
       : !setupComplete ? "/start" : pathname.endsWith("/app/lab") ? "/app" : null;
@@ -68,12 +78,30 @@ export function AccountBoundary({ area, children }: { area: "app" | "start"; chi
   }, [active]);
 
   if (status === "error") {
+    // Never the demo in its place: a calm page that keeps every way out (retry, language, home, sign out).
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-5 px-6 text-center">
-        <CamelMark className="h-12 w-auto" />
-        <p role="alert" className="max-w-sm text-espresso">{m.account.loadFailed}</p>
-        <Button onClick={() => void accountSync.open()}>{m.account.retry}</Button>
-      </div>
+      <main className="flex min-h-dvh flex-col px-6 py-6">
+        <div className="flex items-center justify-between">
+          <Link href={href("/")} className="inline-flex min-h-11 items-center" aria-label={m.common.loadError.home}>
+            <CamelMark className="h-8 w-auto" />
+          </Link>
+          <LocaleSwitcher />
+        </div>
+        <section aria-labelledby="load-error" className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-12">
+          <h1 id="load-error" className="text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-espresso">{m.common.loadError.title}</h1>
+          <p role="alert" className="mt-3 text-lg leading-relaxed text-muted">{m.account.loadFailed}</p>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Button size="lg" onClick={() => void accountSync.open()}>{m.account.retry}</Button>
+            <Link href={href("/")} className="inline-flex min-h-11 items-center px-2 font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
+              {m.common.loadError.home}
+            </Link>
+          </div>
+          <div className="mt-10 border-t border-stone/70 pt-6">
+            <p className="mb-3 text-sm text-muted">{m.common.loadError.orSignOut}</p>
+            <LogoutButton />
+          </div>
+        </section>
+      </main>
     );
   }
   if (status === "checking" || status === "signedOut" || target) {

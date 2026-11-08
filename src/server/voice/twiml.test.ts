@@ -3,7 +3,7 @@ import type { CallSession } from "@/domain/conversation/engine";
 import { escapeXml, sayElement, twimlGather, twimlGoodbye } from "./twiml";
 
 const session: CallSession = {
-  scenario: "worker_report", step: "confirm",
+  scenario: "report_call", step: "confirm",
   turns: [{ speaker: "agent", text: { en: "Say & confirm", ar: "قل نعم" }, at: "2026-01-01T00:00:00.000Z" }],
   replies: [{ id: "yes", value: "yes", label: { en: "Yes", ar: "نعم" } }],
   inputMode: "choices", done: false, startedAt: "2026-01-01T00:00:00.000Z",
@@ -14,6 +14,19 @@ describe("TwiML output", () => {
   it("ends a choice at one key press, and lets a quantity take several", () => {
     expect(twimlGather(session, "en", "/t")).toContain('numDigits="1"');
     expect(twimlGather({ ...session, inputMode: "number" }, "en", "/t")).not.toContain("numDigits");
+    expect(twimlGather({ ...session, inputMode: "number" }, "en", "/t")).toContain('finishOnKey="#"');
+    expect(twimlGather({ ...session, inputMode: "number" }, "en", "/t")).toContain('speechTimeout="2"');
+    expect(twimlGather({ ...session, inputMode: "number" }, "en", "/t")).toContain("then press #");
+    expect(twimlGather({ ...session, inputMode: "number" }, "ar", "/t")).toContain("ثم اضغط #");
+  });
+
+  it("uses the owner's farm wording in spoken Arabic", () => {
+    const farm = { ...session, turns: [{ ...session.turns[0], text: { en: "farm", ar: "وش وضع المزرعة؟" } }] };
+    expect(twimlGather(farm, "ar", "/t")).toContain("وش وضع العزبة؟");
+  });
+
+  it("plays the prompt inside Gather so input during the prompt is kept", () => {
+    expect(twimlGather(session, "ar", "/t")).toMatch(/^<Response><Gather\b[^>]*><Say\b[^>]*>[^<]+<\/Say><\/Gather><\/Response>$/);
   });
 
   it("escapes XML metacharacters in text and attributes", () => {

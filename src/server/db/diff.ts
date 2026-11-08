@@ -1,5 +1,6 @@
 import type { Workspace } from "@/domain/types";
 import { DbError } from "./errors";
+import { toDbId as toDbIdFor } from "./ids";
 import { historyRows } from "./mappers";
 
 export interface FarmChanges {
@@ -9,6 +10,7 @@ export interface FarmChanges {
   pending_worker_calls?: unknown[];
   worker_call_attempts?: unknown[];
   reports?: unknown[];
+  report_call_runs?: unknown[];
   calls?: unknown[];
   report_answers?: unknown[];
   findings?: unknown[];
@@ -35,7 +37,12 @@ function added<T>(before: T[], after: T[], key: (row: T) => string): T[] {
  * domain trims its event list, but history stays in the database. Settings are the owner's
  * and are written through the owner repository, so an action changing them is a bug.
  */
-export function diffWorkspace(before: Workspace, after: Workspace, farmId: string, options: { providerCallId?: string } = {}): FarmChanges {
+export function diffWorkspace(
+  before: Workspace,
+  after: Workspace,
+  farmId: string,
+  options: { providerCallId?: string; reportCallProviderIds?: Record<string, string> } = {},
+): FarmChanges {
   if (!same(before.settings, after.settings)) throw new DbError("invalid_input", "actions must not change settings");
   if (!same(before.camels.map((c) => c.id), after.camels.map((c) => c.id))) {
     throw new DbError("invalid_input", "actions must not add or remove camels");
@@ -53,6 +60,10 @@ export function diffWorkspace(before: Workspace, after: Workspace, farmId: strin
     return a.attempts(call.id, call.attempts.slice(seen));
   });
 
+  const providerIds = new Map(
+    Object.entries(options.reportCallProviderIds ?? {}).map(([runId, sid]) => [toDbIdFor(farmId, runId), sid]),
+  );
+
   const farm: Record<string, string | null> = {};
   if (before.lastUpdateAt !== after.lastUpdateAt) farm.last_update_at = after.lastUpdateAt;
   if (before.ownerAllowanceUsedAt !== after.ownerAllowanceUsedAt) farm.owner_allowance_used_at = after.ownerAllowanceUsedAt;
@@ -65,6 +76,11 @@ export function diffWorkspace(before: Workspace, after: Workspace, farmId: strin
     pending_worker_calls: changed(b.pendingWorkerCalls, a.pendingWorkerCalls, id),
     worker_call_attempts: attempts,
     reports: newReports,
+    // A placed attempt records its provider call id; otherwise the database keeps the one it has.
+    report_call_runs: changed(b.reportCallRuns, a.reportCallRuns, id).map((run) => ({
+      ...run,
+      provider_call_id: providerIds.get(run.id) ?? null,
+    })),
     calls: changed(b.calls, a.calls, id).map((call) =>
       knownCalls.has(call.id) ? call : { ...call, provider_call_id: options.providerCallId ?? null },
     ),

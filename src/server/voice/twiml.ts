@@ -4,11 +4,11 @@ import { voiceConfiguration } from "@/server/env";
 
 /** The sample line answers real phones, so a caller must never think a real farm was updated. */
 export const SAMPLE_CALL_NOTICE = {
-  ar: "هذه مكالمة تجريبية على مزرعة نموذجية، وما تنحفظ إجاباتها. ",
-  en: "This is a sample call on a demo farm. Your answers are not kept. ",
+  ar: "هذي مكالمة تجريبية على عزبة نموذجية، وما تنحفظ إجاباتها. في العزبة الحقيقية ناقة هي اللي تتصل في موعد التقرير. ",
+  en: "This is a sample call on a demo farm. Your answers are not kept. On a real farm, NAQAH calls you at the report time. ",
 } as const;
 export const SAMPLE_CALL_ENDED = {
-  ar: "انتهت المكالمة التجريبية. هذا تحديث نموذجي، ولم يصل إلى أي مزرعة حقيقية.",
+  ar: "انتهت المكالمة التجريبية. هذا تحديث نموذجي، وما وصل لأي عزبة حقيقية.",
   en: "The sample call is finished. This was a demo update and did not reach a real farm.",
 } as const;
 
@@ -32,7 +32,9 @@ export function sayElement(text: string, locale: Locale): string {
 
 export function agentText(session: CallSession, locale: Locale): string {
   const turn = [...session.turns].reverse().find((item) => item.speaker === "agent");
-  const question = turn?.text[locale] ?? (locale === "ar" ? "تفضل، وش تبي تقول؟" : "Go ahead.");
+  const original = turn?.text[locale] ?? (locale === "ar" ? "تفضل، وش تبي تقول؟" : "Go ahead.");
+  const question = locale === "ar" ? original.replace(/المزرعة/g, "العزبة").replace(/مزرعة/g, "عزبة") : original;
+  if (session.inputMode === "number") return `${question} ${locale === "ar" ? "قل العدد، أو اكتبه ثم اضغط #." : "Say the number, or enter it then press #."}`;
   if (session.inputMode !== "choices" || !session.replies.length) return question;
 
   const choices = session.replies.map((reply, index) => {
@@ -50,8 +52,11 @@ export function twimlGather(session: CallSession, locale: Locale, actionUrl: str
   const language = locale === "ar" ? "ar-SA" : "en-US";
   const text = `${prefix}${agentText(session, locale)}`;
   // A quantity needs several keys, so only a choice ends at the first press.
-  const digits = session.inputMode === "choices" ? ' numDigits="1"' : "";
-  return `<Response>${sayElement(text, locale)}<Gather input="speech dtmf" language="${language}" speechTimeout="auto" timeout="6"${digits} action="${escapeXml(actionUrl)}" method="POST" actionOnEmptyResult="true"></Gather></Response>`;
+  const digits = session.inputMode === "choices" ? ' numDigits="1"' : ' finishOnKey="#"';
+  // The prompt plays inside Gather so a key pressed or an answer spoken mid-prompt still counts.
+  // With the prompt before Gather, Twilio drops that input and the call hears nothing.
+  const speechTimeout = session.inputMode === "choices" ? "auto" : "2";
+  return `<Response><Gather input="speech dtmf" language="${language}" speechTimeout="${speechTimeout}" timeout="6"${digits} action="${escapeXml(actionUrl)}" method="POST" actionOnEmptyResult="true">${sayElement(text, locale)}</Gather></Response>`;
 }
 
 export function twimlGoodbye(locale: Locale, text?: string): string {

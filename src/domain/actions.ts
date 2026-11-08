@@ -19,12 +19,14 @@ import type {
 const clone = (ws: Workspace): Workspace => structuredClone(ws);
 const iso = (d: Date) => d.toISOString();
 
-function pushEvent(ws: Workspace, at: Date, tone: EventTone, text: LocalizedText) {
+/** @internal Shared with reportCalls.ts. */
+export function pushEvent(ws: Workspace, at: Date, tone: EventTone, text: LocalizedText) {
   ws.events.push({ id: uid("evt"), at: iso(at), tone, text });
   if (ws.events.length > 200) ws.events.splice(0, ws.events.length - 200);
 }
 
-function pushCall(ws: Workspace, call: Omit<CallLog, "id">): CallLog {
+/** @internal Shared with reportCalls.ts. */
+export function pushCall(ws: Workspace, call: Omit<CallLog, "id">): CallLog {
   const full = { id: uid("call"), ...call };
   ws.calls.push(full);
   return full;
@@ -36,9 +38,12 @@ export function completeWorkerReport(
   input: Workspace,
   now: Date,
   draft: ReportDraft,
+  /** The NAQAH → worker report call this conversation belongs to. Omit for a worker returning a missed call. */
+  reportCallId?: string | null,
 ): { ws: Workspace; report: FarmReport } {
   const ws = clone(input);
   const at = iso(now);
+  const run = reportCallId ? ws.reportCalls?.find((r) => r.id === reportCallId) : undefined;
 
   for (const u of draft.camelUpdates) {
     const c = ws.camels.find((x) => x.id === u.camelId);
@@ -62,11 +67,11 @@ export function completeWorkerReport(
   const findings = evaluateFindings(input, draft);
   const call = pushCall(ws, {
     kind: "worker_report",
-    direction: "inbound",
+    direction: run ? "outbound" : "inbound",
     party: "worker",
     at,
     outcome: "completed",
-    attempt: null,
+    attempt: run ? run.attempts.length || null : null,
     summary: findings.length
       ? { ar: `تحديث مكتمل — ${findings.length} ملاحظة مهمة`, en: `Update completed — ${findings.length} important ${findings.length === 1 ? "finding" : "findings"}` }
       : { ar: "تحديث مكتمل — لا ملاحظات مهمة", en: "Update completed — nothing important flagged" },
@@ -74,12 +79,18 @@ export function completeWorkerReport(
     reportId: null,
   });
   const report: FarmReport = { id: uid("rep"), at, callId: call.id, answers: draft.answers, findings };
+  if (draft.herdCount !== undefined && draft.herdCount !== null) report.herdCountReported = draft.herdCount;
   call.reportId = report.id;
+  // The report is in, whichever way it arrived: no open report call should ring again.
+  for (const r of ws.reportCalls ?? []) {
+    if (r !== run && r.state !== "calling" && r.state !== "answered") continue;
+    Object.assign(r, { state: "completed", nextAttemptAt: null, reportId: report.id });
+  }
   ws.reports.push(report);
   ws.lastUpdateAt = at;
 
   pushEvent(ws, now, "success", {
-    ar: `حُفظ تحديث المزرعة من ${ws.settings.worker.name} (${draft.answers.length} إجابة)`,
+    ar: `حُفظ تحديث العزبة من ${ws.settings.worker.name} (${draft.answers.length} إجابة)`,
     en: `Farm update saved from ${ws.settings.worker.name} (${draft.answers.length} answers)`,
   });
   const closed = draft.taskConfirmations.filter((t) => t.done).length;
@@ -96,11 +107,16 @@ export function completeWorkerReport(
   return { ws, report };
 }
 
-export type RejectReason = "outside_window" | "weekly_done" | "daily_done" | "no_window";
+/**
+ * wait_for_call: the worker called in without a report call to return; NAQAH calls them at the scheduled time.
+ * outside_window / no_window are RETIRED (old worker-calls-in window) and kept only for stored history.
+ */
+export type RejectReason = "wait_for_call" | "weekly_done" | "daily_done" | "outside_window" | "no_window";
 
 export function rejectWorkerReport(input: Workspace, now: Date, reason: RejectReason): Workspace {
   const ws = clone(input);
   const text: Record<RejectReason, LocalizedText> = {
+    wait_for_call: { ar: "ناقة تتصل بالعامل في موعد التقرير", en: "NAQAH calls the worker at the report time" },
     outside_window: { ar: "خارج نافذة التقرير الأسبوعية", en: "Outside the weekly reporting window" },
     weekly_done: { ar: "تقرير هذا الأسبوع مكتمل", en: "This week's report is already complete" },
     daily_done: { ar: "تقرير اليوم مكتمل", en: "Today's report is already complete" },
@@ -143,7 +159,7 @@ export function recordOwnerNotification(input: Workspace, now: Date, reportId: s
   });
   if (answered) {
     if (ws.settings.plan === "basic") ws.ownerAllowanceUsedAt = iso(now);
-    pushEvent(ws, now, "success", { ar: "اتصل المساعد بالمالك وأبلغه بالتحديث", en: "The agent called the owner with the update" });
+    pushEvent(ws, now, "success", { ar: "اتصلت ناقة بالمالك وأبلغته بالتحديث", en: "NAQAH called the owner with the update" });
   } else {
     ws.missedNotificationAt = iso(now);
     pushEvent(ws, now, "neutral", {
@@ -170,7 +186,7 @@ export function recordOwnerInquiry(
     summary:
       mode === "missed_callback"
         ? { ar: "اتصال المالك بعد إشعار فائت", en: "Owner called back after a missed notification" }
-        : { ar: "استفسار المالك عن حالة المزرعة", en: "Owner asked about the farm" },
+        : { ar: "استفسار المالك عن حالة العزبة", en: "Owner asked about the farm" },
     ticketId: null,
     reportId: null,
   });

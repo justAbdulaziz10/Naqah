@@ -47,6 +47,7 @@ export async function POST(request: Request): Promise<Response> {
       seq: Number(seq),
       speech: hook.form.get("SpeechResult") ?? "",
       digits: hook.form.get("Digits"),
+      confidence: hook.form.get("Confidence"),
       now: new Date(),
     }));
   }
@@ -74,7 +75,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const current = replayVoiceState(state);
     if (current.session.done) return hangUpWithCurrentTurn(current.session, state.l);
-    const input = mapSpeechToInput(current.session, form.get("SpeechResult") ?? "", form.get("Digits"), state.l);
+    const input = mapSpeechToInput(current.session, form.get("SpeechResult") ?? "", form.get("Digits"), state.l, form.get("Confidence"));
 
     if (!input) {
       const misses = trailingMissCount(state.a);
@@ -100,7 +101,7 @@ export async function POST(request: Request): Promise<Response> {
       const workspace = next.replay.workspace;
       const latestReport = workspace.reports[workspace.reports.length - 1];
       const latestCall = workspace.calls[workspace.calls.length - 1];
-      if (state.sc === "worker_report" && latestCall?.kind === "worker_report" && latestCall.at === new Date(state.t).toISOString() && latestReport) {
+      if (state.sc === "report_call" && latestCall?.kind === "worker_report" && latestCall.at === new Date(state.t).toISOString() && latestReport) {
         if (signature.verified) await scheduleOwnerSummary(latestReport, state.l);
         else console.info("owner summary skipped: unsigned webhook");
       }

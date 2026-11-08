@@ -1,11 +1,10 @@
 # Supabase backend foundation
 
-Status: code exists in main; readiness fixes are locally validated separately from activation. The latest team
-report (issue #6) says the existing Supabase project contains Auth test users but no NAQAH application migrations.
-This readiness phase does not inspect or mutate live data, apply migrations, configure accounts, merge or deploy.
-Until the exact build-time `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` is set, everyone stays on the browser demo and
-`/api/account` returns 404 without reading or writing farm data. The voice routes use
-this code only when `NAQAH_VOICE_MODE=farm`; see `twilio-activation.md`.
+Status (2026-11-08): migrations **0001–0006 are applied** to the live project `ydsgmzxqjimwbamnksxe`. 0001–0005 were
+verified to match these files exactly (normalized statement hashes); 0006 was applied from this repository after the
+owner approved it, and is recorded live as `20261107213717_owner_flow`. Account mode is still opt-in: until the exact
+build-time `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` is set, everyone stays on the browser demo and `/api/account` returns
+404. The voice routes use this code only when `NAQAH_VOICE_MODE=farm`; see `twilio-activation.md`.
 
 Target project: `ydsgmzxqjimwbamnksxe`. Never apply this to any other project.
 
@@ -52,7 +51,17 @@ the farm mid-call. It holds the dialogue position and the structured draft, neve
 `0005_custom_question_retry.sql` corrects the BEFORE INSERT limit for `ON CONFLICT(id)` retries: count other
 question ids within the same farm, under the existing farm-row lock. Repeating the fifth question succeeds;
 a distinct sixth is refused. Invoker security, immutable parents, grants and RLS are unchanged.
-The complete sequence is **0001 → 0002 → 0003 → 0004 → 0005**; do not edit old migrations to absorb fixes.
+`0006_owner_flow.sql` is the owner flow: `farms.call_day/call_time` (NAQAH calls the worker; Basic weekly, Ultimate
+daily, Asia/Riyadh), `farms.herd_count` + `herd_count_reviewed_at` (official count; a worker's count is a proposal kept
+on `reports.herd_count_reported`), several workers per farm (Basic 3, Ultimate 10, trigger `workers_limit`; the one
+NAQAH calls is `farms.primary_worker_id`, cleared if that worker is deleted), `report_call_runs` (one row per
+scheduled slot, unique `(farm_id, occurrence)`, service-written, owner-readable), the `worker_report_missed` call
+kind, and `apply_farm_changes` saving those rows. The retired reporting window columns stay so old rows load.
+The complete sequence is **0001 → 0002 → 0003 → 0004 → 0005 → 0006**; do not edit old migrations to absorb fixes.
+
+Local proof without Docker: `supabase/local-validation/run-foundation.sh` (0002 + 0006 checks, isolation, races,
+domain round trip including a report call) and `run-stack.sh` (Postgres + PostgREST + mock Auth) with
+`src/server/farm/owner-flow.stack.test.ts` (an owner's setup saved and reloaded under RLS).
 
 `apply_farm_changes` is the only function in `public`. It is SECURITY INVOKER and only
 `service_role` can run it. `voice_events` and `voice_call_sessions` have RLS on with no policy, so
@@ -147,6 +156,11 @@ requests or disable `NAQAH_VOICE_MODE=farm`/service jobs. Those require separate
       farms, which blocks that worker's calls; an unclaimed number can be squatted. Fine for a
       closed test, not for open sign-up. Needs service-only verified columns, and `findCaller`
       matching verified numbers only.
+      Seen on live (2026-11-08): two QA farms saved the same worker number. It affects inbound
+      routing only (`findCaller` treats the caller as unknown); outbound report calls still go to
+      each farm's own stored number. Decision: no global unique index on `workers.phone` for now.
+      Until verification exists, consider telling the owner when a saved number is already
+      registered elsewhere, without revealing the other farm.
 - [ ] Unregistered callers (open decision 4), and instructions during inquiry calls (6).
 - [ ] Whether, and how often, an unconfirmed task is called about again. Today it gets one
       automatic call, then is asked about during the worker's own calls.

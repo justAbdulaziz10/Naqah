@@ -10,7 +10,7 @@ function workspace(): Workspace {
     settings: {
       plan: "ultimate",
       owner: { name: "Owner", phone: "0500000000" },
-      farm: { name: "مزرعة النخيل", location: "" },
+      farm: { name: "عزبة النخيل", location: "" },
       worker: { name: "سالم", phone: "٠٥١٢٣٤٥٦٧٨", language: "ar" },
       customQuestions: [],
       criteria: [],
@@ -68,7 +68,7 @@ describe("WhatsApp links", () => {
   it("includes farm, low resources, quantities, and supplier in the order text", () => {
     const text = supplierOrderText(workspace(), "ar", ["feed", "water"]);
     expect(text).toContain("مؤسسة النخيل");
-    expect(text).toContain("مزرعة النخيل");
+    expect(text).toContain("عزبة النخيل");
     expect(text).toContain("العلف: 12 كيس");
     expect(text).toContain("الماء: الكمية غير محددة");
     expect(text).not.toContain("المستلزمات البيطرية");

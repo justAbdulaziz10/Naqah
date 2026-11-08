@@ -24,12 +24,10 @@ import {
   atRiyadhTime,
   HOUR,
   MINUTE,
-  nextWindowStart,
   setClockTo,
   type Workspace,
 } from "@/domain";
-import { isValidWindow } from "@/domain/clock";
-import { start, answer, hangUp, scenarioAvailability, type AnswerInput, type CallSession, type Scenario } from "@/domain/conversation/engine";
+import { start, answer, hangUp, isReportScenario, scenarioAvailability, type AnswerInput, type CallSession, type Scenario } from "@/domain/conversation/engine";
 import { makePersonalizer, personalizeTree } from "@/domain/conversation/personalize";
 import { heatLevel, weatherForToday, withDemoHeat } from "@/domain/weather";
 import { useI18n } from "@/i18n/client";
@@ -39,9 +37,9 @@ import { CamelMark } from "@/components/brand/CamelMark";
 import { cn } from "@/lib/cn";
 import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
 
-type PickerScenario = "worker_report" | "worker_outbound" | "owner_inquiry" | "emergency";
+type PickerScenario = "report_call" | "worker_inbound" | "worker_outbound" | "owner_inquiry" | "emergency";
 
-const PICKER_SCENARIOS: PickerScenario[] = ["worker_report", "worker_outbound", "owner_inquiry", "emergency"];
+const PICKER_SCENARIOS: PickerScenario[] = ["report_call", "worker_inbound", "worker_outbound", "owner_inquiry", "emergency"];
 const subscribeNothing = () => () => {};
 const voiceAvailable = () => typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
 const reducedMotionPreference = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -73,8 +71,10 @@ function healthTone(status: keyof typeof HEALTH_LABELS) {
 
 function scenarioMessageKey(scenario: PickerScenario) {
   switch (scenario) {
-    case "worker_report":
-      return "workerReport";
+    case "report_call":
+      return "reportCall";
+    case "worker_inbound":
+      return "workerInbound";
     case "worker_outbound":
       return "workerOutbound";
     case "owner_inquiry":
@@ -92,39 +92,39 @@ function availabilityCopy(
   fmt: ReturnType<typeof useI18n>["fmt"],
   m: ReturnType<typeof useI18n>["m"],
 ): { text: string; tone: "ok" | "warn" | "danger" | "info" | "neutral"; jump: boolean; enabled: boolean; time?: string } {
-  if (scenario === "worker_report") {
-    const route = availability.workerReport;
-    if (route.kind === "callback") {
-      return { text: m.lab.availability.callbackFirst, tone: "info", jump: false, enabled: true };
+  if (scenario === "report_call") {
+    const { block, active, due, next } = availability.reportCall;
+    if (active?.state === "answered") return { text: m.lab.availability.reportInConversation, tone: "info", jump: false, enabled: true };
+    if (active) {
+      const retryAt = active.attempts.at(-1)?.result === "pending" || !active.nextAttemptAt ? null : new Date(active.nextAttemptAt);
+      return retryAt && retryAt.getTime() > now.getTime()
+        ? { text: m.lab.availability.reportRetry, tone: "warn", jump: false, enabled: true, time: fmt.dateTime(retryAt) }
+        : { text: m.lab.availability.reportRinging, tone: "info", jump: false, enabled: true };
     }
-    if (route.kind === "report") {
+    if (block === "no_worker_phone") return { text: m.lab.availability.noWorkerPhone, tone: "warn", jump: false, enabled: false };
+    if (block === "already_reported") {
       return {
-        text: ws.settings.plan === "basic" ? m.lab.availability.insideWindow : m.lab.availability.ready,
-        tone: "ok",
+        text: ws.settings.plan === "basic" ? m.lab.availability.weekComplete : m.lab.availability.dayComplete,
+        tone: "neutral",
         jump: false,
-        enabled: true,
+        enabled: false,
       };
     }
-    if (route.reason === "outside_window" && ws.settings.window) {
-      const next = nextWindowStart(now, ws.settings.window);
-      return {
-        text: m.lab.availability.outsideWindow,
-        tone: "warn",
-        jump: true,
-        enabled: true,
-        time: fmt.dateTime(next),
-      };
+    if (due) return { text: m.lab.availability.reportDue, tone: "ok", jump: false, enabled: true };
+    if (next) return { text: m.lab.availability.reportNext, tone: "info", jump: true, enabled: true, time: fmt.dateTime(next) };
+    return { text: m.lab.availability.reportNoSchedule, tone: "neutral", jump: false, enabled: true };
+  }
+  if (scenario === "worker_inbound") {
+    const route = availability.workerInbound;
+    if (route.kind === "callback") return { text: m.lab.availability.callbackFirst, tone: "info", jump: false, enabled: true };
+    if (route.kind === "report") return { text: m.lab.availability.returningMissed, tone: "ok", jump: false, enabled: true };
+    if (route.reason === "weekly_done" || route.reason === "daily_done") {
+      return { text: route.reason === "weekly_done" ? m.lab.availability.weekComplete : m.lab.availability.dayComplete, tone: "neutral", jump: false, enabled: true };
     }
-    return {
-      text: route.reason === "weekly_done"
-        ? m.lab.availability.weekComplete
-        : route.reason === "daily_done"
-          ? m.lab.availability.dayComplete
-          : m.lab.availability.noWindow,
-      tone: "warn",
-      jump: false,
-      enabled: true,
-    };
+    const next = availability.reportCall.next;
+    return next
+      ? { text: m.lab.availability.waitForCall, tone: "neutral", jump: false, enabled: true, time: fmt.dateTime(next) }
+      : { text: m.lab.availability.waitNoSchedule, tone: "neutral", jump: false, enabled: true };
   }
   if (scenario === "owner_inquiry") {
     return availability.ownerInquiry.kind === "inquiry"
@@ -156,7 +156,10 @@ function availabilityCopy(
 
 function callerFor(session: CallSession | null, selected: PickerScenario, ws: Workspace, m: ReturnType<typeof useI18n>["m"]) {
   const scenario = session?.scenario ?? selected;
-  if (scenario === "worker_report" || scenario === "worker_callback") {
+  if (scenario === "report_call") {
+    return { name: m.lab.phone.agentName, subtitle: m.lab.phone.simulation + " · " + m.lab.phone.callingWorker(ws.settings.worker.name), naqah: true };
+  }
+  if (scenario === "worker_inbound" || scenario === "worker_callback") {
     return { name: ws.settings.worker.name, subtitle: ws.settings.worker.phone, naqah: false };
   }
   if (scenario === "owner_inquiry") {
@@ -429,7 +432,7 @@ function PhoneStage({
         <div className={cn("flex flex-wrap items-center gap-2", session?.replies.length || showTextInput ? "mt-4" : "")}>
           {!session ? (
             <Button onClick={onStart} size="lg" className="w-full" disabled={Boolean(blockedReason)}>
-              {m.lab.phone.start}
+              {selected === "report_call" ? m.lab.phone.startReportCall + " · " + m.lab.phone.simulation : m.lab.phone.start}
             </Button>
           ) : !session.done && session.scenario !== "emergency" ? (
             <Button variant="danger" onClick={onEnd} className="w-full sm:w-auto">
@@ -643,7 +646,7 @@ interface LabCallState {
 }
 
 const useLabCall = create<LabCallState>()((set) => ({
-  selected: "worker_report",
+  selected: "report_call",
   session: null,
   workspaceKey: null,
   baseline: [],
@@ -715,12 +718,10 @@ export function LabPage() {
     update((current) => setClockTo(current, target));
   }
 
-  function jumpToWindow() {
-    const current = useWorkspaceStore.getState().workspace;
-    if (!current?.settings.window || !isValidWindow(current.settings.window)) return;
-    const startAt = nextWindowStart(now, current.settings.window);
-    const target = new Date(startAt.getTime() + 5 * MINUTE);
-    update((current) => setClockTo(current, target));
+  /** Move the demo clock to the next scheduled report call, so it is due. */
+  function jumpToCall() {
+    const next = availability?.reportCall.next;
+    if (next) update((current) => setClockTo(current, next));
   }
 
   const availabilityTone = selectedAvailability.tone;
@@ -728,20 +729,19 @@ export function LabPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-[-0.025em] text-espresso">{m.lab.title}</h1>
-        <p className="max-w-2xl text-sm leading-relaxed text-muted sm:text-base">{m.lab.subtitle}</p>
-        <div className="max-w-2xl text-sm leading-relaxed text-muted">
-          <p>{m.lab.planNote[ws.settings.plan]}</p>
+      <header className="flex flex-col gap-1">
+        <h1 className="text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-espresso sm:text-[2.5rem]">{m.lab.title}</h1>
+        <p className="max-w-2xl text-sm leading-relaxed text-muted">
+          {m.lab.subtitle}{" "}
           <Link href={`${href("/app/settings")}#settings-plan`} className="inline-flex min-h-11 items-center font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
             {m.lab.comparePlans}
           </Link>
-        </div>
+        </p>
       </header>
 
       <section aria-label={m.lab.title} className="space-y-3">
         {/* Every call type stays in view: a 2×2 choice on phones, the underlined row on wide screens. */}
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-6 lg:border-b lg:border-stone">
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-5 lg:gap-6 lg:border-b lg:border-stone">
           {PICKER_SCENARIOS.map((scenario) => {
             const key = scenarioMessageKey(scenario);
             const current = selected === scenario;
@@ -770,15 +770,15 @@ export function LabPage() {
 
         <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-2.5">
-            <Badge tone={availabilityTone} dot>{m.lab.availability.label}</Badge>
+            <span className="shrink-0 whitespace-nowrap"><Badge tone={availabilityTone} dot>{m.lab.availability.label}</Badge></span>
             <p className="pt-0.5 text-sm leading-relaxed text-muted">
               {selectedAvailability.text}
               {selectedAvailability.time ? <> <bdi className="ltr-nums">{selectedAvailability.time}</bdi></> : null}
             </p>
           </div>
           {selectedAvailability.jump ? (
-            <Button variant="secondary" size="sm" onClick={jumpToWindow} className="min-h-11">
-              {m.lab.availability.jumpToWindow}
+            <Button variant="secondary" size="sm" onClick={jumpToCall} className="min-h-11">
+              {m.lab.availability.jumpToCall}
             </Button>
           ) : null}
         </div>
@@ -796,9 +796,6 @@ export function LabPage() {
           <Button variant="secondary" size="sm" className="min-h-11" onClick={() => advance(20 * MINUTE)}>{m.lab.clock.plus20}</Button>
           <Button variant="secondary" size="sm" className="min-h-11" onClick={() => advance(HOUR)}>{m.lab.clock.plusHour}</Button>
           <Button variant="secondary" size="sm" className="min-h-11" onClick={jumpNextDay}>{m.lab.clock.nextDay}</Button>
-          {ws.settings.plan === "basic" && ws.settings.window && isValidWindow(ws.settings.window) ? (
-            <Button variant="secondary" size="sm" className="min-h-11" onClick={jumpToWindow}>{m.lab.clock.jumpWindow}</Button>
-          ) : null}
           {ws.settings.farm.coords && heatLevel(weatherForToday(ws, now)?.maxTempC ?? 0) === "none" ? (
             <Button variant="secondary" size="sm" className="min-h-11" onClick={() => update((current) => withDemoHeat(current, now))}>{m.integrations.weather.simulateHeatDay}</Button>
           ) : null}
@@ -828,7 +825,7 @@ export function LabPage() {
               onEnd={finish}
             />
           )}
-          {session?.next && session.scenario === "worker_report" ? (
+          {session?.next && isReportScenario(session.scenario) ? (
             <Card className="flex flex-col gap-3 border-brown/30 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <h2 className="font-bold">{m.lab.transition.title}</h2>

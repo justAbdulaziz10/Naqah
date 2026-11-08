@@ -5,6 +5,7 @@ import { farmVoiceMissing, voiceLocale } from "@/server/env";
 import { checkTwilioWebhookSignature } from "@/server/twilio/signature";
 import { SAVE_FAILED } from "./farm-call";
 import { twimlGoodbye, twimlResponse } from "./twiml";
+import { preflightResponse } from "./preflight";
 
 // Twilio stops waiting at 15 seconds, so the caller must hear an honest failure before that.
 const WEBHOOK_LIMIT_MS = 12_000;
@@ -25,6 +26,7 @@ export async function farmWebhook(request: Request): Promise<FarmWebhook | Respo
   }
   const form = new URLSearchParams(await request.text());
   if (!checkTwilioWebhookSignature(request, form).verified) return twimlResponse(twimlGoodbye(locale), 403);
+  if (new URL(request.url).searchParams.get("preflight") === "1") return preflightResponse();
   const callSid = form.get("CallSid") ?? "";
   if (!CALL_SID.test(callSid)) return twimlResponse(twimlGoodbye(locale), 400);
   return { client, form, callSid };

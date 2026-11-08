@@ -1,3 +1,4 @@
+import { isHerdCount } from "@/domain/herd";
 import type { HealthStatus, Level, ResourceKind } from "@/domain/types";
 import { RESOURCE_KINDS } from "@/domain/catalog";
 
@@ -37,6 +38,7 @@ export const interpretationSchema = {
           unknown: { type: "boolean", description: "True for ما أدري or I don't know." },
           text: { type: "string", description: "The speaker's words for this fact." },
           allOthersHealthy: { type: "boolean", description: "True only when the speaker says the other camels are well." },
+          herdCount: { type: "integer", description: "Camels the worker counted for herd_count. Omit otherwise. Never an official owner count." },
         },
       },
     },
@@ -73,6 +75,7 @@ export interface ParsedFact {
   unknown: boolean;
   text: string;
   allOthersHealthy: boolean;
+  herdCount: number | null;
 }
 
 export interface ParsedInstruction {
@@ -117,6 +120,7 @@ function fact(value: unknown): ParsedFact | null {
     unknown: input.unknown === true,
     text: typeof input.text === "string" ? input.text.slice(0, 500) : "",
     allOthersHealthy: input.allOthersHealthy === true,
+    herdCount: isHerdCount(input.herdCount) ? input.herdCount : null,
   };
 }
 

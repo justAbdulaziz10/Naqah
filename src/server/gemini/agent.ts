@@ -2,7 +2,8 @@ import type { InstructionInput } from "@/domain/actions";
 import { dayKey, fromRiyadh, HOUR, riyadhParts } from "@/domain/clock";
 import type { ReportDraft } from "@/domain/findings";
 import { ownerBriefing } from "@/domain/findings";
-import { applicableQuestions, openTaskTickets, overdueScheduledTasks, routeWorkerInboundCall, taskTicketsEnabled } from "@/domain/rules";
+import { isHerdCount } from "@/domain/herd";
+import { applicableQuestions, openTaskTickets, overdueScheduledTasks, reportDoneThisPeriod, routeWorkerInboundCall, taskTicketsEnabled } from "@/domain/rules";
 import type { HealthStatus, Locale, ResourceKind, WorkerLanguage, Workspace } from "@/domain/types";
 import { voiceStep, type VoiceEvent } from "@/server/voice/contract";
 import { GeminiError, type GeminiClient, type GeminiFailure } from "./client";
@@ -27,6 +28,8 @@ export interface AgentState {
   camelCandidate: { name: string; camelId: string; health: HealthStatus; note: string | null } | null;
   instructions: DraftInstruction[];
   focus: string | null;
+  /** Answered NAQAH → worker report call this conversation belongs to. */
+  reportCallId?: string;
   closed: boolean;
   outcome: "pending" | "saved" | "rejected" | "queued" | "unconfirmed" | "failed" | "uncertain" | "unchanged";
 }
@@ -80,7 +83,7 @@ function questions(ws: Workspace, now: Date, scenario: AgentScenario = "worker_r
     return items;
   }
   for (const question of applicableQuestions(ws)) {
-    if (question.id === "herd_count" && ws.camels.length === 0) continue;
+    if (question.id === "herd_count" && !isHerdCount(ws.settings.herdCount) && ws.camels.length === 0) continue;
     items.push({ id: question.id, en: question.text.en, ar: question.text.ar });
   }
   for (const question of ws.settings.customQuestions) items.push({ id: question.id, en: question.text, ar: question.text });
@@ -199,6 +202,7 @@ function promptFor(ws: Workspace, now: Date, state: AgentState, transcript: stri
     "A bag or tank amount is quantity, not a level. تمام, fine, plenty, and sufficient are level good.",
     "ما أدري or I don't know is intent unknown, or a fact with unknown true.",
     "A changed amount is intent correction and replaces only that fact.",
+    "herd_count is the number of camels the worker counted. Put it in herdCount. It does not change the owner's official count.",
     "A camel name must be one the speaker said. Use the registered spelling when it matches. Never invent a camel or a task id.",
     "taskDone is true only when the speaker explicitly finishes that T number. Unknown is not done.",
     "Set confirmation only when the stage is waiting for yes or no and the utterance is that answer. Otherwise omit it.",
@@ -319,7 +323,10 @@ function applyFact(ws: Workspace, now: Date, state: AgentState, fact: ParsedFact
     return;
   }
   if (questionId === "herd_count") {
-    state.draft.herdAccountedFor = fact.text.toLowerCase().includes("not") ? false : true;
+    const count = isHerdCount(fact.herdCount) ? fact.herdCount : null;
+    const official = isHerdCount(ws.settings.herdCount) ? ws.settings.herdCount : ws.camels.length || null;
+    state.draft.herdCount = fact.unknown ? null : count;
+    state.draft.herdAccountedFor = fact.unknown || count === null || official === null ? null : count >= official;
   }
   state.draft.answers = state.draft.answers.filter((answer) => answer.questionId !== questionId);
   state.draft.answers.push({
@@ -389,7 +396,7 @@ function contradictory(facts: ParsedFact[]) {
   return sick && allWell;
 }
 
-export function openAgentCall(workspace: Workspace, now: Date, scenario: AgentScenario, locale: Locale = "ar"): AgentResult {
+export function openAgentCall(workspace: Workspace, now: Date, scenario: AgentScenario, locale: Locale = "ar", reportCallId?: string): AgentResult {
   if (scenario === "owner_inquiry") {
     const state = baseState(scenario, locale);
     const step = voiceStep(workspace, now, { ...eventBase(`agent:inquiry:${dayKey(now)}`), type: "owner_inquiry" });
@@ -417,6 +424,22 @@ export function openAgentCall(workspace: Workspace, now: Date, scenario: AgentSc
   const route = routeWorkerInboundCall(workspace, now);
   const language = workspace.settings.worker.language;
   const state = baseState(route.kind === "callback" ? "worker_callback" : scenario, language);
+  if (reportCallId) {
+    const run = workspace.reportCalls?.find((item) => item.id === reportCallId);
+    if (!run || run.state !== "answered") {
+      return result(workspace, { ...state, stage: "closed", closed: true, outcome: "rejected" }, speak(language,
+        "This report call is no longer active.",
+        "مكالمة التقرير هذه انتهت.",
+      ));
+    }
+    if (reportDoneThisPeriod(workspace, now)) {
+      const done = workspace.settings.plan === "basic"
+        ? ["We have already received this week’s update.", "وصلنا تحديث هذا الأسبوع."]
+        : ["We have already received today’s update.", "وصلنا تحديث اليوم."];
+      return result(workspace, { ...state, stage: "closed", closed: true, outcome: "rejected" }, speak(language, done[0], done[1]));
+    }
+    return askNext(workspace, now, { ...state, reportCallId }, speak(language, "This is NAQAH, an automated assistant, calling for the farm report. ", "أنا ناقة، مساعد آلي، أتصل عشان تقرير العزبة. "));
+  }
   if (route.kind === "callback") {
     const messages = workspace.noAnswerTickets.filter((ticket) => ticket.status === "open").map((ticket) => ticket.message).join(" ");
     return result(workspace, { ...state, stage: "callback" }, speak(language,
@@ -430,9 +453,7 @@ export function openAgentCall(workspace: Workspace, now: Date, scenario: AgentSc
       ? ["We have already received this week’s update.", "وصلنا تحديث هذا الأسبوع."]
       : route.reason === "daily_done"
         ? ["We have already received today’s update.", "وصلنا تحديث اليوم."]
-        : route.reason === "no_window"
-          ? ["A weekly reporting window has not been set yet.", "نافذة التقرير الأسبوعية غير محددة."]
-          : ["The weekly reporting window is closed.", "نافذة التقرير الأسبوعية مقفلة."];
+        : ["NAQAH calls at the scheduled report time. This call is not the report.", "ناقة تتصل في موعد التقرير. هذه المكالمة ليست التقرير."];
     return result(step.ws, { ...state, stage: "closed", closed: true, outcome: "rejected" }, speak(language, reason[0], reason[1]));
   }
   const opened = askNext(workspace, now, state, speak(language, "This is NAQAH, an automated assistant. ", "أنا ناقة، مساعد آلي. "));
@@ -587,7 +608,12 @@ export async function agentTurn(
       if (count > 2) return result(workspace, { ...state, stage: "closed", closed: true, outcome: "unconfirmed" }, speak(state.language, "I did not save the update, because it was not confirmed.", "ما حفظت التحديث، لأنه ما تأكد."), prompt);
       return result(workspace, { ...state, clarify: { ...state.clarify, summary: count } }, speak(state.language, "Please confirm the summary with a clear yes, or say what to change.", "أكد الملخص بنعم واضحة، أو قل ما الذي يتغير."), prompt);
     }
-    const saved = await commit(workspace, now, { ...eventBase(`agent:report:${dayKey(now)}`), type: "worker_report", draft: state.draft }, save);
+    const saved = await commit(workspace, now, {
+      ...eventBase(`agent:report:${state.reportCallId ?? dayKey(now)}`),
+      type: "worker_report",
+      draft: state.draft,
+      ...(state.reportCallId ? { reportCallId: state.reportCallId } : {}),
+    }, save);
     if (saved.status === "uncertain") return result(workspace, { ...state, outcome: "uncertain" }, speak(state.language, "I could not confirm whether the update was saved.", "ما قدرت أتأكد هل حُفظ التحديث."), prompt);
     if (saved.status === "rejected") return result(saved.workspace, { ...state, stage: "closed", closed: true, outcome: "rejected" }, speak(state.language, "The update was not saved.", "ما انحفظ التحديث."), prompt);
     return result(saved.workspace, { ...state, stage: "closed", closed: true, outcome: saved.status }, speak(state.language, "Saved, thank you. The update is ready for the owner. The call to him has not started.", "تم حفظ التحديث، شكراً لك. التحديث جاهز للمالك، ومكالمته لم تبدأ بعد."), prompt);
@@ -602,7 +628,7 @@ export async function agentTurn(
     const count = (state.clarify[key] ?? 0) + 1;
     if (count > 2 && state.focus && !state.focus.startsWith("task:")) {
       const next = structuredClone(state);
-      applyFact(workspace, now, next, { questionId: state.focus, resource: null, level: null, quantity: null, camelName: null, health: null, taskIndex: null, taskDone: null, explicit: false, unknown: true, text: "", allOthersHealthy: false });
+      applyFact(workspace, now, next, { questionId: state.focus, resource: null, level: null, quantity: null, camelName: null, health: null, taskIndex: null, taskDone: null, explicit: false, unknown: true, text: "", allOthersHealthy: false, herdCount: null });
       next.clarify = { ...state.clarify, [key]: count };
       return { ...askNext(workspace, now, next), prompt };
     }
@@ -615,7 +641,7 @@ export async function agentTurn(
       return { ...askNext(workspace, now, next), prompt };
     }
     const next = structuredClone(state);
-    if (state.focus) applyFact(workspace, now, next, { questionId: state.focus, resource: null, level: null, quantity: null, camelName: null, health: null, taskIndex: null, taskDone: null, explicit: false, unknown: true, text: "I don't know", allOthersHealthy: false });
+    if (state.focus) applyFact(workspace, now, next, { questionId: state.focus, resource: null, level: null, quantity: null, camelName: null, health: null, taskIndex: null, taskDone: null, explicit: false, unknown: true, text: "I don't know", allOthersHealthy: false, herdCount: null });
     return { ...askNext(workspace, now, next), prompt };
   }
 

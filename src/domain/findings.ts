@@ -20,6 +20,8 @@ export interface ReportDraft {
   herdAccountedFor: boolean | null;
   /** Ultimate: answers about open task tickets asked during this interaction. */
   taskConfirmations: { taskId: string; done: boolean }[];
+  /** Camels the worker counted, when asked. A proposal for the owner, never written to the official count. */
+  herdCount?: number | null;
   /** Findings raised directly by the conversation (e.g. the heat-day water check), not by a criterion. */
   extraFindings?: Finding[];
 }

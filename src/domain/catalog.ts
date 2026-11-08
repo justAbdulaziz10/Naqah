@@ -183,6 +183,6 @@ export const WEEKDAY_LABELS: LocalizedText[] = [
 ];
 
 export const PLAN_LIMITS = {
-  basic: { customQuestions: 5, reports: "weekly", ownerCalls: 1, taskTickets: false },
-  ultimate: { customQuestions: Infinity, reports: "daily", ownerCalls: Infinity, taskTickets: true },
+  basic: { customQuestions: 5, workers: 3, reports: "weekly", ownerCalls: 1, taskTickets: false },
+  ultimate: { customQuestions: Infinity, workers: 10, reports: "daily", ownerCalls: Infinity, taskTickets: true },
 } as const;

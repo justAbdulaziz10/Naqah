@@ -1,29 +1,31 @@
-import { AuthNavigation } from '@/components/auth/AuthNavigation';
+import { AuthNavigation } from "@/components/auth/AuthNavigation";
 import { ArrowUpRight } from "@phosphor-icons/react/dist/ssr";
+import type { CSSProperties } from "react";
 import type { Locale } from "@/domain/types";
 import { CamelMark } from "@/components/brand/CamelMark";
 import { Logo } from "@/components/brand/Logo";
-import { WovenFragment, WovenFrame, WovenSignature } from "@/components/heritage/Woven";
+import { ACCOUNT_DATA } from "@/components/entry/paths";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
-import { SetupLink } from "@/components/welcome/WelcomeActions";
+import { REPORT_CALL_RETRIES, RETRY_DELAY_MS } from "@/domain/clock";
 import { getMessages } from "@/i18n/messages";
-import { CamelColours } from "./CamelColours";
+import { CallStory } from "./CallStory";
 import { EstatePhoto } from "./EstatePhoto";
-import { JourneyScene } from "./JourneyScene";
-import { DemoAction, MobileNavigation, OwnerCall } from "./LandingActions";
-import { LiveTranscript } from "./LiveTranscript";
+import { EntryActions } from "./EntryActionsServer";
+import { EveningRail } from "./EveningRail";
+import { MobileNavigation } from "./LandingActions";
 import { MotionRoot } from "./MotionRoot";
-import { LANDING_PHOTOS } from "./photos";
-import { WovenIntro } from "./WovenIntro";
+import { PlanWeeks } from "./PlanWeeks";
+import { LANDING_PHOTOS, type LandingPhotoId } from "./photos";
+import "./landing.css";
 
-const planRows = ["cadence", "questions", "update", "calls", "tickets"] as const;
-const plans = ["basic", "ultimate"] as const;
+/** The photographs this page shows, in order; only these are credited. */
+const shown: LandingPhotoId[] = ["hero", "evening", "heritage", "closing"];
 
 /** One pair of page margins, used by every section. */
 const frame = "mx-auto w-full max-w-[1360px] px-5 sm:px-8 lg:px-12";
 /** Arabic display type needs open leading and no negative tracking. */
-const arabicDisplay = "[html[lang=ar]_&]:leading-[1.25] [html[lang=ar]_&]:tracking-normal";
-const sectionTitle = `text-balance text-[clamp(2.25rem,4vw,4rem)] font-semibold leading-[1.08] tracking-[-0.025em] ${arabicDisplay}`;
+const arabicDisplay = "[html[lang=ar]_&]:leading-[1.3] [html[lang=ar]_&]:tracking-normal";
+const sectionTitle = `text-balance text-[clamp(2.125rem,4.2vw,4rem)] font-semibold leading-[1.08] tracking-[-0.025em] ${arabicDisplay}`;
 const textLink =
   "inline-flex min-h-11 items-center font-semibold underline decoration-1 underline-offset-[6px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current";
 const flat = "shadow-none!";
@@ -32,12 +34,31 @@ function Arrow({ size = 18 }: { size?: number }) {
   return <ArrowUpRight size={size} weight="regular" className="rtl:-scale-x-100" aria-hidden="true" />;
 }
 
-/** A stage of the evening call: a bold run-in carries the order, no numbering. */
-function Stage({ lead, body, className, delay = 0 }: { lead: string; body: string; className?: string; delay?: number }) {
+/** A missed report call on the product's time line: the call, its retries (rings), then the dashboard. Counts come from the rules. */
+function RetryRail({ locale }: { locale: Locale }) {
+  const { retry } = getMessages(locale).landing.principles;
+  const minutes = RETRY_DELAY_MS / 60_000;
+  const start = 17 * 60 + 40; // The sample evening's call time.
+  const tries = Array.from({ length: REPORT_CALL_RETRIES + 1 }, (_, index) => {
+    const at = start + index * minutes;
+    return `${Math.floor(at / 60)}:${String(at % 60).padStart(2, "0")}`;
+  });
   return (
-    <p data-reveal="" data-reveal-delay={delay} className={`max-w-[36ch] text-[1.0625rem] leading-[1.7] text-espresso ${className ?? ""}`}>
-      <strong className="font-semibold">{lead}</strong> {body}
-    </p>
+    <div role="img" aria-label={retry.label(REPORT_CALL_RETRIES, minutes)} className="mb-7 mt-4 flex max-w-sm items-center pe-2">
+      {tries.map((time, index) => (
+        <span key={time} className="flex flex-1 items-center">
+          <span className={`relative flex flex-col ${index ? "items-center" : "items-start"}`}>
+            <span aria-hidden className={`size-3 rounded-full border-2 ${index ? "border-sand bg-espresso" : "border-sand bg-sand"}`} />
+            <span aria-hidden className={`ltr-nums absolute top-5 text-[0.8125rem] tabular-nums text-cream/70 ${index ? "" : "start-0"}`}>{time}</span>
+          </span>
+          <span aria-hidden className="h-0 flex-1 border-t-2 border-dashed border-sand/50" />
+        </span>
+      ))}
+      <span aria-hidden className="relative flex flex-col items-end">
+        <span className="size-3 rounded-full bg-gold" />
+        <span className="absolute end-0 top-5 whitespace-nowrap text-[0.8125rem] font-semibold text-gold">{retry.flagged}</span>
+      </span>
+    </div>
   );
 }
 
@@ -49,12 +70,10 @@ export function LandingPage({ locale }: { locale: Locale }) {
     { href: "#principles", label: landing.nav.principles },
     { href: "#plans", label: landing.nav.plans },
   ];
-  const [arrive, ask, callBack] = landing.story.stages;
-  const credits = Object.values(LANDING_PHOTOS).flatMap((photo) => (photo ? [photo.credit] : []));
+  const credits = shown.flatMap((id) => (LANDING_PHOTOS[id] ? [LANDING_PHOTOS[id].credit] : []));
 
   return (
     <div className="min-h-svh overflow-x-clip bg-ivory text-espresso">
-      <WovenIntro skipLabel={landing.intro.skip} />
       <MotionRoot />
       <a
         href="#main"
@@ -77,262 +96,185 @@ export function LandingPage({ locale }: { locale: Locale }) {
                   {link.label}
                 </a>
               ))}
-              <AuthNavigation />
+              {/* Accounts are opt-in: without them there is nothing to sign in to, so no control waits here. */}
+              {ACCOUNT_DATA ? <AuthNavigation signup={false} /> : null}
             </nav>
             <div className="hidden lg:block">
               <LocaleSwitcher className="min-h-11" />
             </div>
-            <DemoAction size="md" className={`ms-2 max-sm:hidden ${flat}`}>
-              {common.actions.startDemo}
-            </DemoAction>
-            <MobileNavigation links={anchorLinks} authControls={<AuthNavigation appearance="mobile" />} menuLabel={landing.nav.menu} menuTitle={landing.nav.menuLabel} />
+            <div className="ms-2 max-sm:hidden">
+              <EntryActions primary={{ size: "md", className: flat }} />
+            </div>
+            <MobileNavigation
+              links={anchorLinks}
+              authControls={ACCOUNT_DATA ? <AuthNavigation appearance="mobile" signup={false} /> : null}
+              menuLabel={landing.nav.menu}
+              menuTitle={landing.nav.menuLabel}
+            />
           </div>
         </div>
       </header>
 
       <main id="main" tabIndex={-1} className="outline-none">
-        {/* Arrival: the estate at full width, the promise along its lower edge. */}
-        <section aria-labelledby="landing-title" className="relative">
-          <EstatePhoto
-            id="hero"
-            locale={locale}
-            eager
-            sizes="(min-width: 1024px) 100vw, 135vw"
-            className="naqah-settle h-[40svh] min-h-[240px] w-full sm:h-[60svh] lg:h-[calc(100svh-4rem)] lg:max-h-[1000px] lg:min-h-[640px]"
-          />
-          <div
-            aria-hidden="true"
-            className={"pointer-events-none absolute inset-x-0 bottom-0 hidden h-[72%] bg-linear-to-t from-espresso/90 via-espresso/55 to-transparent lg:block" /* taste-skill-ignore: neutral scrim under text on the photograph */}
-          />
-          <div className="lg:absolute lg:inset-x-0 lg:bottom-0">
-            <div className={`${frame} pb-16 pt-10 lg:pb-16 lg:pt-0`}>
+        {/* Arrival: the title in the evening sky above the herd; the evening itself laid across the photograph's edge. */}
+        <section aria-labelledby="landing-title">
+          <div className="relative isolate h-[min(62svh,31rem)] sm:h-[38rem] lg:h-[calc(100svh-10rem)] lg:max-h-[52rem] lg:min-h-[34rem]">
+            {/* 83vw on wide screens asks for the 1200px rendition at 1440: half the bytes of 1920 for an atmospheric photograph, and the first screen's largest paint. */}
+            <div className="absolute inset-0 -z-10">
+              <EstatePhoto id="hero" locale={locale} eager sizes="(min-width: 1024px) 83vw, (min-width: 640px) 100vw, 200vw" ground="bg-sand-soft" className="naqah-settle h-full w-full" />
+            </div>
+            <div className={`${frame} pt-8 sm:pt-14 lg:pt-[clamp(2.5rem,7vh,5rem)]`}>
               <h1
                 id="landing-title"
-                className={`max-w-[24ch] text-balance text-[clamp(2.25rem,7vw,6.5rem)] font-semibold leading-[1.02] tracking-[-0.035em] text-espresso lg:text-cream sm:max-w-[18ch] sm:text-[clamp(2.6rem,7vw,6.5rem)] ${arabicDisplay}`}
+                className={`naqah-arrive max-w-[12ch] text-balance text-[clamp(2.5rem,5.6vw,5rem)] font-semibold leading-[1.02] tracking-[-0.035em] text-espresso lg:max-w-none ${arabicDisplay}`}
               >
                 {landing.hero.title}
               </h1>
-              <div className="mt-5 flex flex-col gap-5 sm:gap-6 lg:mt-8">
-                <p className="max-w-[36rem] text-lg leading-8 text-espresso sm:text-xl sm:leading-9 lg:text-cream/90">
+              <div className="mt-6 flex-wrap items-center justify-between gap-x-12 gap-y-6 max-sm:hidden sm:flex lg:mt-8">
+                <p className="naqah-arrive max-w-[34rem] text-xl leading-9 text-espresso" style={{ "--arrive-delay": "120ms" } as CSSProperties}>
                   {landing.hero.description}
                 </p>
-                <div className="flex shrink-0 flex-wrap items-center gap-x-8 gap-y-4">
-                  <DemoAction size="lg" className={`lg:hidden ${flat}`}>
-                    {common.actions.startDemo}
-                    <Arrow />
-                  </DemoAction>
-                  <DemoAction size="lg" variant="gold" className={`max-lg:hidden ${flat}`}>
-                    {common.actions.startDemo}
-                    <Arrow />
-                  </DemoAction>
-                  <SetupLink className={`${textLink} text-espresso hover:text-brown lg:text-cream lg:hover:text-gold`}>
-                    {common.actions.setUp}
-                  </SetupLink>
+                <div className="naqah-arrive flex flex-wrap items-center gap-x-7 gap-y-2" style={{ "--arrive-delay": "220ms" } as CSSProperties}>
+                  <EntryActions primary={{ size: "lg", className: flat }} arrow={<Arrow />} demoClassName={`${textLink} text-espresso hover:text-brown`} />
                 </div>
               </div>
             </div>
           </div>
-        </section>
 
-        {/* The journey: an independent camel artwork walks the ridge as the page scrolls (handoff §03). */}
-        <section aria-labelledby="journey-title">
-          <div className={`${frame} relative z-10 grid gap-6 pt-20 sm:pt-24 lg:grid-cols-12 lg:items-end lg:gap-x-10 lg:pt-28`}>
-            <h2 id="journey-title" data-reveal="" className={`${sectionTitle} lg:col-span-6`}>
-              {landing.journey.title}
-            </h2>
-            <p data-reveal="" data-reveal-delay="90" className="max-w-[34rem] text-xl leading-9 text-espresso lg:col-span-5 lg:col-start-8">
-              {landing.journey.body}
-            </p>
+          {/* Phones: the photograph keeps the title; the line and the actions sit in thumb reach below it. */}
+          <div className={`${frame} pt-7 sm:hidden`}>
+            {/* Arabic wraps to three lines on narrow phones once its font arrives: hold that height so the actions don't move. */}
+            <p className="text-lg leading-8 text-espresso max-[405px]:[html[lang=ar]_&]:min-h-24">{landing.hero.description}</p>
+            <div className="mt-6 flex flex-col items-stretch gap-1">
+              <EntryActions
+                primary={{ size: "lg", className: `w-full ${flat}` }}
+                arrow={<Arrow />}
+                demoClassName={`${textLink} justify-center text-espresso hover:text-brown`}
+              />
+            </div>
           </div>
-          <JourneyScene />
+
+          <div className={`${frame} relative z-10 mt-8 sm:-mt-20 lg:-mt-24`}>
+            <EveningRail locale={locale} className="naqah-arrive [--arrive-delay:320ms]" />
+          </div>
         </section>
 
-        <div data-weave="">
-          <WovenSignature />
-        </div>
-
-        {/* The evening call, down a diagonal: the worker calls, NAQAH asks and saves, NAQAH calls you. */}
-        <section id="call" aria-labelledby="call-title" className="scroll-mt-20 py-20 sm:py-24 lg:py-28">
-          <div className={`${frame} grid gap-y-10 lg:grid-cols-12 lg:gap-x-10 lg:gap-y-8`}>
-            <EstatePhoto
-              id="evening"
-              locale={locale}
-              sizes="(min-width: 1024px) 38vw, 100vw"
-              revealDelay={0}
-              className="aspect-[4/3] w-full lg:col-span-5 lg:row-span-2 lg:self-start"
-            />
-            <h2 id="call-title" data-reveal="" className={`${sectionTitle} max-lg:order-first lg:col-span-6 lg:col-start-7 lg:row-start-1`}>
+        {/* The evening as a scroll-led sequence, built from the product's own parts. */}
+        <section id="call" aria-labelledby="call-title" className="scroll-mt-20 pb-20 pt-24 sm:pb-24 lg:pb-32 lg:pt-36">
+          <div className={frame}>
+            <h2 id="call-title" data-reveal="" className={`${sectionTitle} max-w-[16ch]`}>
               {landing.story.title}
             </h2>
-            <Stage {...arrive} delay={90} className="lg:col-span-5 lg:col-start-7 lg:row-start-2 lg:self-start" />
-
-            <div data-ui data-reveal="" className="bg-cream p-5 sm:p-8 lg:col-span-6 lg:col-start-2 lg:mt-12">
-              <LiveTranscript />
-            </div>
-            <Stage {...ask} delay={120} className="lg:col-span-4 lg:col-start-9 lg:mt-12 lg:self-center" />
-
-            <Stage {...callBack} className="max-lg:order-last lg:col-span-4 lg:col-start-1 lg:mt-12 lg:self-center" />
-            <div data-reveal="" data-reveal-delay="120" className="relative self-start bg-espresso text-cream lg:col-span-7 lg:col-start-6 lg:mt-12">
-              {/* Pinned to the edge: an SVG strip with h-full would otherwise size the panel from its viewBox. */}
-              <WovenFrame tone="dark" className="absolute inset-y-0 start-0" />
-              <div className="min-w-0 p-7 ps-10 sm:p-10 sm:ps-14">
-                <h3 className="text-xl font-semibold sm:text-2xl">{landing.owner.title}</h3>
-                <div data-ui className="mt-6">
-                  <OwnerCall />
-                </div>
-              </div>
+            <p data-reveal="" data-reveal-delay="90" className="mt-5 max-w-[30rem] text-lg leading-8 text-espresso lg:text-xl lg:leading-9">
+              {landing.story.line}
+            </p>
+            <div className="mt-14 lg:mt-6">
+              <CallStory />
             </div>
           </div>
         </section>
 
-        {/* What NAQAH holds to, beside the heritage it comes from. */}
-        <section id="principles" aria-labelledby="principles-title" className="scroll-mt-20 bg-cream py-20 sm:py-24 lg:py-28">
+        {/* What NAQAH holds to, beside the weave it comes from. */}
+        <section id="principles" aria-labelledby="principles-title" className="scroll-mt-20 bg-espresso py-20 text-cream sm:py-24 lg:py-32">
+          <div className={`${frame} grid gap-10 lg:grid-cols-12 lg:gap-x-10`}>
+            <div className="lg:col-span-6 lg:col-start-7 lg:row-start-1">
+              <h2 id="principles-title" data-reveal="" className={`${sectionTitle} max-w-[16ch]`}>
+                {landing.principles.title}
+              </h2>
+              <p data-reveal="" data-reveal-delay="90" className="mt-5 max-w-[34rem] text-lg leading-8 text-cream/90 lg:text-xl lg:leading-9">
+                {landing.principles.lead}
+              </p>
+            </div>
+            <EstatePhoto
+              id="heritage"
+              locale={locale}
+              sizes="(min-width: 1024px) 40vw, 100vw"
+              revealDelay={0}
+              ground="bg-brown-deep"
+              className="aspect-[16/10] w-full lg:col-span-5 lg:row-span-2 lg:row-start-1 lg:aspect-auto lg:min-h-[34rem]"
+            />
+            <dl className="grid gap-x-10 gap-y-9 sm:grid-cols-2 lg:col-span-6 lg:col-start-7 lg:row-start-2 lg:self-end">
+              {landing.principles.items.map((item, index) => (
+                <div key={item.label} data-reveal="" data-reveal-delay={120 + index * 70}>
+                  <dt className="text-xl font-semibold leading-snug">{item.label}</dt>
+                  <dd className="mt-1.5 text-base leading-7 text-cream/85">
+                    {item.value}
+                    {index === 1 ? <RetryRail locale={locale} /> : null}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </section>
+
+        {/* Two rhythms, shown as the weeks they make. */}
+        <section id="plans" aria-labelledby="plans-title" className="scroll-mt-20 py-20 sm:py-24 lg:py-32">
           <div className={frame}>
-            <h2 id="principles-title" data-reveal="" className={`${sectionTitle} max-w-[20ch]`}>
-              {landing.principles.title}
-            </h2>
-            <p data-reveal="" data-reveal-delay="90" className="mt-6 max-w-[40rem] text-xl leading-9 text-espresso lg:text-[1.375rem]">{landing.principles.lead}</p>
-
-            <div className="mt-14 grid gap-10 lg:mt-20 lg:grid-cols-12 lg:gap-x-4">
-              <figure className="relative lg:col-span-8">
-                <EstatePhoto
-                  id="heritage"
-                  locale={locale}
-                  sizes="(min-width: 1024px) 60vw, 100vw"
-                  revealDelay={0}
-                  className="aspect-[4/3] w-full lg:aspect-[16/10]"
-                />
-                <figcaption className="bg-ivory p-5 text-xl font-semibold leading-snug text-espresso sm:p-6 lg:absolute lg:end-0 lg:top-0 lg:w-80 lg:text-2xl">
-                  {landing.principles.statement}
-                </figcaption>
-              </figure>
-
-              <div className="lg:col-span-4">
-                <div data-reveal="" data-reveal-delay="120" className="relative grid aspect-[3/2] place-items-center bg-espresso" aria-hidden="true">
-                  <WovenFragment tone="dark" className="size-20" />
-                  <WovenSignature tone="dark" className="absolute inset-x-0 bottom-0" />
-                </div>
-                <dl className="mt-8 grid gap-6">
-                  {landing.principles.items.map((item) => (
-                    <div key={item.label}>
-                      <dt className="text-sm font-semibold text-brown">{item.label}</dt>
-                      <dd className="mt-1 text-base leading-7 text-espresso">{item.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <CamelColours locale={locale} />
-
-        {/* Two rhythms, set like a ledger: the same rows, side by side. */}
-        <section id="plans" aria-labelledby="plans-title" className="scroll-mt-20 py-20 sm:py-24 lg:py-28">
-          <div className={`${frame} grid gap-12 lg:grid-cols-12 lg:gap-x-10`}>
-            <div className="lg:col-span-3">
+            <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-3">
               <h2 id="plans-title" data-reveal="" className={sectionTitle}>
                 {landing.plans.title}
               </h2>
-              <p className="mt-4 max-w-xs text-base leading-7 text-muted">{landing.plans.pricing}</p>
-              <EstatePhoto
-                id="herd"
-                locale={locale}
-                sizes="(min-width: 1024px) 24vw, (min-width: 640px) 45vw, 100vw"
-                revealDelay={120}
-                className="mt-10 aspect-[4/3] w-full sm:aspect-[4/5] sm:w-2/5 lg:w-full"
-              />
+              <p data-reveal="" data-reveal-delay="60" className="text-lg text-muted">{landing.plans.pricing}</p>
             </div>
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:col-span-8 lg:col-start-5">
-              {plans.map((plan) => {
-                const copy = landing.plans[plan];
-                return (
-                  <section
-                    key={plan}
-                    aria-labelledby={`plan-${plan}`}
-                    data-reveal=""
-                    data-reveal-delay={plan === "ultimate" ? 90 : 0}
-                    className={`flex flex-col p-6 sm:p-8 ${plan === "ultimate" ? "bg-cream" : "bg-sand-soft/45"}`}
-                  >
-                    <h3 id={`plan-${plan}`} className="text-[1.75rem] font-semibold leading-tight">
-                      {copy.name}
-                    </h3>
-                    <p className="mt-2 text-base leading-7 text-muted">{copy.summary}</p>
-                    <dl className="mt-8 grid gap-5">
-                      {planRows.map((row) => (
-                        <div key={row} className="flex items-baseline justify-between gap-6">
-                          <dt className="text-base text-espresso">{landing.plans.labels[row]}</dt>
-                          <dd className="text-end text-base font-semibold text-espresso">{copy.rows[row]}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                    <DemoAction
-                      plan={plan}
-                      variant={plan === "ultimate" ? "primary" : "secondary"}
-                      className={`mt-10 w-full ${flat}`}
-                    >
-                      {copy.cta}
-                    </DemoAction>
-                  </section>
-                );
-              })}
+            <div className="mt-10 lg:mt-14">
+              <PlanWeeks locale={locale} />
             </div>
           </div>
         </section>
 
-        {/* Closing: a calm desert, the official mark, one next step. */}
-        <section aria-labelledby="final-title" className="relative isolate overflow-hidden bg-espresso text-cream">
-          {/* Positioned wrapper: EstatePhoto is relative by design, so it fills this layer instead. */}
+        {/* The close: the desert at dusk, and the invitation lying on it. */}
+        <section aria-labelledby="final-title" className="relative isolate overflow-hidden bg-espresso">
           <div className="absolute inset-0 -z-10">
-            <EstatePhoto id="closing" locale={locale} sizes="(min-width: 768px) 100vw, 175vw" ground="bg-espresso" className="h-full w-full" />
+            <EstatePhoto id="closing" locale={locale} sizes="100vw" ground="bg-espresso" className="h-full w-full" />
           </div>
-          <div aria-hidden="true" className="absolute inset-0 -z-10 bg-espresso/65" />
-          <div className={`${frame} py-24 sm:py-32 lg:py-40`}>
-            <CamelMark className="h-14 w-auto sm:h-16" />
-            <h2
-              id="final-title"
+          <div className={`${frame} flex min-h-[34rem] items-end justify-center pt-24 sm:justify-end lg:min-h-[80svh] lg:pt-32`}>
+            <div
               data-reveal=""
-              className={`mt-8 max-w-[14ch] text-[clamp(2.4rem,5.5vw,4.5rem)] font-semibold leading-[1.05] tracking-[-0.035em] ${arabicDisplay}`}
+              data-reveal-kind="slip"
+              className="naqah-slip -mb-6 w-full bg-cream p-8 pb-14 text-center text-espresso [--tilt:-1.5deg] sm:max-w-[30rem] sm:p-12 sm:pb-16 lg:me-[6%] lg:pb-20"
             >
-              {landing.final.title}
-            </h2>
-            <p data-reveal="" data-reveal-delay="90" className="mt-5 max-w-md text-lg leading-8 text-cream/90">
-              {landing.final.body}
-            </p>
-            <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4">
-              <DemoAction variant="gold" size="lg" className={flat}>
-                {common.actions.startDemo}
-                <Arrow />
-              </DemoAction>
-              <SetupLink className={`${textLink} text-cream hover:text-gold`}>{common.actions.setUp}</SetupLink>
+              <CamelMark className="mx-auto h-12 w-auto" />
+              <h2 id="final-title" className={`mt-6 text-balance text-[clamp(2rem,3.2vw,3rem)] font-semibold leading-[1.12] ${arabicDisplay}`}>
+                {landing.final.title}
+              </h2>
+              <p className="mt-3 text-lg leading-8">{landing.final.body}</p>
+              <div className="mt-8 flex flex-col items-stretch gap-1">
+                <EntryActions
+                  primary={{ size: "lg", className: `w-full bg-espresso! hover:bg-brown! ${flat}` }}
+                  arrow={<Arrow />}
+                  demoClassName={`${textLink} justify-center text-espresso hover:text-brown`}
+                />
+              </div>
             </div>
           </div>
         </section>
       </main>
 
-      <footer className="bg-espresso text-sm text-cream/75">
-        <div className={`${frame} flex flex-col gap-6 pb-10 pt-8 sm:flex-row sm:items-start sm:justify-between`}>
+      <footer className="relative bg-espresso text-sm text-cream/75">
+        <div className={`${frame} flex flex-col gap-6 pb-10 pt-12 sm:flex-row sm:items-start sm:justify-between`}>
           <div className="max-w-3xl space-y-3 leading-6">
             <p>{common.footer.rights}</p>
             {credits.length ? (
-              <p>
-                {landing.credits}:{" "}
-                {credits.map((credit, index) => (
-                  <bdi key={credit.sourceUrl}>
-                    <a href={credit.sourceUrl} className="underline decoration-cream/40 underline-offset-4 hover:text-cream">
-                      {credit.title}
-                    </a>
-                    {", "}
-                    {credit.creator}
-                    {", "}
-                    <a href={credit.licenseUrl} className="underline decoration-cream/40 underline-offset-4 hover:text-cream">
-                      {credit.license}
-                    </a>
-                    {index < credits.length - 1 ? "; " : "."}
-                  </bdi>
-                ))}
-              </p>
+              <div>
+                <p>{landing.credits}</p>
+                <ul className="mt-1 grid gap-0.5">
+                  {credits.map((credit) => (
+                    <li key={credit.sourceUrl}>
+                      <bdi>
+                        <a href={credit.sourceUrl} className="underline decoration-cream/40 underline-offset-4 hover:text-cream">
+                          {credit.title}
+                        </a>
+                      </bdi>
+                      {" · "}
+                      {credit.creator}
+                      {" · "}
+                      <a href={credit.licenseUrl} className="underline decoration-cream/40 underline-offset-4 hover:text-cream">
+                        {credit.license}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
           </div>
           <LocaleSwitcher tone="light" className="min-h-11 w-fit shrink-0" />

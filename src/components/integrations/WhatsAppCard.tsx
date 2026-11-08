@@ -1,10 +1,22 @@
 "use client";
 
-import { Card, CardBody, CardHeader, Field, Input } from "@/components/ui";
+import { SettingsDisclosure } from "@/components/setup/sections/SettingsDisclosure";
+import { PhoneField, StepField, StepInput } from "@/components/setup/onboarding/WizardParts";
 import { useI18n } from "@/i18n/client";
-import { toWaDigits } from "@/lib/whatsapp/links";
 import { useWorkspace, useWorkspaceStore } from "@/store/workspace";
 import { MessageWorkerLink } from "./WhatsAppActions";
+
+type SupplierField = "supplierName" | "supplierPhone";
+
+function setSupplier(field: SupplierField, value: string) {
+  useWorkspaceStore.getState().update((current) => ({
+    ...current,
+    settings: {
+      ...current.settings,
+      integrations: { ...current.settings.integrations, [field]: value },
+    },
+  }));
+}
 
 /** Settings → Connections → whatsapp. Owned by the whatsapp integration slice. */
 export function WhatsAppCard() {
@@ -12,65 +24,24 @@ export function WhatsAppCard() {
   const ws = useWorkspace();
   if (!ws) return null;
 
+  const copy = m.integrations.whatsapp;
   const supplierName = ws.settings.integrations?.supplierName ?? "";
   const supplierPhone = ws.settings.integrations?.supplierPhone ?? "";
-  const invalidPhone = supplierPhone.length > 0 && toWaDigits(supplierPhone) === null;
 
   return (
-    <Card>
-      <CardHeader title={m.integrations.whatsapp.title} />
-      <CardBody className="space-y-4 pt-3">
-        <Field label={m.integrations.whatsapp.supplierName} hint={m.integrations.whatsapp.supplierNameHint}>
-          {(id) => (
-            <Input
-              id={id}
-              autoComplete="organization"
-              value={supplierName}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                useWorkspaceStore.getState().update((current) => ({
-                  ...current,
-                  settings: {
-                    ...current.settings,
-                    integrations: { ...current.settings.integrations, supplierName: value },
-                  },
-                }));
-              }}
-            />
+    <SettingsDisclosure id="settings-whatsapp" title={copy.title} summary={supplierName.trim() || copy.summary}>
+      <p className="text-sm leading-relaxed text-muted">{copy.lead}</p>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <StepField label={copy.supplierName}>
+          {({ id }) => (
+            <StepInput id={id} autoComplete="organization" value={supplierName} onChange={(event) => setSupplier("supplierName", event.currentTarget.value)} />
           )}
-        </Field>
-        <Field
-          label={m.integrations.whatsapp.supplierPhone}
-          hint={invalidPhone ? undefined : m.integrations.whatsapp.supplierPhoneHint}
-          error={invalidPhone ? m.integrations.whatsapp.invalidSaudiMobile : undefined}
-        >
-          {(id) => (
-            <Input
-              id={id}
-              type="tel"
-              autoComplete="tel"
-              inputMode="tel"
-              dir="ltr"
-              className="ltr-nums"
-              aria-invalid={invalidPhone}
-              value={supplierPhone}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                useWorkspaceStore.getState().update((current) => ({
-                  ...current,
-                  settings: {
-                    ...current.settings,
-                    integrations: { ...current.settings.integrations, supplierPhone: value },
-                  },
-                }));
-              }}
-            />
-          )}
-        </Field>
-        <div className="border-t border-stone/70 pt-2 empty:hidden">
-          <MessageWorkerLink />
-        </div>
-      </CardBody>
-    </Card>
+        </StepField>
+        <PhoneField label={copy.supplierPhone} value={supplierPhone} onChange={(value) => setSupplier("supplierPhone", value)} autoComplete="off" />
+      </div>
+      <div className="mt-3 empty:hidden">
+        <MessageWorkerLink />
+      </div>
+    </SettingsDisclosure>
   );
 }

@@ -3,9 +3,11 @@
 import { useEffect } from "react";
 
 /**
- * Once-only entrances for the landing page. Only elements below the first screen are marked
- * pending (so nothing visible on load flickers), each is revealed as it enters, and without this
- * script or with reduced motion the page simply stays as rendered.
+ * Once-only entrances for the landing page, as progressive enhancement. Nothing is hidden ahead of
+ * time: an element is set to `pending` only at the moment its top edge reaches the bottom of the
+ * screen, then settles in. Anything never observed (full-page captures, print, no script, reduced
+ * motion) simply stays as rendered, and an element already in view (first screen, an anchor jump)
+ * is left alone rather than hidden while it is being read.
  *
  * Mark elements with `data-reveal` (optionally `data-reveal-kind="picture"`) or `data-weave`, and
  * an optional `data-reveal-delay` in ms for the reading order inside a section.
@@ -20,20 +22,20 @@ export function MotionRoot() {
       (entries) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
-          entry.target.setAttribute(attribute(entry.target), "shown");
-          observer.unobserve(entry.target);
+          const el = entry.target as HTMLElement;
+          observer.unobserve(el);
+          if (entry.boundingClientRect.top < window.innerHeight * 0.85) continue;
+          if (el.dataset.revealDelay) el.style.setProperty("--reveal-delay", `${el.dataset.revealDelay}ms`);
+          el.setAttribute(attribute(el), "pending");
+          // Commit the hidden state before transitioning out of it.
+          void el.getBoundingClientRect();
+          el.setAttribute(attribute(el), "shown");
         }
       },
-      { rootMargin: "0px 0px -8% 0px" },
+      { rootMargin: "0px 0px 6% 0px" },
     );
 
-    const firstScreen = window.innerHeight * 0.92;
-    for (const el of document.querySelectorAll<HTMLElement>("[data-reveal], [data-weave]")) {
-      if (el.getBoundingClientRect().top < firstScreen) continue;
-      if (el.dataset.revealDelay) el.style.setProperty("--reveal-delay", `${el.dataset.revealDelay}ms`);
-      el.setAttribute(attribute(el), "pending");
-      observer.observe(el);
-    }
+    for (const el of document.querySelectorAll("[data-reveal], [data-weave]")) observer.observe(el);
     return () => observer.disconnect();
   }, []);
 

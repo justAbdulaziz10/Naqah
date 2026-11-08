@@ -88,12 +88,14 @@ function reportStart(schedule: CalendarSchedule): Date | null {
     );
   }
 
+  // Daily: the chosen call time (older links carry none and keep 17:00).
+  const [hour, minute] = (schedule.w?.start ?? "17:00").split(":").map(Number);
   return fromRiyadh(
     RECURRENCE_SUNDAY.year,
     RECURRENCE_SUNDAY.month,
     RECURRENCE_SUNDAY.day,
-    17,
-    0,
+    hour,
+    minute,
   );
 }
 
@@ -102,7 +104,7 @@ function reportEvent(schedule: CalendarSchedule, now: Date): string[] {
   if (!start) return [];
   const parts = riyadhParts(start);
   const weekly = schedule.p === "basic";
-  const endText = weekly ? schedule.w!.end : "17:30";
+  const endText = schedule.w?.end ?? "17:30";
   const [endHour, endMinute] = endText.split(":").map(Number);
   const end = fromRiyadh(parts.year, parts.month, parts.day, endHour, endMinute);
   const text = calendar[schedule.l];

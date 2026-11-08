@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PlatformEvent } from "@/domain/types";
 import { buildNotification, selectNotificationEvents } from "./notifications";
 
-function event(id: string, tone: PlatformEvent["tone"], en: string, ar = "حدث في المزرعة"): PlatformEvent {
+function event(id: string, tone: PlatformEvent["tone"], en: string, ar = "حدث في العزبة"): PlatformEvent {
   return { id, at: "2026-11-05T08:00:00.000Z", tone, text: { en, ar } };
 }
 
@@ -35,7 +35,7 @@ describe("buildNotification", () => {
     );
 
     expect(result).toEqual({
-      title: "ناقة (تجريبي) | مستجد مهم في المزرعة",
+      title: "ناقة (تجريبي) | مستجد مهم في العزبة",
       body: "فُتحت تذكرة «عدم رد» بعد المحاولات",
       url: "/ar/app/tickets",
       tag: "naqah-ticket-1",

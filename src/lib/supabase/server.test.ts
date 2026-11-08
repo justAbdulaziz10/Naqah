@@ -3,7 +3,7 @@ const mock = vi.hoisted(() => ({ getUser: vi.fn(), create: vi.fn(), config: vi.f
 vi.mock('server-only', () => ({}));
 vi.mock('@supabase/ssr', () => ({ createServerClient: mock.create }));
 vi.mock('next/server', () => ({ connection: async () => {} }));
-vi.mock('next/headers', () => ({ cookies: async () => ({ getAll: () => [], set: mock.set }) }));
+vi.mock('next/headers', () => ({ cookies: async () => ({ getAll: () => [], set: mock.set }), headers: async () => new Headers({ host: 'naqah.vercel.app' }) }));
 vi.mock('./config', async (original) => ({ ...await original<typeof import('./config')>(), getSupabaseConfig: mock.config }));
 import { getOwner, createWritableClient } from './server';
 

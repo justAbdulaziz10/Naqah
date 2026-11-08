@@ -6,9 +6,13 @@ import { useState, type ReactNode } from "react";
 import { EmptyState, noAnswerAttemptInfo } from "@/components/dashboard/DashboardPrimitives";
 import { useHashTarget } from "@/components/dashboard/useHashTarget";
 import { TaskCalendarLink } from "@/components/integrations/TaskCalendarLink";
+import { upcomingReportCall } from "@/components/schedule/ReportCallSection";
+import { AttemptDots } from "@/components/visuals/AttemptDots";
+import { formatDuration } from "@/components/visuals/duration";
+import { TimeRail } from "@/components/visuals/TimeRail";
 import { Badge, ButtonLink, Card, Segmented } from "@/components/ui";
 import { openNoAnswerTickets, openTaskTickets } from "@/domain";
-import type { CallKind } from "@/domain";
+import type { CallKind, NoAnswerTicket, TaskTicket, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
@@ -16,11 +20,15 @@ import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
 type TicketTab = "active" | "history";
 
 const dateTime = { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true } as const;
+// Rail ends: the day and time lead, the date sits underneath, so a phone never wraps mid-time.
+const dayTime = { weekday: "short", day: undefined, month: undefined } as const;
+const dayMonth = { weekday: undefined, hour: undefined, minute: undefined } as const;
 
 function callKindLabel(kind: CallKind, m: ReturnType<typeof useI18n>["m"]) {
   const labels: Record<CallKind, string> = {
     worker_report: m.app.calls.workerReport,
     worker_report_rejected: m.app.calls.rejectedReport,
+    worker_report_missed: m.app.calls.missedReport,
     worker_callback: m.app.calls.workerCallback,
     worker_instruction: m.app.calls.instructionDelivery,
     worker_task_verification: m.app.calls.taskVerification,
@@ -31,21 +39,99 @@ function callKindLabel(kind: CallKind, m: ReturnType<typeof useI18n>["m"]) {
   return labels[kind];
 }
 
-function TicketGroup({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+function TicketGroup({ id, title, footer, children }: { id: string; title: string; footer?: ReactNode; children: ReactNode }) {
   return (
     <section aria-labelledby={id} className="px-5 py-5 sm:px-8 sm:py-6">
       <h2 id={id} className="text-lg font-semibold leading-snug text-espresso">{title}</h2>
       <ul className="mt-2 divide-y divide-stone/70">{children}</ul>
+      {footer}
     </section>
   );
 }
 
-function Count({ label, value }: { label: string; value: string }) {
+/**
+ * When a task was given and where it stands against its time: the check call ahead (or passed), the
+ * next report call for "any time" tasks, or how long the worker took to confirm a closed one.
+ */
+function TaskTiming({ ws, ticket, worker, now, className }: { ws: Workspace; ticket: TaskTicket; worker: string; now: Date; className?: string }) {
+  const { m, fmt, locale } = useI18n();
+  const v = m.visual.tasks;
+  const stamp = (iso: string) => <time className="ltr-nums" dateTime={iso}>{fmt.dateTime(iso, dayTime)}</time>;
+  const start = { at: ticket.createdAt, label: v.given, value: fmt.relative(ticket.createdAt, now), detail: <time className="ltr-nums" dateTime={ticket.createdAt}>{fmt.dateTime(ticket.createdAt, dateTime)}</time> };
+  if (ticket.status === "closed" && ticket.closedAt) {
+    const took = formatDuration(Date.parse(ticket.closedAt) - Date.parse(ticket.createdAt), locale);
+    return (
+      <TimeRail
+        compact
+        className={className}
+        label={v.timing(fmt.dateTime(ticket.createdAt, dateTime), v.done(took))}
+        start={{ ...start, value: stamp(ticket.createdAt), detail: fmt.dateTime(ticket.createdAt, dayMonth) }}
+        end={{ at: ticket.closedAt, label: m.app.tickets.closedAt, value: stamp(ticket.closedAt), detail: <>{fmt.dateTime(ticket.closedAt, dayMonth)} · {v.done(took)}</> }}
+      />
+    );
+  }
+  if (ticket.scheduledFor) {
+    const passed = now.getTime() > Date.parse(ticket.scheduledFor);
+    const when = fmt.dateTime(ticket.scheduledFor, dateTime);
+    return (
+      <TimeRail
+        compact
+        now={now}
+        className={className}
+        endTone="border-warn"
+        label={v.timing(fmt.relative(ticket.createdAt, now), `${passed ? v.checkPassed : v.check}: ${when}`)}
+        start={start}
+        end={{
+          at: ticket.scheduledFor,
+          label: passed ? <span className="font-semibold text-warn">{v.checkPassed}</span> : v.check,
+          value: stamp(ticket.scheduledFor),
+          detail: passed ? fmt.dateTime(ticket.scheduledFor, dayMonth) : <>{fmt.dateTime(ticket.scheduledFor, dayMonth)} · {fmt.relative(ticket.scheduledFor, now)}</>,
+        }}
+      />
+    );
+  }
+  const next = upcomingReportCall(ws, now);
+  if (!next) return <p className={cn("text-sm text-muted", className)}>{m.app.tickets.anyTime(worker)} · {m.app.tickets.created(fmt.relative(ticket.createdAt, now))}</p>;
   return (
-    <p className="flex min-h-11 items-baseline justify-between gap-3 border-b border-stone/70 py-2 last:border-b-0">
-      <span className="text-muted">{label}</span>
-      <span className="ltr-nums text-lg font-semibold tabular-nums text-espresso">{value}</span>
+    <TimeRail
+      compact
+      now={now}
+      className={className}
+      label={v.timing(fmt.relative(ticket.createdAt, now), `${v.nextCall}: ${fmt.dateTime(next, dateTime)}. ${v.asksWorker(worker)}`)}
+      start={start}
+      end={{ at: next, label: v.nextCall, value: stamp(next.toISOString()), detail: v.asksWorker(worker) }}
+    />
+  );
+}
+
+/** Where an open task stands with the worker, in one line: a ring for "not confirmed yet". */
+function TaskStatus({ ticket, worker, now }: { ticket: TaskTicket; worker: string; now: Date }) {
+  const { m } = useI18n();
+  const passed = ticket.scheduledFor !== null && now.getTime() > Date.parse(ticket.scheduledFor);
+  return (
+    <p className={cn("mt-1.5 flex items-center gap-2 text-sm font-semibold", passed ? "text-warn" : "text-brown")}>
+      <span aria-hidden className={cn("size-2.5 shrink-0 rounded-full border-2", passed ? "border-warn" : "border-brown")} />
+      <span className="naqah-name">{m.app.overview.waitingFor(worker)}</span>
     </p>
+  );
+}
+
+/** NAQAH called to check this task and got no answer: shown with the task, not as a separate list. */
+function UnansweredCheck({ ws, ticket, worker }: { ws: Workspace; ticket: NoAnswerTicket; worker: string }) {
+  const { m, fmt } = useI18n();
+  const info = noAnswerAttemptInfo(ws, ticket);
+  return (
+    <div className="mt-4 flex items-start gap-3 rounded-2xl bg-danger-soft/50 px-4 py-3">
+      <WarningCircle size={19} weight="fill" className="mt-0.5 shrink-0 text-danger" aria-hidden />
+      <div className="min-w-0">
+        <p className="font-semibold leading-snug text-espresso">{m.app.tickets.checkUnanswered(worker, fmt.number(info.count))}</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+          <AttemptDots count={info.count} label={m.visual.tasks.attempts(fmt.number(info.count))} />
+          <span>{m.app.tickets.lastAttempt} <time className="ltr-nums" dateTime={info.lastAttemptAt}>{fmt.dateTime(info.lastAttemptAt, { hour: "numeric", minute: "2-digit", hour12: true })}</time></span>
+        </div>
+        <p className="mt-1 text-sm text-muted">{m.app.tickets.callbackRule}</p>
+      </div>
+    </div>
   );
 }
 
@@ -65,16 +151,27 @@ export default function TicketsPage() {
   const openTasks = openTaskTickets(ws);
   const openNoAnswers = openNoAnswerTickets(ws);
   const recentlyClosed = ultimate ? [...closedTasks].sort((a, b) => Date.parse(b.closedAt ?? "") - Date.parse(a.closedAt ?? "")).slice(0, 3) : [];
-  const tasks = ultimate ? (active ? openTasks : closedTasks) : [];
-  const noAnswers = active ? openNoAnswers : ws.noAnswerTickets.filter((ticket) => ticket.status === "closed");
+  // Most urgent first: a check time that has passed, then the nearest check, then "any time".
+  const urgency = (ticket: TaskTicket) => (ticket.scheduledFor ? Date.parse(ticket.scheduledFor) : Infinity);
+  const tasks = ultimate ? (active ? [...openTasks].sort((a, b) => urgency(a) - urgency(b)) : closedTasks) : [];
+  // An unanswered check belongs with its task; only the rest stand on their own.
+  const linkedNoAnswer = (ticket: TaskTicket) => (active ? openNoAnswers.find((item) => item.taskTicketId === ticket.id) ?? null : null);
+  const allNoAnswers = active ? openNoAnswers : ws.noAnswerTickets.filter((ticket) => ticket.status === "closed");
+  const noAnswers = allNoAnswers.filter((ticket) => !(active && ticket.taskTicketId && tasks.some((task) => task.id === ticket.taskTicketId)));
   const relays = ws.relays.filter((relay) => relay.delivered !== active);
   const hasVisibleItems = tasks.length + noAnswers.length + relays.length + (active ? recentlyClosed.length : 0) > 0;
+  const hasAnything = (ultimate ? ws.taskTickets.length : 0) + ws.noAnswerTickets.length + ws.relays.length > 0;
+  const waitingRelays = ws.relays.filter((relay) => !relay.delivered).length;
+  const summary = m.app.tickets.summary(worker, ultimate ? openTasks.length : 0, openNoAnswers.length, waitingRelays);
 
   return (
-    <div className="space-y-4 pb-8">
+    <div className="max-w-3xl space-y-4 pb-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.app.tickets.title}</h1>
-        <Segmented
+        <div className="min-w-0">
+          <h1 className="text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-espresso sm:text-[2.5rem]">{m.app.tickets.title}</h1>
+          {hasAnything ? <p className="mt-1 text-muted">{summary}</p> : null}
+        </div>
+        {hasAnything ? <Segmented
           value={tab}
           onChange={setTab}
           label={m.app.tickets.tabsLabel}
@@ -83,52 +180,19 @@ export default function TicketsPage() {
             { value: "active", label: m.app.tickets.active },
             { value: "history", label: m.app.tickets.history },
           ]}
-        />
+        /> : null}
       </header>
 
-      <div className="grid items-start gap-4 lg:grid-cols-12">
-        <Card className="min-w-0 divide-y divide-stone/70 lg:col-span-8">
-          {tasks.length ? (
-            <TicketGroup id="tickets-tasks" title={m.app.tickets.taskTickets}>
-              {tasks.map((ticket) => (
-                <li
-                  key={ticket.id}
-                  data-hash-target={`task-${ticket.id}`}
-                  tabIndex={-1}
-                  className={cn("py-4 last:pb-0 focus:outline-none", linkedTaskId === ticket.id && "border-s-2 border-s-brown ps-3")}
-                >
-                  <p className="text-lg font-semibold leading-relaxed text-espresso">{ticket.instruction}</p>
-                  <p className="mt-1 text-sm text-muted">
-                    {active
-                      ? ticket.scheduledFor
-                        ? <>{m.app.tickets.scheduledForPrefix} <time className="ltr-nums" dateTime={ticket.scheduledFor}>{fmt.dateTime(ticket.scheduledFor, dateTime)}</time> {m.app.tickets.scheduledForSuffix(worker)}</>
-                        : m.app.tickets.anyTime(worker)
-                      : ticket.closedAt
-                        ? <>{m.app.tickets.closedAt} <time className="ltr-nums" dateTime={ticket.closedAt}>{fmt.dateTime(ticket.closedAt, dateTime)}</time></>
-                        : ""}
-                  </p>
-                  {active && ticket.status === "open" && ticket.scheduledFor ? <TaskCalendarLink ticket={ticket} /> : null}
-                  {active ? (
-                    <p className="mt-1 text-[0.8125rem] text-muted">{m.app.tickets.created(fmt.relative(ticket.createdAt, now))}</p>
-                  ) : ticket.closedVia ? (
-                    <p className="mt-1 text-[0.8125rem] text-muted">{m.app.tickets.closedVia(callKindLabel(ticket.closedVia, m))}</p>
-                  ) : null}
-                </li>
-              ))}
-            </TicketGroup>
-          ) : null}
+      {!ultimate ? (
+        <p className="text-sm leading-relaxed text-muted">
+          {m.app.tickets.basicNote}{" "}
+          <Link href={`${href("/app/settings")}#settings-plan`} className="inline-flex min-h-11 items-center font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
+            {m.app.tickets.planLink}
+          </Link>
+        </p>
+      ) : null}
 
-          {active && recentlyClosed.length ? (
-            <TicketGroup id="tickets-recent" title={m.app.tickets.recentlyClosed}>
-              {recentlyClosed.map((ticket) => (
-                <li key={ticket.id} className="py-3 last:pb-0">
-                  <p className="font-medium leading-relaxed text-espresso">{ticket.instruction}</p>
-                  {ticket.closedAt ? <p className="mt-0.5 text-sm text-muted">{m.app.tickets.closedAt} <time className="ltr-nums" dateTime={ticket.closedAt}>{fmt.dateTime(ticket.closedAt, dateTime)}</time></p> : null}
-                </li>
-              ))}
-            </TicketGroup>
-          ) : null}
-
+      <Card className="min-w-0 divide-y divide-stone/70">
           {noAnswers.length ? (
             <TicketGroup id="tickets-no-answer" title={m.app.tickets.noAnswerTickets}>
               {noAnswers.map((ticket) => {
@@ -139,7 +203,8 @@ export default function TicketsPage() {
                     <div className="min-w-0">
                       <p className="text-lg font-semibold leading-relaxed text-espresso">{ticket.message}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <Badge tone={active ? "danger" : "neutral"} dot>{m.app.tickets.attempts(fmt.number(info.count))}</Badge>
+                        <AttemptDots count={info.count} label={m.visual.tasks.attempts(fmt.number(info.count))} />
+                        <span className={cn("text-sm font-semibold", active ? "text-danger" : "text-muted")}>{m.app.tickets.attempts(fmt.number(info.count))}</span>
                         {active ? <span className="text-sm text-muted">{m.app.tickets.lastAttempt} <time className="ltr-nums" dateTime={info.lastAttemptAt}>{fmt.dateTime(info.lastAttemptAt, { hour: "numeric", minute: "2-digit", hour12: true })}</time></span> : null}
                       </div>
                       <p className="mt-1 text-sm text-muted">
@@ -153,6 +218,53 @@ export default function TicketsPage() {
                   </li>
                 );
               })}
+            </TicketGroup>
+          ) : null}
+
+          {tasks.length ? (
+            <TicketGroup
+              id="tickets-tasks"
+              title={active ? m.app.tickets.taskTickets : m.app.tickets.closedTaskTickets}
+              footer={active ? (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-stone/70 pt-3 text-sm text-muted">
+                  <span>{m.app.tickets.closeRule}</span>
+                  {!account ? (
+                    <Link href={href("/app/lab")} className="inline-flex min-h-11 items-center gap-1.5 font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
+                      {m.app.tickets.verifyNow}
+                      <ArrowRight size={15} className="shrink-0 rtl:-scale-x-100" aria-hidden />
+                    </Link>
+                  ) : null}
+                </div>
+              ) : undefined}
+            >
+              {tasks.map((ticket) => (
+                <li
+                  key={ticket.id}
+                  data-hash-target={`task-${ticket.id}`}
+                  tabIndex={-1}
+                  className={cn("py-4 last:pb-0 focus:outline-none", linkedTaskId === ticket.id && "border-s-2 border-s-brown ps-3")}
+                >
+                  <p className="text-lg font-semibold leading-relaxed text-espresso">{ticket.instruction}</p>
+                  {active ? <TaskStatus ticket={ticket} worker={worker} now={now} /> : null}
+                  <TaskTiming ws={ws} ticket={ticket} worker={worker} now={now} className="mt-4 max-w-xl" />
+                  {linkedNoAnswer(ticket) ? <UnansweredCheck ws={ws} ticket={linkedNoAnswer(ticket)!} worker={worker} /> : null}
+                  {active && ticket.status === "open" && ticket.scheduledFor ? <TaskCalendarLink ticket={ticket} /> : null}
+                  {!active && ticket.closedVia ? (
+                    <p className="mt-2 text-[0.8125rem] text-muted">{m.app.tickets.closedVia(callKindLabel(ticket.closedVia, m))}</p>
+                  ) : null}
+                </li>
+              ))}
+            </TicketGroup>
+          ) : null}
+
+          {active && recentlyClosed.length ? (
+            <TicketGroup id="tickets-recent" title={m.app.tickets.recentlyClosed}>
+              {recentlyClosed.map((ticket) => (
+                <li key={ticket.id} className="py-4 last:pb-0">
+                  <p className="font-medium leading-relaxed text-espresso">{ticket.instruction}</p>
+                  <TaskTiming ws={ws} ticket={ticket} worker={worker} now={now} className="mt-3 max-w-xl" />
+                </li>
+              ))}
             </TicketGroup>
           ) : null}
 
@@ -170,38 +282,14 @@ export default function TicketsPage() {
             </TicketGroup>
           ) : null}
 
-          {!hasVisibleItems ? <EmptyState title={active ? m.app.tickets.emptyActive : m.app.tickets.emptyHistory} /> : null}
+          {!hasVisibleItems ? (
+            <EmptyState
+              title={active ? m.app.tickets.emptyActive : m.app.tickets.emptyHistory}
+              body={active && ultimate ? m.app.tickets.emptyActiveBody : undefined}
+              action={active && !account ? <ButtonLink href={href("/app/lab")} variant="secondary">{m.app.overview.simulateCall}</ButtonLink> : undefined}
+            />
+          ) : null}
         </Card>
-
-        <Card className="min-w-0 px-5 py-5 sm:px-8 sm:py-6 lg:col-span-4 lg:px-6">
-          <h2 className="text-lg font-semibold leading-snug text-espresso">{m.app.tickets.summary}</h2>
-          <div className="mt-2">
-            {ultimate ? <Count label={m.app.tickets.openTasks} value={fmt.number(openTasks.length)} /> : null}
-            <Count label={m.app.tickets.unanswered} value={fmt.number(openNoAnswers.length)} />
-            <Count label={m.app.tickets.waiting} value={fmt.number(ws.relays.filter((relay) => !relay.delivered).length)} />
-            {ultimate ? <Count label={m.app.tickets.closedTasks} value={fmt.number(closedTasks.length)} /> : null}
-          </div>
-          {ultimate ? (
-            <>
-              <p className="mt-4 text-sm leading-relaxed text-muted">{m.app.tickets.closeRule}</p>
-              {openTasks.length && !account ? (
-                <ButtonLink href={href("/app/lab")} variant="secondary" size="sm" className="mt-3 min-h-11 w-full whitespace-normal">
-                  {m.app.tickets.verifyNow}
-                  <ArrowRight size={16} className="shrink-0 rtl:-scale-x-100" aria-hidden />
-                </ButtonLink>
-              ) : null}
-            </>
-          ) : (
-            <div className="mt-4">
-              <p className="font-semibold text-espresso">{m.app.tickets.basicExplainerTitle}</p>
-              <p className="mt-1 text-sm leading-relaxed text-muted">{m.app.tickets.basicExplainerBody}</p>
-              <Link href={`${href("/app/settings")}#settings-plan`} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
-                {m.app.tickets.comparePlans}
-              </Link>
-            </div>
-          )}
-        </Card>
-      </div>
     </div>
   );
 }
