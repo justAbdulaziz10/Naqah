@@ -5,7 +5,7 @@
  * server resolves the farm from the caller and uses its own clock, so neither can be forged by
  * a model or a replayed webhook. See docs/integrations/voice-data-contract.md.
  */
-import { completeWorkerCallback, completeWorkerReport, confirmTask, recordOwnerInquiry, recordOwnerNotification, rejectOwnerInquiry, rejectWorkerReport, resolveWorkerCallAttempt, startTaskVerification, submitOwnerInstruction, type AttemptOutcome, type RejectReason } from "@/domain/actions";
+import { completeWorkerCallback, completeWorkerReport, confirmTask, recordOwnerInquiry, recordOwnerNotification, rejectOwnerInquiry, rejectWorkerReport, resolveWorkerCallAttempt, startTaskVerification, submitOwnerInstruction, submitOwnerInstructionBatch, type AttemptOutcome, type InstructionInput, type RejectReason } from "@/domain/actions";
 import type { ReportDraft } from "@/domain/findings";
 import { isHerdCount } from "@/domain/herd";
 import { endReportCallWithoutReport, reportCallRuns, resolveReportCallAttempt, type ReportCallOutcome } from "@/domain/reportCalls";
@@ -29,7 +29,16 @@ export type VoiceEvent = { version: 1; eventId: string; providerCallId: string }
   | { type: "worker_callback" }
   | { type: "owner_notification"; reportId: string; answered: boolean }
   | { type: "owner_inquiry" }
-  | { type: "owner_instruction"; message: string; actionable: boolean; scheduledFor: string | null }
+  | {
+      type: "owner_instruction";
+      message: string;
+      actionable: boolean;
+      scheduledFor: string | null;
+      /** Present when the owner approved more than one instruction in the same call. */
+      items?: InstructionInput[];
+      /** What the worker hears. Defaults to the original instruction text. */
+      deliveryMessage?: string;
+    }
   | { type: "task_verification_start"; taskId: string }
   | { type: "worker_call_attempt"; pendingCallId: string; answered: boolean }
   | { type: "report_call_attempt"; reportCallId: string; attempt: number; answered: boolean }
@@ -88,6 +97,17 @@ function optional(value: unknown, field: string): string | null {
 function localized(value: unknown, field: string, max = 500) {
   const input = record(value);
   return { ar: requiredText(input.ar, field, max), en: requiredText(input.en, field, max) };
+}
+
+function instructionItem(value: unknown): InstructionInput {
+  const input = record(value);
+  const scheduledFor = input.scheduledFor ?? null;
+  if (scheduledFor !== null && (typeof scheduledFor !== "string" || Number.isNaN(Date.parse(scheduledFor)))) throw invalid("scheduledFor");
+  return {
+    message: requiredText(input.message, "message", 1000),
+    actionable: bool(input.actionable, "actionable"),
+    scheduledFor: scheduledFor as string | null,
+  };
 }
 
 function count(value: unknown, field: string): number {
@@ -176,12 +196,15 @@ export function parseVoiceEvent(value: unknown): VoiceEvent {
     case "owner_instruction": {
       const scheduledFor = input.scheduledFor ?? null;
       if (scheduledFor !== null && (typeof scheduledFor !== "string" || Number.isNaN(Date.parse(scheduledFor)))) throw invalid("scheduledFor");
+      const items = input.items === undefined ? undefined : list(input.items, "items", 20).map(instructionItem);
       return {
         ...base,
         type: "owner_instruction",
-        message: requiredText(input.message, "message", 1000),
+        message: requiredText(input.message, "message", 4000),
         actionable: bool(input.actionable, "actionable"),
         scheduledFor: scheduledFor as string | null,
+        ...(items ? { items } : {}),
+        ...(input.deliveryMessage === undefined ? {} : { deliveryMessage: requiredText(input.deliveryMessage, "deliveryMessage", 4000) }),
       };
     }
     case "task_verification_start":
@@ -290,8 +313,13 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
       }
       return { ws: recordOwnerInquiry(ws, now, route.mode), result: saved };
     }
-    case "owner_instruction":
+    case "owner_instruction": {
+      if (event.items?.length) {
+        const batch = submitOwnerInstructionBatch(ws, now, event.items, event.eventId, event.deliveryMessage ?? event.message);
+        return { ws: batch.ws, result: batch.created ? saved : { status: "unchanged" } };
+      }
       return { ws: submitOwnerInstruction(ws, now, event).ws, result: saved };
+    }
     case "task_verification_start":
       if (!tasksToVerify(ws, now).some((task) => task.id === event.taskId)) return { ws, result: saved };
       return { ws: startTaskVerification(ws, now, event.taskId).ws, result: saved };
