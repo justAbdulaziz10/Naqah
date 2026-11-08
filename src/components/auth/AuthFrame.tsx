@@ -8,10 +8,10 @@ import { useI18n } from '@/i18n/client';
 import { DemoAction } from '@/components/landing/LandingActions';
 import { useAuthOptions } from './auth-options';
 
-export function AuthFrame({ children }: { children: ReactNode }) {
+export function AuthFrame({ children, demoLink = true }: { children: ReactNode; demoLink?: boolean }) {
   const { locale, href, m } = useI18n();
   // Sign-in and sign-up only: anyone can look around the sample ranch without an account.
-  const signIn = useAuthOptions() !== null;
+  const signIn = useAuthOptions() !== null && demoLink;
   return <div className="min-h-dvh bg-ivory text-espresso">
     <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5 sm:px-8 sm:py-6">
       <Logo locale={locale} href={href('/')} /><AuthLocaleSwitcher />
@@ -27,6 +27,15 @@ export function AuthFrame({ children }: { children: ReactNode }) {
       ) : null}
     </main>
   </div>;
+}
+
+/** Accounts not set up on this deployment: say so plainly and offer the sample ranch instead of a dead form. */
+export function AuthClosed({ mode }: { mode: 'login' | 'signup' }) {
+  const { m } = useI18n();
+  return <AuthFrame demoLink={false}>
+    <AuthHeading title={m.auth[mode]} lead={m.auth.notOpen} />
+    <DemoAction size="lg" className="mt-7 w-full">{m.common.actions.startDemo}</DemoAction>
+  </AuthFrame>;
 }
 
 /** One title and one short line: what this screen is for. */

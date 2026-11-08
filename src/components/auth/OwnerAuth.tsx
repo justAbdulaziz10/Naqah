@@ -10,7 +10,7 @@ import { createClient } from '@/lib/supabase/client';
 import { authIssue, latinDigits, normalizeSaudiPhone, type AuthIssue } from '@/lib/supabase/auth-input';
 import { getCaptchaSiteKey, getSupabaseConfig } from '@/lib/supabase/config';
 import { authDestination } from '@/lib/supabase/auth-paths';
-import { AuthFrame, AuthHeading, AuthSwitch } from './AuthFrame';
+import { AuthClosed, AuthFrame, AuthHeading, AuthSwitch } from './AuthFrame';
 import { CaptchaField } from './CaptchaField';
 import { AuthMethods } from './AuthMethods';
 import { AuthOptions, chooseMethod } from './auth-options';
@@ -156,6 +156,7 @@ export function OwnerAuth({ mode, methods }: { mode: 'login' | 'signup'; methods
   const params = useSearchParams();
   const { locale } = useI18n();
   const next = authDestination(locale, mode, params.get('next'));
+  if (!getSupabaseConfig()) return <AuthClosed mode={mode} />;
   return <AuthOptions.Provider value={methods}>
     {chooseMethod(params.get('method'), methods) === 'email'
       ? <EmailPasswordAuth key={mode} mode={mode} next={next} />

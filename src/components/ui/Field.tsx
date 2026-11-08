@@ -5,7 +5,7 @@ import { useId } from "react";
 import { cn } from "@/lib/cn";
 
 const control =
-  "w-full rounded-xl border border-stone bg-white/70 px-4 text-[0.95rem] text-espresso placeholder:text-muted transition focus:border-brown focus:bg-white focus:outline-none focus:ring-4 focus:ring-brown/15 disabled:opacity-60";
+  "w-full rounded-xl border border-stone bg-white/70 px-4 text-[0.95rem] text-espresso placeholder:text-muted transition focus:border-brown focus:bg-white focus:outline-none focus:ring-4 focus:ring-brown/15 disabled:cursor-not-allowed disabled:border-stone/70 disabled:bg-ivory disabled:text-muted";
 
 export function Field({
   label,

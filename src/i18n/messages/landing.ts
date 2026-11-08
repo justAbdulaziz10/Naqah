@@ -28,11 +28,11 @@ export const landing = defineMessages({
         },
         {
           lead: "Your questions, one at a time.",
-          body: "NAQAH asks what you set up, confirms numbers and camel names, and accepts “I don’t know”. Each fact is saved with how sure it is.",
+          body: "NAQAH confirms numbers and camel names, accepts “I don’t know”, and saves each fact with how sure it is.",
         },
         {
           lead: "Then NAQAH calls you.",
-          body: "Right after the update is saved, with only what matters. Even on a quiet day.",
+          body: "Right after the update is saved, with only what matters.",
         },
       ],
     },
@@ -128,11 +128,11 @@ export const landing = defineMessages({
         },
         {
           lead: "أسئلتك، سؤال بعد سؤال.",
-          body: "ناقة تسأل اللي جهزته، وتتأكد من الأرقام وأسماء الحلال، و«ما أدري» إجابة مقبولة. وكل معلومة تنحفظ مع مدى التأكد منها.",
+          body: "ناقة تتأكد من الأرقام وأسماء الحلال، وتقبل «ما أدري»، وتحفظ كل معلومة مع مدى التأكد منها.",
         },
         {
           lead: "بعدها ناقة تتصل عليك.",
-          body: "أول ما ينحفظ التحديث، وتعطيك المهم بس. حتى لو كان اليوم هادي.",
+          body: "أول ما ينحفظ التحديث، وتعطيك المهم بس.",
         },
       ],
     },
