@@ -15,6 +15,7 @@ import { createServiceClient } from "@/server/db/service-client";
 import { loadFarm } from "@/server/db/queries";
 import { advanceVoiceSession, readVoiceSession } from "@/server/db/voice-sessions";
 import { twilioRequestSignature } from "@/server/twilio/signature";
+import { applyVoiceEvent } from "@/server/voice/contract";
 
 vi.mock("server-only", () => ({}));
 
@@ -387,6 +388,28 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       expect(count(`calls where farm_id = ${q(farm.id)} and kind = 'worker_report'`)).toBe(1);
       expect(count(`voice_events where farm_id = ${q(farm.id)}`)).toBe(1);
     });
+    it("places only one owner notification when confirmation webhooks arrive concurrently", async () => {
+      const farm = seedFarm({ owner: "+15555550102" });
+      vi.stubEnv("NAQAH_CALL_OWNER", "1");
+      vi.stubEnv("TWILIO_ACCOUNT_SID", `AC${"0".repeat(32)}`);
+      vi.stubEnv("TWILIO_PHONE_NUMBER", "+15555550100");
+      vi.stubEnv("NAQAH_VOICE_SECRET", "local-only-notification-regression-secret");
+      vi.stubEnv("NAQAH_CALL_ALLOWLIST", farm.owner);
+      const originalFetch = globalThis.fetch;
+      const notifications = vi.fn(async () => Response.json({ sid: sid() }, { status: 201 }));
+      vi.spyOn(globalThis, "fetch").mockImplementation((input, options) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        if (url.origin === "https://api.twilio.com") return notifications();
+        if (url.hostname !== "127.0.0.1") throw new Error("Non-loopback fetch blocked");
+        return originalFetch(input, options);
+      });
+      const call = await answerToSummary(await new Call(farm.worker).start());
+      const fields = { CallSid: call.sid, From: farm.worker, Digits: "1" };
+      const replies = await Promise.all([turn(hook(call.path!, fields)), turn(hook(call.path!, fields))]);
+      for (const reply of replies) expect(said(await reply.text())).toContain("saved");
+      expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(1);
+      expect(notifications).toHaveBeenCalledTimes(1);
+    });
     it("records a refused call once however often the webhook repeats", async () => {
       const farm = seedFarm();
       const first = await answerToSummary(await new Call(farm.worker).start());
@@ -551,6 +574,31 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
     });
 
     describe("a returned missed call", () => {
+      it("persists three 20-minute instruction retries, creates one ticket and closes it on callback", async () => {
+        const farm = seedFarm();
+        const pending = sql(`insert into pending_worker_calls (farm_id, purpose, message, next_attempt_at)
+          values (${q(farm.id)}, 'instruction', 'Move the herd', ${q(SUNDAY.toISOString())}) returning id`).split("\n")[0];
+        const client = createServiceClient()!;
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          const now = new Date(SUNDAY.getTime() + attempt * 20 * 60_000);
+          vi.setSystemTime(now);
+          const event = { version: 1 as const, eventId: `${pending}:${attempt}`, providerCallId: sid(), type: "worker_call_attempt" as const, pendingCallId: pending, answered: false };
+          expect((await applyVoiceEvent(client, farm.id, { party: "system" }, event, now)).status).toBe("saved");
+          await applyVoiceEvent(client, farm.id, { party: "system" }, event, now);
+          expect(count(`worker_call_attempts where pending_call_id = ${q(pending)}`)).toBe(attempt + 1);
+          if (attempt < 3) {
+            expect(sql(`select extract(epoch from next_attempt_at)::bigint from pending_worker_calls where id = ${q(pending)}`)).toBe(String((now.getTime() + 20 * 60_000) / 1000));
+            expect(count(`no_answer_tickets where farm_id = ${q(farm.id)}`)).toBe(0);
+          }
+        }
+        expect(count(`no_answer_tickets where farm_id = ${q(farm.id)} and status = 'open'`)).toBe(1);
+        expect(sql(`select next_attempt_at is null from pending_worker_calls where id = ${q(pending)}`)).toBe("t");
+        const call = await new Call(farm.worker).start();
+        expect(call.text).toContain("Move the herd");
+        await call.press("1");
+        expect(count(`no_answer_tickets where farm_id = ${q(farm.id)} and status = 'closed'`)).toBe(1);
+        expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(0);
+      });
       function missedCall(farm: Farm, overdue?: string) {
         const ticket = sql(`insert into no_answer_tickets (farm_id, purpose, message) values (${q(farm.id)}, 'instruction', 'Move the herd') returning id`).split("\n")[0];
         return { ticket, taskId: overdue ? task(farm, overdue, `${q("2026-11-07T06:00:00.000Z")}`) : null };

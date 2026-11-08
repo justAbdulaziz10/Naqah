@@ -173,9 +173,12 @@ export async function startFarmCall(client: SupabaseClient, input: { from: strin
 }
 
 /** Stores the step and hands back what Twilio should play, or the first reply if a repeat won. */
-async function advance(client: SupabaseClient, row: VoiceSessionRow, session: CallSession, misses: number, response: string): Promise<string> {
+async function advance(client: SupabaseClient, row: VoiceSessionRow, session: CallSession, misses: number, response: string, onAdvanced?: () => Promise<void>): Promise<string> {
   const saved = await advanceVoiceSession(client, row.call_sid, row.seq, { session: withoutTranscript(session), misses, last_response: response });
-  if (saved) return saved.last_response;
+  if (saved) {
+    await onAdvanced?.();
+    return saved.last_response;
+  }
   return (await readVoiceSession(client, row.call_sid))?.last_response ?? response;
 }
 
@@ -227,8 +230,9 @@ export async function answerFarmCall(
   if (session.step === "report_summary" && event?.type === "worker_report") {
     const reason = outcome?.status === "rejected" ? outcome.reason : null;
     const text = outcome?.status === "saved" ? SAVED : reason === "callback_required" ? CALLBACK_FIRST : reason === "call_not_active" ? CALL_NOT_ACTIVE : REFUSED;
-    if (outcome?.status === "saved") await notifyOwner(client, row.farm_id, (event.reportCallId as string | undefined) ?? null, now);
-    return advance(client, row, result.session, 0, twimlGoodbye(locale, text[locale]));
+    return advance(client, row, result.session, 0, twimlGoodbye(locale, text[locale]), outcome?.status === "saved"
+      ? () => notifyOwner(client, row.farm_id, (event.reportCallId as string | undefined) ?? null, now)
+      : undefined);
   }
   // After a failed save the first attempt may still have landed, so "not saved" needs checking.
   if (session.step === "report_summary" && row.misses > 0) {
