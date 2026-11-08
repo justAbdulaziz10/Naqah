@@ -70,12 +70,16 @@ export async function openRealtimeSession(client: SupabaseClient, body: Record<s
   if (!row || row.session.done) return null;
   const realtime = realtimeOf(row.session);
   if (!ticketMatches(ticket, row, realtime) || realtime.claimedAt || realtime.closed) return null;
-  const workspace = await farmOf(client, row);
-  const current = promptFor(row.session, spokenLines(row.session, row.session.turns.length - 1, workspace, row.locale), workspace, row.locale);
+  let instructions = row.seq === 0 ? realtime.instructions : undefined;
+  if (!instructions) {
+    const workspace = await farmOf(client, row);
+    const current = promptFor(row.session, spokenLines(row.session, row.session.turns.length - 1, workspace, row.locale), workspace, row.locale);
+    instructions = buildInstructions(row.locale, { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name }, current);
+  }
   if (!(await claimRealtime(client, row, realtime, now))) return null;
   console.info(`[NAQAH] realtime session call=${ticket.sid.slice(-6)} opened`);
   return {
-    instructions: buildInstructions(row.locale, { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name }, current),
+    instructions,
     tools: REALTIME_TOOLS,
     opening: realtime.opening,
     locale: row.locale,

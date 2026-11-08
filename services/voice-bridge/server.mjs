@@ -416,6 +416,9 @@ class CallStream {
     } else if (event.type === 'input_audio_buffer.speech_started') {
       if (this.ending) return;
       this.speaking = true;
+      // A hello over the opening before it is audible needs no reply of its own: the opening already asks the question.
+      this.earlySpeech = this.responseKind === 'opening' && Boolean(this.responsePending || this.responseId)
+        && !this.responseAudible && !this.items.size;
       this.activity();
       this.log('speech_started');
       this.interrupt();
@@ -426,8 +429,12 @@ class CallStream {
     } else if (event.type === 'input_audio_buffer.committed') {
       if (this.ending) return;
       this.speaking = false;
-      this.userSpoke = true;
       this.activity();
+      if (this.earlySpeech) {
+        this.earlySpeech = false;
+        if (this.responsePending || this.responseId) return this.log('input_committed_during_opening');
+      }
+      this.userSpoke = true;
       this.log('input_committed');
       this.requestResponse('turn');
     } else if (event.type === 'response.function_call_arguments.done') {
@@ -448,12 +455,35 @@ class CallStream {
       this.responsePending = false;
       this.cancelSent = false;
       this.clearTimer('response');
+      if (this.answerDroppedCalls(event.response.output) && !this.nextResponse && !this.speaking && !this.ending) this.requestResponse('turn');
       if (kind === 'goodbye') {
         const name = `goodbye-${++this.markCount}`;
         this.marks.set(name, { final: true });
         this.send(this.twilio, { event: 'mark', streamSid: this.streamSid, mark: { name } });
       } else this.flushResponse();
     }
+  }
+
+  /**
+   * A cancel can lose the race and the response completes anyway. Its function call is then in the conversation with
+   * no output, and the model waits for it forever. The worker spoke over it, so it is not applied; the model is told.
+   */
+  answerDroppedCalls(output) {
+    if (this.ending || !Array.isArray(output)) return false;
+    const dropped = output.filter((item) => item?.type === 'function_call' && item.status === 'completed'
+      && typeof item.call_id === 'string' && !this.toolIds.has(item.call_id));
+    for (const item of dropped) {
+      this.toolIds.add(item.call_id);
+      this.send(this.provider, {
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output', call_id: item.call_id,
+          output: JSON.stringify({ status: 'not_applied', error: 'worker_interrupted', message: 'The worker spoke over this and it was not recorded. Listen to what they said and call the tool again.' }),
+        },
+      });
+      this.log('tool_dropped_after_interrupt');
+    }
+    return dropped.length > 0;
   }
 
   queueTool(event) {

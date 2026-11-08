@@ -15,7 +15,7 @@ import { bridgeSignature, validBridgeSignature } from "./internal";
 import { signRealtimeTicket, TICKET_CLAIM_MS, verifyRealtimeTicket } from "./ticket";
 import { checkTool, REALTIME_TOOLS } from "./tools";
 
-const mock = vi.hoisted(() => ({ client: vi.fn(), load: vi.fn(), save: vi.fn(), find: vi.fn(), recorded: vi.fn(), owner: vi.fn() }));
+const mock = vi.hoisted(() => ({ client: vi.fn(), load: vi.fn(), save: vi.fn(), find: vi.fn(), recorded: vi.fn(), owner: vi.fn(), after: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/server/db/service-client", () => ({ createServiceClient: mock.client }));
 vi.mock("@/server/db/queries", async (original) => ({ ...(await original<typeof import("@/server/db/queries")>()), loadFarm: mock.load }));
@@ -23,7 +23,7 @@ vi.mock("@/server/db/service-repository", async (original) => ({
   ...(await original<typeof import("@/server/db/service-repository")>()), findReportCallRun: mock.find, recordedOutcome: mock.recorded,
 }));
 vi.mock("@/server/calls/owner-call", () => ({ callOwnerAfterReport: mock.owner }));
-vi.mock("@/server/calls/after", () => ({ afterResponse: (work: () => Promise<void>) => work() }));
+vi.mock("@/server/calls/after", () => ({ afterResponse: mock.after }));
 vi.mock("@/server/voice/contract", async (original) => ({ ...(await original<typeof import("@/server/voice/contract")>()), applyVoiceEvent: mock.save }));
 
 const SECRET = "unit-test-secret-of-at-least-32-bytes-long";
@@ -101,7 +101,7 @@ function twilio(path: string, fields: Record<string, string>) {
 
 let db: ReturnType<typeof fakeClient>;
 let toolCounter = 0;
-const row = () => db.store.row as unknown as { seq: number; misses: number; last_response: string; session: CallSession & { realtime: { recent: unknown[]; closed: boolean; claimedAt: string | null } } };
+const row = () => db.store.row as unknown as { seq: number; misses: number; last_response: string; session: CallSession & { realtime: { recent: unknown[]; closed: boolean; claimedAt: string | null; instructions?: string } } };
 
 async function answerCall() {
   return answerReportCall(db.client, { token: token(), callSid: CALL, now: new Date() });
@@ -161,6 +161,7 @@ beforeEach(() => {
   mock.find.mockResolvedValue(null);
   mock.recorded.mockResolvedValue(null);
   mock.owner.mockResolvedValue(null);
+  mock.after.mockImplementation((work: () => Promise<void>) => work());
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -221,6 +222,41 @@ describe("answering the call", () => {
     expect(repeat).toContain("<Gather");
     expect(repeat).not.toContain("<Connect");
   });
+
+  it("opens only one stream when answer webhooks arrive concurrently", async () => {
+    const responses = await Promise.all([answerCall(), answerCall()]);
+    expect(responses.filter((response) => response.includes("<Connect"))).toHaveLength(1);
+    expect(responses.filter((response) => response.includes("<Gather"))).toHaveLength(1);
+  });
+
+  it("reuses only the committed answered workspace and keeps session startup database-light", async () => {
+    mock.save.mockImplementationOnce(async (_client, _farm, _context, _event, _now, onAppliedWorkspace) => {
+      expect(db.store.row).toBeNull();
+      onAppliedWorkspace(answeredFarm());
+      return { status: "saved" };
+    });
+    const ticketValue = ticketIn(await answerCall());
+    expect(mock.load).not.toHaveBeenCalled();
+    const response = await sessionRoute(signed("/api/voice/realtime/session", { ticket: ticketValue, callSid: CALL }));
+    expect(response.status).toBe(200);
+    expect(mock.load).not.toHaveBeenCalled();
+    expect(row().session.realtime.claimedAt).toBeTruthy();
+  });
+
+  it("loads fresh state when the answered event was replayed without a committed snapshot", async () => {
+    mock.save.mockResolvedValueOnce({ status: "unchanged" });
+    expect(await answerCall()).toContain("<Connect");
+    expect(mock.load).toHaveBeenCalledTimes(1);
+  });
+
+  it("defers stale cleanup and ignores its failure without losing the stream", async () => {
+    let cleanup: (() => Promise<void>) | undefined;
+    mock.after.mockImplementationOnce(async (work: () => Promise<void>) => { cleanup = work; });
+    expect(await answerCall()).toContain("<Connect");
+    expect(cleanup).toBeTypeOf("function");
+    db.client.from = () => { throw new Error("cleanup failed"); };
+    await expect(cleanup!()).resolves.toBeUndefined();
+  });
 });
 
 describe("ticket", () => {
@@ -248,6 +284,12 @@ describe("ticket", () => {
     expect((await sessionRoute(signed("/api/voice/realtime/session", { ticket: ticketValue, callSid: CALL }))).status).toBe(403);
   });
 
+  it("allows only one concurrent claim of prepared instructions", async () => {
+    const ticketValue = ticketIn(await answerCall());
+    const responses = await Promise.all([1, 2].map(() => sessionRoute(signed("/api/voice/realtime/session", { ticket: ticketValue, callSid: CALL }))));
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 403]);
+  });
+
   it("is refused once expired, and a late claim changes nothing", async () => {
     const ticketValue = ticketIn(await answerCall());
     vi.setSystemTime(NOW.getTime() + TICKET_CLAIM_MS + 1000);
@@ -267,9 +309,28 @@ describe("ticket", () => {
 
   it("does not spend the ticket when the farm can't be loaded", async () => {
     const ticketValue = ticketIn(await answerCall());
+    delete row().session.realtime.instructions;
     mock.load.mockRejectedValueOnce(new Error("down"));
     expect((await sessionRoute(signed("/api/voice/realtime/session", { ticket: ticketValue, callSid: CALL }))).status).toBe(503);
     expect((await sessionRoute(signed("/api/voice/realtime/session", { ticket: ticketValue, callSid: CALL }))).status).toBe(200);
+  });
+
+  it("claims a prepared session without reloading the farm", async () => {
+    const ticketValue = ticketIn(await answerCall());
+    mock.load.mockClear();
+    expect((await sessionRoute(signed("/api/voice/realtime/session", { ticket: ticketValue, callSid: CALL }))).status).toBe(200);
+    expect(mock.load).not.toHaveBeenCalled();
+  });
+
+  it("rebuilds instructions after the scripted position changes", async () => {
+    const ticketValue = ticketIn(await answerCall());
+    row().seq = 1;
+    row().session.realtime.instructions = "obsolete";
+    mock.load.mockClear();
+    const response = await sessionRoute(signed("/api/voice/realtime/session", { ticket: ticketValue, callSid: CALL }));
+    expect(response.status).toBe(200);
+    expect((await response.json()).instructions).not.toBe("obsolete");
+    expect(mock.load).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -384,7 +445,7 @@ describe("tool calls on a live call", () => {
     expect(refused.output.replies.length).toBeGreaterThan(0);
     expect(refused.result.end).toBeNull();
     expect(row().seq).toBe(before);
-    expect(mock.load).toHaveBeenCalledTimes(2);
+    expect(mock.load).toHaveBeenCalledTimes(1);
   });
 
   it("refuses a ticket that was never claimed, or from another call", async () => {

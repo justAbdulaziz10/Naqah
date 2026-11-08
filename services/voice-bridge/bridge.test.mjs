@@ -485,6 +485,61 @@ test('speech before a reply is audible cancels nothing, and the next turn is ans
   } finally { await state.close(); }
 });
 
+test('a hello committed during the opening earns no extra turn; later speech is answered', async () => {
+  const state = await fixture();
+  try {
+    const { socket, messages } = await state.connect();
+    await state.ready(socket);
+    const turns = () => state.providerEvents.filter((event) => event.type === 'response.create' && !event.response.instructions);
+    send(state.provider, { type: 'input_audio_buffer.speech_started' });
+    state.audio(160);
+    await messages.wait((event) => event.event === 'media');
+    send(state.provider, { type: 'input_audio_buffer.speech_stopped' });
+    send(state.provider, { type: 'input_audio_buffer.committed' });
+    await delay(20);
+    state.complete();
+    await delay(20);
+    assert.equal(turns().length, 0);
+    assert.ok(state.logs.some((record) => record.event === 'input_committed_during_opening'));
+    send(state.provider, { type: 'input_audio_buffer.speech_started' });
+    send(state.provider, { type: 'input_audio_buffer.speech_stopped' });
+    send(state.provider, { type: 'input_audio_buffer.committed' });
+    await state.providerInbox.wait((event) => event.type === 'response.create' && !event.response.instructions);
+    assert.equal(turns().length, 1);
+  } finally { await state.close(); }
+});
+
+test('a function call that outlives a lost cancel gets an output and the conversation continues', async () => {
+  const state = await fixture();
+  try {
+    const { socket, messages } = await state.connect();
+    await state.ready(socket);
+    state.audio(160);
+    await messages.wait((event) => event.event === 'media');
+    state.complete();
+    send(state.provider, { type: 'input_audio_buffer.committed' });
+    await state.providerInbox.wait((event) => event.type === 'response.create' && !event.response.instructions);
+    await delay(10);
+    const racedId = state.responseId;
+    state.audio(1600, 'turn-item');
+    await delay(10);
+    send(state.provider, { type: 'input_audio_buffer.speech_started' });
+    await state.providerInbox.wait((event) => event.type === 'response.cancel');
+    send(state.provider, { type: 'response.function_call_arguments.done', response_id: racedId, call_id: 'raced-call', name: 'answer_question', arguments: '{"value":"good"}' });
+    send(state.provider, { type: 'input_audio_buffer.speech_stopped' });
+    send(state.provider, { type: 'response.done', response: { id: racedId, status: 'completed', output: [{ type: 'function_call', status: 'completed', call_id: 'raced-call' }] } });
+    const told = await state.providerInbox.wait((event) => event.item?.call_id === 'raced-call');
+    assert.equal(told.item.type, 'function_call_output');
+    assert.equal(JSON.parse(told.item.output).status, 'not_applied');
+    await delay(30);
+    const toldAt = state.providerEvents.findIndex((event) => event.item?.call_id === 'raced-call');
+    assert.ok(state.providerEvents.slice(toldAt + 1).some((event) => event.type === 'response.create' && !event.response.instructions));
+    assert.equal(state.requests.filter((record) => record.url === '/api/voice/realtime/tool').length, 0);
+    assert.equal(socket.readyState, WebSocket.OPEN);
+    assert.ok(state.logs.some((record) => record.event === 'tool_dropped_after_interrupt'));
+  } finally { await state.close(); }
+});
+
 test('response logs carry labels only, never provider text', async () => {
   const state = await fixture();
   try {

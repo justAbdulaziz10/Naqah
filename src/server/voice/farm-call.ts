@@ -24,6 +24,8 @@ import { applyVoiceEvent, parseVoiceEvent, type VoiceContext, type VoiceOutcome 
 import { logVoiceTurn } from "./diagnostics";
 import { mapSpeechToInput, unknownReply } from "./speech";
 import { newRealtimeState, realtimeOf } from "./realtime/state";
+import { buildInstructions } from "./realtime/instructions";
+import { promptFor } from "./realtime/tools";
 import { signRealtimeTicket } from "./realtime/ticket";
 import { spokenWording, twimlGather, twimlGoodbye, twimlStream } from "./twiml";
 
@@ -143,8 +145,10 @@ function eventFor(before: CallSession | null, result: EngineResult, input: Answe
 const contextFor = (party: VoiceSessionRow["party"]): VoiceContext =>
   party === "worker" ? { party: "worker" } : { party: "owner", call: "inquiry" };
 
-function save(client: SupabaseClient, farmId: string, party: VoiceSessionRow["party"] | VoiceContext, event: unknown, now: Date): Promise<VoiceOutcome> {
-  return applyVoiceEvent(client, farmId, typeof party === "string" ? contextFor(party) : party, parseVoiceEvent(event), now);
+function save(client: SupabaseClient, farmId: string, party: VoiceSessionRow["party"] | VoiceContext, event: unknown, now: Date, onAppliedWorkspace?: (workspace: Workspace) => void): Promise<VoiceOutcome> {
+  const context = typeof party === "string" ? contextFor(party) : party;
+  const parsed = parseVoiceEvent(event);
+  return onAppliedWorkspace ? applyVoiceEvent(client, farmId, context, parsed, now, onAppliedWorkspace) : applyVoiceEvent(client, farmId, context, parsed, now);
 }
 
 /** After a saved report: the farm owner's update call, when that paid channel is switched on. */
@@ -318,11 +322,20 @@ export async function answerReportCall(client: SupabaseClient, input: { token: R
   if (await boundElsewhere(client, token, callSid)) return twimlGoodbye(token.l);
   const repeated = await readVoiceSession(client, callSid);
   if (repeated) return repeated.farm_id === token.f ? repeated.last_response : twimlGoodbye(token.l);
-  await deleteStaleVoiceSessions(client, new Date(now.getTime() - STALE_AFTER_MS));
+  const realtime = realtimeVoiceConfig();
+  const cleanup = () => deleteStaleVoiceSessions(client, new Date(now.getTime() - STALE_AFTER_MS));
+  if (realtime) {
+    await afterResponse(async () => {
+      try { await cleanup(); } catch { console.error("[NAQAH] stale voice session cleanup failed"); }
+    });
+  } else {
+    await cleanup();
+  }
 
   const answered = { version: 1, eventId: `${callSid}:answered`, providerCallId: callSid, type: "report_call_attempt", reportCallId: token.r, attempt: token.n, answered: true };
-  await save(client, token.f, { party: "system" }, answered, now);
-  const { workspace } = requireFarm(await loadFarm(client, { id: token.f }));
+  let appliedWorkspace: Workspace | undefined;
+  await save(client, token.f, { party: "system" }, answered, now, realtime ? (workspace) => { appliedWorkspace = workspace; } : undefined);
+  const workspace = appliedWorkspace ?? requireFarm(await loadFarm(client, { id: token.f })).workspace;
   const locale: Locale = workspace.settings.worker.language === "en" ? "en" : "ar";
   const run = workspace.reportCalls?.find((item) => item.id === token.r);
   if (!run || run.state !== "answered") return twimlGoodbye(locale, CALL_NOT_ACTIVE[locale]);
@@ -336,8 +349,11 @@ export async function answerReportCall(client: SupabaseClient, input: { token: R
   if (result.commit) throw new DbError("invalid_input", "report call start has no voice event");
   const response = respond(result.session, 0, workspace, locale, 0);
   if (result.session.done) return response;
-  const realtime = realtimeVoiceConfig();
   const state = realtime ? newRealtimeState(spokenWording(spokenLines(result.session, 0, workspace, locale).join(" "), locale)) : null;
+  if (state) {
+    const current = promptFor(result.session, spokenLines(result.session, result.session.turns.length - 1, workspace, locale), workspace, locale);
+    state.instructions = buildInstructions(locale, { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name }, current);
+  }
   const stored = withoutTranscript(result.session);
   const row = await createVoiceSession(client, {
     call_sid: callSid,

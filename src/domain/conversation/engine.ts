@@ -1365,10 +1365,10 @@ function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallS
     factsEn.push((confirmation.done ? "task finished: " : "task still open: ") + instruction);
     factsAr.push((confirmation.done ? "مهمة خلصت: " : "مهمة باقية: ") + instruction);
   }
-  // Free-text answers aren't read back, but they are in the report, so never say there is nothing.
-  const answered = session.draft.answers.length > 0;
-  const baseEn = factsEn.length ? factsEn.join("; ") : answered ? "your answers" : "no additional farm facts";
-  const baseAr = factsAr.length ? factsAr.join("، ") : answered ? "إجاباتك" : "ما فيه معلومات إضافية عن العزبة";
+  // With no herd or supply facts, read back what was said: the worker must hear what they confirm.
+  const answers = session.draft.answers.slice(0, 4);
+  const baseEn = factsEn.length ? factsEn.join("; ") : answers.length ? answers.map((a) => a.answerText?.en ?? a.answer).join("; ") : "no additional farm facts";
+  const baseAr = factsAr.length ? factsAr.join("، ") : answers.length ? answers.map((a) => a.answerText?.ar ?? a.answer).join("، ") : "ما فيه معلومات إضافية عن العزبة";
   const findingEn = findings.length ? " Important for the owner: " + findings[0].text.en : "";
   const findingAr = findings.length ? " أهم ملاحظة للمالك: " + findings[0].text.ar : "";
   const text = copy(

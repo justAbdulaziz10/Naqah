@@ -20,6 +20,7 @@ export interface RealtimeState {
   jti: string;
   /** The first thing the agent says, fixed when the call was answered. */
   opening: string;
+  instructions?: string;
   claimedAt: string | null;
   /** Set once the call fell back to the script. A late tool call must not write after that. */
   closed: boolean;
