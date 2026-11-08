@@ -173,6 +173,7 @@ const copy = (en: string, ar: string): LocalizedText => ({ en, ar });
 const UNKNOWN_ANSWER = copy("I don’t know", "ما أدري");
 const HERD_COUNT_QUESTION = copy("How many camels are there in total today?", "كم عدد الحلال كله اليوم؟");
 const REPORT_CALL_ATTEMPTS = REPORT_CALL_RETRIES + 1;
+const LEVELS: readonly Level[] = ["good", "medium", "low", "critical", "unknown"];
 const noDraft = (): ReportDraft => ({
   answers: [],
   camelUpdates: [],
@@ -272,10 +273,19 @@ function workerTurn(session: CallSession, input: AnswerInput, now: Date): { sess
 
 export const isReportScenario = (scenario: Scenario) => scenario === "report_call" || scenario === "worker_inbound";
 
+/** Spelling a recogniser or a keyboard may vary: tashkeel, hamza forms, curly apostrophes. */
+const plainWords = (text: string) =>
+  text.replace(/[\u064B-\u065F\u0670\u0640]/g, "").replace(/[أإآ]/g, "ا").replace(/[’‘]/g, "'").replace(/[.,!?؟،]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+
+const UNKNOWN_PHRASES = new Set(["ما ادري", "ماادري", "مدري", "ما اعرف", "لا اعرف", "i don't know", "i do not know", "i dont know"]);
+const NOTHING_TO_ADD = new Set(["لا", "لاء", "لا والله", "لا شكرا", "ما فيه", "مافيه", "ما في", "مافي", "ما فيه شي", "مافيه شي", "ما في شي", "مافي شي", "ما عندي شي", "بدون ملاحظه", "بدون ملاحظة", "no", "none", "nothing", "no note"]);
+
 function isUnknown(value: string, text = ""): boolean {
-  const normalized = (value + " " + text).trim().toLowerCase();
-  return value === "unknown" || value === "dont_know" || normalized === "i don't know" || normalized === "i do not know" || normalized === "ما أدري";
+  return value === "unknown" || value === "dont_know" || UNKNOWN_PHRASES.has(plainWords(text || value));
 }
+
+/** «لا» to "any note?" means there is no note. It must not be saved as the note. */
+const addsNothing = (text: string) => NOTHING_TO_ADD.has(plainWords(text)) || isUnknown("", text);
 
 function atRiyadh(date: Date, locale: "ar" | "en", includeDate = false): string {
   return new Intl.DateTimeFormat(locale === "ar" ? "ar-SA-u-ca-gregory-nu-latn" : "en-GB", {
@@ -803,13 +813,12 @@ function askReportItem(session: CallSession, ws: Workspace, now: Date): CallSess
     );
   }
   if (item.answerKind === "level" && item.resource) {
-    const values: Level[] = ["good", "medium", "low", "critical", "unknown"];
     return ask(
       current,
       item.question,
       now,
       "report_question",
-      values.map((value) => ({
+      LEVELS.map((value) => ({
         id: value,
         value,
         label: levelLabel(item.resource as ResourceKind, value),
@@ -879,12 +888,18 @@ function handleReportQuestion(
   if (item.kind === "task") {
     const unknown = isUnknown(value, input.text);
     const done = value === "yes";
-    const draft = {
-      ...current.session.draft,
-      taskConfirmations: [...current.session.draft.taskConfirmations, { taskId: item.taskId, done }],
-    };
+    // "I don't know" is neither done nor not done, so the summary must not read it back as either.
+    const confirmed = unknown
+      ? current.session
+      : {
+          ...current.session,
+          draft: {
+            ...current.session.draft,
+            taskConfirmations: [...current.session.draft.taskConfirmations, { taskId: item.taskId, done }],
+          },
+        };
     const recorded = reportAnswer(
-      { ...current.session, draft },
+      confirmed,
       item,
       unknown ? UNKNOWN_ANSWER : done ? copy("Yes, completed", "إيه، خلصت") : copy("Not yet", "باقي"),
       unknown ? "unknown" : "reported",
@@ -941,6 +956,16 @@ function handleReportQuestion(
   if (item.id === "herd_count") return handleHerdCount(current.session, ws, now, item, value, input);
 
   if (item.answerKind === "level" && item.resource) {
+    if (!LEVELS.includes(value as Level)) {
+      // "How much is left?" answered with a number: keep it, without inventing a level.
+      const count = (input.text ?? value).trim();
+      if ((item.resource === "feed" || item.resource === "water") && isQuantity(count)) {
+        const quantified = { ...current.session, data: { ...current.session.data, tempLevel: "unknown" as Level } };
+        return { session: askQuantityConfirm(quantified, item.resource, count, now) };
+      }
+      // Never carry a value that isn't a level: the save would refuse the whole report.
+      return { session: askReportItem(current.session, ws, now) };
+    }
     const level = value as Level;
     const certainty: Certainty = level === "unknown" ? "unknown" : "reported";
     if (item.resource === "feed" || item.resource === "water") {
@@ -1045,8 +1070,8 @@ function handleHerdCountDetail(session: CallSession, ws: Workspace, now: Date, i
   if (!item) return { session: current.session };
   const count = current.session.draft.herdCount;
   const base = typeof count === "number" ? camelsText(count) : null;
-  const unknown = isUnknown(current.value, input.text);
-  const detail = unknown ? "" : (input.text ?? current.value).trim();
+  const said = (input.text ?? current.value).trim();
+  const detail = isUnknown(current.value, input.text) || addsNothing(said) ? "" : said;
   // Free text stays exactly as said; the count keeps both languages when nothing was added.
   const answer: string | LocalizedText = !detail ? (base ?? UNKNOWN_ANSWER) : base ? base.en + " — " + detail : detail;
   return { session: nextReportItem(reportAnswer(current.session, item, answer, "reported"), ws, now) };
@@ -1121,7 +1146,7 @@ function handleHealthStatus(session: CallSession, ws: Workspace, now: Date, inpu
 
 function handleHealthNote(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
   const current = workerTurn(session, input, now);
-  const note = current.value === "skip_note" || !input.text?.trim() ? null : input.text.trim();
+  const note = current.value === "skip_note" || !input.text?.trim() || addsNothing(input.text) ? null : input.text.trim();
   const camel = ws.camels.find((entry) => entry.id === session.data.tempCamelId);
   if (!camel) return { session: askCamelToCheck(current.session, ws, now, copy("Choose a camel from the herd.", "اختر ناقة من الحلال.")) };
   const next = { ...current.session, data: { ...current.session.data, tempNote: note } };
@@ -1215,15 +1240,14 @@ function addResourceAnswer(
   session: CallSession,
   item: ReportItem,
   level: Level,
-  quantity: string | null,
+  quantity: { stored: string; text: LocalizedText } | null,
   certainty: Certainty,
 ): CallSession {
   if (item.kind !== "predefined" || !item.resource) return session;
-  const resourceUpdate = { kind: item.resource, level, quantity, note: null, certainty };
+  const resourceUpdate = { kind: item.resource, level, quantity: quantity?.stored ?? null, note: null, certainty };
   const label = levelLabel(item.resource, level);
-  const quantityEn = quantity ? " (" + quantity + ")" : "";
-  const answerEn = label.en + quantityEn;
-  const answerText = { en: answerEn, ar: label.ar + quantityEn };
+  const answerEn = label.en + (quantity ? " (" + quantity.text.en + ")" : "");
+  const answerText = { en: answerEn, ar: label.ar + (quantity ? " (" + quantity.text.ar + ")" : "") };
   const next = {
     ...session,
     draft: {
@@ -1255,7 +1279,7 @@ function handleQuantityInput(session: CallSession, ws: Workspace, now: Date, inp
     return { session: nextReportItem(addResourceAnswer(current.session, item, level, null, certainty), ws, now) };
   }
   const quantity = (input.text ?? current.value).trim();
-  if (!quantity || !Number.isFinite(Number(quantity)) || Number(quantity) < 0) {
+  if (!isQuantity(quantity)) {
     return {
       session: ask(
         current.session,
@@ -1269,21 +1293,25 @@ function handleQuantityInput(session: CallSession, ws: Workspace, now: Date, inp
       ),
     };
   }
-  const next = { ...current.session, data: { ...current.session.data, tempQuantity: quantity } };
-  const unitEn = item.resource === "feed" ? "bags" : "litres";
-  const unitAr = item.resource === "feed" ? "كيس" : "لتر";
-  return {
-    session: ask(
-      next,
-      copy(
-        "You mentioned about " + quantity + " " + unitEn + ". The quantity is approximate, correct?",
-        "ذكرت إن باقي تقريباً " + quantity + " " + unitAr + ". للتأكيد، الكمية تقديرية، صحيح؟",
-      ),
-      now,
-      "quantity_confirm",
-      [reply("yes", "Yes, approximate", "إيه، تقريبية"), reply("no", "Change it", "أبي أغيّرها")],
+  return { session: askQuantityConfirm(current.session, item.resource, quantity, now) };
+}
+
+const isQuantity = (text: string) => text !== "" && Number.isFinite(Number(text)) && Number(text) >= 0;
+
+const quantityUnit = (resource: ResourceKind) => (resource === "feed" ? copy("bags", "كيس") : copy("litres", "لتر"));
+
+function askQuantityConfirm(session: CallSession, resource: ResourceKind, quantity: string, now: Date): CallSession {
+  const unit = quantityUnit(resource);
+  return ask(
+    { ...session, data: { ...session.data, tempQuantity: quantity } },
+    copy(
+      "You mentioned about " + quantity + " " + unit.en + ". The quantity is approximate, correct?",
+      "ذكرت إن باقي تقريباً " + quantity + " " + unit.ar + ". للتأكيد، الكمية تقديرية، صحيح؟",
     ),
-  };
+    now,
+    "quantity_confirm",
+    [reply("yes", "Yes, approximate", "إيه، تقريبية"), reply("no", "Change it", "أبي أغيّرها")],
+  );
 }
 
 function handleQuantityConfirm(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
@@ -1299,8 +1327,11 @@ function handleQuantityConfirm(session: CallSession, ws: Workspace, now: Date, i
       session: ask(next, question, now, "quantity_input", [reply("quantity_unknown", "I don’t know", "ما أدري"), reply("quantity_skip", "Skip", "تخطي")], "number"),
     };
   }
-  const unit = item.resource === "feed" ? "bags" : "litres";
-  const quantity = (session.data.tempQuantity ?? "") + " " + unit;
+  const count = session.data.tempQuantity ?? "";
+  const unit = quantityUnit(item.resource);
+  const text = copy(count + " " + unit.en, count + " " + unit.ar);
+  // Like the seed and every free-text answer, the stored quantity is in the worker's language.
+  const quantity = { stored: ws.settings.worker.language === "en" ? text.en : text.ar, text };
   return { session: nextReportItem(addResourceAnswer(current.session, item, session.data.tempLevel ?? "unknown", quantity, "approximate"), ws, now) };
 }
 
@@ -1334,8 +1365,10 @@ function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallS
     factsEn.push((confirmation.done ? "task finished: " : "task still open: ") + instruction);
     factsAr.push((confirmation.done ? "مهمة خلصت: " : "مهمة باقية: ") + instruction);
   }
-  const baseEn = factsEn.length ? factsEn.join("; ") : "no additional farm facts";
-  const baseAr = factsAr.length ? factsAr.join("، ") : "ما فيه معلومات إضافية عن العزبة";
+  // Free-text answers aren't read back, but they are in the report, so never say there is nothing.
+  const answered = session.draft.answers.length > 0;
+  const baseEn = factsEn.length ? factsEn.join("; ") : answered ? "your answers" : "no additional farm facts";
+  const baseAr = factsAr.length ? factsAr.join("، ") : answered ? "إجاباتك" : "ما فيه معلومات إضافية عن العزبة";
   const findingEn = findings.length ? " Important for the owner: " + findings[0].text.en : "";
   const findingAr = findings.length ? " أهم ملاحظة للمالك: " + findings[0].text.ar : "";
   const text = copy(

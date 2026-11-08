@@ -21,12 +21,14 @@ import {
 } from "@/server/db/voice-sessions";
 import { voiceLocale, voiceOwnerInquiryEnabled } from "@/server/env";
 import { applyVoiceEvent, parseVoiceEvent, type VoiceContext, type VoiceOutcome } from "./contract";
+import { logVoiceTurn } from "./diagnostics";
 import { mapSpeechToInput, unknownReply } from "./speech";
 import { twimlGather, twimlGoodbye } from "./twiml";
 
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
 type Copy = Record<Locale, string>;
+type VoiceCallSession = CallSession & { voiceSilences?: number };
 
 const NOT_REGISTERED: Copy = { ar: "هذا الرقم غير مسجل لدى ناقة.", en: "This number is not registered with NAQAH." };
 const NOT_READY: Copy = {
@@ -63,6 +65,14 @@ const MISS_ONCE: Copy = { ar: "معليش، ما فهمت عليك. ", en: "Sorr
 const MISS_AGAIN: Copy = {
   ar: "معليش، ما وصلتني الإجابة. نعيد السؤال مرة أخيرة. ",
   en: "Sorry, I still didn't catch that. Let's try once more. ",
+};
+const SPOKEN_MISS: Copy = {
+  ar: "سمعتك، بس ما فهمت إجابتك على السؤال. تقدر تجاوب أو تستخدم الأزرار. ",
+  en: "I heard you, but could not match your answer to this question. Please answer or use the keypad. ",
+};
+const UNKNOWN_FALLBACK: Copy = {
+  ar: "ما قدرت أحدد الإجابة، بسجل هالسؤال غير معروف ونكمل. ",
+  en: "I could not determine that answer. I will mark this question unknown and continue. ",
 };
 const MISSED_TWICE: Copy = {
   ar: "ما قدرت أفهم إجابتك. تقدر تتصل مرة ثانية، يعطيك العافية.",
@@ -173,7 +183,7 @@ export async function startFarmCall(client: SupabaseClient, input: { from: strin
 }
 
 /** Stores the step and hands back what Twilio should play, or the first reply if a repeat won. */
-async function advance(client: SupabaseClient, row: VoiceSessionRow, session: CallSession, misses: number, response: string, onAdvanced?: () => Promise<void>): Promise<string> {
+async function advance(client: SupabaseClient, row: VoiceSessionRow, session: VoiceCallSession, misses: number, response: string, onAdvanced?: () => Promise<void>): Promise<string> {
   const saved = await advanceVoiceSession(client, row.call_sid, row.seq, { session: withoutTranscript(session), misses, last_response: response });
   if (saved) {
     await onAdvanced?.();
@@ -182,37 +192,41 @@ async function advance(client: SupabaseClient, row: VoiceSessionRow, session: Ca
   return (await readVoiceSession(client, row.call_sid))?.last_response ?? response;
 }
 
-function missedInput(row: VoiceSessionRow): AnswerInput | "ask_again" | "give_up" {
-  if (row.misses >= 2) return "give_up";
-  if (row.misses === 1) {
-    const reply = unknownReply(row.session.replies);
-    if (reply) return { value: reply.value };
-  }
-  return "ask_again";
-}
-
 export async function answerFarmCall(
   client: SupabaseClient,
   input: { callSid: string; seq: number; speech: string; digits: string | null; confidence?: string | null; now: Date },
 ): Promise<string> {
   const { callSid, seq, speech, digits, now } = input;
   const row = await readVoiceSession(client, callSid);
-  if (!row) return twimlGoodbye(voiceLocale());
-  if (seq === row.seq - 1) return row.last_response;
-  if (seq !== row.seq || row.session.done) return twimlGoodbye(row.locale);
-
-  const { session, locale } = row;
-  const { workspace } = requireFarm(await loadFarm(client, { id: row.farm_id }));
-  const spoken = mapSpeechToInput(session, speech, digits, locale, input.confidence);
-  const next = row.seq + 1;
-  const missed = spoken ? null : missedInput(row);
-  if (missed === "give_up") return advance(client, row, { ...session, done: true }, row.misses, twimlGoodbye(locale, MISSED_TWICE[locale]));
-  if (missed === "ask_again") {
-    const prefix = (row.misses === 0 ? MISS_ONCE : MISS_AGAIN)[locale];
-    return advance(client, row, session, row.misses + 1, respond(session, session.turns.length - 1, workspace, locale, next, prefix));
+  if (!row) {
+    logVoiceTurn(input, "missing_session");
+    return twimlGoodbye(voiceLocale());
+  }
+  if (seq === row.seq - 1) {
+    logVoiceTurn(input, "duplicate");
+    return row.last_response;
+  }
+  if (seq !== row.seq || row.session.done) {
+    logVoiceTurn(input, "stale");
+    return twimlGoodbye(row.locale);
   }
 
-  const chosen = (spoken ?? missed) as AnswerInput;
+  const { locale } = row;
+  const hasInput = Boolean(speech.trim() || digits);
+  const silenceCount = hasInput ? 0 : ((row.session as VoiceCallSession).voiceSilences ?? 0) + 1;
+  const session = { ...row.session, voiceSilences: 0 };
+  const { workspace } = requireFarm(await loadFarm(client, { id: row.farm_id }));
+  const spoken = mapSpeechToInput(session, speech, digits, locale, input.confidence);
+  logVoiceTurn(input, spoken);
+  const next = row.seq + 1;
+  const fallback = !spoken && hasInput && row.misses >= 1 ? unknownReply(session.replies) : undefined;
+  if (!spoken && !fallback) {
+    if (silenceCount >= 3) return advance(client, row, { ...session, done: true }, row.misses, twimlGoodbye(locale, MISSED_TWICE[locale]));
+    const prefix = hasInput ? SPOKEN_MISS[locale] : (silenceCount === 1 ? MISS_ONCE : MISS_AGAIN)[locale];
+    return advance(client, row, { ...session, voiceSilences: silenceCount }, Math.min(row.misses + 1, 2), respond(session, session.turns.length - 1, workspace, locale, next, prefix));
+  }
+
+  const chosen = spoken ?? { value: fallback!.value };
   const result = answer(session, workspace, now, chosen);
   const event = eventFor(session, result, chosen, callSid);
   let outcome: VoiceOutcome | null = null;
@@ -242,7 +256,7 @@ export async function answerFarmCall(
   if (outcome?.status === "rejected") {
     return advance(client, row, { ...session, done: true }, 0, twimlGoodbye(locale, SAVE_FAILED[locale]));
   }
-  return advance(client, row, result.session, 0, respond(result.session, session.turns.length, workspace, locale, next));
+  return advance(client, row, result.session, 0, respond(result.session, session.turns.length, workspace, locale, next, fallback ? UNKNOWN_FALLBACK[locale] : ""));
 }
 
 export async function endFarmCall(client: SupabaseClient, callSid: string): Promise<void> {
@@ -309,7 +323,7 @@ export async function reportCallStatus(
   const { token, callSid, status, now } = input;
   if (!FINAL_STATUSES.has(status)) return;
   if (await boundElsewhere(client, token, callSid)) return;
-  const base = { version: 1, eventId: `${callSid}:final`, providerCallId: callSid, reportCallId: token.r, attempt: token.n };
+  const base = { version: 1, eventId: `${callSid}:final:${status}`, providerCallId: callSid, reportCallId: token.r, attempt: token.n };
   const event = status === "completed" ? { ...base, type: "report_call_ended" } : { ...base, type: "report_call_attempt", answered: false };
   await save(client, token.f, { party: "system" }, event, now);
   await deleteVoiceSession(client, callSid);
