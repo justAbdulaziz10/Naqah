@@ -118,7 +118,7 @@ Each step needs the owner's approval. Do the inbound steps below first.
    CRON_SECRET=<random>
    # optional, paid: NAQAH_CALL_OWNER=1
    ```
-3. **Migration `0006_owner_flow.sql`** applied with the others, in the authorized activation phase.
+3. **Migration `20261107213717_owner_flow.sql`** applied with the others, in the authorized activation phase.
 4. **A scheduler every ~5 minutes.** Vercel Hobby cron runs once a day, which misses both the call
    time and the 20-minute retries. Use one of:
    - Vercel Pro cron on `/api/cron/report-calls` (Vercel sends `Authorization: Bearer $CRON_SECRET`).

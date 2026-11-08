@@ -181,9 +181,9 @@ the same functions and swaps only the storage and the "who triggers it" layer.
 
 ### 8.1 Database — Supabase (free tier is enough to start)
 - Schema, applied in order: `0001_init.sql`, `0002_backend_foundation.sql`, `0003_voice_call_sessions.sql`,
-  `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql`, `0006_owner_flow.sql` under `supabase/migrations/` (Postgres 15+).
+  `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql`, `20261107213717_owner_flow.sql` under `supabase/migrations/` (Postgres 15+).
   Local validation uses stand-in Supabase roles/Auth; it does not prove live activation. The existing Supabase project
-  contains Auth test users; migrations 0001–0006 are applied (0006 recorded live as `20261107213717_owner_flow`).
+  contains Auth test users; migrations 0001–0005 and `20261107213717_owner_flow` are applied (owner flow was formerly named 0006 locally).
   Status, plan and manual go-live list: `docs/integrations/supabase-backend.md`.
   One owner (`auth.users`) → one `farms` row (owner, settings, call time, herd count, primary worker) → 1–3 (Basic) or
   1–10 (Ultimate) `workers` rows; NAQAH calls the primary one. Scheduled report calls live in `report_call_runs`.

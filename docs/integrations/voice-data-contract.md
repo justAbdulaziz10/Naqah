@@ -162,7 +162,10 @@ accepted-event suite. The config imports C's actual contract/actions and Task A'
 repository/mappers. Its Supabase fetch transport executes real local SQL but is a stand-in
 for hosted Auth/PostgREST; it is not live-call/provider verification.
 
-The inspected hosted history records `owner_flow` as `20261107213717`, whereas this repository
-names it `0006_owner_flow.sql`. Do not repair/rename/reapply that migration in this fix. If the
-CLI dry run lists that mismatch or another unrelated migration, stop hosted application and
-coordinate history alignment separately. Local success does not waive this preflight gate.
+The owner-flow migration filename is aligned to the already-applied hosted version
+`20261107213717_owner_flow.sql` (formerly `0006_owner_flow.sql` locally), with SQL unchanged.
+Recorded SQL and the affected hosted catalog were compared read-only before this repository-only
+alignment. No hosted history repair or owner-flow re-execution is needed. The association fix
+remains the later `20261108000000_pending_worker_call_tasks.sql`; require a fresh dry run to
+show only that reviewed migration before applying it. Stop on any unrelated mismatch or pending
+migration; local success does not waive this preflight gate.
