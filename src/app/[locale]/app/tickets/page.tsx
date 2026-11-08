@@ -81,15 +81,15 @@ export default function TicketsPage() {
       </header>
 
       {!ultimate ? (
-        <div className="text-sm leading-relaxed text-muted">
-          <p>{m.app.tickets.basicNote}</p>
+        <p className="text-sm leading-relaxed text-muted">
+          {m.app.tickets.basicNote}{" "}
           <Link href={`${href("/app/settings")}#settings-plan`} className="inline-flex min-h-11 items-center font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
             {m.app.tickets.planLink}
           </Link>
-        </div>
+        </p>
       ) : null}
 
-        <Card className="min-w-0 divide-y divide-stone/70">
+      <Card className="min-w-0 divide-y divide-stone/70">
           {tasks.length ? (
             <TicketGroup
               id="tickets-tasks"

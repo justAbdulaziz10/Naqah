@@ -1,11 +1,11 @@
 "use client";
 
 import { Fragment, useMemo, useRef, useState } from "react";
-import { PencilSimple, Plus } from "@phosphor-icons/react";
+import { MagnifyingGlass, PencilSimple, Plus } from "@phosphor-icons/react";
 import { CamelEditorDialog, type CamelFormValues } from "@/components/dashboard/CamelEditorDialog";
 import { CertaintyBadge, EmptyState, HealthBadge } from "@/components/dashboard/DashboardPrimitives";
 import { useHashTarget } from "@/components/dashboard/useHashTarget";
-import { Button, Card, ConfirmDialog, Field, IconButton, Input, Segmented } from "@/components/ui";
+import { Button, Card, ConfirmDialog, IconButton, Input, Segmented } from "@/components/ui";
 import { uid } from "@/domain/id";
 import { CERTAINTY_LABELS } from "@/domain";
 import type { Camel } from "@/domain";
@@ -186,9 +186,11 @@ export default function HerdPage() {
               { value: "healthy", label: m.app.herd.healthyFilter },
             ]}
           />
-          <Field label={m.app.herd.search} className="w-full sm:max-w-xs">
-            {(id) => <Input id={id} type="search" value={search} onChange={(event) => setSearch(event.target.value)} />}
-          </Field>
+          <div className="relative w-full sm:max-w-xs">
+            <label htmlFor="herd-search" className="sr-only">{m.app.herd.search}</label>
+            <MagnifyingGlass size={18} className="pointer-events-none absolute start-4 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
+            <Input id="herd-search" type="search" placeholder={m.app.herd.search} className="ps-11" value={search} onChange={(event) => setSearch(event.target.value)} />
+          </div>
         </div>
       ) : null}
 
@@ -224,7 +226,7 @@ export default function HerdPage() {
                     <HealthBadge health={camel.health} />
                     {provenance(camel)}
                   </td>
-                  <td className="px-3 py-4 text-sm leading-relaxed text-espresso">{camel.healthNote || <><span className="text-muted" aria-hidden>—</span><span className="sr-only">{m.app.herd.noHealthNote}</span></>}</td>
+                  <td className="px-3 py-4 text-sm leading-relaxed text-espresso">{camel.healthNote || <span className="sr-only">{m.app.herd.noHealthNote}</span>}</td>
                   <td className="px-3 py-2.5 text-end">{editButton(camel)}</td>
                 </tr>
               ))}

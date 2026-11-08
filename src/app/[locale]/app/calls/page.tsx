@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { ArrowsClockwise, PhoneIncoming, PhoneOutgoing, WarningCircle } from "@phosphor-icons/react";
-import { CertaintyBadge, EmptyState, OutcomeBadge } from "@/components/dashboard/DashboardPrimitives";
-import { Badge, ButtonLink, Card, CardBody, Segmented } from "@/components/ui";
+import { EmptyState, OutcomeBadge } from "@/components/dashboard/DashboardPrimitives";
+import { ReportAnswers } from "@/components/dashboard/ReportAnswers";
+import { ButtonLink, Card, CardBody, Segmented } from "@/components/ui";
 import { dayKey } from "@/domain";
 import type { CallKind, CallLog } from "@/domain";
 import { useI18n } from "@/i18n/client";
@@ -63,7 +64,7 @@ export default function CallsPage() {
   if (!ws) return null;
 
   return (
-    <div className="space-y-5 pb-8">
+    <div className="max-w-3xl space-y-5 pb-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.app.calls.title}</h1>
         {ws.calls.length ? <Segmented
@@ -88,6 +89,8 @@ export default function CallsPage() {
               <ul className="divide-y divide-stone/70">
                 {group.map((call) => {
                   const report = call.reportId ? ws.reports.find((item) => item.id === call.reportId) : null;
+                  // One report, one place for its details: the worker's report call when it is listed.
+                  const showDetails = Boolean(call.reportId) && (call.kind === "worker_report" || !calls.some((other) => other.reportId === call.reportId && other.kind === "worker_report"));
                   return (
                     <li key={call.id}>
                         <CardBody className="py-4">
@@ -99,12 +102,12 @@ export default function CallsPage() {
                               <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
                                 <h3 className="font-semibold text-espresso">{callTitle(call.kind, m)}</h3>
                                 <OutcomeBadge outcome={call.outcome} />
-                                {call.attempt !== null ? <span className="text-xs text-muted">{m.app.calls.attempt(fmt.number(call.attempt))}</span> : null}
+                                {call.attempt !== null && call.attempt > 1 ? <span className="text-xs text-muted">{m.app.calls.attempt(fmt.number(call.attempt))}</span> : null}
                               </div>
-                              <p className="mt-1 text-[0.8125rem] text-muted ltr-nums">{fmt.dateTime(call.at, { hour: "numeric", minute: "2-digit", hour12: true })}</p>
+                              <p className="mt-1 text-[0.8125rem] text-muted"><time className="ltr-nums" dateTime={call.at}>{fmt.time(call.at)}</time></p>
                               <p className="mt-2 text-sm leading-relaxed text-espresso">{t(call.summary)}</p>
 
-                              {call.reportId ? (
+                              {showDetails ? (
                                 <details className="mt-3 border-t border-stone/70 pt-2">
                                   <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold text-brown underline decoration-stone underline-offset-4">
                                     {m.app.calls.details}
@@ -113,20 +116,7 @@ export default function CallsPage() {
                                     <div className="space-y-4 pb-2 pt-1">
                                       <section>
                                         <h4 className="mb-2 text-sm font-semibold">{m.app.calls.answers}</h4>
-                                        {report.answers.length ? (
-                                          <dl className="divide-y divide-stone/70">
-                                            {report.answers.map((answer, index) => (
-                                              <div key={`${answer.questionId}-${index}`} className="grid gap-1 py-3 first:pt-0 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] sm:gap-4">
-                                                <dt className="text-sm text-muted">{t(answer.question)}</dt>
-                                                <dd className="text-sm font-medium leading-relaxed">
-                                                  <span>{answer.answerText ? t(answer.answerText) : answer.answer}</span>
-                                                  <span className="ms-2 inline-flex align-middle"><CertaintyBadge certainty={answer.certainty} /></span>
-                                                  {answer.followUp ? <span className="ms-2 inline-flex align-middle"><Badge tone="info">{m.app.calls.followUp}</Badge></span> : null}
-                                                </dd>
-                                              </div>
-                                            ))}
-                                          </dl>
-                                        ) : <p className="text-sm text-muted">{m.app.calls.noAnswers}</p>}
+                                        {report.answers.length ? <ReportAnswers answers={report.answers} /> : <p className="text-sm text-muted">{m.app.calls.noAnswers}</p>}
                                       </section>
                                       <section>
                                         <h4 className="mb-2 text-sm font-semibold">{m.app.calls.findings}</h4>

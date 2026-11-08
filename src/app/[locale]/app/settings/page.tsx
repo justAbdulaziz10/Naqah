@@ -197,7 +197,7 @@ export default function SettingsPage() {
       </div>
 
       <section id="settings-more" aria-labelledby="settings-more-title" className={cn(anchor, "space-y-3")}>
-        <GroupTitle id="settings-more-title" title={s.more} lead={s.moreLead} />
+        <GroupTitle id="settings-more-title" title={s.more} />
         <Card className="divide-y divide-stone/70 overflow-hidden">
           <ResourcesSection {...section("resources")} />
           <WhatMattersSection {...section("criteria")} />

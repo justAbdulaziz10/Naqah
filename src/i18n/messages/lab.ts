@@ -4,11 +4,7 @@ import { defineMessages } from "../types";
 export const lab = defineMessages({
   en: {
     title: "Call Lab",
-    subtitle: "Practice NAQAH’s calls here. Every call is a simulation: nothing is dialed or recorded.",
-    planNote: {
-      basic: "Basic: NAQAH calls the worker once a week at your chosen day and time, and you get one owner call a week. Instructions pass on; no task tickets.",
-      ultimate: "Ultimate: NAQAH calls the worker every day at your chosen time, owner calls are unlimited, and tasks stay open until the worker confirms.",
-    },
+    subtitle: "Try every NAQAH call. All simulated: nothing is dialed or recorded.",
     comparePlans: "Compare plans",
     scenarios: {
       reportCall: { title: "NAQAH calls Ahmed for the report", short: "Report call", detail: "The scheduled call, simulated. Ahmed answers, or it rings out." },
@@ -140,11 +136,7 @@ export const lab = defineMessages({
   },
   ar: {
     title: "مختبر المكالمات",
-    subtitle: "جرّب مكالمات ناقة هنا. كل المكالمات محاكاة: ما فيه اتصال فعلي أو تسجيل.",
-    planNote: {
-      basic: "الأساسية: ناقة تتصل بالعامل مرة بالأسبوع في اليوم والوقت اللي تحدده، ولك مكالمة مالك وحدة بالأسبوع. التعليمات تُنقل بلا تذاكر مهام.",
-      ultimate: "المتكاملة: ناقة تتصل بالعامل كل يوم في الوقت اللي تحدده، ومكالمات المالك بلا حد. تبقى المهام مفتوحة حتى يؤكد العامل إنجازها.",
-    },
+    subtitle: "جرّب كل مكالمات ناقة. كلها محاكاة: ما فيه اتصال فعلي ولا تسجيل.",
     comparePlans: "قارن الباقات",
     scenarios: {
       reportCall: { title: "ناقة تتصل بأحمد للتقرير", short: "مكالمة التقرير", detail: "المكالمة المجدولة، محاكاة. يرد أحمد أو ما يرد." },

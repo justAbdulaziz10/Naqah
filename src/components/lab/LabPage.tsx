@@ -729,15 +729,14 @@ export function LabPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-[-0.025em] text-espresso">{m.lab.title}</h1>
-        <p className="max-w-2xl text-sm leading-relaxed text-muted sm:text-base">{m.lab.subtitle}</p>
-        <div className="max-w-2xl text-sm leading-relaxed text-muted">
-          <p>{m.lab.planNote[ws.settings.plan]}</p>
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.lab.title}</h1>
+        <p className="max-w-2xl text-sm leading-relaxed text-muted">
+          {m.lab.subtitle}{" "}
           <Link href={`${href("/app/settings")}#settings-plan`} className="inline-flex min-h-11 items-center font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
             {m.lab.comparePlans}
           </Link>
-        </div>
+        </p>
       </header>
 
       <section aria-label={m.lab.title} className="space-y-3">
