@@ -123,7 +123,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
     },
     {
       id: uid("cq"),
-      text: ar ? "هل زار العزبة أحد غريب؟" : "Did any visitors come to the farm?",
+      text: ar ? "هل زار العزبة أحد غريب؟" : "Did any visitors come to the ranch?",
       createdAt: y,
     },
   ];
@@ -168,7 +168,13 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
     id: reportId,
     at: y,
     callId,
-    answers: [],
+    answers: ws.settings.customQuestions.map((q, i) => ({
+      questionId: q.id,
+      question: { ar: q.text, en: q.text },
+      answer: i === 0 ? (ar ? "إيه، قرابة 40 لتر" : "Yes, about 40 litres") : ar ? "لا، ما جا أحد" : "No visitors",
+      certainty: i === 0 ? ("approximate" as const) : ("reported" as const),
+      followUp: false,
+    })),
     findings: [
       {
         id: uid("fnd"),

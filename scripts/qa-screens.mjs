@@ -26,7 +26,7 @@ for (const locale of ["ar", "en"]) {
     });
     // Seed the sample farm through the real UI gate.
     await page.goto(`${BASE}/${locale}/app`, { waitUntil: "networkidle" });
-    const demo = page.getByRole("button", { name: locale === "ar" ? "جرّب العرض" : "Explore the demo" });
+    const demo = page.getByRole("button", { name: locale === "ar" ? "استكشف العرض التجريبي" : "Explore the demo" });
     if (await demo.count()) await demo.first().click();
     await page.waitForTimeout(400);
     for (const p of PAGES) {
