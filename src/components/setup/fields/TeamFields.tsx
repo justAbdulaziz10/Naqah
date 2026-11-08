@@ -117,23 +117,32 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
                       requiredMessage={primary ? m.setup.call.needWorkerPhone : undefined}
                       onChange={(phone) => editWorker(index, { phone })}
                     />
-                    <StepField
-                      label={s.language}
-                      hint={isLiveCallLanguage(worker.language) ? undefined : s.languageLater(t(language.label))}
-                    >
-                      {({ id, describedBy }) => (
-                        <StepSelect
-                          id={id}
-                          aria-describedby={describedBy}
-                          value={worker.language}
-                          onChange={(event) => editWorker(index, { language: event.target.value as Worker["language"] })}
-                        >
-                          <optgroup label={s.liveLanguages}>{liveLanguages.map(languageOption)}</optgroup>
-                          <optgroup label={s.laterLanguages}>{laterLanguages.map(languageOption)}</optgroup>
-                        </StepSelect>
-                      )}
-                    </StepField>
                   </div>
+                  {/* The call language is rarely changed, so it waits behind its current value. */}
+                  <details className="group mt-3" open={!isLiveCallLanguage(worker.language) || undefined}>
+                    <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-[0.9375rem] text-muted transition-colors hover:text-espresso [&::-webkit-details-marker]:hidden">
+                      {s.callsIn(language.native)}
+                      <span className="font-semibold text-brown underline decoration-sand underline-offset-4 group-open:hidden">{s.changeLanguage}</span>
+                    </summary>
+                    <div className="mt-2 sm:max-w-[calc(50%-0.625rem)]">
+                        <StepField
+                          label={s.language}
+                          hint={isLiveCallLanguage(worker.language) ? undefined : s.languageLater(t(language.label))}
+                        >
+                          {({ id, describedBy }) => (
+                            <StepSelect
+                              id={id}
+                              aria-describedby={describedBy}
+                              value={worker.language}
+                              onChange={(event) => editWorker(index, { language: event.target.value as Worker["language"] })}
+                            >
+                              <optgroup label={s.liveLanguages}>{liveLanguages.map(languageOption)}</optgroup>
+                              <optgroup label={s.laterLanguages}>{laterLanguages.map(languageOption)}</optgroup>
+                            </StepSelect>
+                          )}
+                        </StepField>
+                    </div>
+                  </details>
                 </fieldset>
               </li>
             );

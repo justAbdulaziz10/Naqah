@@ -5,7 +5,8 @@
  */
 import type { Workspace } from "@/domain/types";
 import { isAccountWorkspace, type AccountWorkspace } from "@/lib/account/types";
-import { mergeEdits, ownerChanges, withServerIds, type OwnerChange } from "@/lib/account/changes";
+import { create } from "zustand";
+import { mergeEdits, ownerChanges, unsentDrafts, withServerIds, type OwnerChange } from "@/lib/account/changes";
 import { normalizePhone } from "@/server/farm/input";
 import { accountLink, useAccountState, useSaveStatus, useWorkspaceStore } from "./workspace";
 
@@ -29,6 +30,16 @@ export interface AccountApi {
 
 /** Fixing these takes the owner, so trying again on a timer would never end. */
 const REFUSED = new Set(["invalid_input", "limit_reached"]);
+
+/**
+ * Edits on the screen that can't be sent yet (see `unsentDrafts`). Kept apart from the save status:
+ * a section is only "saved" when nothing it shows is still waiting here.
+ */
+export const useUnsentDrafts = create<{ fields: string[] }>(() => ({ fields: [] }));
+const setDrafts = (fields: string[]) => {
+  const before = useUnsentDrafts.getState().fields;
+  if (before.length !== fields.length || before.some((field, index) => field !== fields[index])) useUnsentDrafts.setState({ fields });
+};
 
 const current = () => useWorkspaceStore.getState().workspace;
 const setWorkspace = (workspace: Workspace | null) => useWorkspaceStore.setState({ workspace });
@@ -67,6 +78,7 @@ function adopt(fresh: Workspace) {
     });
   } else {
     if (halfTyped(local.settings.owner.phone)) settings.owner = { ...settings.owner, phone: local.settings.owner.phone };
+    if (!local.settings.farm.name.trim()) settings.farm = { ...settings.farm, name: local.settings.farm.name }; // Flagged on screen, not sent.
     if (halfTyped(local.settings.worker.phone)) settings.worker = { ...settings.worker, phone: local.settings.worker.phone };
     settings.otherWorkers = settings.otherWorkers?.map((worker) => {
       const mine = local.settings.otherWorkers?.find((item) => item.id === worker.id);
@@ -89,6 +101,10 @@ export function createAccountSync(api: AccountApi, identity: AccountIdentity) {
     if (timer) clearTimeout(timer);
     timer = null;
   };
+  const trackDrafts = () => {
+    const local = current();
+    setDrafts(accountLink.active && base && local ? unsentDrafts(base, local) : []);
+  };
   const schedule = (delay: number) => {
     clearTimer();
     timer = setTimeout(() => void flush(), delay);
@@ -102,6 +118,7 @@ export function createAccountSync(api: AccountApi, identity: AccountIdentity) {
     // Keep persistence blocked until the new owner's result or a confirmed sign-out.
     if (accountLink.active) setWorkspace(null);
     setSave("idle");
+    setDrafts([]);
     useAccountState.setState({ status: "checking", notice: null });
   }
 
@@ -156,6 +173,7 @@ export function createAccountSync(api: AccountApi, identity: AccountIdentity) {
     base = null;
     saving = null;
     clearTimer();
+    setDrafts([]);
     useAccountState.setState({ active: false, status, notice: null });
     if (wasActive) {
       setSave("idle");
@@ -177,6 +195,7 @@ export function createAccountSync(api: AccountApi, identity: AccountIdentity) {
     }
     if (before && local && ownerChanges(before, local).length) setWorkspace(mergeEdits(before, local, fresh));
     else adopt(fresh);
+    trackDrafts();
   }
 
   async function send() {
@@ -192,6 +211,7 @@ export function createAccountSync(api: AccountApi, identity: AccountIdentity) {
     if (base.ownerId !== initiatingIdentity.ownerId || !isAccountWorkspace(sent) || sent.farmId !== base.farmId || sent.ownerId !== base.ownerId) return;
     const before = base;
     const changes = ownerChanges(base, sent);
+    trackDrafts();
     if (!changes.length) {
       if (useSaveStatus.getState().status === "failed") setSave("saved");
       if (useAccountState.getState().notice === "refused") useAccountState.setState({ notice: null });
@@ -257,6 +277,7 @@ export function createAccountSync(api: AccountApi, identity: AccountIdentity) {
       useAccountState.setState({ notice: "plan" });
     }
     setSave("idle");
+    trackDrafts();
     schedule(SAVE_DELAY_MS);
   }
   accountLink.edited = edited;
@@ -309,7 +330,12 @@ export function createAccountSync(api: AccountApi, identity: AccountIdentity) {
     authChanged(nextOwnerId: string | null) { changeIdentity(nextOwnerId, true); },
     hasUnsaved() {
       const local = current();
-      return Boolean(accountLink.active && (saving || (base && local && ownerChanges(base, local).length)));
+      return Boolean(accountLink.active && (saving || timer || (base && local && (ownerChanges(base, local).length || unsentDrafts(base, local).length))));
+    },
+    /** Edits on the screen that can't be sent until the owner fixes them. */
+    unsentDrafts() {
+      const local = current();
+      return accountLink.active && base && local ? unsentDrafts(base, local) : [];
     },
 
     /** Calls change the farm while the page is open, so screens pick that up here. */

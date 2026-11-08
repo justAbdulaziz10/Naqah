@@ -1,6 +1,6 @@
 import type { LocalizedText } from "@/domain/types";
 
-export type LandingPhotoId = "hero" | "evening" | "heritage" | "herd" | "closing";
+export type LandingPhotoId = "hero" | "herder" | "evening" | "heritage" | "herd" | "closing";
 
 export interface LandingPhoto {
   /** Path under /public, e.g. "/images/landing/hero.jpg". */
@@ -20,6 +20,23 @@ export interface LandingPhoto {
  */
 export const LANDING_PHOTOS: Partial<Record<LandingPhotoId, LandingPhoto>> = {
   hero: {
+    src: "/images/landing/hero-herd-dusk.jpg",
+    width: 2560,
+    height: 1706,
+    alt: {
+      en: "A line of camels walking across the dunes at sunset",
+      ar: "قطيع من الإبل يمشي على الكثبان وقت الغروب",
+    },
+    focus: "50% 8%",
+    credit: {
+      title: "Camels trekking through the desert at sunset",
+      creator: "Mo Eid",
+      license: "Pexels License",
+      licenseUrl: "https://www.pexels.com/license/",
+      sourceUrl: "https://www.pexels.com/photo/camels-trekking-through-the-desert-at-sunset-28844446/",
+    },
+  },
+  herder: {
     src: "/images/landing/hero-herder.jpg",
     width: 2400,
     height: 1598,
@@ -27,7 +44,7 @@ export const LANDING_PHOTOS: Partial<Record<LandingPhotoId, LandingPhoto>> = {
       en: "A herder leads a camel across flat desert sand in a dusty haze",
       ar: "راعٍ يقود جمله عبر رمال صحراء مستوية في غبار خفيف",
     },
-    focus: "50% 100%",
+    focus: "50% 55%",
     credit: {
       title: "راع يقود جمله",
       creator: "Saudi Press Agency (SPA)",
@@ -88,20 +105,20 @@ export const LANDING_PHOTOS: Partial<Record<LandingPhotoId, LandingPhoto>> = {
     },
   },
   closing: {
-    src: "/images/landing/closing.jpg",
+    src: "/images/landing/call-hisma-sunset.jpg",
     width: 2400,
-    height: 1800,
+    height: 1600,
     alt: {
-      en: "Sunset over the dunes of the Rub' al Khali",
-      ar: "غروب الشمس فوق كثبان الربع الخالي",
+      en: "The sun setting over the Hisma desert",
+      ar: "الشمس تغرب على صحراء حسمى",
     },
-    focus: "50% 55%",
+    focus: "62% 58%",
     credit: {
-      title: "Rub al khali sunset Nov 2007",
-      creator: "Javierblas",
-      license: "CC BY-SA 3.0",
-      licenseUrl: "https://creativecommons.org/licenses/by-sa/3.0/",
-      sourceUrl: "https://commons.wikimedia.org/wiki/File:Rub_al_khali_sunset_Nov_2007.jpg",
+      title: "The sun is setting over a desert landscape",
+      creator: "NEOM",
+      license: "Unsplash License",
+      licenseUrl: "https://unsplash.com/license",
+      sourceUrl: "https://unsplash.com/photos/the-sun-is-setting-over-a-desert-landscape-WpOMM4uE-F8",
     },
   },
 };

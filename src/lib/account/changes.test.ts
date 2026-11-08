@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDemoWorkspace, createEmptyWorkspace } from "@/domain/seed";
 import type { Workspace } from "@/domain/types";
-import { ownerChanges, withServerIds } from "./changes";
+import { ownerChanges, unsentDrafts, withServerIds } from "./changes";
 
 const base = (): Workspace => {
   const ws = createDemoWorkspace("en", "ultimate");
@@ -109,5 +109,30 @@ describe("owner flow changes", () => {
     const ws = base();
     const blank: Workspace = { ...ws, settings: { ...ws.settings, otherWorkers: [...(ws.settings.otherWorkers ?? []), newWorker()] } };
     expect(ownerChanges(ws, blank)).toEqual([]);
+  });
+
+  it("keeps a half-typed phone as an unsent draft beside a sendable name change", () => {
+    const ws = base();
+    const next = { ...withOwner(ws, "Salem", "123"), settings: { ...withOwner(ws, "Salem", "123").settings, farm: { ...ws.settings.farm, name: "Al Nakheel" } } };
+    expect(ownerChanges(ws, next)).toEqual([{ kind: "profile", input: { name: "Al Nakheel" } }]);
+    expect(unsentDrafts(ws, next)).toEqual(["ownerPhone"]);
+  });
+
+  it("never sends a cleared ranch name and reports it as a draft", () => {
+    const ws = base();
+    const cleared: Workspace = { ...ws, settings: { ...ws.settings, farm: { ...ws.settings.farm, name: "  " } } };
+    expect(ownerChanges(ws, cleared)).toEqual([]);
+    expect(unsentDrafts(ws, cleared)).toEqual(["farmName"]);
+  });
+
+  it("reports a half-typed worker number, call time and herd count, and nothing once they are whole", () => {
+    const ws = base();
+    const typing: Workspace = {
+      ...ws,
+      settings: { ...ws.settings, worker: { ...ws.settings.worker, phone: "0501" }, callSchedule: { day: 4, time: "17:" }, herdCount: 4.5 },
+    };
+    expect(unsentDrafts(ws, typing)).toEqual([`worker:${ws.settings.worker.id}`, "callSchedule", "herdCount"]);
+    const done: Workspace = { ...ws, settings: { ...ws.settings, worker: { ...ws.settings.worker, phone: "0501234567" }, callSchedule: { day: 4, time: "17:40" }, herdCount: 45 } };
+    expect(unsentDrafts(ws, done)).toEqual([]);
   });
 });

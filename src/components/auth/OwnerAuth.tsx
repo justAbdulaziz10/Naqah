@@ -64,6 +64,12 @@ function PhoneAuth({ mode, next }: { mode: 'login' | 'signup'; next: string | nu
     return () => clearInterval(timer);
   }, []);
   useEffect(() => { if (sentPhone) codeInput.current?.focus(); }, [sentPhone]);
+  // A field-level problem sends focus back to that field once it is enabled again.
+  useEffect(() => {
+    if (busy || !issue) return;
+    if (issue === 'invalidPhone') document.getElementById(phoneId)?.focus();
+    else if (issue === 'invalidCodeFormat' || issue === 'invalidCode') codeInput.current?.focus();
+  }, [issue, busy, phoneId]);
   useEffect(() => {
     const pending = readPending();
     if (!pending) return;

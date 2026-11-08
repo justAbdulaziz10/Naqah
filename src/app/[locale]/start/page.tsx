@@ -1,9 +1,8 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, Check, CheckCircle } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowRight, CheckCircle } from "@phosphor-icons/react";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CamelMark } from "@/components/brand/CamelMark";
 import { Logo } from "@/components/brand/Logo";
 import type { WorkspaceUpdate } from "@/components/setup";
 import {
@@ -16,6 +15,7 @@ import {
   type WizardStepKey,
 } from "@/components/setup/onboarding/WizardSteps";
 import { StepHead } from "@/components/setup/onboarding/WizardParts";
+import { FinishMoment, JourneyBar, JourneyPanel } from "@/components/setup/onboarding/Journey";
 import { getCallSetupGaps } from "@/components/setup/CallSetupStatus";
 import { buttonClass } from "@/components/ui/Button";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
@@ -23,7 +23,6 @@ import { uid } from "@/domain/id";
 import type { Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { setup as setupMessages } from "@/i18n/messages/setup";
-import { cn } from "@/lib/cn";
 import { useIsAccount, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
 
 /**
@@ -62,16 +61,18 @@ function Onboarding() {
   }, [account, hydrated, startOnboarding, ws]);
 
   useEffect(() => {
-    if (finished) router.replace(href("/app"));
-  }, [finished, href, router]);
+    // A farm finished elsewhere goes straight on; one finished here first shows its moment (see finish()).
+    if (finished && !finishing) router.replace(href("/app"));
+  }, [finished, finishing, href, router]);
 
   // Focus the heading once per step, not on every keystroke.
   useEffect(() => {
     if (editing) document.getElementById("current-step-title")?.focus({ preventScroll: true });
   }, [editing, step]);
 
-  if (!hydrated || !ws || finished || finishing) {
-    return <div role="status" className="flex min-h-dvh items-center justify-center px-6 text-center text-muted">{finishing || finished ? f.opening : f.loading}</div>;
+  if (finishing) return <FinishMoment />;
+  if (!hydrated || !ws || finished) {
+    return <div role="status" className="flex min-h-dvh items-center justify-center px-6 text-center text-muted">{finished ? f.opening : f.loading}</div>;
   }
 
   const steps = WIZARD_STEPS;
@@ -116,7 +117,9 @@ function Onboarding() {
         text: { ar: setupMessages.ar.flow.setupEvent, en: setupMessages.en.flow.setupEvent },
       }],
     }));
-    router.replace(href("/app"));
+    // A short, calm completion moment, then the dashboard (at once with reduced motion).
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.setTimeout(() => router.replace(href("/app")), reduced ? 0 : 1400);
   }
 
   const content = (() => {
@@ -132,48 +135,8 @@ function Onboarding() {
 
   return (
     <div className="min-h-dvh bg-ivory lg:grid lg:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[25rem_minmax(0,1fr)]">
-      {/* Where you are in the setup (desktop), on the estate's dark ground. */}
-      <div className="hidden bg-espresso lg:block">
-        <aside className="relative flex h-dvh flex-col overflow-hidden px-10 py-9 text-cream lg:sticky lg:top-0">
-          <Logo locale={locale} href={href("/")} tone="light" />
-          <nav aria-label={f.stepsNav} className="relative z-10 mt-16">
-            <p className="mb-5 text-[0.9375rem] font-semibold text-sand">{f.title}</p>
-            <ol className="space-y-1">
-              {steps.map((key, index) => {
-                const done = index < step && !stepNeedsFixing(key, ws);
-                const here = index === step;
-                return (
-                  <li key={key}>
-                    <button
-                      type="button"
-                      onClick={() => go(index)}
-                      aria-current={here ? "step" : undefined}
-                      className={cn(
-                        "flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-start text-[1.0625rem] transition-colors",
-                        here ? "bg-cream/10 font-bold text-cream" : done ? "text-cream/85 hover:bg-cream/5" : "text-cream/60 hover:bg-cream/5 hover:text-cream/85",
-                      )}
-                    >
-                      <span
-                        aria-hidden
-                        className={cn(
-                          "inline-flex size-6 shrink-0 items-center justify-center rounded-full border",
-                          here ? "border-gold bg-gold text-espresso" : done ? "border-gold/70 text-gold" : "border-cream/30",
-                        )}
-                      >
-                        {done ? <Check size={13} weight="bold" /> : here ? <span className="size-2 rounded-full bg-espresso" /> : null}
-                      </span>
-                      <span>{f.steps[key]}</span>
-                      {done ? <span className="sr-only">({f.stepDone})</span> : null}
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-          </nav>
-          {account ? null : <p className="relative z-10 mt-auto max-w-[17rem] text-[0.9375rem] leading-relaxed text-cream/70">{f.demoNote}</p>}
-          {/* The approved mark, unchanged, enlarged and cropped by the panel edge. */}
-          <CamelMark className="pointer-events-none absolute -bottom-10 -end-24 h-auto w-[30rem] opacity-[0.09]" />
-        </aside>
+      <div className="hidden lg:block">
+        <JourneyPanel ws={ws} step={step} onGo={go} />
       </div>
 
       <div className="flex min-h-dvh flex-col">
@@ -184,49 +147,34 @@ function Onboarding() {
           </div>
         </header>
 
-        {/* Progress (phone and tablet). The desktop panel carries the full step list. */}
-        <div className="mx-auto w-full max-w-[44rem] px-4 pt-5 sm:px-6 lg:hidden">
-          <div className="flex items-baseline justify-between gap-4 text-[0.9375rem]">
-            <span className="font-bold text-espresso">{f.steps[current]}</span>
-            <span className="text-muted">{f.stepOf(step + 1, steps.length)}</span>
+        <main className="flex flex-1 flex-col">
+          <JourneyBar step={step} />
+          <div className="mx-auto w-full max-w-[44rem] flex-1 px-4 pb-12 pt-8 sm:px-6 sm:pt-10 lg:pt-[max(2rem,7vh)]">
+          <div key={current} className="naqah-step-in">
+            <StepHead title={head.title} lead={head.lead} />
+            {content}
           </div>
-          <div
-            className="mt-2.5 flex gap-1.5"
-            role="progressbar"
-            aria-label={f.progressLabel}
-            aria-valuemin={1}
-            aria-valuemax={steps.length}
-            aria-valuenow={step + 1}
-            aria-valuetext={`${f.stepOf(step + 1, steps.length)} · ${f.steps[current]}`}
-          >
-            {steps.map((key, index) => (
-              <span key={key} className={cn("h-1.5 flex-1 rounded-full", index <= step ? "bg-brown" : "bg-stone")} />
-            ))}
-          </div>
-        </div>
-
-        <main className="mx-auto w-full max-w-[44rem] flex-1 px-4 pb-12 pt-8 sm:px-6 sm:pt-10 lg:pt-[max(2rem,7vh)]">
-          <StepHead title={head.title} lead={head.lead} />
-          {content}
           {saveFailed ? <p className="mt-6 text-[0.975rem] leading-relaxed text-danger" role="alert">{f.notSaved}</p> : null}
 
-          {/* Actions sit right under the step, never fixed over fields or the keyboard. */}
-          <div className="mt-10 flex flex-col-reverse gap-3 border-t border-stone/80 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          {account ? null : <p className="mt-10 text-[0.9375rem] text-muted lg:hidden">{f.demoNote}</p>}
+
+          {/* Phones: the actions stay in thumb reach at the bottom while the step scrolls; wider screens keep them under the step. */}
+          <div className="sticky bottom-0 z-20 -mx-4 mt-8 flex items-center justify-between gap-3 border-t border-stone/80 bg-ivory px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:static sm:mx-0 sm:mt-10 sm:px-0 sm:pb-0 sm:pt-6">
             {step > 0 ? (
               <button
                 type="button"
                 onClick={() => go(step - 1)}
-                className="inline-flex min-h-12 items-center justify-center gap-2 self-start rounded-full px-4 text-[1rem] font-semibold text-espresso transition hover:bg-espresso/5 sm:self-auto"
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full px-4 text-[1rem] font-semibold text-espresso transition hover:bg-espresso/5 active:scale-[0.98]"
               >
                 <ArrowLeft size={18} className="rtl:-scale-x-100" aria-hidden />
                 {m.common.actions.back}
               </button>
-            ) : <span className="hidden sm:block" />}
+            ) : <span />}
             <button
               type="button"
               data-step-next={isLast ? undefined : ""}
               onClick={isLast ? finish : nextStep}
-              className={buttonClass({ size: "lg", className: "px-8" })}
+              className={buttonClass({ size: "lg", className: "px-8 shadow-none max-sm:flex-1" })}
             >
               {isLast ? (
                 <>
@@ -240,6 +188,7 @@ function Onboarding() {
                 </>
               )}
             </button>
+          </div>
           </div>
         </main>
       </div>

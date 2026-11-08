@@ -2,7 +2,7 @@
 
 import { Eye, EyeSlash } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button, Input } from '@/components/ui';
 import { useI18n } from '@/i18n/client';
 import { auth } from '@/i18n/messages/auth';
@@ -37,14 +37,23 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
   const [confirmation, setConfirmation] = useState(false);
   const [issue, setIssue] = useState<EmailIssue | 'shortPassword' | null>(null);
   const locked = useRef(false);
+  // After a failed submit, focus moves to what needs fixing: the password for password problems,
+  // otherwise the error itself (it can hold the "Log in instead" link). Inputs re-enable first.
+  const [focusIssue, setFocusIssue] = useState(0);
+  useEffect(() => {
+    if (!focusIssue || pending || !issue) return;
+    const target = issue === 'shortPassword' || issue === 'weakPassword' || issue === 'credentials' ? passwordId : errorId;
+    document.getElementById(target)?.focus();
+  }, [focusIssue, pending, issue, passwordId, errorId]);
+  const fail = (next: EmailIssue | 'shortPassword') => { setIssue(next); setFocusIssue((count) => count + 1); };
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (locked.current || googlePending) return;
     // A clear length hint up front; Supabase still enforces its own password policy.
-    if (mode === 'signup' && password.length < MIN_PASSWORD) { setIssue('shortPassword'); return; }
-    if (captchaKey && !captchaToken) { setIssue('captcha'); return; }
+    if (mode === 'signup' && password.length < MIN_PASSWORD) { fail('shortPassword'); return; }
+    if (captchaKey && !captchaToken) { fail('captcha'); return; }
     const client = createClient();
-    if (!client) { setIssue('unavailable'); return; }
+    if (!client) { fail('unavailable'); return; }
     locked.current = true; setPending(true); setIssue(null);
     rememberAuthReturn(next);
     const result = await authenticateEmail(client, mode, email, password, callbackUrl(window.location.origin, locale, next, 'email'), captchaToken || undefined);
@@ -57,7 +66,7 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
         return;
       }
       setConfirmation(true);
-    } else { setIssue(result.issue); }
+    } else { fail(result.issue); }
     locked.current = false; setPending(false);
   }
   const query = new URLSearchParams({ method: 'email', next: `/${locale}/app` });
@@ -94,7 +103,7 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
           </div>
           {showHint ? <p id={hintId} className="text-sm text-muted">{m.passwordHint}</p> : null}
         </div>
-        <div id={errorId} data-email-error role="alert" className="-mt-1 text-sm leading-relaxed text-danger" hidden={!error}>
+        <div id={errorId} data-email-error role="alert" tabIndex={-1} className="-mt-1 text-sm leading-relaxed text-danger focus:outline-none" hidden={!error}>
           {error ? m[error] : ''}
           {error === 'accountExists' ? <Link className="flex min-h-11 w-fit items-center font-semibold text-espresso underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown" href={`${href('/login')}?${query}`}>{m.accountExistsAction}</Link> : null}
         </div>

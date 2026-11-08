@@ -1,0 +1,143 @@
+/* landing & onboarding: the landing page's own paper and motion. Everything rests in its finished
+ * state: only MotionRoot marks parts as pending, and reduced motion keeps the still page. */
+
+/* Paper slips sit a touch off square on wide screens, mirrored in Arabic. Flat when stacked. */
+@media (min-width: 1024px) {
+  .naqah-slip {
+    rotate: var(--tilt, 0deg);
+    transform-origin: bottom center;
+  }
+  [dir="rtl"] .naqah-slip {
+    rotate: calc(var(--tilt, 0deg) * -1);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The opening lines rise once on arrival. */
+  .naqah-arrive {
+    animation: naqah-arrive 900ms cubic-bezier(0.16, 1, 0.3, 1) var(--arrive-delay, 0ms) both;
+  }
+
+  /* Slips are dealt onto the page: they rise and settle at their tilt. */
+  [data-reveal="pending"][data-reveal-kind="slip"] {
+    opacity: 0;
+    translate: 0 64px;
+    rotate: 0deg;
+  }
+  [data-reveal="shown"][data-reveal-kind="slip"] {
+    transition:
+      opacity 600ms cubic-bezier(0.16, 1, 0.3, 1),
+      translate 1000ms cubic-bezier(0.16, 1, 0.3, 1),
+      rotate 1200ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+
+  /* The evening line draws along the reading direction once. */
+  .naqah-evening-line {
+    animation: naqah-evening-line 900ms cubic-bezier(0.65, 0, 0.35, 1) 500ms both;
+    transform-origin: left center;
+  }
+  [dir="rtl"] .naqah-evening-line {
+    transform-origin: right center;
+  }
+
+  .naqah-photo-hover img {
+    transition: scale 900ms cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  .naqah-photo-hover:hover img {
+    scale: 1.025;
+  }
+}
+
+@keyframes naqah-arrive {
+  from {
+    opacity: 0;
+    translate: 0 20px;
+  }
+}
+
+@keyframes naqah-evening-line {
+  from {
+    scale: 0 1;
+  }
+}
+
+/* The call story's stage: only the step in the middle of the screen is on stage. Hidden layers are
+ * also invisible, so they leave the tab order and the accessibility tree. */
+.naqah-layer {
+  transition:
+    opacity 450ms cubic-bezier(0.22, 1, 0.36, 1),
+    translate 600ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0s linear 0s;
+}
+.naqah-layer:not([data-on]) {
+  opacity: 0;
+  translate: 0 18px;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 300ms ease,
+    translate 300ms ease,
+    visibility 0s linear 300ms;
+}
+
+/* Steps that are not on stage step back but stay readable; the one on stage gets the weight and a larger mark. */
+@media (min-width: 1024px) {
+  .naqah-step,
+  .naqah-step :is(h3, p),
+  .naqah-step-mark {
+    transition: color 400ms ease, scale 400ms ease;
+  }
+  .naqah-step:not([aria-current]) :is(h3, p) {
+    color: var(--color-muted);
+  }
+  .naqah-step[aria-current] .naqah-step-time {
+    color: var(--color-espresso);
+    font-weight: 600;
+  }
+  .naqah-step[aria-current] .naqah-step-mark {
+    scale: 1.45;
+  }
+}
+
+.naqah-progress {
+  transition: width 600ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Parts of a picture arrive in reading order each time it comes on stage. */
+  [data-on] .naqah-seq {
+    animation: naqah-seq 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(var(--i, 0) * 360ms + 150ms);
+  }
+  /* The saved mark lands once the facts are in. */
+  [data-on] .naqah-stamp {
+    animation: naqah-stamp 520ms cubic-bezier(0.34, 1.56, 0.64, 1) 1100ms both;
+  }
+  /* The voice level moves while the call is on stage, then rests. */
+  [data-on] .naqah-voice > span {
+    animation: naqah-voice 520ms ease-in-out calc(var(--i, 0) * 90ms) 8 alternate both;
+    transform-origin: center;
+  }
+}
+
+@keyframes naqah-seq {
+  from {
+    opacity: 0;
+    translate: 0 14px;
+  }
+}
+
+@keyframes naqah-stamp {
+  from {
+    opacity: 0;
+    scale: 1.6;
+    rotate: -8deg;
+  }
+}
+
+@keyframes naqah-voice {
+  from {
+    scale: 1 0.35;
+  }
+}

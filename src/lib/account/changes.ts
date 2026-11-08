@@ -106,13 +106,45 @@ function listChanges<T extends { id: string }>(
 const CAMEL_FIELDS = ["name", "tag", "sex", "ageYears", "health", "healthNote", "certainty", "updatedAt"] as const;
 const RESOURCE_FIELDS = ["present", "level", "quantity", "note", "certainty", "updatedAt"] as const;
 
+/** The ranch name is required: a cleared name stays on the screen, flagged, and the stored one is kept. */
+function farmNameChange(base: string | undefined, next: string | undefined): Input {
+  return trimmed(next) ? textChange("name", base, next) : {};
+}
+
+const timeShape = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Edits on the screen that differ from the server but can't be sent yet: a half-typed mobile, a
+ * cleared ranch name, a partly chosen call time or a herd count that isn't a whole number. They
+ * are what keeps a section from being "saved" and what a sign-out must not silently drop.
+ */
+export function unsentDrafts(base: Workspace, next: Workspace): string[] {
+  const { settings: from } = base;
+  const { settings: to } = next;
+  const drafts: string[] = [];
+  const phone = (field: string, before: string | undefined, after: string | undefined) => {
+    const value = trimmed(after);
+    if (value && value !== trimmed(before) && !normalizePhone(value)) drafts.push(field);
+  };
+  phone("ownerPhone", from.owner.phone, to.owner.phone);
+  phone("supplierPhone", from.integrations?.supplierPhone, to.integrations?.supplierPhone);
+  const workers = new Map(workerList(from).map((worker) => [worker.id, worker]));
+  for (const worker of workerList(to)) phone(`worker:${worker.id}`, workers.get(worker.id)?.phone, worker.phone);
+  if (!trimmed(to.farm.name) && trimmed(from.farm.name)) drafts.push("farmName");
+  const schedule = to.callSchedule ?? null;
+  if (!same(from.callSchedule ?? null, schedule) && schedule?.time && !timeShape.test(schedule.time)) drafts.push("callSchedule");
+  const count = to.herdCount ?? null;
+  if (!same(from.herdCount ?? null, count) && count !== null && (!Number.isInteger(count) || count < 0 || count > 100_000)) drafts.push("herdCount");
+  return drafts;
+}
+
 export function ownerChanges(base: Workspace, next: Workspace): OwnerChange[] {
   const { settings: from } = base;
   const { settings: to } = next;
   const profile = {
     ...textChange("ownerName", from.owner.name, to.owner.name),
     ...phoneChange("ownerPhone", from.owner.phone, to.owner.phone),
-    ...textChange("name", from.farm.name, to.farm.name),
+    ...farmNameChange(from.farm.name, to.farm.name),
     ...textChange("location", from.farm.location, to.farm.location),
     ...coordsChange(base, next),
     ...textChange("supplierName", from.integrations?.supplierName, to.integrations?.supplierName),

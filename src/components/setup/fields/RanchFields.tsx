@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useI18n } from "@/i18n/client";
 import { regionForCoords, SAUDI_REGIONS } from "@/lib/geo/regions";
 import type { SetupFieldsProps } from "../types";
@@ -11,7 +12,10 @@ export function RanchFields({ ws, onChange, showErrors = false }: SetupFieldsPro
   const r = m.setup.ranch;
   const { owner, farm } = ws.settings;
   const region = regionForCoords(farm.coords);
-  const nameMissing = showErrors && !farm.name.trim();
+  // Flagged once the owner leaves the field empty, not only when they try to continue. In an account,
+  // a cleared name is never sent, so the stored name stays until a new one is typed.
+  const [nameTouched, setNameTouched] = useState(false);
+  const nameMissing = (showErrors || nameTouched) && !farm.name.trim();
   const optional = <span className="font-normal text-muted"> ({r.optional})</span>;
   const setOwner = (patch: Partial<typeof owner>) =>
     onChange((current) => ({ ...current, settings: { ...current.settings, owner: { ...current.settings.owner, ...patch } } }));
@@ -27,6 +31,7 @@ export function RanchFields({ ws, onChange, showErrors = false }: SetupFieldsPro
               id={id}
               dir="auto"
               autoComplete="organization"
+              maxLength={200}
               required
               aria-required
               aria-invalid={nameMissing || undefined}
@@ -34,6 +39,7 @@ export function RanchFields({ ws, onChange, showErrors = false }: SetupFieldsPro
               className={nameMissing ? "border-danger" : undefined}
               value={farm.name}
               onChange={(event) => setFarm({ name: event.target.value })}
+              onBlur={() => setNameTouched(true)}
             />
           )}
         </StepField>

@@ -25,8 +25,10 @@ const styles = {
 
 export function AuthNavigationLoading({ appearance }: { appearance: AuthNavigationStyle }) {
   const { m } = useI18n();
-  return <span role="status" aria-label={m.auth.loading} aria-busy="true" className={`${styles[appearance]} min-w-40`}>
-    <span aria-hidden="true" className="inline-block h-4 w-24 rounded bg-stone/50 motion-safe:animate-pulse" />
+  // Holds the sign-in link's exact width without drawing anything, so a slow or unavailable check never
+  // shows a loading bar and the bar never shifts when the link arrives.
+  return <span role="status" aria-label={m.auth.loading} aria-busy="true" className={styles[appearance]}>
+    <span aria-hidden="true" className="invisible">{m.landing.nav.signIn}</span>
   </span>;
 }
 

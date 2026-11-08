@@ -8,16 +8,17 @@ import { isCompleteCallSchedule } from "@/domain/schedule";
 import type { Workspace } from "@/domain/types";
 import { allWorkers } from "@/domain/workers";
 import { useI18n } from "@/i18n/client";
-import { useIsAccount, useNow } from "@/store/workspace";
-import { WeekStrip } from "@/components/visuals/WeekStrip";
-import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
+import { useIsAccount } from "@/store/workspace";
 import { getCallSetupGaps } from "../CallSetupStatus";
+import { CallingStateNote } from "../CallingState";
 import { QuestionsFields } from "../fields/QuestionsFields";
 import { RanchFields } from "../fields/RanchFields";
 import { TeamFields } from "../fields/TeamFields";
 import { formatSaudiMobile, phoneNeedsFixing } from "../phone";
 import type { SetupFieldsProps } from "../types";
 import { FieldGroup } from "./WizardParts";
+import { PlanChoice } from "./PlanChoice";
+import { RanchWeek } from "./RanchWeek";
 
 /** The owner's four setup steps. Settings shows the same field groups. */
 export const WIZARD_STEPS = ["ranch", "team", "call", "ready"] as const;
@@ -48,9 +49,13 @@ export function CallStep(props: SetupFieldsProps) {
   const { m } = useI18n();
   return (
     <div className="space-y-12">
+      <PlanChoice {...props} />
       <ReportCallFields {...props} />
       <FieldGroup title={m.setup.questions.title}>
-        <QuestionsFields {...props} />
+        {/* What the worker will hear, set like the call itself. */}
+        <div className="rounded-2xl border border-stone bg-cream p-5 sm:p-7">
+          <QuestionsFields {...props} headingLevel={2} />
+        </div>
       </FieldGroup>
     </div>
   );
@@ -63,7 +68,7 @@ function SummaryRow({ label, step, onEdit, children }: { label: string; step?: W
   return (
     <div className="grid grid-cols-[1fr_auto] items-start gap-x-4 gap-y-1 py-4 sm:grid-cols-[10rem_1fr_auto]">
       <dt className="text-[0.9375rem] font-medium text-muted sm:pt-0.5">{label}</dt>
-      <dd className="col-span-2 row-start-2 min-w-0 text-[1.0625rem] leading-relaxed text-espresso sm:col-span-1 sm:col-start-2 sm:row-start-1">
+      <dd className="col-span-2 row-start-2 min-w-0 text-[1.0625rem] leading-relaxed text-espresso [overflow-wrap:anywhere] sm:col-span-1 sm:col-start-2 sm:row-start-1">
         {children}
       </dd>
       {step ? (
@@ -86,10 +91,8 @@ function SummaryRow({ label, step, onEdit, children }: { label: string; step?: W
 export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: WizardStepKey) => void }) {
   const { m, fmt } = useI18n();
   const account = useIsAccount();
-  const scheduledCalls = useScheduledCallsOn();
   const r = m.setup.ready;
   const call = useCallSentence(ws);
-  const now = useNow();
   const { owner, farm, plan, worker, herdCount, customQuestions } = ws.settings;
   const workers = allWorkers(ws.settings).filter((item) => item.name.trim() || item.phone.trim());
   const gaps = getCallSetupGaps(ws);
@@ -104,7 +107,10 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
     ) : notSet;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
+      <RanchWeek ws={ws} />
+      <section aria-labelledby="ready-details">
+      <h2 id="ready-details" className="mb-2 text-[1.0625rem] font-bold text-espresso">{r.details}</h2>
       <dl className="divide-y divide-stone/80 border-y border-stone/80">
         <SummaryRow label={r.ranch} step="ranch" onEdit={onEdit}>
           {farm.name.trim() || notSet}
@@ -121,10 +127,9 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
         </SummaryRow>
         <SummaryRow label={r.call} step="call" onEdit={onEdit}>
           {call ? call.sentence : notSet}
-          {call ? <WeekStrip plan={plan} schedule={ws.settings.callSchedule} now={now} className="mt-3 max-w-sm" /> : null}
         </SummaryRow>
         <SummaryRow label={r.questions} step="call" onEdit={onEdit}>{r.questionsValue(customQuestions.length)}</SummaryRow>
-        <SummaryRow label={r.plan} onEdit={onEdit}>
+        <SummaryRow label={r.plan} step="call" onEdit={onEdit}>
           <span className="font-semibold">{m.common.plans[plan]}</span>
           <details className="group mt-1">
             <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-[0.9375rem] font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown [&::-webkit-details-marker]:hidden">
@@ -135,6 +140,7 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
           </details>
         </SummaryRow>
       </dl>
+      </section>
 
       {gaps.length ? (
         <section aria-labelledby="ready-missing">
@@ -145,7 +151,7 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
         </section>
       ) : null}
       {account ? (
-        scheduledCalls === false ? <p className="text-[1.0625rem] leading-relaxed text-espresso">{m.setup.call.notConnected}</p> : null
+        <CallingStateNote ws={ws} skipMissing className="text-[1.0625rem]" />
       ) : (
         <p className="text-[0.9375rem] leading-relaxed text-muted">{r.demoCalls}</p>
       )}

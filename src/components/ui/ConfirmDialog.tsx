@@ -12,6 +12,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   tone = "danger",
+  extra,
 }: {
   title: string;
   body: string;
@@ -21,6 +22,8 @@ export function ConfirmDialog({
   onCancel: () => void;
   /** "danger" for replacing or deleting; "primary" for a deliberate action like placing a call. */
   tone?: "danger" | "primary";
+  /** A third way out that gives something up, like leaving without saving. Always last. */
+  extra?: { label: string; onClick: () => void };
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -29,6 +32,11 @@ export function ConfirmDialog({
   useEffect(() => {
     const dialog = dialogRef.current;
     if (dialog && !dialog.open) dialog.showModal();
+    const { overflow } = document.body.style;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = overflow;
+    };
   }, []);
 
   return (
@@ -48,6 +56,7 @@ export function ConfirmDialog({
         {/* showModal() focuses the first control, so the safe choice comes first. */}
         <Button variant="secondary" className="max-sm:w-full" onClick={onCancel}>{cancelLabel}</Button>
         <Button variant={tone} className="max-sm:w-full" onClick={onConfirm}>{confirmLabel}</Button>
+        {extra ? <Button variant="ghost" className="text-danger! max-sm:w-full" onClick={extra.onClick}>{extra.label}</Button> : null}
       </div>
     </dialog>
   );

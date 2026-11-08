@@ -26,6 +26,9 @@ export const auth = defineMessages({
     callbackFailed: 'Sign-in didn’t finish. The link may have expired or opened in another browser. Try again.',
     captcha: 'The security check didn’t finish. Reload the page and try again.', captchaLabel: 'Security check', continue: 'Open your ranch', navSignup: 'Sign up',
     notOpen: 'Owner accounts aren’t open on this site yet. The sample ranch shows how NAQAH works.',
+    promise: 'Peace of mind, without the busywork.',
+    asideLogin: 'Your ranch’s latest, whenever you want it.',
+    asideSignup: 'After this, four short steps:',
   },
   ar: {
     login: 'ادخل على عزبتك', signup: 'إنشاء حسابك',
@@ -52,5 +55,8 @@ export const auth = defineMessages({
     callbackFailed: 'ما اكتمل الدخول. ممكن الرابط انتهى أو انفتح في متصفح ثاني. جرّب مرة ثانية.',
     captcha: 'ما اكتمل التحقق الأمني. حدّث الصفحة وجرّب مرة ثانية.', captchaLabel: 'التحقق الأمني', continue: 'افتح عزبتك', navSignup: 'إنشاء حساب',
     notOpen: 'حسابات الملاك ما انفتحت في هذا الموقع للحين. العزبة التجريبية توريك كيف تشتغل ناقة.',
+    promise: 'اطمئنان، دون انشغال.',
+    asideLogin: 'آخر أخبار عزبتك، وقت ما تبي.',
+    asideSignup: 'بعدها أربع خطوات قصيرة:',
   },
 });

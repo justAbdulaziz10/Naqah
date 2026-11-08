@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus, Trash } from "@phosphor-icons/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { RESOURCE_LABELS } from "@/domain/catalog";
 import { callQuestionPlan } from "@/domain/callQuestions";
 import { uid } from "@/domain/id";
@@ -15,10 +15,15 @@ import { StepField, StepInput, wizardControl } from "../onboarding/WizardParts";
  * What the next report call asks, in order: NAQAH's own questions (always asked, listed openly),
  * then the owner's, which they add, edit and remove within the plan's limit. Shared by setup and Settings.
  */
-export function QuestionsFields({ ws, onChange }: SetupFieldsProps) {
+export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsProps & { headingLevel?: 2 | 3 }) {
   const { m, t } = useI18n();
   const q = m.setup.questions;
+  const Heading = headingLevel === 2 ? "h2" : "h3";
   const [draft, setDraft] = useState("");
+  // The last removed question, so a slip of the finger can be undone.
+  const [removed, setRemoved] = useState<{ question: (typeof ws.settings.customQuestions)[number]; index: number } | null>(null);
+  const listRef = useRef<HTMLOListElement>(null);
+  const addRef = useRef<HTMLInputElement>(null);
   const plan = callQuestionPlan(ws);
   const limit = customQuestionLimit(ws);
   const canAdd = canAddCustomQuestion(ws);
@@ -35,6 +40,27 @@ export function QuestionsFields({ ws, onChange }: SetupFieldsProps) {
     if (!text || !canAdd) return;
     setQuestions((list) => [...list, { id: uid("cq"), text, createdAt: new Date().toISOString() }]);
     setDraft("");
+    setRemoved(null);
+  }
+
+  function remove(index: number) {
+    const question = questions[index];
+    setQuestions((list) => list.filter((item) => item.id !== question.id));
+    setRemoved({ question, index });
+    // Focus stays in the list: the question that took its place, the one before it, or the add field.
+    requestAnimationFrame(() => {
+      const fields = listRef.current?.querySelectorAll<HTMLTextAreaElement>("textarea");
+      const next = fields?.[Math.min(index, (fields?.length ?? 0) - 1)];
+      (next ?? addRef.current)?.focus();
+    });
+  }
+
+  function undo() {
+    if (!removed) return;
+    const { question, index } = removed;
+    setQuestions((list) => (list.some((item) => item.id === question.id) ? list : [...list.slice(0, index), question, ...list.slice(index)]));
+    setRemoved(null);
+    requestAnimationFrame(() => listRef.current?.querySelectorAll<HTMLTextAreaElement>("textarea")[index]?.focus());
   }
 
   return (
@@ -51,7 +77,7 @@ export function QuestionsFields({ ws, onChange }: SetupFieldsProps) {
 
         <section aria-labelledby="naqah-questions" className="mt-8">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 ps-8">
-            <h3 id="naqah-questions" className="text-[1.0625rem] font-bold text-espresso">{q.naqah}</h3>
+            <Heading id="naqah-questions" className="text-[1.0625rem] font-bold text-espresso">{q.naqah}</Heading>
             <span className="text-[0.9375rem] text-muted">{q.naqahNote}</span>
           </div>
           <ol className="mt-2">
@@ -75,13 +101,13 @@ export function QuestionsFields({ ws, onChange }: SetupFieldsProps) {
 
         <section aria-labelledby="owner-questions" className="mt-8">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 ps-8">
-            <h3 id="owner-questions" className="text-[1.0625rem] font-bold text-espresso">{q.yours}</h3>
+            <Heading id="owner-questions" className="text-[1.0625rem] font-bold text-espresso">{q.yours}</Heading>
             <span className="ltr-nums text-[0.9375rem] text-muted">
               {Number.isFinite(limit) ? q.left(planName, limit, Math.max(0, limit - questions.length)) : q.unlimited}
             </span>
           </div>
           {questions.length ? (
-            <ol className="mt-3 space-y-3">
+            <ol ref={listRef} className="mt-3 space-y-3">
               {questions.map((question, index) => (
                 <li key={question.id} className="relative flex items-start gap-2 ps-8">
                   <Marker kind="owner" />
@@ -105,7 +131,7 @@ export function QuestionsFields({ ws, onChange }: SetupFieldsProps) {
                     type="button"
                     aria-label={q.remove(index + 1)}
                     title={q.remove(index + 1)}
-                    onClick={() => setQuestions((list) => list.filter((item) => item.id !== question.id))}
+                    onClick={() => remove(index)}
                     className="inline-flex size-14 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-danger-soft hover:text-danger"
                   >
                     <Trash size={20} aria-hidden />
@@ -116,6 +142,20 @@ export function QuestionsFields({ ws, onChange }: SetupFieldsProps) {
           ) : (
             <p className="mt-1 ps-8 text-[0.9375rem] text-muted">{q.yoursNote}</p>
           )}
+          <p role="status" className={removed ? "mt-3 flex flex-wrap items-center gap-x-3 ps-8 text-[0.9375rem] text-espresso" : "sr-only"}>
+            {removed ? (
+              <>
+                <span className="naqah-saved-in">{q.removed}</span>
+                <button
+                  type="button"
+                  onClick={undo}
+                  className="inline-flex min-h-11 items-center font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown"
+                >
+                  {q.undo}
+                </button>
+              </>
+            ) : null}
+          </p>
           {canAdd ? (
             <form
               className="mt-4 flex flex-col gap-3 ps-8 sm:flex-row sm:items-end sm:gap-2"
@@ -125,7 +165,7 @@ export function QuestionsFields({ ws, onChange }: SetupFieldsProps) {
               }}
             >
               <StepField label={q.newQuestion} className="min-w-0 flex-1">
-                {({ id }) => <StepInput id={id} dir="auto" maxLength={300} value={draft} placeholder={q.placeholder} onChange={(event) => setDraft(event.target.value)} />}
+                {({ id }) => <StepInput ref={addRef} id={id} dir="auto" maxLength={300} value={draft} placeholder={q.placeholder} onChange={(event) => setDraft(event.target.value)} />}
               </StepField>
               <button
                 type="submit"

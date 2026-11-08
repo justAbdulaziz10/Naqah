@@ -621,4 +621,24 @@ describe("account mode", () => {
     expect(useAccountState.getState().status).toBe("demo");
     expect(useWorkspaceStore.getState().workspace).toBe(demo);
   });
+
+  it("never claims a section saved while an invalid edit is still on the screen", async () => {
+    const { sync, api, useSaveStatus, useWorkspaceStore } = await setup(farm());
+    const { useUnsentDrafts } = await import("./accountSync");
+    await sync.open();
+    useWorkspaceStore.getState().update((ws) => ({
+      ...ws,
+      settings: { ...ws.settings, farm: { ...ws.settings.farm, name: "Al Nakheel" }, owner: { ...ws.settings.owner, phone: "123" } },
+    }));
+    expect(useUnsentDrafts.getState().fields).toEqual(["ownerPhone"]);
+    await vi.runAllTimersAsync();
+    expect(api.save).toHaveBeenCalledTimes(1);
+    expect(api.save.mock.calls[0][0]).toEqual([{ kind: "profile", input: { name: "Al Nakheel" } }]);
+    expect(useSaveStatus.getState().status).toBe("saved");
+    // The name is saved, but the screen still shows an edit that was not: that edit stays unsaved.
+    expect(useUnsentDrafts.getState().fields).toEqual(["ownerPhone"]);
+    expect(sync.hasUnsaved()).toBe(true);
+    useWorkspaceStore.getState().update((ws) => ({ ...ws, settings: { ...ws.settings, owner: { ...ws.settings.owner, phone: "" } } }));
+    expect(useUnsentDrafts.getState().fields).toEqual([]);
+  });
 });

@@ -222,7 +222,7 @@ export function StepHead({ title, lead }: { title: string; lead: string }) {
       <h1
         id="current-step-title"
         tabIndex={-1}
-        className="max-w-[22ch] text-[1.75rem] font-bold leading-[1.2] tracking-[-0.01em] text-espresso focus:outline-none sm:text-[2.125rem] rtl:tracking-normal"
+        className="max-w-[20ch] text-balance text-[2rem] font-semibold leading-[1.15] tracking-[-0.02em] text-espresso focus:outline-none sm:text-[2.75rem] rtl:leading-[1.3] rtl:tracking-normal"
       >
         {title}
       </h1>
