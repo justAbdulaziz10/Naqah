@@ -53,7 +53,9 @@ export function watchAccountAuth(): () => void {
 
 /** For a screen that confirms a save in words: in account mode that has to wait for the server. */
 export async function savedForSure(): Promise<boolean> {
-  if (accountLink.active) await accountSync.flush();
+  const account = accountLink.active;
+  if (account) await accountSync.flush();
   const { status } = useSaveStatus.getState();
-  return accountLink.active ? status === "saved" : status !== "failed";
+  // A rejected save can close the account mid-flush, which must not read as the demo succeeding.
+  return account ? accountLink.active && status === "saved" : status !== "failed";
 }

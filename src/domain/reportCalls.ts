@@ -5,7 +5,7 @@
  * callback and the Call Lab all go through them.
  */
 import { pushCall, pushEvent } from "./actions";
-import { REPORT_CALL_GRACE_MS, REPORT_CALL_RETRIES, RETRY_DELAY_MS } from "./clock";
+import { HOUR, REPORT_CALL_GRACE_MS, REPORT_CALL_RETRIES, RETRY_DELAY_MS } from "./clock";
 import { uid } from "./id";
 import { reportDoneThisPeriod } from "./rules";
 import { previousScheduledCall } from "./schedule";
@@ -14,6 +14,17 @@ import type { ReportCallRun, Workspace } from "./types";
 const iso = (d: Date) => d.toISOString();
 
 const isActive = (run: ReportCallRun) => run.state === "calling" || run.state === "answered";
+
+/**
+ * Twilio doesn't retry a lost final status, so an answered run can be left open with nothing to
+ * close it. Its voice session is gone by this age, so the call is over and can't hold the line.
+ */
+const ANSWERED_RUN_LIMIT_MS = 2 * HOUR;
+
+function isAbandoned(run: ReportCallRun, now: Date): boolean {
+  if (run.state !== "answered") return false;
+  return now.getTime() - Date.parse(run.attempts.at(-1)?.at ?? run.occurrence) >= ANSWERED_RUN_LIMIT_MS;
+}
 
 export const reportCallRuns = (ws: Workspace): ReportCallRun[] => ws.reportCalls ?? [];
 
@@ -38,7 +49,7 @@ export type ReportCallBlock = "no_worker_phone" | "already_reported" | "in_progr
 /** Why a report call can't start now, or null when it can. Shared by "Call now" and the scheduler. */
 export function reportCallBlock(ws: Workspace, now: Date): ReportCallBlock | null {
   if (!dialableWorkerPhone(ws)) return "no_worker_phone";
-  if (activeReportCall(ws)) return "in_progress";
+  if (reportCallRuns(ws).some((run) => isActive(run) && !isAbandoned(run, now))) return "in_progress";
   if (reportDoneThisPeriod(ws, now)) return "already_reported";
   return null;
 }
@@ -69,6 +80,7 @@ export function startReportCall(
   if (blocked) return { ws: input, run: null, blocked };
   if (reportCallRuns(input).some((r) => r.occurrence === iso(occurrence))) return { ws: input, run: null, blocked: "duplicate" };
   const ws = structuredClone(input);
+  for (const old of reportCallRuns(ws)) if (isAbandoned(old, now)) old.state = "missed";
   const run: ReportCallRun = {
     id: uid("rcl"),
     occurrence: iso(occurrence),

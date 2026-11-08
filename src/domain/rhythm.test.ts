@@ -60,4 +60,26 @@ describe("reportRhythm", () => {
     expect(current.state).toBe("next");
     expect(slots.filter((slot) => slot.start < current.start)).toHaveLength(4);
   });
+
+  const basicWithRun = (occurrence: Date, result: "answered" | "no_answer"): Workspace => {
+    const ws = createEmptyWorkspace("basic");
+    ws.createdAt = fromRiyadh(2026, 10, 1).toISOString();
+    ws.settings.callSchedule = { day: 4, time: "17:00" };
+    ws.reportCalls = [{ id: "r1", occurrence: occurrence.toISOString(), trigger: "manual", attempts: [{ at: occurrence.toISOString(), result }], nextAttemptAt: null, state: "missed", reportId: null }];
+    return ws;
+  };
+
+  it("keeps this period's scheduled call next after an unanswered Call now", () => {
+    const slots = reportRhythm(basicWithRun(SUN_0800, "no_answer"), fromRiyadh(2026, 11, 8, 9, 0));
+    const current = slots.find((slot) => slot.current)!;
+    expect(current.state).toBe("next");
+    expect(current.callAt?.toISOString()).toBe(fromRiyadh(2026, 11, 12, 17, 0).toISOString());
+  });
+
+  it("marks a passed period missed only when the call went unanswered", () => {
+    const now = fromRiyadh(2026, 11, 15, 8, 0);
+    const lastWeek = (ws: Workspace) => reportRhythm(ws, now).find((slot) => slot.start.getTime() === fromRiyadh(2026, 11, 8).getTime())!.state;
+    expect(lastWeek(basicWithRun(SUN_0800, "no_answer"))).toBe("missed");
+    expect(lastWeek(basicWithRun(SUN_0800, "answered"))).toBe("quiet");
+  });
 });

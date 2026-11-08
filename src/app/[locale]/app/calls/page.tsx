@@ -11,7 +11,7 @@ import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { CallActivity } from "@/components/visuals/CallActivity";
 import { ReportFlow, type FlowStep } from "@/components/visuals/ReportFlow";
 import { Button, ButtonLink, Card, Segmented } from "@/components/ui";
-import { dayKey } from "@/domain";
+import { dayKey, latestReportCall } from "@/domain";
 import type { CallKind, CallLog, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
@@ -177,10 +177,12 @@ function EmptyCalls({ ws, worker, account }: { ws: Workspace; worker: string; ac
   // A saved time is only a promise once this deployment places scheduled calls.
   const scheduledOff = useScheduledCallsOn() === false && account;
   const v = m.visual.calls;
+  // An answered call that ended early leaves no call log, but it did happen.
+  const endedEarly = latestReportCall(ws)?.state === "missed";
   return (
     <Card className="px-5 py-10 sm:px-10 sm:py-12">
-      <p className="text-center text-xl font-semibold text-espresso">{m.app.calls.empty}</p>
-      <p className="mx-auto mt-1 max-w-md text-center text-muted">{m.app.calls.emptyBody}</p>
+      <p className="text-center text-xl font-semibold text-espresso">{endedEarly ? m.app.calls.noReportYet : m.app.calls.empty}</p>
+      <p className="mx-auto mt-1 max-w-md text-center text-muted">{endedEarly ? m.app.calls.noReportYetBody : m.app.calls.emptyBody}</p>
       <ReportFlow
         stack
         className="mx-auto mt-8 w-full max-w-xl"

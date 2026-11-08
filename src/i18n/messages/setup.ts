@@ -337,7 +337,7 @@ export const setup = defineMessages({
       chooseDemo: "عرض تجريبي: جرّب أي خطة. في الحساب الحقيقي فريق ناقة يحددها.",
       basicRhythm: "مكالمة تقرير وحدة في الأسبوع، في يومك",
       ultimateRhythm: "مكالمة تقرير كل يوم",
-      basicExtras: "حتى 5 من أسئلتك · اتصال وحدة على ناقة في الأسبوع",
+      basicExtras: "حتى 5 من أسئلتك · اتصال واحد على ناقة في الأسبوع",
       ultimateExtras: "أسئلة بلا حد · اتصل على ناقة أي وقت · تذاكر المهام",
       tooManyForBasic: "الأساسية تسمح بـ 5 من أسئلتك. احذف بعضها أول عشان تحوّل.",
       rhythmLabel: (plan: string, weekly: boolean) => weekly ? `${plan}: مكالمة تقرير وحدة في الأسبوع` : `${plan}: مكالمة تقرير كل يوم`,

@@ -84,16 +84,19 @@ export function reportRhythm(ws: Workspace, now: Date, size = 7, maxPast = 4): R
     };
     const report = [...ws.reports].reverse().find((r) => within(r.at)) ?? null;
     const missed =
-      (ws.reportCalls ?? []).some((run) => run.state === "missed" && within(run.occurrence)) ||
+      // A run the worker picked up was answered, even if it ended before a report was saved.
+      (ws.reportCalls ?? []).some((run) => run.state === "missed" && !run.attempts.some((a) => a.result === "answered") && within(run.occurrence)) ||
       ws.calls.some((call) => call.kind === "worker_report_missed" && within(call.at));
     const callAt = callIn(start);
     const isCurrent = start.getTime() === current.getTime();
     const future = start.getTime() > current.getTime();
+    // An earlier "Call now" this period doesn't use up the scheduled call still to come.
+    const stillAhead = isCurrent && callAt !== null && callAt.getTime() > now.getTime();
 
     let state: RhythmState;
     if (report) state = "saved";
-    else if (missed) state = "missed";
-    else if (future || (isCurrent && callAt && callAt.getTime() > now.getTime())) state = scheduled ? "upcoming" : "quiet";
+    else if (missed && !stillAhead) state = "missed";
+    else if (future || stillAhead) state = scheduled ? "upcoming" : "quiet";
     else state = isCurrent ? "open" : "quiet";
 
     if (state === "upcoming" && !nextGiven) {
