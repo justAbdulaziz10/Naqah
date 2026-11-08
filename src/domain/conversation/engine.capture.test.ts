@@ -151,3 +151,36 @@ describe("answers captured on a real call", () => {
     expect(saved.calls.at(-1)).toMatchObject({ kind: "worker_report", direction: "outbound", reportId: report.id });
   });
 });
+
+describe("answers that can't both be true", () => {
+  const atStep = (step: string) => {
+    const { ws, session } = answeredCall();
+    let current = session;
+    for (let turn = 0; turn < 60 && current.step !== step; turn += 1) {
+      const input = current.inputMode === "number" ? { text: "5" } : current.replies.length ? { value: current.replies[0].value } : { text: "تمام" };
+      current = reply(current, ws, input);
+    }
+    expect(current.step).toBe(step);
+    return { ws, current };
+  };
+
+  it("asks once about zero after enough, and accepts a real number", () => {
+    const { ws, current } = atStep("quantity_input");
+    const asked = reply(current, ws, { text: "0" });
+    expect(asked.step).toBe("quantity_input");
+    expect(asked.draft.resourceUpdates).toEqual(current.draft.resourceUpdates);
+    expect(reply(asked, ws, { text: "10" }).step).toBe("quantity_confirm");
+  });
+
+  it("drops the level when the worker repeats zero", () => {
+    const { ws, current } = atStep("quantity_input");
+    expect(reply(reply(current, ws, { text: "0" }), ws, { text: "0" }).data.tempLevel).toBe("unknown");
+  });
+
+  it("keeps an Arabic herd detail in Arabic", () => {
+    const { ws, current } = atStep("herd_count_detail");
+    const herd = reply(current, ws, { text: "شعلة ضايعة" }).draft.answers.at(-1)!;
+    expect(herd.answerText?.ar).toBe("5 من الحلال — شعلة ضايعة");
+    expect(herd.answerText?.en).toBe("5 camels — شعلة ضايعة");
+  });
+});

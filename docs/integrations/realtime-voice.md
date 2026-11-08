@@ -36,26 +36,73 @@ Body `{ "ticket": string, "callSid": string }`.
 403 for a bad, expired, reused or mismatched ticket. The ticket is single use, enforced by Next.
 
 `POST /api/voice/realtime/tool`
-Body `{ "ticket": string, "callSid": string, "toolCallId": string, "name": string, "args": object, "userSpokeSinceLastTool": boolean }`.
+Body `{ "ticket": string, "callSid": string, "toolCallId": string, "name": string, "args": object, "userSpokeSinceLastTool": boolean, "workerUtterance"?: string, "heardSummary"?: boolean }`.
 200 `{ "output": string, "awaitingConfirmation": boolean, "end": null | "hangup" | "fallback", "goodbye": string | null }`.
 `output` is the JSON text returned to the model. A repeated `toolCallId` returns the first result without re-applying.
 
 The tool schemas come from Next, so the bridge stays schema-agnostic.
+Only `confirm_report` with `confirmed: true` carries the additive `workerUtterance` and `heardSummary` fields.
+The utterance is at most 1,000 characters, with no control characters. It is ephemeral verification input, never model
+context, a log field, or stored session/report data. Missing evidence is a refusal, not permission to save.
 
 ## Tools
 
 - `answer_question { value?: string, text?: string }`: `value` must be in the current `replies`; `text` only where the step
-  takes free text or numbers. Invalid → `output` says so with the allowed values; state unchanged.
+  takes free text or numbers. A fresh committed worker turn is required (`worker_has_not_answered` otherwise).
+  Invalid → `output` says so with the allowed values; state unchanged.
 - `confirm_report { confirmed: boolean }`: only at `report_summary`. `confirmed: true` also requires
-  `userSpokeSinceLastTool` to be true, so a model can't confirm on the worker's behalf.
+  fresh worker speech, a transcript that the existing deterministic `mapSpeechToInput` parser maps to `confirm_save`,
+  and playback evidence that the worker heard the complete summary before starting that turn. Negation and correction
+  wording (including «إيه بس العلف غلط» and «صح لكن») are refused. An interrupted or unfinished summary returns
+  `summary_not_finished` with the complete summary to re-read. Other unverified confirmations ask for clear confirmation.
+  The engine/draft stay unchanged; only a refusal count and idempotent tool result are retained. Two unique verification
+  failures close realtime writes and return `end: "fallback"` for scripted Gather with keypad confirmation.
 - `end_call { reason: "worker_ended" | "cannot_continue" }`: ends without saving.
 
 ## Bridge behaviour
 
-Track `userSpokeSinceLastTool`: reset when a tool result returns, set when the provider commits user speech. Limits: close
+Track `userSpokeSinceLastTool`: consume it when a tool result returns, set when the provider commits user speech.
+Queued tools cannot reuse a consumed turn. Retain only the latest committed worker turn, matched by provider `item_id`;
+ignore older completion events. At confirmation only, await its final transcript for up to 2.5 seconds. Failed, missing,
+oversized, superseded or late transcripts fail closed, and later completion events cannot revive a consumed turn.
+
+The GA `session.update` enables `session.audio.input.transcription` with `{ model: "gpt-4o-mini-transcribe", language: locale }`.
+Handle `conversation.item.input_audio_transcription.completed` and `.failed`, not transcript deltas. This runs asynchronously
+for committed input turns, without changing the existing audio-native conversation, minimal reasoning or per-call farm cache.
+Transcription adds an estimated $0.003 per input-audio minute across the call, not just at confirmation. Confirmation adds
+0–2.5 seconds waiting for ASR (no artificial delay when it has already completed); live latency is not measured by mocks.
+
+The next response after `awaitingConfirmation` is tracked as summary playback. A final Twilio mark after successful response
+completion must return without cancellation/clear before a worker turn starts. Marks returned by `clear` are not proof of
+listening. A confirmation spoken over the summary remains invalid even if subsequent marks arrive.
+
+If speech remains open for 10 seconds without a stop, issue one `input_audio_buffer.commit`. Only the normal committed event
+clears `speaking` and requests the reply. A rejected commit or no commit acknowledgement within 5 seconds closes the stream
+for scripted fallback. Normal VAD remains unchanged (500 ms silence); the recovery does not submit an answer or advance the
+current question. An interrupted question remains current and must be re-asked if the worker supplied no clear answer.
+
+Session startup requests retain a 5-second internal limit; tool requests allow 13 seconds, exceeding Next's 12-second route
+limit rather than abandoning a valid tool at 5 seconds. Realtime row and metadata writes additionally require
+`session.realtime.closed = false` atomically. After a slow farm load, the service rechecks the row before planning a save.
+After fallback, late writes cannot reopen realtime or advance the scripted turn. On finished calls, `/after` suppresses the
+goodbye only for a recorded `saved` result; other endings replay `last_response`, including the honest save-failure message.
+Scripted Gather now ends after six consecutive unmatched spoken turns when no unknown-answer fallback is available;
+recognized speech or keypad input resets that counter.
+
+Limits: close
 10 s after upgrade with no `start`; close at `maxSeconds`; close after sustained silence. On any provider error or disconnect,
 close the Twilio socket (the flow falls back through step 5). Logs carry the call SID's last 6 characters, event names and
 counts; never phone numbers, audio, transcripts or secrets.
+
+`checkTool(name, args, spoke, session, locale)` remains source-compatible. Its boolean is a verified authorization signal
+for `confirm_report`, not merely VAD activity. Voice Lab callers must perform equivalent transcript and playback checks
+before passing true; calling `checkTool` directly does not independently verify speech. `answer_question` requires fresh
+speech but does not require the confirmation-only transcript fields.
+
+Official references checked November 8, 2026:
+- https://developers.openai.com/api/reference/resources/realtime/client-events (`session.update`, `audio.input.transcription`)
+- https://developers.openai.com/api/reference/resources/realtime/server-events (completed/failed transcription, commit events)
+- https://developers.openai.com/api/docs/pricing (ASR billing is separate from realtime audio)
 
 ## Environment
 

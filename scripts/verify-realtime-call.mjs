@@ -484,6 +484,8 @@ async function answerUntil(call, upstream, until = (s) => s.step === "report_sum
 
 /** Worker confirms and the bridge ends the call. Exercises /after and the final status like Twilio would. */
 async function confirmAndFinish(call, stream, upstream) {
+  await waitFor(() => stream.sent("mark").some((event) => event.mark?.name?.startsWith("summary-")), "summary playback boundary");
+  await sleep(100);
   upstream.workerSays("إيه احفظه");
   const confirmed = output(await upstream.toolCall("confirm_report", { confirmed: true }));
   const closed = await stream.waitClosed(20_000);
@@ -563,6 +565,7 @@ scenario("R1a", "Happy path: ranch with camels, resources and a custom question 
   current.sessionUpdate = sessionUpdate;
   check("session.update carries Next's instructions and tools", typeof sessionUpdate.instructions === "string" && sessionUpdate.instructions.length > 20 && Array.isArray(sessionUpdate.tools) && sessionUpdate.tools.length === 3, { instructions: typeof sessionUpdate.instructions, tools: sessionUpdate.tools?.length });
   check("session.update names the three tools", ["answer_question", "confirm_report", "end_call"].every((name) => sessionUpdate.tools?.some((tool) => tool.name === name)), sessionUpdate.tools?.map((tool) => tool.name));
+  check("GA input transcription uses the worker language", sessionUpdate.audio?.input?.transcription?.model === "gpt-4o-mini-transcribe" && sessionUpdate.audio.input.transcription.language === "ar", sessionUpdate.audio?.input?.transcription);
   const formats = JSON.stringify(sessionUpdate);
   check("audio format is G.711 mu-law", /pcmu|g711_ulaw/i.test(formats), formats.slice(0, 400));
 
@@ -785,6 +788,8 @@ scenario("R5", "A duplicate toolCallId is applied once", async () => {
 
   await answerUntil(call, upstream);
   await upstream.speak("هذا الملخص");
+  await waitFor(() => stream.sent("mark").some((event) => event.mark?.name?.startsWith("summary-")), "summary playback boundary");
+  await sleep(100);
   upstream.workerSays("إيه احفظه");
   const saveId = `call_save_${randomBytes(3).toString("hex")}`;
   const saved = await upstream.toolCall("confirm_report", { confirmed: true }, { callId: saveId });
@@ -877,7 +882,7 @@ scenario("R6", "Security: upgrades, tickets, internal API, one stream, loopback 
   await stream.waitClosed(20_000);
   await live.after();
   check("end_call speaks its goodbye over the realtime voice without claiming a save", upstream.spoken.length >= 2 && !upstream.spoken.some((line) => /تم حفظ/.test(line)), upstream.spoken);
-  check("/after only hangs up after end_call", /<Hangup/.test(live.xml) && !/<Gather|<Say/.test(live.xml), live.xml.slice(0, 300));
+  check("/after preserves the honest goodbye after end_call", /<Hangup/.test(live.xml) && /<Say/.test(live.xml) && !/<Gather/.test(live.xml), live.xml.slice(0, 300));
   await live.finalStatus("completed");
   check("end_call saved nothing", count("reports", liveRanch.farm) === 0, reportOf(liveRanch.farm));
 

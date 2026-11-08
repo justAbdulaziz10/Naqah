@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { formatSaudiMobile } from "@/components/setup/phone";
 import { ConfirmDialog } from "@/components/ui";
-import { dialableWorkerPhone, latestReportCall } from "@/domain/reportCalls";
+import { dialableWorkerPhone, latestReportCall, reportCallIsLive } from "@/domain/reportCalls";
 import { REPORT_CALL_RETRIES } from "@/domain/clock";
 import type { Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
@@ -32,7 +32,7 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   const phone = dialableWorkerPhone(ws); // Shown isolated (U+2066…U+2069) so it reads left to right in Arabic.
 
   const run = latestReportCall(ws);
-  const active = run?.state === "calling" || run?.state === "answered";
+  const active = run ? reportCallIsLive(run, now) : false;
 
   useEffect(() => {
     if (!account) return;

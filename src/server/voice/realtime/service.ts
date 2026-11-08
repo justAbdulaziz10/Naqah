@@ -12,8 +12,9 @@ import type { CallToken } from "@/server/calls/token";
 import { advanceRow, boundElsewhere, planTurn, spokenLines, type TurnPlan, type VoiceCallSession } from "../farm-call";
 import { twimlGoodbye } from "../twiml";
 import { callWorkspace, forgetCallWorkspace, rememberCallWorkspace } from "./call-workspace";
+import { isVerifiedConfirmation } from "./confirmation";
 import { buildInstructions } from "./instructions";
-import { claimRealtime, closeRealtime, realtimeOf, rememberResult, withRealtime, type RealtimeState, type ToolResponse } from "./state";
+import { claimRealtime, closeRealtime, realtimeOf, recordConfirmationFailure, rememberResult, withRealtime, type RealtimeState, type ToolResponse } from "./state";
 import { REALTIME_MAX_SECONDS, TICKET_CALL_MS, TICKET_CLAIM_MS, verifyRealtimeTicket, type RealtimeTicket } from "./ticket";
 import { checkTool, promptFor, REALTIME_TOOLS, SUMMARY_STEP, type ToolCheck } from "./tools";
 
@@ -92,14 +93,20 @@ export async function openRealtimeSession(client: SupabaseClient, body: Record<s
   };
 }
 
-export type ToolBody = { ticket: unknown; callSid: string; toolCallId: string; name: unknown; args: unknown; userSpokeSinceLastTool: boolean };
+export type ToolBody = { ticket: unknown; callSid: string; toolCallId: string; name: unknown; args: unknown; userSpokeSinceLastTool: boolean; workerUtterance?: string; heardSummary?: boolean };
 
 export function parseToolBody(body: Record<string, unknown>): ToolBody | null {
-  const { ticket, callSid, toolCallId, name, args, userSpokeSinceLastTool } = body;
+  const { ticket, callSid, toolCallId, name, args, userSpokeSinceLastTool, workerUtterance, heardSummary } = body;
   if (typeof callSid !== "string" || !CALL_SID.test(callSid)) return null;
   if (typeof toolCallId !== "string" || !TOOL_CALL_ID.test(toolCallId)) return null;
   if (typeof userSpokeSinceLastTool !== "boolean") return null;
-  return { ticket, callSid, toolCallId, name, args, userSpokeSinceLastTool };
+  if (workerUtterance !== undefined && (typeof workerUtterance !== "string" || workerUtterance.length > 1000 || /[\u0000-\u001f\u007f]/u.test(workerUtterance))) return null;
+  if (heardSummary !== undefined && typeof heardSummary !== "boolean") return null;
+  return { ticket, callSid, toolCallId, name, args, userSpokeSinceLastTool, workerUtterance, heardSummary };
+}
+
+function verifiedConfirmation(body: ToolBody, row: VoiceSessionRow): boolean {
+  return body.userSpokeSinceLastTool && Boolean(body.workerUtterance) && isVerifiedConfirmation(body.workerUtterance!, row.session, row.locale);
 }
 
 const refusal = (error: string, row: VoiceSessionRow): ToolResponse => ({
@@ -151,7 +158,28 @@ export async function runRealtimeTool(client: SupabaseClient, body: ToolBody, se
     if (row.session.done) return realtime.recent.at(-1)?.result ?? finished("call_ended", ENDED[row.locale]);
     if (realtime.closed) return fallbackResult();
 
-    const check = checkTool(body.name, body.args, body.userSpokeSinceLastTool, row.session, row.locale);
+    const confirming = body.name === "confirm_report" && typeof body.args === "object" && body.args !== null && "confirmed" in body.args && body.args.confirmed === true;
+    const verified = confirming ? verifiedConfirmation(body, row) : body.userSpokeSinceLastTool;
+    const check = checkTool(body.name, body.args, verified, row.session, row.locale);
+    if (confirming && row.session.step === SUMMARY_STEP && (!verified || body.heardSummary !== true)) {
+      const error = body.heardSummary !== true ? "summary_not_finished" : "worker_has_not_confirmed";
+      const failures = (realtime.confirmationFailures ?? 0) + 1;
+      const workspace = await farmOf(client, row, now);
+      const prompt = promptFor(row.session, spokenLines(row.session, row.session.turns.length - 1, workspace, row.locale), workspace, row.locale);
+      const result: ToolResponse = {
+        ...refusal(error, row),
+        output: stringify({ status: "invalid", error, ...prompt, message: error === "summary_not_finished"
+          ? "The worker did not hear the complete summary. Read the entire summary again, then ask for clear confirmation. Nothing was saved."
+          : "The worker has not clearly confirmed. Ask the worker to confirm clearly or use the keypad fallback. Nothing was saved." }),
+        end: failures >= 2 ? "fallback" : null,
+      };
+      const rejected = rememberResult({ ...realtime, confirmationFailures: failures, closed: failures >= 2 }, body.toolCallId, result, false);
+      const saved = await recordConfirmationFailure(client, row, rejected);
+      logTool(body.callSid, body.name, error, Date.now() - started);
+      if (saved) return result;
+      const latest = await readVoiceSession(client, ticket.sid);
+      return latest && realtimeOf(latest.session)?.recent.find((entry) => entry.id === body.toolCallId)?.result || fallbackResult();
+    }
     if (!check.ok) {
       logTool(body.callSid, body.name, check.error, Date.now() - started);
       return refusal(check.error, row);
@@ -164,13 +192,15 @@ export async function runRealtimeTool(client: SupabaseClient, body: ToolBody, se
     let plan: TurnPlan;
     if (chosen) {
       workspace = await farmOf(client, row, now);
+      const current = await readVoiceSession(client, ticket.sid);
+      if (!current || current.seq !== row.seq || realtimeOf(current.session)?.closed !== false) return fallbackResult();
       plan = await planTurn(client, row, session, workspace, chosen, now);
     } else {
       plan = endedPlan(row, session);
     }
     const result = workspace ? resultOf(plan, session, workspace, row.locale) : finished("ended_without_saving", plan.goodbye!);
     const stored = withRealtime(plan.session, rememberResult(realtime, body.toolCallId, result, plan.session.done));
-    const saved = await advanceRow(client, row, stored, plan.misses, plan.response, plan.onAdvanced);
+    const saved = await advanceRow(client, row, stored, plan.misses, plan.response, plan.onAdvanced, true);
     if (plan.session.done) forgetCallWorkspace(ticket.sid);
     if (saved) {
       logTool(body.callSid, body.name, plan.outcome, Date.now() - started);
@@ -181,6 +211,7 @@ export async function runRealtimeTool(client: SupabaseClient, body: ToolBody, se
     const replay = latest && realtimeOf(latest.session)?.recent.find((entry) => entry.id === body.toolCallId);
     if (replay) return replay.result;
     if (!latest) return finished("call_ended", ENDED[ticket.l]);
+    if (realtimeOf(latest.session)?.closed) return fallbackResult();
     if (latest.session.done) return realtimeOf(latest.session)?.recent.at(-1)?.result ?? finished("call_ended", ENDED[latest.locale]);
     const current = await farmOf(client, latest, now);
     const prompt = promptFor(latest.session, spokenLines(latest.session, latest.session.turns.length - 1, current, latest.locale), current, latest.locale);
@@ -202,7 +233,10 @@ export async function afterRealtimeCall(client: SupabaseClient, input: { token: 
     if (!row || row.farm_id !== token.f) return twimlGoodbye(token.l);
     const realtime = realtimeOf(row.session);
     // The bridge has already spoken this call's goodbye, so it isn't said twice.
-    if (row.session.done && realtime) return "<Response><Hangup/></Response>";
+    if (row.session.done && realtime) {
+      const last = realtime.recent.at(-1)?.result;
+      return last && JSON.parse(last.output).status === "saved" ? "<Response><Hangup/></Response>" : row.last_response;
+    }
     if (row.session.done || !realtime || realtime.closed) return row.last_response;
     const closed = await closeRealtime(client, row, realtime);
     if (closed) return closed.last_response;

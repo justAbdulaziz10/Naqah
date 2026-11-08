@@ -92,7 +92,7 @@ function checkAnswer(args: Record<string, unknown>, session: CallSession, locale
 export function checkTool(name: unknown, args: unknown, spoke: boolean, session: CallSession, locale: Locale): ToolCheck {
   if (name !== "answer_question" && name !== "confirm_report" && name !== "end_call") return { ok: false, error: "unknown_tool" };
   if (!isPlainObject(args)) return { ok: false, error: "invalid_arguments" };
-  if (name === "answer_question") return checkAnswer(args, session, locale);
+  if (name === "answer_question") return spoke ? checkAnswer(args, session, locale) : { ok: false, error: "worker_has_not_answered" };
   if (name === "confirm_report") {
     if (session.step !== SUMMARY_STEP) return { ok: false, error: "not_at_summary" };
     if (!onlyKeys(args, ["confirmed"]) || typeof args.confirmed !== "boolean") return { ok: false, error: "invalid_arguments" };

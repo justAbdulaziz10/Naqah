@@ -11,9 +11,12 @@ const label = (value) => (typeof value === 'string' && /^[a-z0-9_.-]{1,64}$/i.te
 const DEFAULT_LIMITS = Object.freeze({
   startMs: 10_000,
   internalMs: 5_000,
+  toolMs: 13_000,
   connectMs: 5_000,
   readyMs: 5_000,
   responseMs: 45_000,
+  transcriptionMs: 2_500,
+  speechMs: 10_000,
   goodbyeMs: 15_000,
   silenceMs: 45_000,
   closeMs: 250,
@@ -105,6 +108,11 @@ class CallStream {
     this.inputFrames = 0;
     this.outputFrames = 0;
     this.userSpoke = false;
+    this.workerTurn = null;
+    this.speechEpoch = 0;
+    this.summaryNext = false;
+    this.summaryPlayback = null;
+    this.responseSummary = null;
     this.responsePending = false;
     this.responseId = null;
     this.responseKind = null;
@@ -161,6 +169,8 @@ class CallStream {
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     this.abort.abort();
+    this.workerTurn?.settle('');
+    this.workerTurn = null;
     if (this.calls.get(this.callSid) === this) this.calls.delete(this.callSid);
     this.streams.delete(this);
     this.log(event);
@@ -192,7 +202,7 @@ class CallStream {
     const rawBody = JSON.stringify(body);
     const response = await fetch(new URL(path, this.config.upstream), {
       method: 'POST', body: rawBody, headers: internalHeaders(rawBody, this.config.voiceSecret),
-      signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(this.limits.internalMs)]),
+      signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(path === '/api/voice/realtime/tool' ? this.limits.toolMs : this.limits.internalMs)]),
       redirect: 'error',
     });
     if (response.status !== 200) {
@@ -247,6 +257,10 @@ class CallStream {
       if (!mark) return;
       this.marks.delete(message.mark.name);
       if (mark.final) return this.finish('goodbye_played');
+      if (mark.summary) {
+        if (this.summaryPlayback === mark.summary && !mark.summary.cancelled) mark.summary.heard = true;
+        return;
+      }
       mark.item.playedBytes = Math.max(mark.item.playedBytes, mark.endBytes);
       if (mark.item.done && mark.item.playedBytes === mark.item.sentBytes) this.items.delete(mark.item.key);
       this.activity();
@@ -283,6 +297,7 @@ class CallStream {
             audio: {
               input: {
                 format: { type: 'audio/pcmu' },
+                transcription: { model: 'gpt-4o-mini-transcribe', language: this.session.locale },
                 turn_detection: {
                   type: 'server_vad', threshold: 0.5, prefix_padding_ms: 300,
                   silence_duration_ms: 500, create_response: false, interrupt_response: false,
@@ -322,6 +337,9 @@ class CallStream {
     this.responsePending = true;
     this.responseKind = next.kind;
     this.responseAudible = false;
+    this.responseSummary = this.summaryNext ? { heard: false, cancelled: false } : null;
+    if (this.responseSummary) this.summaryPlayback = this.responseSummary;
+    this.summaryNext = false;
     this.log('response_requested', { kind: next.kind });
     const response = { output_modalities: ['audio'] };
     if (next.text) {
@@ -335,6 +353,7 @@ class CallStream {
   /** Speech only interrupts a reply the caller can hear; one still being prepared goes ahead. */
   interrupt() {
     if (!this.responseAudible && !this.items.size) return this.log('speech_before_audio', { kind: this.responseKind });
+    if (this.summaryPlayback && !this.summaryPlayback.heard) this.summaryPlayback.cancelled = true;
     this.send(this.twilio, { event: 'clear', streamSid: this.streamSid });
     if (this.responseId && this.responseAudible) {
       this.ignoredResponses.add(this.responseId);
@@ -388,6 +407,10 @@ class CallStream {
     if (event.type === 'error') {
       // A barge-in can race the response it cancels; the conversation is still healthy.
       const detail = { type: label(event.error?.type), code: label(event.error?.code) };
+      if (this.recoveryCommit && event.error?.event_id === this.recoveryCommit) {
+        this.log('speech_recovery_failed', detail);
+        return this.finish('speech_recovery_failed');
+      }
       if (HARMLESS_PROVIDER_ERRORS.has(event.error?.code)) return this.log('provider_error_ignored', detail);
       this.log('provider_error_detail', detail);
       return this.finish('provider_error');
@@ -406,6 +429,7 @@ class CallStream {
       }
       this.responsePending = false;
       this.responseId = event.response.id;
+      if (this.responseSummary) this.responseSummary.responseId = this.responseId;
       this.log('response_created', { kind: this.responseKind });
     } else if (event.type === 'response.output_audio.delta') {
       this.outputAudio(event);
@@ -417,6 +441,17 @@ class CallStream {
       }
     } else if (event.type === 'input_audio_buffer.speech_started') {
       if (this.ending) return;
+      if (!this.speaking) {
+        this.speechEpoch += 1;
+        this.turnHeardSummary = this.summaryPlayback?.heard === true;
+        this.timer('speech', this.limits.speechMs, () => {
+          if (!this.speaking || this.ending) return;
+          this.recoveryCommit = `speech-recovery-${this.speechEpoch}`;
+          this.log('speech_recovery_commit');
+          this.send(this.provider, { type: 'input_audio_buffer.commit', event_id: this.recoveryCommit });
+          this.timer('speech_commit', this.limits.readyMs, () => this.finish('speech_recovery_timeout'));
+        });
+      }
       this.speaking = true;
       // A hello over the opening before it is audible needs no reply of its own: the opening already asks the question.
       this.earlySpeech = this.responseKind === 'opening' && Boolean(this.responsePending || this.responseId)
@@ -426,11 +461,27 @@ class CallStream {
       this.interrupt();
     } else if (event.type === 'input_audio_buffer.speech_stopped') {
       this.speaking = false;
+      this.clearTimer('speech');
       this.activity();
       this.log('speech_stopped');
     } else if (event.type === 'input_audio_buffer.committed') {
       if (this.ending) return;
+      this.clearTimer('speech');
+      this.clearTimer('speech_commit');
+      this.recoveryCommit = null;
       this.speaking = false;
+      this.workerTurn?.settle('');
+      const turn = { id: event.item_id, epoch: this.speechEpoch, heardSummary: this.turnHeardSummary ?? this.summaryPlayback?.heard === true, settled: false, transcript: '' };
+      turn.promise = new Promise((resolve) => {
+        turn.settle = (transcript) => {
+          if (turn.settled) return;
+          turn.settled = true;
+          turn.transcript = transcript;
+          resolve(transcript);
+        };
+      });
+      this.workerTurn = turn;
+      this.turnHeardSummary = undefined;
       this.activity();
       if (this.earlySpeech) {
         this.earlySpeech = false;
@@ -439,6 +490,13 @@ class CallStream {
       this.userSpoke = true;
       this.log('input_committed');
       this.requestResponse('turn');
+    } else if (event.type === 'conversation.item.input_audio_transcription.completed'
+      || event.type === 'conversation.item.input_audio_transcription.failed') {
+      const turn = this.workerTurn;
+      if (!turn || typeof turn.id !== 'string' || event.item_id !== turn.id || event.content_index !== 0) return;
+      const transcript = event.type.endsWith('.completed') && typeof event.transcript === 'string'
+        && event.transcript.length <= 1000 && !/[\u0000-\u001f\u007f]/u.test(event.transcript) ? event.transcript : '';
+      turn.settle(transcript);
     } else if (event.type === 'response.function_call_arguments.done') {
       if (!this.ending && !this.ignoredResponses.has(event.response_id)) this.queueTool(event);
     } else if (event.type === 'response.done') {
@@ -452,6 +510,12 @@ class CallStream {
         return this.finish('provider_response_failed');
       }
       const kind = this.responseKind;
+      if (this.responseSummary && !interrupted && this.responseAudible && !this.responseSummary.cancelled) {
+        const name = `summary-${++this.markCount}`;
+        this.marks.set(name, { summary: this.responseSummary });
+        this.send(this.twilio, { event: 'mark', streamSid: this.streamSid, mark: { name } });
+      }
+      this.responseSummary = null;
       this.responseId = null;
       this.responseAudible = false;
       this.responsePending = false;
@@ -500,17 +564,34 @@ class CallStream {
     if (!isObject(args)) throw new Error('Invalid tool args');
     this.toolIds.add(event.call_id);
     this.toolPending += 1;
+    const turn = this.workerTurn;
+    const epoch = this.speechEpoch;
+    const spoke = this.userSpoke;
     this.toolQueue = this.toolQueue.then(async () => {
       if (this.closed || this.ending) return;
+      const confirmation = event.name === 'confirm_report' && args.confirmed === true;
+      if (confirmation && spoke && turn && !turn.settled) {
+        this.timer('transcription', this.limits.transcriptionMs, () => turn.settle(''));
+        await turn.promise;
+        this.clearTimer('transcription');
+      }
+      if (this.closed) return;
+      const current = this.workerTurn === turn && this.speechEpoch === epoch && !this.speaking;
       const result = await this.internal('/api/voice/realtime/tool', {
         ticket: this.ticket, callSid: this.callSid, toolCallId: event.call_id,
-        name: event.name, args, userSpokeSinceLastTool: this.userSpoke,
+        name: event.name, args, userSpokeSinceLastTool: spoke && this.userSpoke && current,
+        ...(confirmation ? { workerUtterance: current ? turn?.transcript ?? '' : '', heardSummary: current && turn?.heardSummary === true } : {}),
       });
       if (this.closed) return;
       if (!isObject(result) || typeof result.output !== 'string' || typeof result.awaitingConfirmation !== 'boolean'
         || ![null, 'hangup', 'fallback'].includes(result.end)
         || !(result.goodbye === null || typeof result.goodbye === 'string')) throw new Error('Invalid tool result');
-      this.userSpoke = false;
+      if (this.workerTurn === turn) {
+        this.userSpoke = false;
+        turn?.settle('');
+        if (turn) turn.transcript = '';
+      }
+      this.summaryNext = result.awaitingConfirmation;
       this.send(this.provider, {
         type: 'conversation.item.create',
         item: { type: 'function_call_output', call_id: event.call_id, output: result.output },

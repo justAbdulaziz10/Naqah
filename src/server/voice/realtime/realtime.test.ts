@@ -10,7 +10,8 @@ import type { Workspace } from "@/domain/types";
 import { realtimeVoiceConfig } from "@/server/env";
 import { signCallToken } from "@/server/calls/token";
 import { twilioRequestSignature } from "@/server/twilio/signature";
-import { answerFarmCall, answerReportCall } from "../farm-call";
+import { advanceRow, answerFarmCall, answerReportCall } from "../farm-call";
+import { recordConfirmationFailure, realtimeOf } from "./state";
 import { bridgeSignature, validBridgeSignature } from "./internal";
 import { signRealtimeTicket, TICKET_CLAIM_MS, verifyRealtimeTicket } from "./ticket";
 import { checkTool, REALTIME_TOOLS } from "./tools";
@@ -119,7 +120,8 @@ async function open() {
 async function tool(ticket: string, name: unknown, args: unknown, extra: Record<string, unknown> = {}) {
   toolCounter += 1;
   const response = await toolRoute(signed("/api/voice/realtime/tool", {
-    ticket, callSid: CALL, toolCallId: `call_${toolCounter}`, name, args, userSpokeSinceLastTool: true, ...extra,
+    ticket, callSid: CALL, toolCallId: `call_${toolCounter}`, name, args, userSpokeSinceLastTool: true,
+    ...(name === "confirm_report" ? { workerUtterance: "إيه صح", heardSummary: true } : {}), ...extra,
   }));
   const result = response.status === 200 ? await response.json() : null;
   return { status: response.status, result, output: result ? JSON.parse(result.output) : null };
@@ -442,6 +444,13 @@ describe("tool validation", () => {
 });
 
 describe("tool calls on a live call", () => {
+  it("refuses an answer without a fresh committed worker turn", async () => {
+    const { ticket, opened } = await open();
+    const before = JSON.stringify(row());
+    const result = await tool(ticket, "answer_question", { value: firstPrompt(opened).replies[0].value }, { userSpokeSinceLastTool: false });
+    expect(result.output.error).toBe("worker_has_not_answered");
+    expect(JSON.stringify(row())).toBe(before);
+  });
   it("refuses an invalid call without moving the call", async () => {
     const { ticket } = await open();
     const before = row().seq;
@@ -615,6 +624,78 @@ describe("tool calls on a live call", () => {
   });
 });
 
+describe("verified realtime confirmation", () => {
+  it.each(["", "ضجيج", "لا", "إيه بس العلف غلط", "صح لكن", "yes but change the feed", "لا تحفظه", "إيه لا", "صح مو صحيح"])("refuses %j without changing the engine or saving", async (workerUtterance) => {
+    const { ticket, opened } = await open();
+    await reachSummary(ticket, firstPrompt(opened));
+    const before = JSON.stringify({ data: row().session.data, seq: row().seq, misses: row().misses, turns: row().session.turns });
+    const result = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance });
+    expect(result.output.error).toBe("worker_has_not_confirmed");
+    expect(result.output.message).toContain("confirm clearly");
+    expect(result.result.end).toBeNull();
+    expect(JSON.stringify({ data: row().session.data, seq: row().seq, misses: row().misses, turns: row().session.turns })).toBe(before);
+    expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
+  });
+
+  it.each([undefined, false])("requires affirmative playback evidence (%j)", async (heardSummary) => {
+    const { ticket, opened } = await open();
+    await reachSummary(ticket, firstPrompt(opened));
+    const result = await tool(ticket, "confirm_report", { confirmed: true }, { heardSummary });
+    expect(result.output.error).toBe("summary_not_finished");
+    expect(result.output.summary).toContain("أحفظه");
+    expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
+    const confirmed = await tool(ticket, "confirm_report", { confirmed: true });
+    expect(confirmed.output.status).toBe("saved");
+    expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(1);
+  });
+
+  it("falls back after two unique failures, replays retries, and the script can still confirm by keypad", async () => {
+    const { ticket, opened } = await open();
+    await reachSummary(ticket, firstPrompt(opened));
+    const first = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: undefined });
+    const firstId = `call_${toolCounter}`;
+    const repeat = await tool(ticket, "confirm_report", { confirmed: true }, { toolCallId: firstId, workerUtterance: "yes" });
+    expect(repeat.result).toEqual(first.result);
+    const second = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "لا" });
+    expect(second.result).toMatchObject({ end: "fallback", goodbye: null });
+    expect(row().session.done).toBe(false);
+    expect(row().session.step).toBe("report_summary");
+    expect(row().session.realtime.closed).toBe(true);
+    expect((await tool(ticket, "confirm_report", { confirmed: true })).result.end).toBe("fallback");
+    expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
+    const xml = await answerFarmCall(db.client, { callSid: CALL, seq: row().seq, speech: "", digits: "1", confidence: null, now: new Date() });
+    expect(xml).toContain("تم حفظ");
+    expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(1);
+  });
+
+  it.each(["إيه", "صح", "تمام", "احفظه", "إيه صح"])("accepts the existing parser's clear confirmation %s exactly once", async (workerUtterance) => {
+    const { ticket, opened } = await open();
+    await reachSummary(ticket, firstPrompt(opened));
+    const result = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance });
+    expect(result.output.status).toBe("saved");
+    await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance });
+    expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(1);
+  });
+
+  it("bounds and validates the additive fields", async () => {
+    const { ticket } = await open();
+    for (const extra of [{ workerUtterance: "a".repeat(1001) }, { workerUtterance: 1 }, { workerUtterance: "yes\n" }, { heardSummary: "yes" }]) {
+      expect((await tool(ticket, "confirm_report", { confirmed: true }, extra)).status).toBe(400);
+    }
+  });
+
+  it("never persists or logs the worker transcript, including failures", async () => {
+    const info = vi.spyOn(console, "info");
+    const { ticket, opened } = await open();
+    await reachSummary(ticket, firstPrompt(opened));
+    const workerUtterance = "إيه بس العلف غلط secret-transcript-canary";
+    await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance });
+    expect(JSON.stringify(db.store)).not.toContain(workerUtterance);
+    expect(JSON.stringify(info.mock.calls)).not.toContain(workerUtterance);
+    expect(JSON.stringify(mock.save.mock.calls)).not.toContain(workerUtterance);
+  });
+});
+
 describe("per-call farm", () => {
   it("loads the farm at most once for a whole call, and forgets it when the call ends", async () => {
     const { ticket, opened } = await open();
@@ -629,6 +710,57 @@ describe("per-call farm", () => {
 
 describe("after the stream", () => {
   const afterUrl = () => `/api/voice/realtime/after?s=${encodeURIComponent(signCallToken(token(), SECRET))}`;
+
+  it("blocks an in-flight confirmation after fallback while the farm load is pending", async () => {
+    const { ticket, opened } = await open();
+    await reachSummary(ticket, firstPrompt(opened));
+    forgetCallWorkspace(CALL);
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    mock.load.mockImplementationOnce(async () => { entered(); await gate; return { workspace: answeredFarm() }; });
+    const pending = tool(ticket, "confirm_report", { confirmed: true });
+    await started;
+    const seq = row().seq;
+    expect(await (await afterRoute(twilio(afterUrl(), { CallSid: CALL }))).text()).toContain("<Gather");
+    release();
+    expect((await pending).result.end).toBe("fallback");
+    expect(row().seq).toBe(seq);
+    expect(row().session.realtime.closed).toBe(true);
+    expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
+  });
+
+  it("atomically fences late row and realtime-metadata writes even if seq has not moved", async () => {
+    await open();
+    const stale = JSON.parse(JSON.stringify(db.store.row)) as import("@/server/db/voice-sessions").VoiceSessionRow;
+    const realtime = realtimeOf(stale.session)!;
+    await afterRoute(twilio(afterUrl(), { CallSid: CALL }));
+    const before = JSON.stringify(row());
+    expect(await advanceRow(db.client, stale, stale.session, 0, "late", undefined, true)).toBeNull();
+    expect(await recordConfirmationFailure(db.client, stale, { ...realtime, confirmationFailures: 1 })).toBeNull();
+    expect(JSON.stringify(row())).toBe(before);
+  });
+
+  it("replays the honest goodbye if save failure ended the session before playback", async () => {
+    const { ticket, opened } = await open();
+    await reachSummary(ticket, firstPrompt(opened));
+    mock.save.mockRejectedValue(new Error("down"));
+    await tool(ticket, "confirm_report", { confirmed: true });
+    expect((await tool(ticket, "confirm_report", { confirmed: true })).output.status).toBe("save_failed");
+    const xml = await (await afterRoute(twilio(afterUrl(), { CallSid: CALL }))).text();
+    expect(xml).toBe(row().last_response);
+    expect(xml).toContain("فضلاً اتصل مرة ثانية");
+    expect(xml).toContain("<Say");
+  });
+
+  it("replays the not-saved goodbye rather than hanging up silently", async () => {
+    const { ticket } = await open();
+    await tool(ticket, "end_call", { reason: "worker_ended" });
+    const xml = await (await afterRoute(twilio(afterUrl(), { CallSid: CALL }))).text();
+    expect(xml).toBe(row().last_response);
+    expect(xml).toContain("ما انحفظ");
+  });
 
   it("resumes the scripted Gather at the current question, and blocks late tool calls", async () => {
     const { ticket, opened } = await open();

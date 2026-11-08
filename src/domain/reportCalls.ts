@@ -16,15 +16,19 @@ const iso = (d: Date) => d.toISOString();
 const isActive = (run: ReportCallRun) => run.state === "calling" || run.state === "answered";
 
 /**
- * Twilio doesn't retry a lost final status, so an answered run can be left open with nothing to
- * close it. Its voice session is gone by this age, so the call is over and can't hold the line.
+ * Twilio doesn't retry a lost final status, so a ringing or answered run can be left open with
+ * nothing to close it. By this age the call is over and can't hold the line.
  */
 const ANSWERED_RUN_LIMIT_MS = 2 * HOUR;
 
 function isAbandoned(run: ReportCallRun, now: Date): boolean {
-  if (run.state !== "answered") return false;
+  const open = run.state === "answered" || (run.state === "calling" && run.nextAttemptAt === null);
+  if (!open) return false;
   return now.getTime() - Date.parse(run.attempts.at(-1)?.at ?? run.occurrence) >= ANSWERED_RUN_LIMIT_MS;
 }
+
+/** Still ringing, waiting for a retry or in conversation, and not left open by a lost status. */
+export const reportCallIsLive = (run: ReportCallRun, now: Date) => isActive(run) && !isAbandoned(run, now);
 
 export const reportCallRuns = (ws: Workspace): ReportCallRun[] => ws.reportCalls ?? [];
 
@@ -49,7 +53,7 @@ export type ReportCallBlock = "no_worker_phone" | "already_reported" | "in_progr
 /** Why a report call can't start now, or null when it can. Shared by "Call now" and the scheduler. */
 export function reportCallBlock(ws: Workspace, now: Date): ReportCallBlock | null {
   if (!dialableWorkerPhone(ws)) return "no_worker_phone";
-  if (reportCallRuns(ws).some((run) => isActive(run) && !isAbandoned(run, now))) return "in_progress";
+  if (reportCallRuns(ws).some((run) => reportCallIsLive(run, now))) return "in_progress";
   if (reportDoneThisPeriod(ws, now)) return "already_reported";
   return null;
 }

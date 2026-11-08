@@ -33,7 +33,7 @@ import { spokenWording, twimlGather, twimlGoodbye, twimlStream } from "./twiml";
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
 type Copy = Record<Locale, string>;
-export type VoiceCallSession = CallSession & { voiceSilences?: number };
+export type VoiceCallSession = CallSession & { voiceSilences?: number; voiceUnmatched?: number };
 
 const NOT_REGISTERED: Copy = { ar: "هذا الرقم غير مسجل لدى ناقة.", en: "This number is not registered with NAQAH." };
 const NOT_READY: Copy = {
@@ -196,8 +196,8 @@ export async function startFarmCall(client: SupabaseClient, input: { from: strin
 }
 
 /** Stores the step from the turn it was read at. Null means another request got there first. */
-export async function advanceRow(client: SupabaseClient, row: VoiceSessionRow, session: VoiceCallSession, misses: number, response: string, onAdvanced?: () => Promise<void>): Promise<VoiceSessionRow | null> {
-  const saved = await advanceVoiceSession(client, row.call_sid, row.seq, { session: withoutTranscript(session), misses, last_response: response });
+export async function advanceRow(client: SupabaseClient, row: VoiceSessionRow, session: VoiceCallSession, misses: number, response: string, onAdvanced?: () => Promise<void>, requireRealtimeOpen = false): Promise<VoiceSessionRow | null> {
+  const saved = await advanceVoiceSession(client, row.call_sid, row.seq, { session: withoutTranscript(session), misses, last_response: response }, requireRealtimeOpen);
   if (saved) await onAdvanced?.();
   return saved;
 }
@@ -288,17 +288,18 @@ export async function answerFarmCall(
   const session = { ...row.session, voiceSilences: 0 };
   const { workspace } = requireFarm(await loadFarm(client, { id: row.farm_id }));
   const spoken = mapSpeechToInput(session, speech, digits, locale, input.confidence);
+  const unmatched = !spoken && hasInput ? ((row.session as VoiceCallSession).voiceUnmatched ?? 0) + 1 : 0;
   logVoiceTurn(input, spoken);
   const next = row.seq + 1;
   const fallback = !spoken && hasInput && row.misses >= 1 ? unknownReply(session.replies) : undefined;
   if (!spoken && !fallback) {
-    if (silenceCount >= 3) return advance(client, row, { ...session, done: true }, row.misses, twimlGoodbye(locale, MISSED_TWICE[locale]));
+    if (silenceCount >= 3 || unmatched >= 6) return advance(client, row, { ...session, done: true }, row.misses, twimlGoodbye(locale, MISSED_TWICE[locale]));
     const prefix = hasInput ? SPOKEN_MISS[locale] : (silenceCount === 1 ? MISS_ONCE : MISS_AGAIN)[locale];
-    return advance(client, row, { ...session, voiceSilences: silenceCount }, Math.min(row.misses + 1, 2), respond(session, session.turns.length - 1, workspace, locale, next, prefix));
+    return advance(client, row, { ...session, voiceSilences: silenceCount, voiceUnmatched: unmatched }, Math.min(row.misses + 1, 2), respond(session, session.turns.length - 1, workspace, locale, next, prefix));
   }
 
   const chosen = spoken ?? { value: fallback!.value };
-  const plan = await planTurn(client, row, session, workspace, chosen, now, fallback ? UNKNOWN_FALLBACK[locale] : "");
+  const plan = await planTurn(client, row, { ...session, voiceUnmatched: 0 }, workspace, chosen, now, fallback ? UNKNOWN_FALLBACK[locale] : "");
   return advance(client, row, plan.session, plan.misses, plan.response, plan.onAdvanced);
 }
 

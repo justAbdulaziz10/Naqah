@@ -24,6 +24,7 @@ export interface RealtimeState {
   claimedAt: string | null;
   /** Set once the call fell back to the script. A late tool call must not write after that. */
   closed: boolean;
+  confirmationFailures?: number;
   recent: { id: string; result: ToolResponse }[];
 }
 
@@ -45,16 +46,27 @@ export function rememberResult(realtime: RealtimeState, id: string, result: Tool
   return { ...realtime, recent: done ? [{ id, result }] : [...realtime.recent, { id, result }].slice(-RECENT_TOOL_CALLS) };
 }
 
-async function writeRealtime(client: SupabaseClient, row: VoiceSessionRow, realtime: RealtimeState, unclaimedOnly: boolean): Promise<VoiceSessionRow | null> {
+async function writeRealtime(client: SupabaseClient, row: VoiceSessionRow, realtime: RealtimeState, unclaimedOnly: boolean, confirmationOnly = false): Promise<VoiceSessionRow | null> {
   let query = client
     .from("voice_call_sessions")
     .update({ session: withRealtime(row.session, realtime), updated_at: new Date().toISOString() })
     .eq("call_sid", row.call_sid)
-    .eq("seq", row.seq);
+    .eq("seq", row.seq)
+    .eq("session->realtime->closed", false);
   if (unclaimedOnly) query = query.eq("session->realtime->>jti", realtime.jti).is("session->realtime->>claimedAt", null);
+  if (confirmationOnly) {
+    const failures = realtimeOf(row.session)?.confirmationFailures;
+    query = failures === undefined
+      ? query.is("session->realtime->confirmationFailures", null)
+      : query.eq("session->realtime->confirmationFailures", failures);
+  }
   const { data, error } = await query.select("*").maybeSingle();
   if (error) throw fromPostgrest(error);
   return data as VoiceSessionRow | null;
+}
+
+export function recordConfirmationFailure(client: SupabaseClient, row: VoiceSessionRow, realtime: RealtimeState): Promise<VoiceSessionRow | null> {
+  return writeRealtime(client, row, realtime, false, true);
 }
 
 /** Null means someone else claimed it first, which is what makes the ticket single use. */

@@ -96,6 +96,30 @@ describe("farm capture retries", () => {
     expect(mock.save).not.toHaveBeenCalled();
   });
 
+  it("ends after six consecutive unmatched spoken turns at the summary without saving", async () => {
+    row.session.step = "report_summary";
+    row.session.replies = [
+      { id: "confirm_save", value: "confirm_save", label: { ar: "تأكيد وحفظ", en: "Confirm and save" } },
+      { id: "end_without_save", value: "end_without_save", label: { ar: "إنهاء بدون حفظ", en: "End without saving" } },
+    ];
+    for (let seq = 0; seq < 5; seq += 1) {
+      expect(await answerFarmCall(client, { callSid, seq, speech: "background noise", digits: null, now })).toContain("<Gather");
+    }
+    const goodbye = await answerFarmCall(client, { callSid, seq: 5, speech: "background noise", digits: null, now });
+    expect(goodbye).toContain("<Hangup/>");
+    expect(goodbye).toContain("ما قدرت أفهم");
+    expect(row.session.done).toBe(true);
+    expect(mock.save).not.toHaveBeenCalled();
+  });
+
+  it("resets consecutive unmatched speech when an actual answer is accepted", async () => {
+    await answerFarmCall(client, { callSid, seq: 0, speech: "background noise", digits: null, now });
+    expect((row.session as { voiceUnmatched?: number }).voiceUnmatched).toBe(1);
+    await answerFarmCall(client, { callSid, seq: 1, speech: "ما أدري", digits: null, now });
+    expect((row.session as { voiceUnmatched?: number }).voiceUnmatched).toBe(0);
+    expect(row.session.done).toBe(false);
+  });
+
   it("still accepts an explicit unknown answer", async () => {
     row.session.data = {
       reportIndex: 0,

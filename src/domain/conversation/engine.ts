@@ -106,6 +106,8 @@ interface ConversationData {
   tempNote?: string | null;
   tempLevel?: Level;
   tempQuantity?: string;
+  /** The worker has been asked once about "enough" followed by "none left". */
+  quantityClarified?: boolean;
   tempCount?: number;
   /** The NAQAH → worker report call this conversation belongs to (report_call only). */
   reportCallId?: string;
@@ -1073,7 +1075,7 @@ function handleHerdCountDetail(session: CallSession, ws: Workspace, now: Date, i
   const said = (input.text ?? current.value).trim();
   const detail = isUnknown(current.value, input.text) || addsNothing(said) ? "" : said;
   // Free text stays exactly as said; the count keeps both languages when nothing was added.
-  const answer: string | LocalizedText = !detail ? (base ?? UNKNOWN_ANSWER) : base ? base.en + " — " + detail : detail;
+  const answer: string | LocalizedText = !detail ? (base ?? UNKNOWN_ANSWER) : base ? copy(base.en + " — " + detail, base.ar + " — " + detail) : detail;
   return { session: nextReportItem(reportAnswer(current.session, item, answer, "reported"), ws, now) };
 }
 
@@ -1266,7 +1268,7 @@ function addResourceAnswer(
       ],
     },
   };
-  return { ...next, data: { ...next.data, tempLevel: undefined, tempQuantity: undefined } };
+  return { ...next, data: { ...next.data, tempLevel: undefined, tempQuantity: undefined, quantityClarified: undefined } };
 }
 
 function handleQuantityInput(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
@@ -1292,6 +1294,25 @@ function handleQuantityInput(session: CallSession, ws: Workspace, now: Date, inp
         "number",
       ),
     };
+  }
+  // "Enough" followed by "none left" can't both stand: ask once, then keep the zero without the level.
+  if (Number(quantity) === 0 && (level === "good" || level === "medium")) {
+    if (!session.data.quantityClarified) {
+      return {
+        session: ask(
+          { ...current.session, data: { ...current.session.data, quantityClarified: true } },
+          item.resource === "feed"
+            ? copy("You said there was enough, then that there’s none. Roughly how many bags are left?", "قلت إنه كافي، وبعدها إن ما فيه شي. كم باقي تقريباً من أكياس العلف؟")
+            : copy("You said there was enough, then that there’s none. Roughly how many litres are left?", "قلت إنه كافي، وبعدها إن ما فيه شي. كم باقي تقريباً من الماء باللتر؟"),
+          now,
+          "quantity_input",
+          [reply("quantity_unknown", "I don’t know", "ما أدري"), reply("quantity_skip", "Skip", "تخطي")],
+          "number",
+        ),
+      };
+    }
+    const unsure = { ...current.session, data: { ...current.session.data, tempLevel: "unknown" as Level } };
+    return { session: askQuantityConfirm(unsure, item.resource, quantity, now) };
   }
   return { session: askQuantityConfirm(current.session, item.resource, quantity, now) };
 }
@@ -1366,7 +1387,7 @@ function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallS
     factsAr.push((confirmation.done ? "مهمة خلصت: " : "مهمة باقية: ") + instruction);
   }
   // With no herd or supply facts, read back what was said: the worker must hear what they confirm.
-  const answers = session.draft.answers.slice(0, 4);
+  const answers = session.draft.answers.slice(0, 8);
   const baseEn = factsEn.length ? factsEn.join("; ") : answers.length ? answers.map((a) => a.answerText?.en ?? a.answer).join("; ") : "no additional farm facts";
   const baseAr = factsAr.length ? factsAr.join("، ") : answers.length ? answers.map((a) => a.answerText?.ar ?? a.answer).join("، ") : "ما فيه معلومات إضافية عن العزبة";
   const findingEn = findings.length ? " Important for the owner: " + findings[0].text.en : "";

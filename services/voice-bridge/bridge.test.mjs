@@ -387,6 +387,144 @@ test('tool round trip forwards signed args and speech; awaitingConfirmation rese
   } finally { await state.close(); }
 });
 
+for (const mode of ['ready', 'delayed', 'missing', 'late', 'failed', 'stale', 'superseded', 'oversized']) {
+  test(`confirmation forwards only the latest bounded transcript: ${mode}`, async () => {
+    const state = await fixture({ autoComplete: true, limits: { transcriptionMs: 50 } });
+    try {
+      const { socket } = await state.connect();
+      await state.ready(socket);
+      const update = state.providerEvents.find((event) => event.type === 'session.update');
+      assert.deepEqual(update.session.audio.input.transcription, { model: 'gpt-4o-mini-transcribe', language: 'en' });
+      const complete = (item_id, transcript) => send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id, content_index: 0, transcript });
+      send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'old' });
+      complete('old', 'old-private-transcript');
+      send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'latest' });
+      if (mode === 'ready') complete('latest', 'إيه صح');
+      if (mode === 'stale') complete('old', 'إيه صح');
+      if (mode === 'oversized') complete('latest', 'a'.repeat(1001));
+      if (mode === 'failed') {
+        send(state.provider, { type: 'conversation.item.input_audio_transcription.failed', item_id: 'latest', content_index: 0, error: { message: 'private failure transcript' } });
+        complete('latest', 'إيه صح');
+      }
+      send(state.provider, { type: 'response.function_call_arguments.done', response_id: state.responseId, call_id: 'confirm-test', name: 'confirm_report', arguments: '{"confirmed":true}' });
+      if (mode === 'delayed') { await delay(15); complete('latest', 'إيه صح'); }
+      if (mode === 'superseded') {
+        await delay(10);
+        send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'newer' });
+        complete('latest', 'إيه صح');
+        complete('newer', 'لا');
+      }
+      await state.providerInbox.wait((event) => event.item?.call_id === 'confirm-test');
+      const body = state.requests.find((request) => request.body?.toolCallId === 'confirm-test').body;
+      assert.equal(body.workerUtterance, ['ready', 'delayed'].includes(mode) ? 'إيه صح' : '');
+      assert.equal(body.heardSummary, false);
+      if (mode === 'late') {
+        complete('latest', 'إيه صح');
+        send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'late-confirm', name: 'confirm_report', arguments: '{"confirmed":true}' });
+        await state.providerInbox.wait((event) => event.item?.call_id === 'late-confirm');
+        const late = state.requests.find((request) => request.body?.toolCallId === 'late-confirm').body;
+        assert.equal(late.workerUtterance, '');
+        assert.equal(late.userSpokeSinceLastTool, false);
+      }
+      assert.ok(!JSON.stringify(state.logs).includes('private'));
+      assert.ok(!JSON.stringify(state.logs).includes('إيه صح'));
+      assert.ok(!JSON.stringify(state.providerEvents).includes('old-private-transcript'));
+      assert.ok(!state.providerEvents.some((event) => event.item?.type === 'function_call_output' && event.item.output.includes('إيه صح')));
+    } finally { await state.close(); }
+  });
+}
+
+test('one committed worker turn cannot authorize two queued answers', async () => {
+  const state = await fixture({ autoComplete: true, toolDelay: 25 });
+  try {
+    const { socket } = await state.connect();
+    await state.ready(socket);
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'one-turn' });
+    for (const call_id of ['first-answer', 'second-answer']) {
+      send(state.provider, { type: 'response.function_call_arguments.done', call_id, name: 'answer_question', arguments: '{"value":"yes"}' });
+    }
+    await state.providerInbox.wait((event) => event.item?.call_id === 'second-answer');
+    const bodies = state.requests.filter((request) => request.url.endsWith('/tool')).map((request) => request.body);
+    assert.deepEqual(bodies.map((body) => body.userSpokeSinceLastTool), [true, false]);
+    assert.ok(bodies.every((body) => !('workerUtterance' in body) && !('heardSummary' in body)));
+  } finally { await state.close(); }
+});
+
+test('interrupted summary is not heard; only a complete re-read and its marks allow confirmation', async () => {
+  const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: true, end: null, goodbye: null } });
+  try {
+    const { socket, messages } = await state.connect();
+    await state.ready(socket);
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'answer' });
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'summary-tool', name: 'answer_question', arguments: '{"value":"yes"}' });
+    await state.providerInbox.wait((event) => event.item?.call_id === 'summary-tool');
+    state.complete();
+    await delay(20);
+    state.audio(160, 'summary-first');
+    const audioMark = await messages.wait((event) => event.event === 'mark');
+    send(state.provider, { type: 'input_audio_buffer.speech_started' });
+    await messages.wait((event) => event.event === 'clear');
+    send(socket, { event: 'mark', streamSid: STREAM_SID, mark: audioMark.mark });
+    send(state.provider, { type: 'response.done', response: { id: state.responseId, status: 'cancelled' } });
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'interruption' });
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'interruption', content_index: 0, transcript: 'إيه صح' });
+    await delay(15);
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'interrupted-confirm', name: 'confirm_report', arguments: '{"confirmed":true}' });
+    await state.providerInbox.wait((event) => event.item?.call_id === 'interrupted-confirm');
+    assert.equal(state.requests.find((request) => request.body?.toolCallId === 'interrupted-confirm').body.heardSummary, false);
+    state.complete();
+    await delay(20);
+    state.audio(160, 'summary-reread');
+    send(state.provider, { type: 'response.output_audio.done', item_id: 'summary-reread', content_index: 0 });
+    state.complete();
+    const summaryMark = await messages.wait((event) => event.event === 'mark' && event.mark.name.startsWith('summary-'));
+    send(socket, { event: 'mark', streamSid: STREAM_SID, mark: summaryMark.mark });
+    await delay(15);
+    send(state.provider, { type: 'input_audio_buffer.speech_started' });
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'after-reread' });
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'after-reread', content_index: 0, transcript: 'إيه صح' });
+    await delay(15);
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'reread-confirm', name: 'confirm_report', arguments: '{"confirmed":true}' });
+    await state.providerInbox.wait((event) => event.item?.call_id === 'reread-confirm');
+    assert.equal(state.requests.find((request) => request.body?.toolCallId === 'reread-confirm').body.heardSummary, true);
+  } finally { await state.close(); }
+});
+
+for (const mode of ['committed', 'error', 'timeout', 'normal']) {
+  test(`long open speech recovery after interrupt: ${mode}`, async () => {
+    const state = await fixture({ limits: { speechMs: 60, readyMs: 100 } });
+    try {
+      const { socket, messages } = await state.connect();
+      await state.ready(socket);
+      state.audio(160);
+      await messages.wait((event) => event.event === 'media');
+      const interruptedId = state.responseId;
+      send(state.provider, { type: 'input_audio_buffer.speech_started' });
+      await state.providerInbox.wait((event) => event.type === 'response.cancel');
+      send(state.provider, { type: 'response.done', response: { id: interruptedId, status: 'cancelled' } });
+      await delay(20);
+      assert.equal(state.providerEvents.filter((event) => event.type === 'input_audio_buffer.commit').length, 0);
+      if (mode === 'normal') {
+        send(state.provider, { type: 'input_audio_buffer.speech_stopped' });
+        await delay(70);
+        assert.equal(state.providerEvents.filter((event) => event.type === 'input_audio_buffer.commit').length, 0);
+        return;
+      }
+      const commit = await state.providerInbox.wait((event) => event.type === 'input_audio_buffer.commit');
+      if (mode === 'committed') {
+        send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'recovered' });
+        await state.providerInbox.wait((event) => event.type === 'response.create' && !event.response.instructions);
+        assert.equal(state.requests.filter((request) => request.url.endsWith('/tool')).length, 0);
+        assert.equal(socket.readyState, WebSocket.OPEN);
+      } else {
+        if (mode === 'error') send(state.provider, { type: 'error', error: { code: 'input_audio_buffer_commit_empty', event_id: commit.event_id } });
+        await closed(socket);
+        assert.ok(state.logs.some((record) => record.event === (mode === 'error' ? 'speech_recovery_failed' : 'speech_recovery_timeout')));
+      }
+    } finally { await state.close(); }
+  });
+}
+
 test('goodbye waits for its final playback mark rather than provider completion', async () => {
   const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: 'Mock goodbye' } });
   try {
