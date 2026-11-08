@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TurnLoop, type LoopHost, type ToolReply } from "./turnLoop";
+import { asksToClarify, TurnLoop, type LoopHost, type ToolReply } from "./turnLoop";
 import { addResponseUsage, estimateUsd, NO_USAGE } from "./usage";
 
 type Sent = Record<string, unknown> & { type: string };
@@ -249,28 +249,56 @@ describe("confirming a summary", () => {
     expect(kit.loop.canInterrupt).toBe(false);
   });
 
-  it("waits for the worker's words on the answer after a clarification", async () => {
-    const kit = setup("voice", { ...OK, requireWords: true });
+  async function spokenAnswer() {
+    const kit = setup();
     kit.open();
     kit.loop.handle({ type: "input_audio_buffer.speech_started" });
     kit.loop.handle({ type: "input_audio_buffer.speech_stopped" });
     kit.loop.handle({ type: "input_audio_buffer.committed", item_id: "w1" });
     kit.respond("r1");
-    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "answer_question", arguments: "{}" });
+    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "answer_question", arguments: '{"value":"yes"}' });
     kit.done("r1");
     await flush();
-    expect(kit.host.runTool).toHaveBeenCalledTimes(1);
-    kit.loop.handle({ type: "input_audio_buffer.speech_started" });
-    kit.loop.handle({ type: "input_audio_buffer.speech_stopped" });
-    kit.loop.handle({ type: "input_audio_buffer.committed", item_id: "w2" });
-    kit.respond("r2");
-    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r2", call_id: "c2", name: "answer_question", arguments: "{}" });
-    kit.done("r2");
+    return kit;
+  }
+
+  it("holds a spoken answer until the worker's final words can be checked", async () => {
+    const kit = await spokenAnswer();
+    expect(kit.host.runTool).not.toHaveBeenCalled();
+    kit.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w1", content_index: 0, transcript: "العلف زين" });
     await flush();
-    expect(kit.host.runTool).toHaveBeenCalledTimes(1);
-    kit.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w2", content_index: 0, transcript: "عشرة" });
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, heard: "العلف زين" });
+  });
+
+  it("reports a failed transcript as empty, not as nothing to check", async () => {
+    const kit = await spokenAnswer();
+    kit.loop.handle({ type: "conversation.item.input_audio_transcription.failed", item_id: "w1", content_index: 0 });
     await flush();
-    expect(kit.host.runTool.mock.calls[1][0]).toMatchObject({ heard: "عشرة" });
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, heard: "" });
+  });
+
+  it("stops waiting for a transcript that never comes", async () => {
+    const kit = await spokenAnswer();
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, heard: "" });
+  });
+
+  it("gives a typed answer its own words at once", async () => {
+    const kit = setup("text");
+    kit.open();
+    kit.loop.sendText("العلف زين");
+    kit.respond("r1");
+    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "answer_question", arguments: '{"value":"yes"}' });
+    kit.done("r1");
+    await flush();
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, heard: "العلف زين" });
+  });
+
+  it("shows an off-topic answer as asking again, not as a failed check", () => {
+    expect(asksToClarify("answer_off_topic")).toBe(true);
+    expect(asksToClarify("answer_unclear")).toBe(true);
+    expect(asksToClarify("value_not_allowed")).toBe(false);
+    expect(asksToClarify(null)).toBe(false);
   });
 
   it("speaks the summary word for word with tools off", async () => {

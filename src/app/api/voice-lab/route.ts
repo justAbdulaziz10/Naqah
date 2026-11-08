@@ -110,7 +110,8 @@ export async function POST(request: Request): Promise<Response> {
       if (!state.session) return fail("session_expired", 410);
       const loaded = await workspaceFor(user.id, state.src, state.l, now);
       if (!loaded) return fail("farm_unavailable", 503);
-      const heard = typeof body.heard === "string" && body.heard.trim() ? body.heard.slice(0, MAX_HEARD) : null;
+      // Empty stays empty: speech recognition failed, so "all healthy" has no words behind it.
+      const heard = typeof body.heard === "string" ? body.heard.trim().slice(0, MAX_HEARD) : null;
       const { workerUtterance, heardSummary } = body;
       if (workerUtterance !== undefined && (typeof workerUtterance !== "string" || workerUtterance.length > 1000 || /[\u0000-\u001f\u007f]/u.test(workerUtterance))) return fail("invalid_input", 400);
       if (heardSummary !== undefined && typeof heardSummary !== "boolean") return fail("invalid_input", 400);

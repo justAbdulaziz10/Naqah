@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Locale } from "@/domain/types";
-import { TurnLoop, type ProviderEvent, type ToolReply } from "./turnLoop";
+import { asksToClarify, TurnLoop, type ProviderEvent, type ToolReply } from "./turnLoop";
 import { addResponseUsage, addTranscribeUsage, NO_USAGE, type LabPricing, type LabUsage } from "./usage";
 
 export type LabMode = "voice" | "text";
@@ -51,7 +51,6 @@ async function api(body: object, init: RequestInit = {}): Promise<{ status: numb
 }
 
 const CONNECT_TIMEOUT_MS = 20_000;
-const CLARIFYING = new Set(["worker_has_not_answered", "answer_conflicts_with_words", "number_not_in_answer", "summary_not_finished", "worker_has_not_confirmed"]);
 
 /** One browser test call: peer connection, the tool round trip, and everything needed to tear it down. */
 export function useVoiceLab(locale: Locale) {
@@ -272,9 +271,9 @@ export function useVoiceLab(locale: Locale) {
           run.state = result.state;
           setView(result.view);
           log(result.refused ? "tool_refused" : "tool_ok", result.refused ? `${name}: ${result.refused}` : `${name} ${JSON.stringify(args)}`);
-          const toolEntry: TranscriptEntry = { id: `tool-${++eventId.current}`, role: "tool", name, refused: result.refused, clarifying: Boolean(result.refused && CLARIFYING.has(result.refused)), declined: name === "confirm_report" && args.confirmed === false };
+          const toolEntry: TranscriptEntry = { id: `tool-${++eventId.current}`, role: "tool", name, refused: result.refused, clarifying: asksToClarify(result.refused), declined: name === "confirm_report" && args.confirmed === false };
           setTranscript((list) => [...list, toolEntry]);
-          return { ...result, requireWords: toolEntry.role === "tool" && toolEntry.clarifying };
+          return result;
         },
       }, nextMode, reply.opening);
       run.loop = loop;

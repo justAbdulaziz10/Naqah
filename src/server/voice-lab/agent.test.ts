@@ -267,6 +267,20 @@ describe("Voice Lab asks instead of guessing", () => {
     }
   });
 
+  it("never records a healthy herd from words about something else", () => {
+    const { session } = open();
+    expect(session.data.queue?.[session.data.reportIndex ?? 0]?.id).toBe("herd_health");
+    const yes = (heard: string) => runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { value: "yes" }, spoke: true, heard, now });
+    for (const [heard, refused] of [["العلف زين", "answer_off_topic"], ["الجو حار اليوم", "answer_unclear"], ["", "answer_unclear"]]) {
+      const result = yes(heard);
+      expect(result.refused).toBe(refused);
+      expect(result.session.draft.camelUpdates).toEqual([]);
+      expect(result.session.step).toBe(session.step);
+      expect(result.view.facts).toEqual([]);
+    }
+    expect(yes("كلها بخير").refused).toBeNull();
+  });
+
   it("gives the model the real call's instructions, unchanged", () => {
     expect(open().instructions).toContain("إذا انقطع الملخص أعده كاملاً");
     expect(open().instructions.endsWith("</call_data>")).toBe(true);

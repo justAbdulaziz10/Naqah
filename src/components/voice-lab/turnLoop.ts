@@ -11,8 +11,6 @@ export interface ToolReply {
   goodbye: string | null;
   /** Spoken word for word. Only this counts as the worker having heard the summary. */
   summaryText?: string;
-  /** The last answer needed clarifying, so the next one must wait for the worker's final words. */
-  requireWords?: boolean;
 }
 
 /** What a tool call knows about the worker's turn, reported as the bridge reports it. */
@@ -59,6 +57,10 @@ const HARMLESS = new Set(["response_cancel_not_active", "conversation_already_ha
 
 const TRUNCATE = "lab-truncate-";
 const CONTROL = /[\u0000-\u001f\u007f]/u;
+const CLARIFYING = new Set(["worker_has_not_answered", "answer_conflicts_with_words", "number_not_in_answer", "answer_off_topic", "answer_unclear", "summary_not_finished", "worker_has_not_confirmed"]);
+
+/** A refusal that recorded nothing and sends the agent back to the worker, as opposed to a bad tool call. */
+export const asksToClarify = (refused: string | null) => refused !== null && CLARIFYING.has(refused);
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -93,7 +95,6 @@ export class TurnLoop {
   /** The summary finished generating; it counts as heard once its audio has played out. */
   private summaryPlaying: SummaryPlayback | null = null;
   private lastStopped: string | null = null;
-  private needWords = false;
   private truncates = 0;
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -407,7 +408,8 @@ export class TurnLoop {
       .then(async () => {
         if (this.closed || this.ending) return;
         const confirmation = name === "confirm_report" && input.confirmed === true;
-        if ((confirmation || this.needWords) && spoke && turn && !turn.settled) {
+        // An answer is checked against the worker's words, so like a confirmation it waits for them.
+        if ((confirmation || name === "answer_question") && spoke && turn && !turn.settled) {
           this.timer("transcription", TRANSCRIPTION_MS, () => turn.settle(""));
           await turn.promise;
           this.clearTimer("transcription");
@@ -418,7 +420,8 @@ export class TurnLoop {
           name,
           args: input,
           spoke: spoke && this.userSpoke && current,
-          heard: current && turn?.settled && turn.transcript ? turn.transcript : null,
+          // Empty is speech recognition coming back with nothing, which the checks don't treat as no check.
+          heard: current && turn?.settled ? turn.transcript : null,
           ...(confirmation ? { workerUtterance: current ? turn?.transcript ?? "" : "", heardSummary: current && turn?.heardSummary === true } : {}),
         });
         if (this.closed) return;
@@ -429,7 +432,6 @@ export class TurnLoop {
         }
         const summary = result.summaryText?.trim() ? result.summaryText : null;
         this.summaryNext = Boolean(summary);
-        this.needWords = result.requireWords === true;
         this.host.send({ type: "conversation.item.create", item: { type: "function_call_output", call_id: callId, output: result.output } });
         if (result.end) {
           this.ending = true;

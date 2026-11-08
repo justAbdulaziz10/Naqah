@@ -87,7 +87,8 @@ tracked per response. `agent.test.ts` fails if those limits drift.
 | Audio | Browser Opus over WebRTC | 8 kHz G.711 through Twilio |
 | "Summary heard" | `output_audio_buffer.stopped` for that response | Twilio playback marks |
 | Failure of the AI stream | Test stops | Continues on the keypad script |
-| Word check on ordinary answers (`number_not_in_answer`, `answer_conflicts_with_words`) | Keeps asking when a final transcript is ready | No check |
+| Word check on ordinary answers (`number_not_in_answer`, `answer_conflicts_with_words`) | Keeps asking when the final transcript disagrees | No check |
+| Off-topic check (`refuseAnswer`) | Every answer waits up to 2.5 s for the final transcript. An empty one can't record a healthy herd | Not reached: `service.ts` doesn't call it and the bridge sends no transcript with `answer_question` |
 | Typing during a voice test | Counts as a final transcript | Not possible |
 | A report already saved this period | Ignored, so any ranch can be tested | Refused as `daily_done` / `weekly_done` |
 | Saving | Verdict only | Writes through `applyVoiceEvent` |

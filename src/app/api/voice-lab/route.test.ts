@@ -91,6 +91,17 @@ describe("POST /api/voice-lab", () => {
     expect(JSON.stringify(opened)).not.toContain("sk-test-key");
   });
 
+  it("checks the worker's words on the way through, including when there are none", async () => {
+    const opened = await (await post({ op: "open", mode: "text", locale: "ar", sdp: "v=0\r\noffer" })).json();
+    const answer = async (heard: string) => (await post({ op: "tool", state: opened.state, name: "answer_question", args: { value: "yes" }, spoke: true, heard })).json();
+    for (const [heard, refused] of [["العلف زين", "answer_off_topic"], ["", "answer_unclear"], ["   ", "answer_unclear"]]) {
+      const reply = await answer(heard);
+      expect(reply.refused).toBe(refused);
+      expect(reply.view.facts).toEqual([]);
+    }
+    expect(writes).toEqual([]);
+  });
+
   it("is a 404 when the Lab is switched off or the owner isn't listed", async () => {
     vi.stubEnv("NAQAH_VOICE_LAB", "");
     expect((await post({ op: "status" })).status).toBe(404);
