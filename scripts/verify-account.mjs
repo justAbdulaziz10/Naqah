@@ -15,7 +15,7 @@ const arg = (name, fallback) => {
   const index = process.argv.indexOf(`--${name}`);
   return index >= 0 ? process.argv[index + 1] : fallback;
 };
-const BASE = arg("base", "http://127.0.0.1:3460");
+const BASE = arg("base", "http://localhost:3460");
 const GATEWAY = arg("gateway", "http://127.0.0.1:54352");
 const TOKEN = arg("token", "local-test-auth-token");
 const DB = arg("db", "naqah_live");
@@ -48,7 +48,7 @@ async function signIn(context, owner) {
   const token = await session(owner);
   await context.addCookies([{
     name: "sb-127-auth-token", value: `base64-${Buffer.from(JSON.stringify(token)).toString("base64url")}`,
-    domain: "127.0.0.1", path: "/", sameSite: "Lax", secure: true,
+    domain: new URL(BASE).hostname, path: "/", sameSite: "Lax", secure: new URL(BASE).protocol === "https:",
   }]);
   return token;
 }
@@ -101,7 +101,7 @@ async function runWizard(page, locale, { owner, farm, worker, workerName, ownerP
   const go = locale === "ar" ? "متابعة" : "Continue";
   await page.goto(`${BASE}/${locale}/start`);
   await settled(page);
-  await page.locator("[data-step-next]").waitFor();
+  await page.getByLabel(locale === "ar" ? "اسم العزبة" : "Ranch name").waitFor();
   check(`${locale}: setup offers no sample data to a real owner`, await page.getByText(locale === "ar" ? /بيانات تجريبية|نموذج/ : /sample/i).count() === 0);
   await page.getByLabel(locale === "ar" ? "اسم العزبة" : "Ranch name").fill(farm);
   await page.getByLabel(locale === "ar" ? "اسمك" : "Your name").fill(owner);
@@ -110,13 +110,22 @@ async function runWizard(page, locale, { owner, farm, worker, workerName, ownerP
   await page.getByLabel(locale === "ar" ? "الاسم" : "Name", { exact: true }).fill(workerName ?? worker);
   await page.getByLabel(locale === "ar" ? "الجوال" : "Mobile", { exact: true }).fill(workerPhone);
   await next(page, go);
-  await page.getByLabel(locale === "ar" ? "اليوم" : "Day", { exact: true }).selectOption("4");
-  await page.getByLabel(locale === "ar" ? "الوقت" : "Time", { exact: true }).fill("17:00");
+  const time = page.getByLabel(locale === "ar" ? "الوقت" : "Time", { exact: true });
+  await time.waitFor();
+  const day = page.getByLabel(locale === "ar" ? "اليوم" : "Day", { exact: true });
+  if (await day.count()) await day.selectOption("4");
+  await time.fill("17:00");
   await next(page, go);
-  await page.getByRole("button", { name: locale === "ar" ? "افتح لوحة العزبة" : "Open dashboard" }).click();
+  const dashboard = page.getByRole("button", { name: locale === "ar" ? "افتح لوحة العزبة" : "Open dashboard" });
+  await dashboard.waitFor({ timeout: 8_000 }).catch(async (error) => {
+    await page.screenshot({ path: `${SHOTS}/wizard-failed.png`, fullPage: true });
+    console.log(await page.locator("body").innerText());
+    throw error;
+  });
+  await dashboard.click();
   await page.waitForURL(`**/${locale}/app`, { timeout: 15_000 });
   await settled(page);
-  await page.locator("main").getByText(farm).first().waitFor({ timeout: 10_000 }); // Proves the page below checks a rendered farm.
+  await page.getByRole("heading", { name: farm, exact: true }).waitFor({ timeout: 10_000 });
 }
 
 async function addCamel(page, locale, name) {
@@ -162,7 +171,7 @@ await signIn(A.context, ownerA);
 await runWizard(A.page, "ar", { owner: "سالم", farm: FARM_A, worker: "يوسف", ownerPhone: ownerPhoneA, workerPhone: workerA });
 const farmA = sql(`select id from farms where owner_id = ${q(ownerA.id)}`);
 check("sign-in creates one farm for the owner", Boolean(farmA));
-check("setup reaches Supabase and starts on Basic", sql(`select plan || ':' || setup_complete || ':' || name from farms where id = ${q(farmA)}`) === `basic:true:${FARM_A}`, sql(`select plan, setup_complete, name from farms where id = ${q(farmA)}`));
+check("setup reaches Supabase and starts on Basic", await waitFor(() => sql(`select plan || ':' || setup_complete || ':' || name from farms where id = ${q(farmA)}`) === `basic:true:${FARM_A}`, "setup saved"), sql(`select plan, setup_complete, name from farms where id = ${q(farmA)}`));
 check("worker and phone saved", sql(`select name || ':' || phone from workers where farm_id = ${q(farmA)}`) === `يوسف:${workerA}`);
 check("dashboard shows the real farm, with no demo notice", (await A.page.locator("body").innerText()).includes("سالم") && await A.page.getByRole("note").count() === 0);
 check("no Call Lab for a real farm", await A.page.locator('a[href$="/app/lab"]').count() === 0);
@@ -194,15 +203,25 @@ await A.page.getByRole("button", { name: "حاول مرة ثانية" }).click()
 await waitFor(() => sql(`select count(*) from custom_questions where farm_id = ${q(farmA)}`) === "2", "retry");
 check("retry saves it once", sql(`select count(*) from custom_questions where farm_id = ${q(farmA)} and text = 'سؤال لم يُحفظ'`) === "1");
 await A.page.getByRole("alert").filter({ hasText: "ما انحفظ" }).waitFor({ state: "detached", timeout: 8_000 }).catch(() => undefined);
+for (let index = 3; index <= 5; index += 1) {
+  await addQuestion(A.page, "ar", `سؤال إضافي ${index}`);
+  check(`custom question ${index} reaches the database`, await waitFor(() => sql(`select count(*) from custom_questions where farm_id = ${q(farmA)}`) === String(index), `question ${index}`));
+}
+check("Basic UI stops offering a sixth custom question", await A.page.getByLabel("أضف سؤال").count() === 0);
+const sixth = await A.page.evaluate(async (farm) => (await fetch("/api/account", {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ op: "save", farm, changes: [{ kind: "question", action: "add", localId: "cq_sixth", input: { text: "Must not save" } }] }),
+})).json(), farmA);
+check("owner action and database reject a forged sixth question", sixth.data?.failed?.includes("limit_reached") && sql(`select count(*) from custom_questions where farm_id = ${q(farmA)}`) === "5", sixth);
 
 // Plan is not the owner's to set.
-await A.page.getByRole("radio").nth(1).click();
-await A.page.getByRole("alert").filter({ hasText: "الباقة" }).waitFor({ timeout: 5_000 });
-check("a plan change is refused out loud", sql(`select plan from farms where id = ${q(farmA)}`) === "basic");
+const planChange = await A.page.evaluate(async (farm) => (await fetch("/api/account", {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ op: "save", farm, changes: [{ kind: "profile", input: { plan: "ultimate" } }] }),
+})).json(), farmA);
+check("a forged plan change is refused by the owner action", planChange.data?.failed?.length === 1 && sql(`select plan from farms where id = ${q(farmA)}`) === "basic", JSON.stringify(planChange));
 
-// Basic only reports inside its window, so open one around now through the service.
-const riyadhDay = new Date(Date.now() + 3 * 3600_000).getUTCDay();
-sql(`update farms set window_day = ${riyadhDay}, window_start = '00:00', window_end = '23:59' where id = ${q(farmA)}`);
+sql(`insert into report_call_runs (farm_id, occurrence, trigger, attempts, state) values (${q(farmA)}, now(), 'schedule', jsonb_build_array(jsonb_build_object('at', now(), 'result', 'no_answer')), 'missed')`);
 const ANSWER = "زارنا البيطري اليوم";
 await A.page.goto(`${BASE}/ar/app/calls`);
 await settled(A.page);
@@ -229,7 +248,7 @@ await settled(A.page);
 await A.page.getByRole("button", { name: /تسجيل الخروج|خروج/ }).click();
 await A.page.waitForURL("**/ar/login");
 await A.page.goto(`${BASE}/ar/app`);
-await A.page.getByText("ما فيه عزبة هنا للحين").waitFor();
+await A.page.waitForURL("**/ar/login");
 check("signing out leaves no farm data on screen or in storage", !(await A.page.locator("body").innerText()).includes(FARM_A) && !(await storedText(A.page)).includes(FARM_A));
 await signIn(A.context, ownerA);
 await A.page.goto(`${BASE}/ar/app/calls`);
@@ -249,6 +268,7 @@ await settled(B.page);
 const farmB = sql(`select id from farms where owner_id = ${q(ownerB.id)}`);
 sql(`update farms set plan = 'ultimate' where id = ${q(farmB)}`); // No billing yet: the service sets a plan.
 await runWizard(B.page, "en", { owner: "Faisal", farm: "Rawdah Farm", worker: "Hamid", ownerPhone: phone(), workerPhone: workerB });
+sql(`insert into report_call_runs (farm_id, occurrence, trigger, attempts, state) values (${q(farmB)}, now(), 'schedule', jsonb_build_array(jsonb_build_object('at', now(), 'result', 'no_answer')), 'missed')`);
 sql(`update workers set language = 'en' where farm_id = ${q(farmB)}`);
 check("Ultimate farm loads as Ultimate", (await B.page.locator("body").innerText()).includes("Rawdah Farm") && sql(`select plan from farms where id = ${q(farmB)}`) === "ultimate", (await B.page.locator("body").innerText()).slice(0, 240) + " :: " + sql(`select plan, owner_name, setup_complete from farms where id = ${q(farmB)}`));
 const body = await B.page.locator("body").innerText();
@@ -279,14 +299,19 @@ check("no sideways scroll on a phone", await B.page.evaluate(() => document.docu
 await B.page.screenshot({ path: `${SHOTS}/en-overview-390.png`, fullPage: true });
 
 // ── A visitor stays in the demo ─────────────────────────────────────────────────────────
+const farmCountBeforeDemo = sql("select count(*) from farms");
 const V = await open();
 await V.page.goto(`${BASE}/en`);
 await V.page.getByRole("button", { name: /explore the demo/i }).first().click();
-await V.page.waitForURL("**/en/app");
+await V.page.waitForURL("**/en/app", { waitUntil: "domcontentloaded" }).catch(async (error) => {
+  await V.page.screenshot({ path: `${SHOTS}/demo-failed.png`, fullPage: true });
+  console.log(V.page.url(), await V.page.locator("body").innerText(), await storedText(V.page));
+  throw error;
+});
 await V.page.getByRole("note").first().waitFor();
 check("a signed-out visitor gets the browser demo with its notice", (await storedText(V.page)).includes("naqah-workspace-v1"));
 check("the demo keeps its Call Lab", await V.page.locator('a[href$="/app/lab"]').count() > 0);
-check("the demo wrote nothing to Supabase", sql("select count(*) from farms") === "2");
+check("the demo wrote nothing to Supabase", sql("select count(*) from farms") === farmCountBeforeDemo);
 check("no uncaught browser errors", errors.length === 0, errors.join(" | "));
 
 await browser.close();

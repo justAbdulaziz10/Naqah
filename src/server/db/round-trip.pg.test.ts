@@ -210,7 +210,7 @@ describe.skipIf(!database)("domain flows through the real schema", () => {
 
   it("takes a report call through a missed attempt to an answered report with a herd count", () => {
     const day = (n: number) => minutes(24 * 60 + n);
-    const started = startReportCall(current, day(0), "manual");
+    const started = startReportCall(current, day(0), "schedule");
     expect(started.blocked).toBeNull();
     save(started.ws, "CA-run-start");
     const runId = current.reportCalls![0].id;

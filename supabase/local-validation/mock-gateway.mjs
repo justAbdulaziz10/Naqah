@@ -63,6 +63,9 @@ const usersById = new Map(); // id -> { user, password }
 const usersByEmail = new Map(); // email -> id
 const sessions = new Map(); // session id -> user id
 const refreshTokens = new Map(); // token -> { sessionId, usedAt }
+const outboundRequests = [];
+let outboundStatus = 201;
+let restFailure = false;
 
 const issueRefreshToken = (sessionId) => {
   const token = randomBytes(16).toString("hex");
@@ -222,10 +225,34 @@ const server = http.createServer(async (req, res) => {
   const isAuth = url.pathname.startsWith("/auth/v1/");
   try {
     if (url.pathname === "/__test/users") return await handleTestUsers(req, res);
+    if (url.pathname === "/__test/outbound") {
+      if (req.method === "POST") {
+        const input = await readJson(req);
+        if (![201, 500, 503].includes(input.status)) return sendJson(res, 400, { message: "Invalid mock status" });
+        outboundStatus = input.status;
+        if (input.reset) outboundRequests.length = 0;
+      }
+      return sendJson(res, 200, { status: outboundStatus, requests: outboundRequests });
+    }
+    if (url.pathname === "/__test/faults" && req.method === "POST") {
+      restFailure = (await readJson(req)).rest === true;
+      return sendJson(res, 200, { rest: restFailure });
+    }
+    if (/^\/__test\/twilio\/2010-04-01\/Accounts\/AC0{32}\/Calls.json$/.test(url.pathname) && req.method === "POST") {
+      const expected = `Basic ${Buffer.from(`AC${"0".repeat(32)}:local-test-auth-token`).toString("base64")}`;
+      if (req.headers.authorization !== expected) return sendJson(res, 403, { message: "Fake credentials only" });
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const fields = Object.fromEntries(new URLSearchParams(Buffer.concat(chunks).toString()));
+      if (!["+15555550101", "+15555550102"].includes(fields.To)) return sendJson(res, 403, { message: "Fake numbers only" });
+      const sid = `CA${randomBytes(16).toString("hex")}`;
+      outboundRequests.push({ ...fields, sid });
+      return sendJson(res, outboundStatus, outboundStatus === 201 ? { sid } : { message: "Mock provider unavailable" });
+    }
     if (!isRest && !isAuth) return sendJson(res, 404, { msg: "Not found" });
     for (const [name, value] of Object.entries(corsHeaders(req))) res.setHeader(name, value);
     if (req.method === "OPTIONS") return res.writeHead(204).end();
-    if (isRest) return proxyToRest(req, res, url);
+    if (isRest) return restFailure ? sendJson(res, 503, { message: "Mock PostgREST unavailable" }) : proxyToRest(req, res, url);
     await handleAuth(req, res, url);
   } catch (error) {
     if (res.headersSent) return res.destroy();

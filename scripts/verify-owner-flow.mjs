@@ -107,7 +107,6 @@ const noSideScroll = (page) => page.evaluate(() => document.documentElement.scro
 
 async function signIn(page, locale, owner) {
   await page.goto(`${BASE}/${locale}/login`);
-  await page.getByRole("link", { name: locale === "ar" ? "البريد" : "Email", exact: true }).first().click();
   await page.locator('input[type="email"]').fill(owner.email);
   await page.locator('input[type="password"]').fill(owner.password);
   await page.locator('form button[type="submit"]').click();
@@ -115,7 +114,7 @@ async function signIn(page, locale, owner) {
 
 // ── Owner A: English, desktop. New owner → setup → dashboard ──
 const ownerA = await createOwner();
-const A = await open({ width: 1280, height: 900 });
+const A = await open({ width: 1440, height: 900 });
 const RANCH = `Al Nakheel ${randomBytes(2).toString("hex")}`;
 const ownerPhone = phone(), yousefPhone = phone(), ahmedPhone = phone();
 await signIn(A.page, "en", ownerA);
@@ -130,18 +129,18 @@ await A.page.getByLabel("Your name").fill("Abdullah");
 await A.page.getByLabel("Your mobile").fill(ownerPhone);
 await A.page.getByRole("button", { name: "Continue" }).click();
 
-await A.page.getByLabel("Name").first().fill("Yousef");
-await A.page.getByLabel("Mobile").first().fill(yousefPhone);
+await A.page.getByLabel("Name", { exact: true }).first().fill("Yousef");
+await A.page.getByLabel("Mobile", { exact: true }).first().fill(yousefPhone);
 await A.page.getByRole("button", { name: "Add a worker" }).click();
-await A.page.getByLabel("Name").nth(1).fill("Ahmed");
-await A.page.getByLabel("Mobile").nth(1).fill(ahmedPhone);
-await A.page.getByText("NAQAH calls this worker", { exact: true }).nth(1).click();
+await A.page.getByLabel("Name", { exact: true }).nth(1).fill("Ahmed");
+await A.page.getByLabel("Mobile", { exact: true }).nth(1).fill(ahmedPhone);
+await A.page.locator('input[name="primary-worker"]').nth(1).check();
 await A.page.getByLabel("Total camels").fill("42");
 await A.page.getByRole("button", { name: "Continue" }).click();
 
 await A.page.getByLabel("Day").selectOption({ label: "Thursday" });
 await A.page.getByLabel("Time").fill("17:30");
-await A.page.getByText("NAQAH will call Ahmed every Thursday at 17:30").first().waitFor({ timeout: 5_000 })
+await A.page.getByText(/NAQAH will call Ahmed every Thursday at (17:30|5:30 pm)/i).first().waitFor({ timeout: 5_000 })
   .then(() => check("the call time reads as a sentence with the chosen worker", true))
   .catch(() => check("the call time reads as a sentence with the chosen worker", false));
 const questionBox = A.page.getByPlaceholder("e.g. Did the vet visit today?");
@@ -210,6 +209,17 @@ if (await use.count()) {
   check("accepting it makes it the official count", await waitFor(() => sql(`select herd_count from farms where id = ${q(farmA)}`) === "40"));
 }
 await A.page.screenshot({ path: `${SHOTS}/flow-en-after-call.png`, fullPage: true });
+for (const locale of ["ar", "en"]) {
+  for (const width of [375, 1440]) {
+    await A.page.setViewportSize({ width, height: 900 });
+    await A.page.goto(`${BASE}/${locale}/app`);
+    await settled(A.page);
+    const reportText = await A.page.locator("main").innerText();
+    check(`${locale} ${width}: dashboard shows the persisted report and accepted count`, reportText.includes(RANCH) && /40/.test(reportText) && !/no report yet|ما وصل.*تحديث/.test(reportText), reportText);
+    check(`${locale} ${width}: dashboard has no horizontal overflow`, await noSideScroll(A.page));
+    await A.page.screenshot({ path: `${SHOTS}/report-${locale}-${width}.png`, fullPage: true });
+  }
+}
 
 // ── Owner B: Arabic, 375px. Own empty farm, never A's ──
 const ownerB = await createOwner();
@@ -229,7 +239,7 @@ check("each owner has exactly one farm", Boolean(farmB) && farmB !== farmA && sq
 const missedRun = randomUUID();
 const startedAt = new Date();
 sql(`insert into report_call_runs (id, farm_id, occurrence, trigger, attempts, state)
-  values (${q(missedRun)}, ${q(farmB)}, ${q(startedAt.toISOString())}, 'manual', ${q(JSON.stringify([{ at: startedAt.toISOString(), result: "pending" }]))}::jsonb, 'calling')`);
+  values (${q(missedRun)}, ${q(farmB)}, ${q(startedAt.toISOString())}, 'schedule', ${q(JSON.stringify([{ at: startedAt.toISOString(), result: "pending" }]))}::jsonb, 'calling')`);
 const attemptStatus = async (n, status) => {
   const CallSid = `CA${randomBytes(16).toString("hex")}`;
   const s = encodeURIComponent(callToken({ k: "report", f: farmB, r: missedRun, n, l: "ar", t: Date.now() }));
