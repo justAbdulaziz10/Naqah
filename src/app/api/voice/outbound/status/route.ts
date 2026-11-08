@@ -1,5 +1,6 @@
 import { verifyCallToken } from "@/server/calls/token";
 import { voiceMode } from "@/server/env";
+import { logCallProgress } from "@/server/voice/diagnostics";
 import { reportCallStatus } from "@/server/voice/farm-call";
 import { farmWebhook } from "@/server/voice/farm-webhook";
 
@@ -12,8 +13,11 @@ export async function POST(request: Request): Promise<Response> {
   if (hook instanceof Response) return hook;
   const token = verifyCallToken(new URL(request.url).searchParams.get("s"));
   if (token?.k !== "report") return empty(403);
+  const now = new Date();
+  const status = hook.form.get("CallStatus") ?? "";
+  logCallProgress({ callSid: hook.callSid, status, sequence: hook.form.get("SequenceNumber"), timestamp: hook.form.get("Timestamp"), sip: hook.form.get("SipResponseCode") }, now);
   try {
-    await reportCallStatus(hook.client, { token, callSid: hook.callSid, status: hook.form.get("CallStatus") ?? "", now: new Date() });
+    await reportCallStatus(hook.client, { token, callSid: hook.callSid, status, now });
     return empty(204);
   } catch (error) {
     console.error(`[NAQAH] report call status failed (${error instanceof Error ? error.name : "unknown"})`);
