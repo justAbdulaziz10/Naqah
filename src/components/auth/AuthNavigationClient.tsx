@@ -4,15 +4,22 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useI18n } from '@/i18n/client';
 import { observeAccountAuth } from '@/lib/account/auth-observer';
-import { createClient } from '@/lib/supabase/client';
+import { loadClient } from '@/lib/supabase/lazy-client';
 import { LogoutButton } from './LogoutButton';
 import { createNavigationObserver, type NavigationIdentity } from './navigation-state';
 import { readNavigationIdentity } from './navigation-actions';
 
 const navigationObserver = createNavigationObserver({
   observe(changed) {
-    const client = createClient();
-    return client ? observeAccountAuth(client.auth, changed) : () => undefined;
+    let stop: (() => void) | undefined;
+    let disposed = false;
+    void loadClient().then((client) => {
+      if (!disposed && client) stop = observeAccountAuth(client.auth, changed);
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
   },
   validate: readNavigationIdentity,
 });

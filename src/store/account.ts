@@ -1,6 +1,6 @@
 import type { AccountWorkspace } from "@/lib/account/types";
 import { browserOwnerId, observeAccountAuth } from "@/lib/account/auth-observer";
-import { createClient } from "@/lib/supabase/client";
+import { loadClient } from "@/lib/supabase/lazy-client";
 import type { OwnerChange } from "@/lib/account/changes";
 import type { CallNowResult } from "@/server/calls/scheduler";
 import { createAccountSync, type SavedChanges } from "./accountSync";
@@ -30,7 +30,7 @@ export const accountSync = createAccountSync({
   save: (changes, farm) => call<SavedChanges>("save", changes, farm),
 }, {
   async getOwnerId() {
-    const client = createClient();
+    const client = await loadClient();
     return client ? browserOwnerId(client.auth) : null;
   },
 });
@@ -38,10 +38,15 @@ export const accountSync = createAccountSync({
 let observers = 0;
 let stopObserving: (() => void) | undefined;
 export function watchAccountAuth(): () => void {
-  const client = createClient();
-  if (!client) return () => undefined;
-  if (++observers === 1) stopObserving = observeAccountAuth(client.auth, accountSync.authChanged);
+  let watching = true;
+  if (++observers === 1) {
+    void loadClient().then((client) => {
+      if (client && observers > 0 && !stopObserving) stopObserving = observeAccountAuth(client.auth, accountSync.authChanged);
+    });
+  }
   return () => {
+    if (!watching) return;
+    watching = false;
     if (--observers === 0) { stopObserving?.(); stopObserving = undefined; }
   };
 }
