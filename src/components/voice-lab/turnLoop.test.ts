@@ -9,7 +9,7 @@ function setup(mode: "voice" | "text" = "voice", reply: ToolReply = OK) {
   const sent: Sent[] = [];
   const host = {
     send: vi.fn((event: object) => { sent.push(event as Sent); }),
-    runTool: vi.fn(async () => reply),
+    runTool: vi.fn<LoopHost["runTool"]>(async () => reply),
     log: vi.fn(),
     interrupted: vi.fn(),
     usage: vi.fn(),
@@ -18,7 +18,11 @@ function setup(mode: "voice" | "text" = "voice", reply: ToolReply = OK) {
   } satisfies LoopHost;
   const loop = new TurnLoop(host, mode, "hello");
   const types = () => sent.map((event) => event.type);
-  const respond = (id: string) => loop.handle({ type: "response.created", response: { id } });
+  // Stands in for the request a turn makes, so a test can start at the provider's reply.
+  const respond = (id: string) => {
+    Object.assign(loop, { responsePending: true });
+    loop.handle({ type: "response.created", response: { id } });
+  };
   const done = (id: string, status = "completed", output: unknown[] = []) => loop.handle({ type: "response.done", response: { id, status, output } });
   const open = () => { loop.handle({ type: "session.created" }); respond("r0"); done("r0"); sent.length = 0; };
   return { loop, host, sent, types, respond, done, open };
@@ -56,7 +60,7 @@ describe("TurnLoop", () => {
     loop.handle({ type: "input_audio_buffer.committed" });
     respond("r1");
     loop.handle({ type: "response.output_item.added", item: { type: "message", id: "item1" } });
-    loop.handle({ type: "output_audio_buffer.started" });
+    loop.handle({ type: "output_audio_buffer.started", response_id: "r1" });
     loop.handle({ type: "input_audio_buffer.speech_started" });
     expect(types()).toEqual(["response.create", "output_audio_buffer.clear", "response.cancel", "conversation.item.truncate"]);
     expect(host.interrupted).toHaveBeenCalledWith({ responseId: "r1", itemId: "item1" });
@@ -79,13 +83,13 @@ describe("TurnLoop", () => {
     loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "confirm_report", arguments: '{"confirmed":true}' });
     done("r1");
     await flush();
-    expect(host.runTool.mock.calls[0]).toEqual([{ name: "confirm_report", args: { confirmed: true }, spoke: false }]);
+    expect(host.runTool.mock.calls[0][0]).toMatchObject({ name: "confirm_report", spoke: false, workerUtterance: "" });
     loop.sendText("إيه احفظه");
     respond("r2");
     loop.handle({ type: "response.function_call_arguments.done", response_id: "r2", call_id: "c2", name: "confirm_report", arguments: '{"confirmed":true}' });
     done("r2");
     await flush();
-    expect(host.runTool.mock.calls[1]).toEqual([{ name: "confirm_report", args: { confirmed: true }, spoke: true }]);
+    expect(host.runTool.mock.calls[1][0]).toMatchObject({ name: "confirm_report", spoke: true, workerUtterance: "إيه احفظه" });
   });
 
   it("waits for the commit before replying to speech that stopped", async () => {
@@ -105,8 +109,9 @@ describe("TurnLoop", () => {
   it("hangs up a silent voice call, as the phone does, but not while the worker talks", async () => {
     const { loop, host, open } = setup();
     open();
+    await vi.advanceTimersByTimeAsync(40_000);
     loop.handle({ type: "input_audio_buffer.speech_started" });
-    await vi.advanceTimersByTimeAsync(45_000);
+    await vi.advanceTimersByTimeAsync(9_000);
     expect(host.finished).not.toHaveBeenCalled();
     loop.handle({ type: "input_audio_buffer.speech_stopped" });
     await vi.advanceTimersByTimeAsync(45_000);
@@ -130,7 +135,7 @@ describe("TurnLoop", () => {
     open();
     loop.handle({ type: "input_audio_buffer.committed" });
     respond("r1");
-    loop.handle({ type: "output_audio_buffer.started" });
+    loop.handle({ type: "output_audio_buffer.started", response_id: "r1" });
     loop.handle({ type: "input_audio_buffer.speech_started" });
     loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "answer_question", arguments: "{}" });
     done("r1", "completed", [{ type: "function_call", status: "completed", call_id: "c1" }]);
@@ -172,6 +177,250 @@ describe("TurnLoop", () => {
     loop.sendText("هلا");
     await vi.advanceTimersByTimeAsync(45_000);
     expect(host.fail).toHaveBeenCalledWith("response_timeout", undefined);
+  });
+});
+
+describe("confirming a summary", () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  const SUMMARY: ToolReply = { output: "{}", end: null, goodbye: null, summaryText: "هذا الملخص" };
+  const confirmCall = (id: string, call: string) => ({ type: "response.function_call_arguments.done", response_id: id, call_id: call, name: "confirm_report", arguments: '{"confirmed":true}' });
+
+  /** Gets to the agent reading the summary, with the audio started. */
+  async function reading(mode: "voice" | "text" = "voice") {
+    const kit = setup(mode, SUMMARY);
+    kit.open();
+    kit.respond("r1");
+    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c0", name: "answer_question", arguments: "{}" });
+    kit.done("r1");
+    await flush();
+    kit.host.runTool.mockClear();
+    kit.respond("r2");
+    if (mode === "voice") {
+      kit.loop.handle({ type: "response.output_item.added", item: { type: "message", id: "sum" } });
+      kit.loop.handle({ type: "output_audio_buffer.started", response_id: "r2" });
+    } else {
+      kit.loop.handle({ type: "response.output_text.delta", item_id: "sum", response_id: "r2", delta: "ملخص" });
+    }
+    return kit;
+  }
+
+  async function speakAndConfirm(kit: Awaited<ReturnType<typeof reading>>, transcript: string | null, id = "r3") {
+    kit.loop.handle({ type: "input_audio_buffer.speech_started" });
+    kit.loop.handle({ type: "input_audio_buffer.speech_stopped" });
+    kit.loop.handle({ type: "input_audio_buffer.committed", item_id: "w1" });
+    kit.respond(id);
+    kit.loop.handle(confirmCall(id, `c-${id}`));
+    kit.done(id);
+    if (transcript !== null) kit.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w1", content_index: 0, transcript });
+    await flush();
+  }
+
+  it("counts a summary as heard only after its audio has played to the end", async () => {
+    const kit = await reading();
+    kit.done("r2");
+    kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r2" });
+    await speakAndConfirm(kit, "إيه احفظه");
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, workerUtterance: "إيه احفظه", heardSummary: true });
+  });
+
+  it("counts a summary whose audio ended before the reply was marked done", async () => {
+    const kit = await reading();
+    kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r2" });
+    kit.done("r2");
+    await speakAndConfirm(kit, "إيه احفظه");
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ heardSummary: true });
+  });
+
+  it("ignores an estimate of heard audio that overshoots", async () => {
+    const kit = await reading();
+    kit.loop.handle({ type: "input_audio_buffer.speech_started" });
+    const truncate = kit.sent.find((event) => event.type === "conversation.item.truncate")!;
+    kit.loop.handle({ type: "error", error: { code: "invalid_value", event_id: truncate.event_id } });
+    expect(kit.host.fail).not.toHaveBeenCalled();
+  });
+
+  it("does not revive a reply cut off when more of its transcript arrives", async () => {
+    const kit = await reading();
+    kit.loop.handle({ type: "input_audio_buffer.speech_started" });
+    kit.loop.handle({ type: "output_audio_buffer.cleared" });
+    kit.loop.handle({ type: "response.output_audio_transcript.delta", response_id: "r2", item_id: "sum", delta: "…" });
+    expect(kit.loop.canInterrupt).toBe(false);
+  });
+
+  it("waits for the worker's words on the answer after a clarification", async () => {
+    const kit = setup("voice", { ...OK, requireWords: true });
+    kit.open();
+    kit.loop.handle({ type: "input_audio_buffer.speech_started" });
+    kit.loop.handle({ type: "input_audio_buffer.speech_stopped" });
+    kit.loop.handle({ type: "input_audio_buffer.committed", item_id: "w1" });
+    kit.respond("r1");
+    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "answer_question", arguments: "{}" });
+    kit.done("r1");
+    await flush();
+    expect(kit.host.runTool).toHaveBeenCalledTimes(1);
+    kit.loop.handle({ type: "input_audio_buffer.speech_started" });
+    kit.loop.handle({ type: "input_audio_buffer.speech_stopped" });
+    kit.loop.handle({ type: "input_audio_buffer.committed", item_id: "w2" });
+    kit.respond("r2");
+    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r2", call_id: "c2", name: "answer_question", arguments: "{}" });
+    kit.done("r2");
+    await flush();
+    expect(kit.host.runTool).toHaveBeenCalledTimes(1);
+    kit.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w2", content_index: 0, transcript: "عشرة" });
+    await flush();
+    expect(kit.host.runTool.mock.calls[1][0]).toMatchObject({ heard: "عشرة" });
+  });
+
+  it("speaks the summary word for word with tools off", async () => {
+    const kit = await reading();
+    const request = kit.sent.filter((event) => event.type === "response.create").at(-1)!.response as { tool_choice: string; instructions: string };
+    expect(request.tool_choice).toBe("none");
+    expect(request.instructions).toContain("هذا الملخص");
+  });
+
+  it("does not count a model's own reply as the summary", async () => {
+    const kit = setup("voice", OK);
+    kit.open();
+    kit.respond("r1");
+    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c0", name: "answer_question", arguments: "{}" });
+    kit.done("r1");
+    await flush();
+    kit.host.runTool.mockClear();
+    kit.respond("r2");
+    kit.loop.handle({ type: "response.output_item.added", item: { type: "message", id: "sum" } });
+    kit.loop.handle({ type: "output_audio_buffer.started", response_id: "r2" });
+    kit.done("r2");
+    kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r2" });
+    await speakAndConfirm(kit, "إيه احفظه");
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ heardSummary: false });
+  });
+
+  it("does not let an earlier reply's audio ending count as hearing the summary", async () => {
+    const kit = await reading();
+    kit.done("r2");
+    kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r1" });
+    await speakAndConfirm(kit, "إيه احفظه");
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ heardSummary: false });
+  });
+
+  it("treats a summary as audible from its own transcript, with no new buffer start", async () => {
+    const kit = await reading();
+    kit.done("r2");
+    kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r2" });
+    kit.host.runTool.mockClear();
+    const next = setup("voice", SUMMARY);
+    next.open();
+    next.respond("r1");
+    next.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c0", name: "answer_question", arguments: "{}" });
+    next.done("r1");
+    await flush();
+    next.respond("r2");
+    next.loop.handle({ type: "response.output_item.added", item: { type: "message", id: "sum" } });
+    next.loop.handle({ type: "response.output_audio_transcript.delta", response_id: "r2", item_id: "sum", delta: "ملخص" });
+    expect(next.loop.canInterrupt).toBe(true);
+  });
+
+  it("does not count a summary still playing when the worker talks over it", async () => {
+    const kit = await reading();
+    kit.done("r2");
+    await speakAndConfirm(kit, "إيه احفظه");
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ heardSummary: false });
+  });
+
+  it("does not count a summary cut off while it was being generated", async () => {
+    const kit = await reading();
+    kit.loop.handle({ type: "input_audio_buffer.speech_started" });
+    kit.done("r2", "cancelled");
+    kit.loop.handle({ type: "output_audio_buffer.cleared" });
+    kit.loop.handle({ type: "input_audio_buffer.speech_stopped" });
+    kit.loop.handle({ type: "input_audio_buffer.committed", item_id: "w1" });
+    kit.respond("r3");
+    kit.loop.handle(confirmCall("r3", "c3"));
+    kit.done("r3");
+    kit.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w1", content_index: 0, transcript: "إيه احفظه" });
+    await flush();
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ heardSummary: false });
+  });
+
+  it("does not count a typed interruption of the summary", async () => {
+    const kit = await reading("text");
+    kit.loop.sendText("إيه احفظه");
+    kit.done("r2", "cancelled");
+    kit.respond("r3");
+    kit.loop.handle(confirmCall("r3", "c3"));
+    kit.done("r3");
+    await flush();
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ workerUtterance: "إيه احفظه", heardSummary: false });
+  });
+
+  it("counts a text summary that finished, then a typed confirmation", async () => {
+    const kit = await reading("text");
+    kit.done("r2");
+    kit.loop.sendText("إيه احفظه");
+    kit.respond("r3");
+    kit.loop.handle(confirmCall("r3", "c3"));
+    kit.done("r3");
+    await flush();
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, workerUtterance: "إيه احفظه", heardSummary: true });
+  });
+
+  it("waits for the final transcript, and sends none if it never comes", async () => {
+    const kit = await reading();
+    kit.done("r2");
+    kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r2" });
+    await speakAndConfirm(kit, null);
+    expect(kit.host.runTool).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ workerUtterance: "" });
+  });
+
+  it("treats a failed transcription as no transcript", async () => {
+    const kit = await reading();
+    kit.done("r2");
+    kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r2" });
+    kit.loop.handle({ type: "input_audio_buffer.speech_started" });
+    kit.loop.handle({ type: "input_audio_buffer.speech_stopped" });
+    kit.loop.handle({ type: "input_audio_buffer.committed", item_id: "w1" });
+    kit.respond("r3");
+    kit.loop.handle(confirmCall("r3", "c3"));
+    kit.done("r3");
+    kit.loop.handle({ type: "conversation.item.input_audio_transcription.failed", item_id: "w1", content_index: 0 });
+    await flush();
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ workerUtterance: "" });
+  });
+
+  it("drops the evidence when the worker starts talking again before the check", async () => {
+    const kit = await reading();
+    kit.done("r2");
+    kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r2" });
+    kit.loop.handle({ type: "input_audio_buffer.speech_started" });
+    kit.loop.handle({ type: "input_audio_buffer.speech_stopped" });
+    kit.loop.handle({ type: "input_audio_buffer.committed", item_id: "w1" });
+    kit.respond("r3");
+    kit.loop.handle(confirmCall("r3", "c3"));
+    kit.done("r3");
+    kit.loop.handle({ type: "input_audio_buffer.speech_started" });
+    kit.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w1", content_index: 0, transcript: "إيه احفظه" });
+    await flush();
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: false, workerUtterance: "", heardSummary: false });
+  });
+
+  it("forces a commit when speech runs on, as the bridge does", async () => {
+    const { loop, types, open } = setup();
+    open();
+    loop.handle({ type: "input_audio_buffer.speech_started" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(types()).toContain("input_audio_buffer.commit");
+  });
+
+  it("stops on a completion that doesn't match the reply in progress", () => {
+    const { loop, host, respond, open } = setup();
+    open();
+    respond("r1");
+    loop.handle({ type: "response.done", response: { id: "other", status: "completed" } });
+    expect(host.fail).toHaveBeenCalledWith("provider_invalid", "unexpected_completion");
   });
 });
 

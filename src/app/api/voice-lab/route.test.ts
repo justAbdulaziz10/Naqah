@@ -75,7 +75,7 @@ async function runCall() {
     view = next.view;
   }
   expect(view.isSummary).toBe(true);
-  const saved = await (await post({ op: "tool", state, name: "confirm_report", args: { confirmed: true }, spoke: true })).json();
+  const saved = await (await post({ op: "tool", state, name: "confirm_report", args: { confirmed: true }, spoke: true, workerUtterance: "إيه احفظه", heardSummary: true })).json();
   await post({ op: "close", state: opened.closeState });
   return { opened, saved };
 }

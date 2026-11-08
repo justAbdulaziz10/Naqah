@@ -12,7 +12,8 @@ import { eventAllowed, parseVoiceEvent, voiceStep, type VoiceEvent } from "@/ser
 import { buildInstructions } from "@/server/voice/realtime/instructions";
 import { checkTool, promptFor, SUMMARY_STEP } from "@/server/voice/realtime/tools";
 import { spokenWording } from "@/server/voice/twiml";
-import { CLARIFY_RULE, repairHerdDetail, reviewAnswer, type LabSession } from "./answer-guards";
+import { isVerifiedConfirmation } from "@/server/voice/realtime/confirmation";
+import { reviewAnswer, type LabSession } from "./answer-guards";
 
 export const LAB_RUN_ID = "00000000-0000-4000-8000-00000000f001";
 const LAB_CALL_ID = "voice-lab";
@@ -25,7 +26,9 @@ export type LabVerdict =
   | { kind: "would_save" }
   | { kind: "would_reject"; reason: string }
   | { kind: "declined" }
-  | { kind: "ended" };
+  | { kind: "ended" }
+  /** Two failed confirmations: a real call stops the AI and continues on the keypad script. */
+  | { kind: "fallback" };
 
 export interface LabFact {
   id: string;
@@ -55,8 +58,10 @@ export interface LabToolResult {
   /** The JSON the model receives, in the shape a real call returns. */
   output: string;
   awaitingConfirmation: boolean;
-  end: null | "hangup";
+  end: null | "hangup" | "fallback";
   goodbye: string | null;
+  /** The summary to speak word for word: only this counts as the worker having heard it. */
+  summaryText?: string;
   session: CallSession;
   /** Null when the tool call was accepted; otherwise why the checks refused it. */
   refused: string | null;
@@ -157,15 +162,18 @@ export function openLabAgent(ws: Workspace, now: Date, locale: Locale) {
   const { session } = start(ws, now, "report_call", { reportCallId: LAB_RUN_ID });
   const opening = spokenWording(lines(session, 0, ws, locale).join(" "), locale);
   const current = promptFor(session, lines(session, session.turns.length - 1, ws, locale), ws, locale);
-  const instructions = `${buildInstructions(locale, { worker: ws.settings.worker.name, owner: ws.settings.owner.name }, current)}\n\n${CLARIFY_RULE[locale]}`;
+  const instructions = buildInstructions(locale, { worker: ws.settings.worker.name, owner: ws.settings.owner.name }, current);
   return { session, opening, instructions, view: viewOf(session, ws, locale, null) };
 }
 
-/** `heard` is what the worker last said, when the Lab has it as final text. */
-export function runLabTool(input: { session: LabSession; ws: Workspace; locale: Locale; name: unknown; args: unknown; spoke: boolean; heard?: string | null; now: Date }): LabToolResult {
-  const { ws, locale, name, args, spoke, heard = null, now } = input;
-  let session = input.session;
-  const reply = (fields: Pick<LabToolResult, "output" | "end" | "goodbye" | "session" | "refused">, verdict: LabVerdict | null = null): LabToolResult => ({
+/**
+ * `heard` is what the worker last said, when the Lab has it as final text. `workerUtterance` and
+ * `heardSummary` are the turn's evidence for a confirmation, as the bridge reports them on a call.
+ */
+export function runLabTool(input: { session: LabSession; ws: Workspace; locale: Locale; name: unknown; args: unknown; spoke: boolean; heard?: string | null; workerUtterance?: string | null; heardSummary?: boolean; now: Date }): LabToolResult {
+  const { ws, locale, name, args, spoke, heard = null, workerUtterance = null, heardSummary, now } = input;
+  const { session } = input;
+  const reply = (fields: Pick<LabToolResult, "output" | "end" | "goodbye" | "session" | "refused" | "summaryText">, verdict: LabVerdict | null = null): LabToolResult => ({
     ...fields,
     awaitingConfirmation: !fields.session.done && fields.session.step === SUMMARY_STEP,
     view: viewOf(fields.session, ws, locale, verdict),
@@ -175,20 +183,36 @@ export function runLabTool(input: { session: LabSession; ws: Workspace; locale: 
 
   if (session.done) return reply({ output: stringify({ status: "call_ended" }), end: "hangup", goodbye: ENDED[locale], session, refused: "call_ended" });
 
-  const check = checkTool(name, args, spoke, session, locale);
+  const confirming = name === "confirm_report" && typeof args === "object" && args !== null && "confirmed" in args && args.confirmed === true;
+  const verified = confirming ? spoke && isVerifiedConfirmation(workerUtterance ?? "", session, locale) : spoke;
+  const check = checkTool(name, args, verified, session, locale);
+  if (confirming && session.step === SUMMARY_STEP && (!verified || heardSummary !== true)) {
+    const error = heardSummary !== true ? "summary_not_finished" : "worker_has_not_confirmed";
+    const failures = (session.confirmationFailures ?? 0) + 1;
+    const fallback = failures >= 2;
+    const counted: LabSession = { ...session, confirmationFailures: failures, done: fallback };
+    const prompt = promptFor(session, lines(session, session.turns.length - 1, ws, locale), ws, locale);
+    const output = {
+      status: "invalid",
+      error,
+      ...prompt,
+      message: error === "summary_not_finished"
+        ? "The worker did not hear the complete summary. It is being read again now. Wait for their answer. Nothing was saved."
+        : "The worker has not clearly confirmed. Ask the worker to confirm clearly or use the keypad fallback. Nothing was saved.",
+    };
+    return reply({ output: stringify(output), end: fallback ? "fallback" : null, goodbye: null, session: counted, refused: error, ...(error === "summary_not_finished" && prompt.summary ? { summaryText: prompt.summary } : {}) }, fallback ? { kind: "fallback" } : null);
+  }
   if (!check.ok) {
     return reply({ output: stringify({ status: "invalid", error: check.error, replies: session.replies.map((item) => item.value) }), end: null, goodbye: null, session, refused: check.error });
   }
 
   const atSummary = session.step === SUMMARY_STEP;
-  if (check.action.kind !== "end") {
-    const proposed = check.action.kind === "answer" ? check.action.input : { value: check.action.confirmed ? "confirm_save" : "end_without_save" };
-    const review = reviewAnswer({ session, input: proposed, spoke, heard, locale });
-    if (review?.kind === "clarify") {
+  if (check.action.kind === "answer") {
+    const review = reviewAnswer({ session, input: check.action.input, heard, locale });
+    if (review) {
       const output = { status: "invalid", error: review.error, message: "Nothing was recorded. Ask the worker this, in your own words, then wait for their answer.", clarify: review.clarify };
       return reply({ output: stringify(output), end: null, goodbye: null, session: review.session, refused: review.error });
     }
-    if (review?.kind === "adjust") session = review.session;
   }
 
   const chosen: AnswerInput | null =
@@ -198,7 +222,7 @@ export function runLabTool(input: { session: LabSession; ws: Workspace; locale: 
   if (!chosen) return closing({ ...session, done: true }, "ended_without_saving", ENDED[locale], { kind: "ended" });
 
   // `commit` is deliberately ignored, as on a real call: it only signals which event applies.
-  const next = repairHerdDetail(session, answer(session, ws, now, chosen).session);
+  const next = answer(session, ws, now, chosen).session;
 
   if (atSummary && chosen.value === "confirm_save") {
     const contract = checkContract(session.draft);
@@ -211,5 +235,6 @@ export function runLabTool(input: { session: LabSession; ws: Workspace; locale: 
   if (next.done) return closing(next, "ended_without_saving", lines(next, session.turns.length, ws, locale).join(" ") || ENDED[locale], { kind: atSummary ? "declined" : "ended" });
 
   const spoken = lines(next, session.turns.length, ws, locale);
-  return reply({ output: stringify({ status: "ok", ...promptFor(next, spoken, ws, locale) }), end: null, goodbye: null, session: next, refused: null });
+  const prompt = promptFor(next, spoken, ws, locale);
+  return reply({ output: stringify({ status: "ok", ...prompt }), end: null, goodbye: null, session: next, refused: null, ...(prompt.summary ? { summaryText: prompt.summary } : {}) });
 }
