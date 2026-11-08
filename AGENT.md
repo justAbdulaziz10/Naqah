@@ -181,15 +181,18 @@ the same functions and swaps only the storage and the "who triggers it" layer.
 
 ### 8.1 Database — Supabase (free tier is enough to start)
 - Schema, applied in order: `0001_init.sql`, `0002_backend_foundation.sql`, `0003_voice_call_sessions.sql`,
-  `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql`, `20261107213717_owner_flow.sql` under `supabase/migrations/` (Postgres 15+).
+  `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql`, `20261107213717_owner_flow.sql`,
+  `20261108000000_pending_worker_call_tasks.sql` under `supabase/migrations/` (Postgres 15+).
   Local validation uses stand-in Supabase roles/Auth; it does not prove live activation. The existing Supabase project
-  contains Auth test users; migrations 0001–0005 and `20261107213717_owner_flow` are applied (owner flow was formerly named 0006 locally).
+  contains Auth test users; migrations 0001–0005 and both timestamped migrations are applied. The latter adds durable
+  links from a pending worker call to multiple task tickets while retaining the legacy single-task field.
   Status, plan and manual go-live list: `docs/integrations/supabase-backend.md`.
   One owner (`auth.users`) → one `farms` row (owner, settings, call time, herd count, primary worker) → 1–3 (Basic) or
   1–10 (Ultimate) `workers` rows; NAQAH calls the primary one. Scheduled report calls live in `report_call_runs`.
   Child tables mirror `types.ts`: `camels`, `resources`, `custom_questions` (DB trigger enforces Basic ≤ 5),
   `criteria`, `emergency_categories`, `calls`, `reports` + `report_answers` + `findings`, `task_tickets`, `relays`,
-  `pending_worker_calls` + `worker_call_attempts`, `no_answer_tickets`, `events`, `predefined_questions` (global).
+  `pending_worker_calls` + `pending_worker_call_tasks` + `worker_call_attempts`, `no_answer_tickets`, `events`,
+  `predefined_questions` (global).
 - RLS: owners read/write their farm's settings, herd, resources, questions, criteria, relays and events; they can
   only **read** calls, reports, tickets and retries — those are written by the voice service with the
   `service_role` key (server only, bypasses RLS). Never ship the service key to the browser.
