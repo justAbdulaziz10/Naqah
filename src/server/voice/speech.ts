@@ -1,3 +1,4 @@
+import { isOffTopicAnswer } from "@/domain/conversation/answer-topic";
 import type { AnswerInput, CallSession, Reply } from "@/domain/conversation/engine";
 import type { Locale } from "@/domain/types";
 
@@ -206,7 +207,7 @@ const replyIsNegated = (reply: Reply) => isNegated(reply.label.ar) || isNegated(
 type Concept = "healthy" | "sick" | "watch" | "damaged" | "enough" | "low" | "medium" | "finished" | "pending" | "save" | "thing";
 
 const CONCEPTS: Record<Concept, readonly string[]> = {
-  healthy: ["بخير", "زين", "زينه", "زينين", "طيب", "طيبه", "طيبين", "سليم", "سليمه", "سالمه", "سالمين", "عال", "healthy", "well", "fine", "good", "ok", "okay", "alright"],
+  healthy: ["بخير", "زين", "زينه", "زينين", "طيب", "طيبه", "طيبين", "سليم", "سليمه", "سالمه", "سالمين", "عال", "كويس", "كويسه", "كويسين", "جيد", "جيده", "healthy", "well", "fine", "good", "ok", "okay", "alright"],
   sick: [
     "مريض", "مريضه", "مرضى", "مريضات", "تعبان", "تعبانه", "تعبانين", "مصاب", "مصابه", "مصابين", "عيان", "عيانه",
     "مشكله", "مشاكل", "تعرج", "sick", "ill", "injured", "hurt", "unwell", "limping", "wrong", "problem", "problems", "issue", "issues",
@@ -216,7 +217,7 @@ const CONCEPTS: Record<Concept, readonly string[]> = {
   enough: ["كافي", "كافيه", "يكفي", "تكفي", "يكفون", "كفايه", "متوفر", "متوفره", "موجود", "موجوده", "وايد", "كثير", "enough", "plenty", "sufficient", "full"],
   low: ["ناقص", "ناقصه", "نقص", "نقصت", "قليل", "قليله", "شوي", "شويه", "low", "short", "little"],
   medium: ["متوسط", "متوسطه", "نص", "نصه", "النص", "نصف", "النصف", "half", "medium", "average"],
-  finished: ["خلص", "خلصت", "خلصان", "خلصانه", "خلصتها", "خالص", "انتهيت", "انتهى", "انتهت", "نفد", "نفذ", "done", "finished", "complete", "completed", "empty"],
+  finished: ["خلص", "خلصت", "خلصان", "خلصانه", "خلصتها", "خالص", "انتهيت", "انتهى", "انتهت", "نفد", "نفذ", "سويتها", "سويته", "سويناها", "سويناه", "انجزتها", "انجزته", "صلحتها", "صلحته", "done", "finished", "complete", "completed", "empty"],
   pending: ["باقي", "لسه", "لسا", "yet"],
   save: ["احفظ", "احفظه", "احفظها", "تحفظ", "تحفظه", "حفظ", "اكد", "تاكيد", "اعتمد", "confirm", "save"],
   thing: ["شي", "شيء", "احد", "حد", "وحده", "واحده", "ناقه", "anything", "something", "thing", "anyone", "camel", "camels"],
@@ -256,7 +257,7 @@ interface Reading {
 function readSpeech(transcript: string): Reading {
   const text = normalizeSpeech(transcript).replace(/n['’]t\b/g, " not").replace(/\bcannot\b/g, "can not")
     .replace(/(?:قارب|قرب)\s+يخلص|بيخلص(?:ون)?|nearly\s+empty|almost\s+(?:gone|finished)/gu, " low ")
-    .replace(/ما\s+عليهم\s+خلاف|الحمد\s+لله/gu, " بخير ")
+    .replace(/ما\s+(?:عليهم|عليها|عليه)\s+(?:خلاف|باس|شر)|الحمد\s+لله|ما\s*شاء\s+الله/gu, " بخير ")
     .replace(/ما\s+تاكل/gu, " مريضه ");
   const reading: Reading = { unknown: false, affirm: false, wellbeing: false, deny: false, bareNegation: false, said: new Set(), negated: new Set() };
   const plain = text.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -484,6 +485,7 @@ export function mapSpeechToInput(
     const reply = unknownReply(session.replies);
     if (reply) return { value: reply.value };
   }
+  if (isOffTopicAnswer(session, compact(raw))) return null;
   if (session.inputMode === "text") return raw ? { text: raw } : null;
   if (session.inputMode === "number") {
     const number = extractNumber(raw);

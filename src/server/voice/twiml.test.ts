@@ -29,6 +29,11 @@ describe("TwiML output", () => {
     expect(twimlGather(session, "ar", "/t")).toMatch(/^<Response><Gather\b[^>]*><Say\b[^>]*>[^<]+<\/Say><\/Gather><\/Response>$/);
   });
 
+  it("finishes the report summary before opening confirmation input", () => {
+    expect(twimlGather({ ...session, step: "report_summary" }, "ar", "/t"))
+      .toMatch(/^<Response><Say\b[^>]*>[^<]+<\/Say><Gather\b[^>]*><\/Gather><\/Response>$/);
+  });
+
   it("escapes XML metacharacters in text and attributes", () => {
     expect(escapeXml(`&<>"'`)).toBe("&amp;&lt;&gt;&quot;&apos;");
     expect(sayElement(`عربي & < > " '`, "ar")).toContain("عربي &amp; &lt; &gt; &quot; &apos;");

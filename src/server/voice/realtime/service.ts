@@ -12,6 +12,7 @@ import type { CallToken } from "@/server/calls/token";
 import { advanceRow, boundElsewhere, planTurn, spokenLines, type TurnPlan, type VoiceCallSession } from "../farm-call";
 import { twimlGoodbye } from "../twiml";
 import { callWorkspace, forgetCallWorkspace, rememberCallWorkspace } from "./call-workspace";
+import { ANSWER_REFUSAL_MESSAGE, refuseAnswer } from "./answer-check";
 import { isVerifiedConfirmation } from "./confirmation";
 import { buildInstructions } from "./instructions";
 import { claimRealtime, closeRealtime, realtimeOf, recordConfirmationFailure, rememberResult, withRealtime, type RealtimeState, type ToolResponse } from "./state";
@@ -186,6 +187,15 @@ export async function runRealtimeTool(client: SupabaseClient, body: ToolBody, se
     if (!check.ok) {
       logTool(body.callSid, body.name, check.error, Date.now() - started);
       return refusal(check.error, row);
+    }
+    if (check.action.kind === "answer") {
+      const held = await farmOf(client, row, now);
+      const refused = refuseAnswer(row.session, check.action.input, body.workerUtterance ?? "", row.locale, held.camels.map((camel) => camel.name));
+      if (refused) {
+        logTool(body.callSid, body.name, refused, Date.now() - started);
+        const prompt = promptFor(row.session, spokenLines(row.session, row.session.turns.length - 1, held, row.locale), held, row.locale);
+        return { ...refusal(refused, row), output: stringify({ status: "invalid", error: refused, ...prompt, message: ANSWER_REFUSAL_MESSAGE }) };
+      }
     }
 
     const session: VoiceCallSession = { ...row.session, voiceSilences: 0 };

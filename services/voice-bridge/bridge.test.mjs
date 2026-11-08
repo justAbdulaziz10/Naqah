@@ -150,7 +150,7 @@ async function fixture(options = {}) {
   await listen(providerServer, 3902);
   const bridge = createBridge({
     config: loadConfig(TEST_ENV), logger: (record) => logs.push(record),
-    limits: { closeMs: 10, ...options.limits },
+    limits: { closeMs: 10, transcriptionMs: 50, ...options.limits },
   });
   await listen(bridge.server, 3903);
   return {
@@ -364,7 +364,7 @@ test('tool round trip forwards signed args and speech; awaitingConfirmation rese
     const first = state.requests.find((request) => request.body?.toolCallId === 'tool-first');
     assert.deepEqual(first.body, {
       ticket: 'mock-ticket', callSid: CALL_SID, toolCallId: 'tool-first', name: 'answer_question',
-      args: { value: 'yes' }, userSpokeSinceLastTool: true,
+      args: { value: 'yes' }, userSpokeSinceLastTool: true, workerUtterance: '',
     });
     const output = state.providerEvents.find((event) => event.item?.call_id === 'tool-first');
     assert.deepEqual(output.item, { type: 'function_call_output', call_id: 'tool-first', output: '{"summary":true}' });
@@ -446,7 +446,23 @@ test('one committed worker turn cannot authorize two queued answers', async () =
     await state.providerInbox.wait((event) => event.item?.call_id === 'second-answer');
     const bodies = state.requests.filter((request) => request.url.endsWith('/tool')).map((request) => request.body);
     assert.deepEqual(bodies.map((body) => body.userSpokeSinceLastTool), [true, false]);
-    assert.ok(bodies.every((body) => !('workerUtterance' in body) && !('heardSummary' in body)));
+    assert.deepEqual(bodies.map((body) => body.workerUtterance), ['', '']);
+    assert.ok(bodies.every((body) => !('heardSummary' in body)));
+  } finally { await state.close(); }
+});
+
+test('an answer waits for the worker\'s words and carries them to the server', async () => {
+  const state = await fixture({ autoComplete: true, limits: { transcriptionMs: 500 } });
+  try {
+    const { socket } = await state.connect();
+    await state.ready(socket);
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'answer-words' });
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'words-answer', name: 'answer_question', arguments: '{"value":"yes"}' });
+    await delay(30);
+    assert.equal(state.requests.some((request) => request.body?.toolCallId === 'words-answer'), false);
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'answer-words', content_index: 0, transcript: 'العلف زين' });
+    await state.providerInbox.wait((event) => event.item?.call_id === 'words-answer');
+    assert.equal(state.requests.find((request) => request.body?.toolCallId === 'words-answer').body.workerUtterance, 'العلف زين');
   } finally { await state.close(); }
 });
 
@@ -476,6 +492,50 @@ test('a reply that is not the server-spoken summary never counts as hearing it',
   } finally { await state.close(); }
 });
 
+for (const scenario of [
+  { transcript: undefined },
+  { transcript: 'Can I save it?' },
+  { transcript: 'Mock summary' },
+  { transcript: 'Mock summary', delayedSpeech: true },
+  { transcript: 'Mock summary', noSpeechStart: true },
+]) {
+  const { transcript, delayedSpeech, noSpeechStart } = scenario;
+  test(`summary playback requires matching content and a later worker turn: ${JSON.stringify(scenario)}`, async () => {
+    const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: true, summaryText: 'Mock summary', end: null, goodbye: null } });
+    try {
+      const { socket, messages } = await state.connect();
+      await state.ready(socket);
+      send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'answer' });
+      send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'summary-tool', name: 'answer_question', arguments: '{"value":"yes"}' });
+      await state.providerInbox.wait((event) => event.item?.call_id === 'summary-tool');
+      state.complete();
+      await state.providerInbox.wait((event) => event.type === 'response.create' && /Mock summary/.test(event.response.instructions || ''));
+      await delay(20);
+      state.audio(160, 'summary-audio');
+      if (transcript !== undefined) send(state.provider, {
+        type: 'response.output_audio_transcript.done', response_id: state.responseId,
+        item_id: 'summary-audio', content_index: 0, transcript,
+      });
+      state.complete();
+      await delay(20);
+      if (delayedSpeech) {
+        media(socket);
+        await state.providerInbox.wait((event) => event.type === 'input_audio_buffer.append');
+      }
+      const marks = messages.received.filter((event) => event.event === 'mark');
+      for (const event of marks) send(socket, { event: 'mark', streamSid: STREAM_SID, mark: event.mark });
+      await delay(15);
+      if (!noSpeechStart) send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 0 });
+      send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'confirmation' });
+      send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'confirmation', content_index: 0, transcript: 'yes' });
+      send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'confirmation-tool', name: 'confirm_report', arguments: '{"confirmed":true}' });
+      await state.providerInbox.wait((event) => event.item?.call_id === 'confirmation-tool');
+      assert.equal(state.requests.find((request) => request.body?.toolCallId === 'confirmation-tool').body.heardSummary,
+        transcript === 'Mock summary' && !delayedSpeech && !noSpeechStart);
+    } finally { await state.close(); }
+  });
+}
+
 test('interrupted summary is not heard; only a complete re-read and its marks allow confirmation', async () => {
   const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: true, summaryText: 'Mock summary', end: null, goodbye: null } });
   try {
@@ -504,11 +564,12 @@ test('interrupted summary is not heard; only a complete re-read and its marks al
     await delay(20);
     state.audio(160, 'summary-reread');
     send(state.provider, { type: 'response.output_audio.done', item_id: 'summary-reread', content_index: 0 });
+    send(state.provider, { type: 'response.output_audio_transcript.done', response_id: state.responseId, item_id: 'summary-reread', content_index: 0, transcript: 'Mock summary' });
     state.complete();
     const summaryMark = await messages.wait((event) => event.event === 'mark' && event.mark.name.startsWith('summary-'));
     send(socket, { event: 'mark', streamSid: STREAM_SID, mark: summaryMark.mark });
     await delay(15);
-    send(state.provider, { type: 'input_audio_buffer.speech_started' });
+    send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 0 });
     send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'after-reread' });
     send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'after-reread', content_index: 0, transcript: 'إيه صح' });
     await delay(15);

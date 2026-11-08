@@ -4,11 +4,22 @@ import { mapSpeechToInput, normalizeSpeech } from "../speech";
 import { SUMMARY_STEP } from "./tools";
 
 const MAX_UTTERANCE = 1000;
+const CLEAR_CONFIRMATIONS = new Set([
+  "ايه", "ايوه", "اي", "نعم", "اكيد", "صح", "صحيح", "تمام", "اوكي", "طيب",
+  "احفظ", "احفظه", "احفظ التحديث", "احفظ التقرير", "ايه صح", "ايه صحيح", "نعم صحيح",
+  "ايه احفظه", "نعم احفظه", "تمام احفظه", "الكلام صحيح", "كله صحيح", "كل شي صحيح",
+  "احفظها", "ايه احفظها", "نعم احفظها", "تمام احفظها", "صح احفظه", "صح احفظها", "ايوه احفظه", "ايوه احفظها",
+  "ايه تمام", "تمام ايه", "ايوه تمام", "ايوه صح", "اي نعم", "ايه والله", "كله تمام", "كله صح",
+  "yes", "yeah", "yep", "yup", "sure", "correct", "right", "ok", "okay", "confirm",
+  "save", "save it", "save the report", "save the update", "yes save it", "yes correct",
+  "that is correct", "that s correct", "that is right", "that s right", "yes that is correct",
+  "go ahead and save it",
+]);
 
 /** Words alone: does this transcript really say yes to the summary, with no correction in it? */
 export function isVerifiedConfirmation(utterance: string, session: CallSession, locale: Locale): boolean {
-  if (!utterance || utterance.length > MAX_UTTERANCE) return false;
+  if (!utterance || utterance.length > MAX_UTTERANCE || /[?؟]/u.test(utterance)) return false;
   const words = normalizeSpeech(utterance).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-  if (/(?:^|\s)(?:و)?(?:لا|ماهو|ماهي|مهو|مهي|مهوب|مهيب|مهب|ما|مو|مش|ماني|مب|ليس|لن|بس|لكن|الا|غلط|خطا|تصحيح|تعديل|عدل|عدله|غير|غيره|بدل|بدله|انتظر|لحظه|no|not|never|but|however|except|wrong|correction|change|wait|dont|don|isnt|isn)(?:\s|$)/u.test(words)) return false;
+  if (!CLEAR_CONFIRMATIONS.has(words)) return false;
   return session.step === SUMMARY_STEP && mapSpeechToInput(session, utterance, null, locale)?.value === "confirm_save";
 }

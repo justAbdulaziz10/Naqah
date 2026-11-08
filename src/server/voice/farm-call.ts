@@ -24,6 +24,7 @@ import { applyVoiceEvent, parseVoiceEvent, type VoiceContext, type VoiceOutcome 
 import { logVoiceTurn } from "./diagnostics";
 import { mapSpeechToInput, unknownReply } from "./speech";
 import { newRealtimeState, realtimeOf } from "./realtime/state";
+import { isVerifiedConfirmation } from "./realtime/confirmation";
 import { rememberCallWorkspace } from "./realtime/call-workspace";
 import { buildInstructions } from "./realtime/instructions";
 import { promptFor } from "./realtime/tools";
@@ -287,7 +288,8 @@ export async function answerFarmCall(
   const silenceCount = hasInput ? 0 : ((row.session as VoiceCallSession).voiceSilences ?? 0) + 1;
   const session = { ...row.session, voiceSilences: 0 };
   const { workspace } = requireFarm(await loadFarm(client, { id: row.farm_id }));
-  const spoken = mapSpeechToInput(session, speech, digits, locale, input.confidence);
+  const mapped = mapSpeechToInput(session, speech, digits, locale, input.confidence);
+  const spoken = mapped?.value === "confirm_save" && !digits && !isVerifiedConfirmation(speech, session, locale) ? null : mapped;
   const unmatched = !spoken && hasInput ? ((row.session as VoiceCallSession).voiceUnmatched ?? 0) + 1 : 0;
   logVoiceTurn(input, spoken);
   const next = row.seq + 1;

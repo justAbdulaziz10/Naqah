@@ -240,9 +240,8 @@ export function parseVoiceEvent(value: unknown): VoiceEvent {
 }
 
 /**
- * Scheduled tasks to start a verification call for. `dueTaskVerifications` keeps a task eligible
- * after a finished call, which the Call Lab relies on; a scheduler must not ring the worker on
- * every run, so it starts one per task. Later checks happen during the worker's own calls.
+ * Scheduled tasks to start a verification call for: one per task. Later checks happen during the
+ * worker's own calls.
  * OPEN DECISION: whether and how often an unconfirmed task is called about again.
  */
 export function tasksToVerify(ws: Workspace, now: Date) {
@@ -315,7 +314,7 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
     }
     case "owner_instruction": {
       if (event.items?.length) {
-        const batch = submitOwnerInstructionBatch(ws, now, event.items, event.eventId, event.deliveryMessage ?? event.message);
+        const batch = submitOwnerInstructionBatch(ws, now, event.items, event.eventId, event.deliveryMessage);
         return { ws: batch.ws, result: batch.created ? saved : { status: "unchanged" } };
       }
       return { ws: submitOwnerInstruction(ws, now, event).ws, result: saved };

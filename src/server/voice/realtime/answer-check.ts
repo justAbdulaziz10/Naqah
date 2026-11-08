@@ -12,21 +12,21 @@ export type AnswerRefusal = "answer_off_topic" | "answer_unclear";
 export const ANSWER_REFUSAL_MESSAGE =
   "Nothing was recorded. The worker's words did not answer this question. Do not repeat what they said as an answer. Gently ask the current question again, then wait.";
 
-function isHerdHealthYes(session: CallSession, input: AnswerInput): boolean {
+/** "All camels well" rewrites every camel's status, and "done" closes a task: both need words that say so. */
+function yesNeedsWords(session: CallSession, input: AnswerInput): boolean {
   if (session.step !== "report_question" || input.value !== "yes") return false;
   const item = session.data.queue?.[session.data.reportIndex ?? 0];
-  return item?.kind === "predefined" && item.answerKind === "herd-health";
+  return item?.kind === "task" || (item?.kind === "predefined" && item.answerKind === "herd-health");
 }
 
 /**
  * Null lets the answer through. `heard` is the worker's final transcript: empty when speech
- * recognition failed, null when the caller has none. A healthy herd rewrites every camel's status,
- * so that one answer must be backed by words that say it, or it is asked again.
+ * recognition failed, null when the caller has none.
  */
 export function refuseAnswer(session: CallSession, input: AnswerInput, heard: string | null, locale: Locale, camelNames: readonly string[] = []): AnswerRefusal | null {
   if (heard === null) return null;
   const words = normalizeSpeech(heard).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   if (words && isOffTopicAnswer(session, words, camelNames.map((name) => normalizeSpeech(name)))) return "answer_off_topic";
-  if (isHerdHealthYes(session, input) && mapSpeechToInput(session, heard, null, locale)?.value !== "yes") return "answer_unclear";
+  if (yesNeedsWords(session, input) && mapSpeechToInput(session, heard, null, locale)?.value !== "yes") return "answer_unclear";
   return null;
 }

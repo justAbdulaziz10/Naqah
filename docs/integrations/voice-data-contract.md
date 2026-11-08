@@ -47,7 +47,7 @@ How the telephony layer (Twilio + voice model) reports to the farm. Code:
 | `worker_callback` | none | `completeWorkerCallback`; not a farm update |
 | `task_confirmation` | `taskId`, `done`, `via` | `confirmTask`; only the worker's confirmation closes a task |
 | `owner_inquiry` | none | `routeOwnerInboundCall`, then `recordOwnerInquiry` or `rejectOwnerInquiry` |
-| `owner_instruction` | `message`, `actionable`, `scheduledFor` | `submitOwnerInstruction` |
+| `owner_instruction` | `message`, `actionable`, `scheduledFor`, optional `items` and `deliveryMessage` | `submitOwnerInstruction`; with `items`, `submitOwnerInstructionBatch` (one worker call, a replayed `eventId` changes nothing) |
 | `owner_notification` | `reportId`, `answered` | `recordOwnerNotification` |
 | `task_verification_start` | `taskId` | `startTaskVerification`, once per task |
 | `worker_call_attempt` | `pendingCallId`, `answered` | `resolveWorkerCallAttempt` (20 min × 3, then No Answer ticket) |
@@ -92,7 +92,7 @@ each result as `worker_call_attempt`. `pending_worker_calls_due` indexes the que
 per attempt.
 
 Each task gets one automatic verification call. After that it is asked about during the worker's
-own calls. Use `tasksToVerify`, not `dueTaskVerifications`, which keeps finished tasks eligible.
+own calls. `dueTaskVerifications` already allows one verification cycle per task, after its instruction was delivered.
 
 ## Changing the contract
 

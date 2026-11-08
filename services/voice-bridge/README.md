@@ -86,6 +86,21 @@ events or transcripts do not. Every returned tool result resets the flag,
 including `awaitingConfirmation: true`. Duplicate provider tool events are
 ignored; Next remains the source of truth for tool-call idempotency.
 
+Summary playback counts only when every emitted audio item's final output
+transcript matches the server's summary (ignoring case, whitespace and common
+sentence punctuation), followed by the final Twilio playback mark. Missing or
+different output transcripts never authorize confirmation. This checks the
+provider's transcript, not an independent transcription of the played audio.
+The mark also captures the forwarded input-audio position. Confirmation needs
+a VAD speech-start timestamp at or after that position, not merely a VAD event
+that arrived later. Missing start evidence or delayed detection of overlapping
+speech fails closed. Provider prefix padding makes this deliberately conservative.
+Next accepts only complete, allowlisted affirmative phrases at confirmation;
+conditional approvals, quoted affirmations and questions require clarification
+or the existing keypad fallback instead of a keyword-based save.
+Scripted fallback uses the same speech-confirmation gate, and plays the entire
+summary before opening Gather, so early speech or keypad input cannot save it.
+
 On VAD speech start the bridge sends Twilio `clear`, explicitly cancels any
 in-flight response, and truncates unplayed assistant items using
 `conversation.item.truncate` with `content_index` and `audio_end_ms` derived

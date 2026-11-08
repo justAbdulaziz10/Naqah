@@ -121,7 +121,8 @@ async function tool(ticket: string, name: unknown, args: unknown, extra: Record<
   toolCounter += 1;
   const response = await toolRoute(signed("/api/voice/realtime/tool", {
     ticket, callSid: CALL, toolCallId: `call_${toolCounter}`, name, args, userSpokeSinceLastTool: true,
-    ...(name === "confirm_report" ? { workerUtterance: "إيه صح", heardSummary: true } : {}), ...extra,
+    ...(name === "confirm_report" ? { workerUtterance: "إيه صح", heardSummary: true } : {}),
+    ...(name === "answer_question" ? { workerUtterance: "إيه تمام" } : {}), ...extra,
   }));
   const result = response.status === 200 ? await response.json() : null;
   return { status: response.status, result, output: result ? JSON.parse(result.output) : null };
@@ -475,10 +476,24 @@ describe("tool calls on a live call", () => {
     expect((await tool(ticket, "answer_question", {}, { userSpokeSinceLastTool: "yes" })).status).toBe(400);
   });
 
+  it.each([
+    ["العلف زين", "answer_off_topic"],
+    ["الجو حار اليوم", "answer_unclear"],
+    ["", "answer_unclear"],
+  ])("does not let %s answer the herd-health question", async (workerUtterance, error) => {
+    const { ticket } = await open();
+    const seq = row().seq;
+    const result = await tool(ticket, "answer_question", { value: "yes" }, { workerUtterance });
+    expect(result.result.awaitingConfirmation).toBe(false);
+    expect(result.output).toMatchObject({ status: "invalid", error });
+    expect(row().seq).toBe(seq);
+    expect(row().session.draft.camelUpdates).toHaveLength(0);
+  });
+
   it("applies a repeated toolCallId once, and returns its first result", async () => {
     const { ticket, opened } = await open();
     const value = firstPrompt(opened).replies[0].value;
-    const body = { ticket, callSid: CALL, toolCallId: "call_same", name: "answer_question", args: { value }, userSpokeSinceLastTool: true };
+    const body = { ticket, callSid: CALL, toolCallId: "call_same", name: "answer_question", args: { value }, userSpokeSinceLastTool: true, workerUtterance: "إيه تمام" };
     const first = await (await toolRoute(signed("/api/voice/realtime/tool", body))).json();
     const seq = row().seq;
     const second = await (await toolRoute(signed("/api/voice/realtime/tool", body))).json();
@@ -625,7 +640,7 @@ describe("tool calls on a live call", () => {
 });
 
 describe("verified realtime confirmation", () => {
-  it.each(["", "ضجيج", "لا", "إيه بس العلف غلط", "صح لكن", "yes but change the feed", "لا تحفظه", "إيه لا", "صح مو صحيح"])("refuses %j without changing the engine or saving", async (workerUtterance) => {
+  it.each(["", "ضجيج", "لا", "إيه بس العلف غلط", "صح لكن", "yes but change the feed", "لا تحفظه", "إيه لا", "صح مو صحيح", "yes if the owner agrees", "إيه إذا وافق المالك", "yes maybe", "صح يمكن", "he said yes", "قال صح", "is that correct?", "صح؟"])("refuses %j without changing the engine or saving", async (workerUtterance) => {
     const { ticket, opened } = await open();
     await reachSummary(ticket, firstPrompt(opened));
     const before = JSON.stringify({ data: row().session.data, seq: row().seq, misses: row().misses, turns: row().session.turns });
@@ -678,7 +693,19 @@ describe("verified realtime confirmation", () => {
     expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(1);
   });
 
-  it.each(["إيه", "صح", "تمام", "احفظه", "إيه صح"])("accepts the existing parser's clear confirmation %s exactly once", async (workerUtterance) => {
+  it.each(["yes if the owner agrees", "he said yes", "قال صح", "صح؟"])("keeps the same confirmation gate after scripted fallback: %s", async (speech) => {
+    const { ticket, opened } = await open();
+    await reachSummary(ticket, firstPrompt(opened));
+    await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "لا" });
+    await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "لا" });
+    expect(row().session.realtime.closed).toBe(true);
+    const response = await answerFarmCall(db.client, { callSid: CALL, seq: row().seq, speech, digits: null, now: new Date() });
+    expect(response).toContain("<Gather");
+    expect(row().session.step).toBe("report_summary");
+    expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
+  });
+
+  it.each(["إيه", "صح", "تمام", "احفظه", "إيه صح", "نعم صحيح", "تمام احفظه", "yes", "yes save it", "that is correct"])("accepts the existing parser's clear confirmation %s exactly once", async (workerUtterance) => {
     const { ticket, opened } = await open();
     await reachSummary(ticket, firstPrompt(opened));
     const result = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance });

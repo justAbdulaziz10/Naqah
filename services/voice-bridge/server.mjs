@@ -44,6 +44,12 @@ function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** Spelling a transcript may vary (punctuation, hamza, ta marbuta, digit script) never counts as a changed summary. */
+function summaryWords(value) {
+  return value.normalize('NFKC').toLowerCase().replace(/\p{M}/gu, '').replace(/[أإآٱ]/gu, 'ا').replace(/ى/gu, 'ي').replace(/ة/gu, 'ه')
+    .replace(/[٠-٩]/gu, (digit) => String(digit.charCodeAt(0) - 0x0660)).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
 function validSession(session) {
   return isObject(session) && typeof session.instructions === 'string' && Array.isArray(session.tools)
     && typeof session.opening === 'string' && session.opening.trim().length > 0
@@ -106,6 +112,7 @@ class CallStream {
     this.toolPending = 0;
     this.markCount = 0;
     this.inputFrames = 0;
+    this.inputAudioMs = 0;
     this.outputFrames = 0;
     this.userSpoke = false;
     this.workerTurn = null;
@@ -245,12 +252,13 @@ class CallStream {
       if (!this.started || message.streamSid !== this.streamSid || message.media?.track !== 'inbound') {
         throw new Error('Invalid media');
       }
-      audioBytes(message.media.payload, 16 * 1024);
+      const bytes = audioBytes(message.media.payload, 16 * 1024);
       this.inputFrames += 1;
       if (this.ending) return;
       // Audio from before the session is ready is stale: replayed, it reads as speech over the greeting.
-      if (this.ready) this.send(this.provider, { type: 'input_audio_buffer.append', audio: message.media.payload });
-      else this.droppedEarlyFrames += 1;
+      if (this.ready) {
+        if (this.send(this.provider, { type: 'input_audio_buffer.append', audio: message.media.payload })) this.inputAudioMs += bytes.length / 8;
+      } else this.droppedEarlyFrames += 1;
     } else if (message.event === 'mark') {
       if (!this.started || message.streamSid !== this.streamSid) throw new Error('Invalid mark');
       const mark = this.marks.get(message.mark?.name);
@@ -258,7 +266,10 @@ class CallStream {
       this.marks.delete(message.mark.name);
       if (mark.final) return this.finish('goodbye_played');
       if (mark.summary) {
-        if (this.summaryPlayback === mark.summary && !mark.summary.cancelled) mark.summary.heard = true;
+        if (this.summaryPlayback === mark.summary && !mark.summary.cancelled) {
+          mark.summary.inputAudioMs = this.inputAudioMs;
+          mark.summary.heard = true;
+        }
         return;
       }
       mark.item.playedBytes = Math.max(mark.item.playedBytes, mark.endBytes);
@@ -337,7 +348,8 @@ class CallStream {
     this.responsePending = true;
     this.responseKind = next.kind;
     this.responseAudible = false;
-    this.responseSummary = this.summaryNext ? { heard: false, cancelled: false } : null;
+    this.responseSummary = this.summaryNext && next.kind === 'summary' && next.text
+      ? { heard: false, cancelled: false, text: next.text, audioKeys: new Set(), transcripts: new Map() } : null;
     if (this.responseSummary) this.summaryPlayback = this.responseSummary;
     this.summaryNext = false;
     this.log('response_requested', { kind: next.kind });
@@ -384,6 +396,7 @@ class CallStream {
       this.log('response_audio_started', { kind: this.responseKind });
     }
     const key = `${event.item_id}:${event.content_index}`;
+    if (this.responseSummary?.responseId === event.response_id) this.responseSummary.audioKeys.add(key);
     let item = this.items.get(key);
     if (!item) {
       item = { key, id: event.item_id, contentIndex: event.content_index, playedBytes: 0, sentBytes: 0, done: false };
@@ -433,6 +446,10 @@ class CallStream {
       this.log('response_created', { kind: this.responseKind });
     } else if (event.type === 'response.output_audio.delta') {
       this.outputAudio(event);
+    } else if (event.type === 'response.output_audio_transcript.done') {
+      if (this.responseSummary?.responseId === event.response_id && typeof event.transcript === 'string') {
+        this.responseSummary.transcripts.set(`${event.item_id}:${event.content_index}`, event.transcript);
+      }
     } else if (event.type === 'response.output_audio.done') {
       const item = this.items.get(`${event.item_id}:${event.content_index}`);
       if (item) {
@@ -443,7 +460,8 @@ class CallStream {
       if (this.ending) return;
       if (!this.speaking) {
         this.speechEpoch += 1;
-        this.turnHeardSummary = this.summaryPlayback?.heard === true;
+        this.turnHeardSummary = this.summaryPlayback?.heard === true && Number.isSafeInteger(event.audio_start_ms)
+          && event.audio_start_ms >= this.summaryPlayback.inputAudioMs;
         this.timer('speech', this.limits.speechMs, () => {
           if (!this.speaking || this.ending) return;
           this.recoveryCommit = `speech-recovery-${this.speechEpoch}`;
@@ -471,7 +489,7 @@ class CallStream {
       this.recoveryCommit = null;
       this.speaking = false;
       this.workerTurn?.settle('');
-      const turn = { id: event.item_id, epoch: this.speechEpoch, heardSummary: this.turnHeardSummary ?? this.summaryPlayback?.heard === true, settled: false, transcript: '' };
+      const turn = { id: event.item_id, epoch: this.speechEpoch, heardSummary: this.turnHeardSummary === true, settled: false, transcript: '' };
       turn.promise = new Promise((resolve) => {
         turn.settle = (transcript) => {
           if (turn.settled) return;
@@ -510,7 +528,10 @@ class CallStream {
         return this.finish('provider_response_failed');
       }
       const kind = this.responseKind;
-      if (this.responseSummary && !interrupted && this.responseAudible && !this.responseSummary.cancelled) {
+      const summaryKeys = [...(this.responseSummary?.audioKeys ?? [])];
+      const summaryMatches = summaryKeys.length > 0 && summaryKeys.every((key) => this.responseSummary.transcripts.has(key))
+        && summaryWords(summaryKeys.map((key) => this.responseSummary.transcripts.get(key)).join(' ')) === summaryWords(this.responseSummary.text);
+      if (this.responseSummary && summaryMatches && !interrupted && this.responseAudible && !this.responseSummary.cancelled) {
         const name = `summary-${++this.markCount}`;
         this.marks.set(name, { summary: this.responseSummary });
         this.send(this.twilio, { event: 'mark', streamSid: this.streamSid, mark: { name } });
@@ -570,7 +591,9 @@ class CallStream {
     this.toolQueue = this.toolQueue.then(async () => {
       if (this.closed || this.ending) return;
       const confirmation = event.name === 'confirm_report' && args.confirmed === true;
-      if (confirmation && spoke && turn && !turn.settled) {
+      const answering = event.name === 'answer_question';
+      // The server checks both against the worker's own words, so they wait for the transcript.
+      if ((confirmation || answering) && spoke && turn && !turn.settled) {
         this.timer('transcription', this.limits.transcriptionMs, () => turn.settle(''));
         await turn.promise;
         this.clearTimer('transcription');
@@ -580,7 +603,8 @@ class CallStream {
       const result = await this.internal('/api/voice/realtime/tool', {
         ticket: this.ticket, callSid: this.callSid, toolCallId: event.call_id,
         name: event.name, args, userSpokeSinceLastTool: spoke && this.userSpoke && current,
-        ...(confirmation ? { workerUtterance: current ? turn?.transcript ?? '' : '', heardSummary: current && turn?.heardSummary === true } : {}),
+        ...(confirmation || answering ? { workerUtterance: current ? turn?.transcript ?? '' : '' } : {}),
+        ...(confirmation ? { heardSummary: current && turn?.heardSummary === true } : {}),
       });
       if (this.closed) return;
       if (!isObject(result) || typeof result.output !== 'string' || typeof result.awaitingConfirmation !== 'boolean'
@@ -594,6 +618,7 @@ class CallStream {
       // Only a summary the server speaks word for word counts as heard: a model reply could say anything.
       const summary = typeof result.summaryText === 'string' && result.summaryText.trim() ? result.summaryText : null;
       this.summaryNext = Boolean(summary);
+      if (summary) this.summaryPlayback = null;
       this.send(this.provider, {
         type: 'conversation.item.create',
         item: { type: 'function_call_output', call_id: event.call_id, output: result.output },
