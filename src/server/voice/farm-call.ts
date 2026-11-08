@@ -24,6 +24,7 @@ import { applyVoiceEvent, parseVoiceEvent, type VoiceContext, type VoiceOutcome 
 import { logVoiceTurn } from "./diagnostics";
 import { mapSpeechToInput, unknownReply } from "./speech";
 import { newRealtimeState, realtimeOf } from "./realtime/state";
+import { rememberCallWorkspace } from "./realtime/call-workspace";
 import { buildInstructions } from "./realtime/instructions";
 import { promptFor } from "./realtime/tools";
 import { signRealtimeTicket } from "./realtime/ticket";
@@ -353,6 +354,7 @@ export async function answerReportCall(client: SupabaseClient, input: { token: R
   if (state) {
     const current = promptFor(result.session, spokenLines(result.session, result.session.turns.length - 1, workspace, locale), workspace, locale);
     state.instructions = buildInstructions(locale, { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name }, current);
+    rememberCallWorkspace(callSid, workspace, now);
   }
   const stored = withoutTranscript(result.session);
   const row = await createVoiceSession(client, {

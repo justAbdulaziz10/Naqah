@@ -92,6 +92,7 @@ class CallStream {
     this.logger = logger;
     this.abort = new AbortController();
     this.timers = new Map();
+    this.createdAt = Date.now();
     this.droppedEarlyFrames = 0;
     this.responseAudible = false;
     this.marks = new Map();
@@ -130,7 +131,7 @@ class CallStream {
   /** `detail` holds short labels and counts only: never audio, transcripts or message text. */
   log(event, detail = {}) {
     this.logger({
-      call: this.callSid?.slice(-6) || '', event,
+      call: this.callSid?.slice(-6) || '', event, ms: Date.now() - this.createdAt,
       inputFrames: this.inputFrames, outputFrames: this.outputFrames, tools: this.toolIds.size, ...detail,
     });
   }
@@ -278,6 +279,7 @@ class CallStream {
           session: {
             type: 'realtime', model: REALTIME_MODEL, output_modalities: ['audio'],
             instructions: this.session.instructions, tools: this.session.tools, tool_choice: 'auto',
+            reasoning: { effort: 'minimal' },
             audio: {
               input: {
                 format: { type: 'audio/pcmu' },

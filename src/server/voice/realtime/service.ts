@@ -11,6 +11,7 @@ import { readVoiceSession, type VoiceSessionRow } from "@/server/db/voice-sessio
 import type { CallToken } from "@/server/calls/token";
 import { advanceRow, boundElsewhere, planTurn, spokenLines, type TurnPlan, type VoiceCallSession } from "../farm-call";
 import { twimlGoodbye } from "../twiml";
+import { callWorkspace, forgetCallWorkspace, rememberCallWorkspace } from "./call-workspace";
 import { buildInstructions } from "./instructions";
 import { claimRealtime, closeRealtime, realtimeOf, rememberResult, withRealtime, type RealtimeState, type ToolResponse } from "./state";
 import { REALTIME_MAX_SECONDS, TICKET_CALL_MS, TICKET_CLAIM_MS, verifyRealtimeTicket, type RealtimeTicket } from "./ticket";
@@ -26,9 +27,9 @@ const ENDED: Record<Locale, string> = {
 
 const stringify = (value: object) => JSON.stringify(value);
 
-function logTool(callSid: string, name: unknown, result: string): void {
+function logTool(callSid: string, name: unknown, result: string, tookMs: number): void {
   const tool = name === "answer_question" || name === "confirm_report" || name === "end_call" ? name : "invalid";
-  console.info(`[NAQAH] realtime tool call=${callSid.slice(-6)} name=${tool} result=${result}`);
+  console.info(`[NAQAH] realtime tool call=${callSid.slice(-6)} name=${tool} result=${result} ms=${tookMs}`);
 }
 
 export function fallbackResult(): ToolResponse {
@@ -50,8 +51,12 @@ function ticketMatches(ticket: RealtimeTicket, row: VoiceSessionRow, realtime: R
   return row.session.done || row.session.data.reportCallId === ticket.r;
 }
 
-async function farmOf(client: SupabaseClient, row: VoiceSessionRow): Promise<Workspace> {
-  return requireFarm(await loadFarm(client, { id: row.farm_id })).workspace;
+async function farmOf(client: SupabaseClient, row: VoiceSessionRow, now: Date): Promise<Workspace> {
+  const held = callWorkspace(row.call_sid, now);
+  if (held) return held;
+  const { workspace } = requireFarm(await loadFarm(client, { id: row.farm_id }));
+  rememberCallWorkspace(row.call_sid, workspace, now);
+  return workspace;
 }
 
 export type OpenedSession = {
@@ -72,7 +77,7 @@ export async function openRealtimeSession(client: SupabaseClient, body: Record<s
   if (!ticketMatches(ticket, row, realtime) || realtime.claimedAt || realtime.closed) return null;
   let instructions = row.seq === 0 ? realtime.instructions : undefined;
   if (!instructions) {
-    const workspace = await farmOf(client, row);
+    const workspace = await farmOf(client, row, now);
     const current = promptFor(row.session, spokenLines(row.session, row.session.turns.length - 1, workspace, row.locale), workspace, row.locale);
     instructions = buildInstructions(row.locale, { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name }, current);
   }
@@ -132,6 +137,7 @@ const inputFor = (check: Extract<ToolCheck, { ok: true }>): AnswerInput | null =
 
 /** Null is a refusal: the ticket is bad, unclaimed or for another call. */
 export async function runRealtimeTool(client: SupabaseClient, body: ToolBody, secret: string, now: Date): Promise<ToolResponse | null> {
+  const started = Date.now();
   const ticket = verifyRealtimeTicket(body.ticket, secret, now.getTime(), TICKET_CALL_MS);
   if (!ticket || body.callSid !== ticket.sid) return null;
   try {
@@ -147,7 +153,7 @@ export async function runRealtimeTool(client: SupabaseClient, body: ToolBody, se
 
     const check = checkTool(body.name, body.args, body.userSpokeSinceLastTool, row.session, row.locale);
     if (!check.ok) {
-      logTool(body.callSid, body.name, check.error);
+      logTool(body.callSid, body.name, check.error, Date.now() - started);
       return refusal(check.error, row);
     }
 
@@ -157,7 +163,7 @@ export async function runRealtimeTool(client: SupabaseClient, body: ToolBody, se
     let workspace: Workspace | null = null;
     let plan: TurnPlan;
     if (chosen) {
-      workspace = await farmOf(client, row);
+      workspace = await farmOf(client, row, now);
       plan = await planTurn(client, row, session, workspace, chosen, now);
     } else {
       plan = endedPlan(row, session);
@@ -165,8 +171,9 @@ export async function runRealtimeTool(client: SupabaseClient, body: ToolBody, se
     const result = workspace ? resultOf(plan, session, workspace, row.locale) : finished("ended_without_saving", plan.goodbye!);
     const stored = withRealtime(plan.session, rememberResult(realtime, body.toolCallId, result, plan.session.done));
     const saved = await advanceRow(client, row, stored, plan.misses, plan.response, plan.onAdvanced);
+    if (plan.session.done) forgetCallWorkspace(ticket.sid);
     if (saved) {
-      logTool(body.callSid, body.name, plan.outcome);
+      logTool(body.callSid, body.name, plan.outcome, Date.now() - started);
       return result;
     }
     // Another request moved the call first. If it was this same tool call, its result stands.
@@ -175,7 +182,7 @@ export async function runRealtimeTool(client: SupabaseClient, body: ToolBody, se
     if (replay) return replay.result;
     if (!latest) return finished("call_ended", ENDED[ticket.l]);
     if (latest.session.done) return realtimeOf(latest.session)?.recent.at(-1)?.result ?? finished("call_ended", ENDED[latest.locale]);
-    const current = await farmOf(client, latest);
+    const current = await farmOf(client, latest, now);
     const prompt = promptFor(latest.session, spokenLines(latest.session, latest.session.turns.length - 1, current, latest.locale), current, latest.locale);
     return { ...refusal("state_changed", latest), output: stringify({ status: "invalid", error: "state_changed", ...prompt }) };
   } catch (error) {

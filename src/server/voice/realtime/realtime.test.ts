@@ -18,6 +18,8 @@ import { checkTool, REALTIME_TOOLS } from "./tools";
 const mock = vi.hoisted(() => ({ client: vi.fn(), load: vi.fn(), save: vi.fn(), find: vi.fn(), recorded: vi.fn(), owner: vi.fn(), after: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/server/db/service-client", () => ({ createServiceClient: mock.client }));
+import { callWorkspace, forgetCallWorkspace } from "./call-workspace";
+
 vi.mock("@/server/db/queries", async (original) => ({ ...(await original<typeof import("@/server/db/queries")>()), loadFarm: mock.load }));
 vi.mock("@/server/db/service-repository", async (original) => ({
   ...(await original<typeof import("@/server/db/service-repository")>()), findReportCallRun: mock.find, recordedOutcome: mock.recorded,
@@ -144,6 +146,7 @@ function firstPrompt(opened: { instructions: string }): Prompt {
 }
 
 beforeEach(() => {
+  forgetCallWorkspace(CALL);
   vi.useFakeTimers({ toFake: ["Date"], now: NOW });
   vi.stubEnv("NAQAH_VOICE_MODE", "farm");
   vi.stubEnv("NAQAH_VOICE_ENGINE", "realtime");
@@ -310,6 +313,7 @@ describe("ticket", () => {
   it("does not spend the ticket when the farm can't be loaded", async () => {
     const ticketValue = ticketIn(await answerCall());
     delete row().session.realtime.instructions;
+    forgetCallWorkspace(CALL);
     mock.load.mockRejectedValueOnce(new Error("down"));
     expect((await sessionRoute(signed("/api/voice/realtime/session", { ticket: ticketValue, callSid: CALL }))).status).toBe(503);
     expect((await sessionRoute(signed("/api/voice/realtime/session", { ticket: ticketValue, callSid: CALL }))).status).toBe(200);
@@ -326,6 +330,7 @@ describe("ticket", () => {
     const ticketValue = ticketIn(await answerCall());
     row().seq = 1;
     row().session.realtime.instructions = "obsolete";
+    forgetCallWorkspace(CALL);
     mock.load.mockClear();
     const response = await sessionRoute(signed("/api/voice/realtime/session", { ticket: ticketValue, callSid: CALL }));
     expect(response.status).toBe(200);
@@ -566,6 +571,7 @@ describe("tool calls on a live call", () => {
 
   it("falls back on a database failure, without claiming a save", async () => {
     const { ticket, opened } = await open();
+    forgetCallWorkspace(CALL);
     mock.load.mockRejectedValueOnce(new Error("down"));
     const seq = row().seq;
     const failed = await tool(ticket, "answer_question", { value: firstPrompt(opened).replies[0].value });
@@ -606,6 +612,18 @@ describe("tool calls on a live call", () => {
     const logged = info.mock.calls.flat().join(" ");
     expect(logged).not.toContain("secret-value");
     expect(logged).not.toContain(CALL);
+  });
+});
+
+describe("per-call farm", () => {
+  it("loads the farm at most once for a whole call, and forgets it when the call ends", async () => {
+    const { ticket, opened } = await open();
+    mock.load.mockClear();
+    await reachSummary(ticket, firstPrompt(opened));
+    expect(mock.load.mock.calls.length).toBeLessThanOrEqual(1);
+    await tool(ticket, "confirm_report", { confirmed: true });
+    mock.load.mockClear();
+    expect(callWorkspace(CALL, new Date())).toBeNull();
   });
 });
 
