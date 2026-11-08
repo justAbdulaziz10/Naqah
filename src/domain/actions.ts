@@ -267,8 +267,15 @@ export function submitOwnerInstruction(
   return { ws, pendingCallId: pending.id, taskId };
 }
 
-/** Phase 7/8: at a task's scheduled time the AI calls the worker to verify completion. */
+/**
+ * Phase 7/8: at a task's scheduled time the AI calls the worker to verify completion.
+ * One call record per task. A repeated call returns that record and does not add another.
+ */
 export function startTaskVerification(input: Workspace, now: Date, taskId: string): { ws: Workspace; pendingCallId: string } {
+  const existing = input.pendingWorkerCalls.find(
+    (call) => call.purpose === "task_verification" && call.taskTicketId === taskId,
+  );
+  if (existing) return { ws: clone(input), pendingCallId: existing.id };
   const ws = clone(input);
   const task = ws.taskTickets.find((t) => t.id === taskId);
   const pending: PendingWorkerCall = {

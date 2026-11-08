@@ -92,14 +92,22 @@ export function overdueScheduledTasks(ws: Workspace, now: Date) {
   );
 }
 
-/** Ultimate: scheduled tasks ready for a verification call, except those with a pending call. */
+/**
+ * One verification cycle per scheduled task, once its time has come and its
+ * instruction has been delivered. Any existing verification call — pending,
+ * delivered, or exhausted — blocks another cycle. Retries stay on that call.
+ */
 export function dueTaskVerifications(ws: Workspace, now: Date) {
-  const pendingTaskIds = new Set(
-    ws.pendingWorkerCalls
-      .filter((call) => call.purpose === "task_verification" && call.state === "pending")
-      .map((call) => call.taskTicketId),
+  const verificationTaskIds = new Set<string>();
+  const instructionAwaitingDelivery = new Set<string>();
+  for (const call of ws.pendingWorkerCalls) {
+    if (!call.taskTicketId) continue;
+    if (call.purpose === "task_verification") verificationTaskIds.add(call.taskTicketId);
+    if (call.purpose === "instruction" && call.state !== "delivered") instructionAwaitingDelivery.add(call.taskTicketId);
+  }
+  return overdueScheduledTasks(ws, now).filter(
+    (task) => !verificationTaskIds.has(task.id) && !instructionAwaitingDelivery.has(task.id),
   );
-  return overdueScheduledTasks(ws, now).filter((task) => !pendingTaskIds.has(task.id));
 }
 
 /** Worker calls with a retry due at or before `now`. */
