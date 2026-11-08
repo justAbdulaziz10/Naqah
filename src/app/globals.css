@@ -160,6 +160,16 @@
   .naqah-rise {
     animation: naqah-rise 480ms var(--ease-expo) 80ms both;
   }
+  /* Data visuals: what has happened draws in along the reading direction once, then "now" settles. */
+  .naqah-draw {
+    animation: naqah-draw 720ms var(--ease-expo) 120ms both;
+  }
+  .naqah-draw:dir(rtl) {
+    animation-name: naqah-draw-rtl;
+  }
+  .naqah-pop {
+    animation: naqah-pop 420ms var(--ease-expo) 560ms both;
+  }
   /* The hero photograph settles once on arrival; no perpetual zoom. */
   .naqah-settle img {
     animation: naqah-settle 1600ms var(--ease-soft) both;
@@ -183,6 +193,31 @@
   from {
     opacity: 0;
     translate: 0 8px;
+  }
+}
+
+@keyframes naqah-draw {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes naqah-draw-rtl {
+  from {
+    clip-path: inset(0 0 0 100%);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes naqah-pop {
+  from {
+    opacity: 0;
+    scale: 0.4;
   }
 }
 

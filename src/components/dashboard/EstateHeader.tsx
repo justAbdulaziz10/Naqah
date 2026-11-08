@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { CamelMark } from "@/components/brand/CamelMark";
 import { ButtonLink } from "@/components/ui";
 import { WeatherLine } from "@/components/dashboard/WeatherLine";
+import { cn } from "@/lib/cn";
 
 export type EstateTone = "calm" | "attention" | "unanswered" | "quiet";
 
@@ -30,12 +31,15 @@ export function EstateHeader({
   state,
   tone,
   action,
+  rhythm,
   facts,
 }: {
   name: string;
   state: string;
   tone: EstateTone;
   action: { href: string; label: string } | null;
+  /** Latest report → now → next report call, drawn to scale. Replaces those two facts when present. */
+  rhythm?: ReactNode;
   facts: EstateFact[];
 }) {
   return (
@@ -53,15 +57,20 @@ export function EstateHeader({
         </div>
         {action ? <ButtonLink href={action.href} variant="light" className="w-full sm:w-auto">{action.label}</ButtonLink> : null}
       </div>
-      {facts.length ? (
-        <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5 border-t border-cream/15 pt-5 lg:grid-flow-col lg:auto-cols-fr lg:grid-cols-none lg:gap-x-10">
-          {facts.map((fact) => (
-            <div key={fact.key} className="min-w-0">
-              <dt className="text-sm text-cream/75">{fact.label}</dt>
-              <dd className="mt-1">{fact.content}</dd>
-            </div>
-          ))}
-        </dl>
+      {rhythm || facts.length ? (
+        <div className={cn("mt-6 grid gap-x-12 gap-y-6 border-t border-cream/15 pt-5", rhythm && "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]")}>
+          {rhythm}
+          {facts.length ? (
+            <dl className={cn("grid grid-cols-2 gap-x-6 gap-y-5", !rhythm && "lg:grid-flow-col lg:auto-cols-fr lg:grid-cols-none lg:gap-x-10", rhythm && "lg:pt-6")}>
+              {facts.map((fact) => (
+                <div key={fact.key} className="min-w-0">
+                  <dt className="text-sm text-cream/75">{fact.label}</dt>
+                  <dd className="mt-1">{fact.content}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+        </div>
       ) : null}
       <WeatherLine className="mt-4 text-sm leading-relaxed text-cream/75" />
     </section>

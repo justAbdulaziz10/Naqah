@@ -8,7 +8,8 @@ import { isCompleteCallSchedule } from "@/domain/schedule";
 import type { Workspace } from "@/domain/types";
 import { allWorkers } from "@/domain/workers";
 import { useI18n } from "@/i18n/client";
-import { useIsAccount } from "@/store/workspace";
+import { useIsAccount, useNow } from "@/store/workspace";
+import { WeekStrip } from "@/components/visuals/WeekStrip";
 import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { getCallSetupGaps } from "../CallSetupStatus";
 import { QuestionsFields } from "../fields/QuestionsFields";
@@ -88,6 +89,7 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
   const scheduledCalls = useScheduledCallsOn();
   const r = m.setup.ready;
   const call = useCallSentence(ws);
+  const now = useNow();
   const { owner, farm, plan, worker, herdCount, customQuestions } = ws.settings;
   const workers = allWorkers(ws.settings).filter((item) => item.name.trim() || item.phone.trim());
   const gaps = getCallSetupGaps(ws);
@@ -117,7 +119,10 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
         <SummaryRow label={r.herd} step="team" onEdit={onEdit}>
           {herdCount === null || herdCount === undefined ? notSet : r.camels(fmt.number(herdCount))}
         </SummaryRow>
-        <SummaryRow label={r.call} step="call" onEdit={onEdit}>{call ? call.sentence : notSet}</SummaryRow>
+        <SummaryRow label={r.call} step="call" onEdit={onEdit}>
+          {call ? call.sentence : notSet}
+          {call ? <WeekStrip plan={plan} schedule={ws.settings.callSchedule} now={now} className="mt-3 max-w-sm" /> : null}
+        </SummaryRow>
         <SummaryRow label={r.questions} step="call" onEdit={onEdit}>{r.questionsValue(customQuestions.length)}</SummaryRow>
         <SummaryRow label={r.plan} onEdit={onEdit}>
           <span className="font-semibold">{m.common.plans[plan]}</span>

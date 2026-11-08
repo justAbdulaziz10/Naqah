@@ -9,6 +9,7 @@ import { EMERGENCY_LABELS, RESOURCE_LABELS, levelLabel } from "@/domain";
 import type { Camel, FarmReport, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
+import { HerdHealthBar } from "@/components/visuals/HerdHealthBar";
 import { ReportAnswers } from "./ReportAnswers";
 
 const ROSTER_LIMIT = 8;
@@ -45,13 +46,6 @@ function SectionLink({ href, children }: { href: string; children: ReactNode }) 
 function HerdRoster({ ws, hasReport }: { ws: Workspace; hasReport: boolean }) {
   const { m, fmt, href } = useI18n();
   const app = m.app;
-  const count = (health: Camel["health"]) => ws.camels.filter((camel) => camel.health === health).length;
-  // Healthy is the quiet default, so the line names only what isn't.
-  const parts: [number, string][] = [
-    [count("watch"), app.overview.watch],
-    [count("sick"), app.overview.sick],
-    [count("unknown"), app.overview.unknown],
-  ];
   const roster = [...ws.camels].sort((a, b) => concern[a.health] - concern[b.health]).slice(0, ROSTER_LIMIT);
   const hidden = ws.camels.length - roster.length;
   // Before any report, "unknown" says nothing new: the herd is listed by name only.
@@ -62,16 +56,10 @@ function HerdRoster({ ws, hasReport }: { ws: Workspace; hasReport: boolean }) {
       id="ledger-herd"
       title={app.herd.title}
       className="lg:col-span-7"
-      note={ws.camels.length ? (
-        <>
-          <span className="whitespace-nowrap">{app.herd.count(fmt.number(ws.camels.length))}</span>
-          {hasReport ? parts.filter(([value]) => value > 0).map(([value, label]) => (
-            <span key={label}> <span className="whitespace-nowrap"><span aria-hidden>· </span><span className="ltr-nums">{fmt.number(value)}</span> {label}</span></span>
-          )) : null}
-        </>
-      ) : undefined}
+      note={ws.camels.length ? <span className="whitespace-nowrap">{app.herd.count(fmt.number(ws.camels.length))}</span> : undefined}
       action={ws.camels.length ? <SectionLink href={href("/app/herd")}>{app.overview.viewHerd}</SectionLink> : undefined}
     >
+      {hasReport ? <HerdHealthBar camels={ws.camels} className="mb-3" /> : null}
       {roster.length ? (
         <ul className="grid gap-x-8 sm:grid-cols-2">
           {roster.map((camel) => (

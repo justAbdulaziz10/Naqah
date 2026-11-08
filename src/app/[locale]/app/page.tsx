@@ -10,6 +10,7 @@ import { estateMatters } from "@/components/dashboard/matters";
 import { useCallSentence } from "@/components/schedule/ReportCallSection";
 import { lastReportAt, openNoAnswerTickets, openTaskTickets, ownerAllowanceUsed, routeOwnerInboundCall, sameWeek } from "@/domain";
 import { useI18n } from "@/i18n/client";
+import { TimeRail } from "@/components/visuals/TimeRail";
 import { CallSetupStatus, formatSaudiMobile, getCallSetupGaps } from "@/components/setup";
 import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
@@ -24,6 +25,7 @@ export default function OverviewPage() {
   const { m, fmt, href } = useI18n();
   const app = m.app;
   const d = m.setup.dashboard;
+  const v = m.visual;
   const ws = useWorkspace();
   const now = useNow();
   const call = useCallSentence(ws);
@@ -61,8 +63,35 @@ export default function OverviewPage() {
     (item) => item.kind === "owner_inquiry" && item.summary.en === "Owner called back after a missed notification" && sameWeek(item.at, now),
   );
 
+  const callNow = <ReportCallNow ws={ws} worker={worker} now={now} />;
+  const next = call?.next ?? null;
+  // Drawn to scale whenever the next call is known; otherwise the two plain facts below say it.
+  const rhythm = next ? (
+    <TimeRail
+      tone="dark"
+      now={now}
+      label={reportAt
+        ? v.rhythm.label(fmt.dateTime(reportAt, dateTime), fmt.dateTime(next, dateTime))
+        : v.rhythm.firstLabel(fmt.dateTime(next, dateTime))}
+      start={reportAt ? {
+        at: reportAt,
+        label: app.overview.lastUpdateLabel,
+        value: fmt.relative(reportAt, now),
+        detail: <time className="ltr-nums" dateTime={reportAt}>{fmt.dateTime(reportAt, dateTime)}</time>,
+      } : null}
+      startValue={v.rhythm.noReport}
+      end={{
+        at: next,
+        label: scheduledOff ? d.plannedCall : d.nextCall,
+        value: <time className="ltr-nums" dateTime={next.toISOString()}>{fmt.dateTime(next, dayTime)}</time>,
+        detail: scheduledOff ? d.scheduledOff : <>{fmt.dateTime(next, dayMonth)} · {fmt.relative(next, now)}</>,
+        extra: callNow,
+      }}
+    />
+  ) : null;
+
   const facts: EstateFact[] = [];
-  if (reportAt) {
+  if (!rhythm && reportAt) {
     facts.push({
       key: "last",
       label: app.overview.lastUpdateLabel,
@@ -76,24 +105,18 @@ export default function OverviewPage() {
       ),
     });
   }
-  facts.push({
-    key: "next",
-    label: scheduledOff ? d.plannedCall : d.nextCall,
-    content: call ? (
-      <>
-        <p className="text-lg font-semibold leading-snug">
-          <time className="ltr-nums" dateTime={call.next.toISOString()}>{fmt.dateTime(call.next, dayTime)}</time>
-        </p>
-        <p className="mt-1 text-sm text-cream/75">{scheduledOff ? d.scheduledOff : <>{fmt.dateTime(call.next, dayMonth)} · {fmt.relative(call.next, now)}</>}</p>
-        <ReportCallNow ws={ws} worker={worker} now={now} />
-      </>
-    ) : (
-      <>
-        <p className="text-lg font-semibold leading-snug">{d.noCallTime}</p>
-        <ReportCallNow ws={ws} worker={worker} now={now} />
-      </>
-    ),
-  });
+  if (!rhythm) {
+    facts.push({
+      key: "next",
+      label: scheduledOff ? d.plannedCall : d.nextCall,
+      content: (
+        <>
+          <p className="text-lg font-semibold leading-snug">{d.noCallTime}</p>
+          {callNow}
+        </>
+      ),
+    });
+  }
   facts.push({
     key: "worker",
     label: app.overview.primaryWorker,
@@ -124,7 +147,7 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-4 pb-8">
-      <EstateHeader name={estateName} state={state} tone={tone} action={action} facts={facts} />
+      <EstateHeader name={estateName} state={state} tone={tone} action={action} rhythm={rhythm} facts={facts} />
 
       <CallSetupStatus ws={ws} />
 

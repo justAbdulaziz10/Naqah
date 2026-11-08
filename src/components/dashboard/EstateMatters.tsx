@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { CertaintyBadge, HealthBadge, noAnswerAttemptInfo } from "@/components/dashboard/DashboardPrimitives";
 import type { NoAnswerTicket, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
+import { AttemptDots } from "@/components/visuals/AttemptDots";
 import { isHerdFinding, type EstateMatter, type MatterInstruction } from "./matters";
 
 const ROW_LIMIT = 4;
@@ -82,6 +83,7 @@ function UnansweredRow({ ws, ticket, worker }: { ws: Workspace; ticket: NoAnswer
       <div className="min-w-0">
         <p className="text-lg font-semibold leading-snug text-espresso">{m.app.overview.workerMissedAttempts(worker, fmt.number(info.count))}</p>
         <p className="mt-1 leading-relaxed text-espresso">{ticket.message}</p>
+        <AttemptDots count={info.count} label={m.visual.tasks.attempts(fmt.number(info.count))} className="mt-2" />
         <p className="mt-1 text-sm text-muted">{m.app.overview.workerMayCallBack}</p>
       </div>
     </li>

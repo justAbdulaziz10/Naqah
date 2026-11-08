@@ -5,6 +5,8 @@ import { MagnifyingGlass, PencilSimple, Plus } from "@phosphor-icons/react";
 import { CamelEditorDialog, type CamelFormValues } from "@/components/dashboard/CamelEditorDialog";
 import { CertaintyBadge, EmptyState, HealthBadge } from "@/components/dashboard/DashboardPrimitives";
 import { useHashTarget } from "@/components/dashboard/useHashTarget";
+import { HERD_DOTS_MAX, HerdDots } from "@/components/visuals/HerdDots";
+import { HerdHealthBar } from "@/components/visuals/HerdHealthBar";
 import { Button, Card, ConfirmDialog, IconButton, Input, Segmented } from "@/components/ui";
 import { uid } from "@/domain/id";
 import { CERTAINTY_LABELS } from "@/domain";
@@ -116,7 +118,8 @@ export default function HerdPage() {
 
   const provenance = (camel: Camel) => {
     const certainty = camel.certainty !== usualCertainty;
-    const time = updated(camel) !== usualUpdate;
+    // A camel being followed always shows when it was last noted.
+    const time = updated(camel) !== usualUpdate || camel.health === "watch" || camel.health === "sick";
     if (!certainty && !time) return null;
     return (
       <span className="mt-0.5 flex flex-wrap gap-x-2 text-[0.8125rem] text-muted">
@@ -127,6 +130,7 @@ export default function HerdPage() {
   };
 
   const herdCount = ws.settings.herdCount;
+  const herdDots = Math.max(herdCount ?? 0, ws.camels.length) <= HERD_DOTS_MAX;
   const parts = (values: (string | null | false)[]) => values.filter((part): part is string => Boolean(part));
   const counts = parts([
     Boolean(herdCount) && m.app.herd.total(fmt.number(herdCount ?? 0)),
@@ -172,6 +176,8 @@ export default function HerdPage() {
           </Button>
         ) : null}
       </header>
+
+      {herdDots ? <HerdDots camels={ws.camels} herdCount={herdCount} /> : <HerdHealthBar camels={ws.camels} />}
 
       {ws.camels.length ? (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

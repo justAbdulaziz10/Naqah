@@ -9,6 +9,7 @@ import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useNow } from "@/store/workspace";
 import { StepField, StepInput, StepSelect } from "@/components/setup/onboarding/WizardParts";
+import { WeekStrip } from "@/components/visuals/WeekStrip";
 import type { SetupFieldsProps } from "@/components/setup/types";
 
 /**
@@ -54,6 +55,7 @@ export function ReportCallFields({ ws, onChange, showErrors = false }: SetupFiel
   const schedule = ws.settings.callSchedule ?? null;
   const complete = isCompleteCallSchedule(plan, schedule);
   const summary = useCallSentence(ws);
+  const now = useNow();
   // Shown once the owner tries to continue (or has started choosing and left the day out).
   const needsDay = weekly && (schedule?.day ?? null) === null && (showErrors || Boolean(schedule?.time));
   const needsTime = showErrors && !schedule?.time;
@@ -103,13 +105,16 @@ export function ReportCallFields({ ws, onChange, showErrors = false }: SetupFiel
         </StepField>
       </div>
 
-      <div aria-live="polite" className={complete && summary ? "border-t border-stone/80 pt-5" : undefined}>
-        {complete && summary ? (
-          <>
-            <p className="text-[1.1875rem] font-semibold leading-snug text-espresso">{summary.sentence}</p>
-            <p className="mt-1 text-[0.9375rem] text-muted">{s.next(summary.when)}</p>
-          </>
-        ) : null}
+      <div className="border-t border-stone/80 pt-5">
+        <WeekStrip plan={plan} schedule={schedule} now={now} className="max-w-md" />
+        <div aria-live="polite">
+          {complete && summary ? (
+            <div className="mt-5">
+              <p className="text-[1.1875rem] font-semibold leading-snug text-espresso">{summary.sentence}</p>
+              <p className="mt-1 text-[0.9375rem] text-muted">{s.next(summary.when)}</p>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );
