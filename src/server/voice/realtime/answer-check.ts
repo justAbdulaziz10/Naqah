@@ -20,6 +20,19 @@ function yesNeedsWords(session: CallSession, input: AnswerInput): boolean {
 }
 
 /**
+ * «لا ما فيه مريض» means every camel is fine, and the model reads it either way. On the herd-health
+ * question the worker's clear words decide. A bare «لا» depends on how the question was put, so it stays with the model.
+ */
+export function herdAnswerFromWords(session: CallSession, input: AnswerInput, heard: string | null, locale: Locale): AnswerInput {
+  if (!heard || session.step !== "report_question" || input.value === undefined) return input;
+  const item = session.data.queue?.[session.data.reportIndex ?? 0];
+  if (item?.kind !== "predefined" || item.answerKind !== "herd-health") return input;
+  if (normalizeSpeech(heard).replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(" ").length < 2) return input;
+  const value = mapSpeechToInput(session, heard, null, locale)?.value;
+  return value === "yes" || value === "no" ? { value } : input;
+}
+
+/**
  * Null lets the answer through. `heard` is the worker's final transcript: empty when speech
  * recognition failed, null when the caller has none.
  */

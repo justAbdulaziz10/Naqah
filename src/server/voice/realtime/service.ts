@@ -12,7 +12,7 @@ import type { CallToken } from "@/server/calls/token";
 import { advanceRow, boundElsewhere, planTurn, spokenLines, type TurnPlan, type VoiceCallSession } from "../farm-call";
 import { twimlGoodbye } from "../twiml";
 import { callWorkspace, forgetCallWorkspace, rememberCallWorkspace } from "./call-workspace";
-import { ANSWER_REFUSAL_MESSAGE, refuseAnswer } from "./answer-check";
+import { ANSWER_REFUSAL_MESSAGE, herdAnswerFromWords, refuseAnswer } from "./answer-check";
 import { isVerifiedConfirmation } from "./confirmation";
 import { buildInstructions } from "./instructions";
 import { claimRealtime, closeRealtime, realtimeOf, recordConfirmationFailure, rememberResult, withRealtime, type RealtimeState, type ToolResponse } from "./state";
@@ -190,6 +190,7 @@ export async function runRealtimeTool(client: SupabaseClient, body: ToolBody, se
     }
     if (check.action.kind === "answer") {
       const held = await farmOf(client, row, now);
+      check.action.input = herdAnswerFromWords(row.session, check.action.input, body.workerUtterance ?? "", row.locale);
       const refused = refuseAnswer(row.session, check.action.input, body.workerUtterance ?? "", row.locale, held.camels.map((camel) => camel.name));
       if (refused) {
         logTool(body.callSid, body.name, refused, Date.now() - started);

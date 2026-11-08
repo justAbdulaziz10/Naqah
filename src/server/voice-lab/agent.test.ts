@@ -259,12 +259,14 @@ describe("Voice Lab asks instead of guessing", () => {
       expect(result.session.draft).toEqual(session.draft);
       session = result.session;
     }
-    let { session: first } = open();
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const result = runLabTool({ session: first, ws, locale: "ar", name: "answer_question", args: { value: "no" }, spoke: true, heard: "كلها بخير", now });
-      expect(result.refused).toBe("answer_conflicts_with_words");
-      first = result.session;
-    }
+  });
+
+  it("follows the worker's clear words on the herd-health question, as a real call does", () => {
+    const { session } = open();
+    const result = runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { value: "no" }, spoke: true, heard: "لا ما فيه مريض", now });
+    expect(result.refused).toBeNull();
+    expect(result.session.step).not.toBe("health_pick");
+    expect(result.session.draft.camelUpdates.every((update) => update.health === "healthy")).toBe(true);
   });
 
   it("never records a healthy herd from words about something else", () => {

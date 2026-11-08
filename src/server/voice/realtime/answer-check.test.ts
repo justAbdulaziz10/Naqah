@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { answer, start, type CallSession } from "@/domain/conversation/engine";
 import { fromRiyadh } from "@/domain/clock";
 import { createDemoWorkspace } from "@/domain/seed";
-import { refuseAnswer } from "./answer-check";
+import { herdAnswerFromWords, refuseAnswer } from "./answer-check";
 
 const NOW = fromRiyadh(2026, 11, 5, 17, 10);
 
@@ -37,6 +37,15 @@ describe("worker words against the chosen answer", () => {
     expect(refuseAnswer(health, { value: "yes" }, "", "ar")).toBe("answer_unclear");
     expect(refuseAnswer(health, { value: "unknown" }, "ما أدري", "ar")).toBeNull();
     expect(refuseAnswer(health, { value: "no" }, "وحدة تعبانة", "ar")).toBeNull();
+  });
+
+  it("lets the worker's clear words decide the herd-health answer", () => {
+    expect(herdAnswerFromWords(health, { value: "no" }, "لا ما فيه مريض", "ar")).toEqual({ value: "yes" });
+    expect(herdAnswerFromWords(health, { value: "yes" }, "وحدة تعبانة", "ar")).toEqual({ value: "no" });
+    expect(herdAnswerFromWords(health, { value: "unknown" }, "الجو حار اليوم", "ar")).toEqual({ value: "unknown" });
+    expect(herdAnswerFromWords(health, { value: "no" }, "لا", "ar")).toEqual({ value: "no" });
+    expect(herdAnswerFromWords(health, { value: "no" }, "", "ar")).toEqual({ value: "no" });
+    expect(herdAnswerFromWords(feed, { value: "low" }, "لا ما فيه مريض", "ar")).toEqual({ value: "low" });
   });
 
   it("treats a camel name as the topic", () => {

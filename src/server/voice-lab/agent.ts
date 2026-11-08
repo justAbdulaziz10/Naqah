@@ -13,6 +13,7 @@ import { buildInstructions } from "@/server/voice/realtime/instructions";
 import { checkTool, promptFor, SUMMARY_STEP } from "@/server/voice/realtime/tools";
 import { spokenWording } from "@/server/voice/twiml";
 import { isVerifiedConfirmation } from "@/server/voice/realtime/confirmation";
+import { herdAnswerFromWords } from "@/server/voice/realtime/answer-check";
 import { reviewAnswer, type LabSession } from "./answer-guards";
 
 export const LAB_RUN_ID = "00000000-0000-4000-8000-00000000f001";
@@ -208,6 +209,7 @@ export function runLabTool(input: { session: LabSession; ws: Workspace; locale: 
 
   const atSummary = session.step === SUMMARY_STEP;
   if (check.action.kind === "answer") {
+    check.action.input = herdAnswerFromWords(session, check.action.input, heard, locale);
     const review = reviewAnswer({ session, input: check.action.input, heard, locale, camelNames: ws.camels.map((camel) => camel.name) });
     if (review) {
       const output = { status: "invalid", error: review.error, message: "Nothing was recorded. Ask the worker this, in your own words, then wait for their answer.", clarify: review.clarify };

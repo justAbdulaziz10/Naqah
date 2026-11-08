@@ -490,6 +490,14 @@ describe("tool calls on a live call", () => {
     expect(row().session.draft.camelUpdates).toHaveLength(0);
   });
 
+  it("records all camels well when the worker said none is sick, even if the model picked no", async () => {
+    const { ticket } = await open();
+    const result = await tool(ticket, "answer_question", { value: "no" }, { workerUtterance: "لا ما فيه مريض" });
+    expect(result.output.status).toBe("ok");
+    expect(row().session.step).not.toBe("health_pick");
+    expect(row().session.draft.camelUpdates.every((update: { health: string }) => update.health === "healthy")).toBe(true);
+  });
+
   it("applies a repeated toolCallId once, and returns its first result", async () => {
     const { ticket, opened } = await open();
     const value = firstPrompt(opened).replies[0].value;
