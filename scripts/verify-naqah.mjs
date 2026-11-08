@@ -37,7 +37,7 @@ const readWs = (page) => page.evaluate(() => JSON.parse(localStorage.getItem("na
 
 async function startDemo(page, locale, plan = "ultimate") {
   await page.goto(`${BASE}/${locale}/app`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: locale === "ar" ? "جرّب العرض" : "Explore the demo" }).first().click();
+  await page.getByRole("button", { name: locale === "ar" ? "استكشف العرض التجريبي" : "Explore the demo" }).first().click();
   await page.waitForFunction(() => !!localStorage.getItem("naqah-workspace-v1")?.includes('"setupComplete":true'), null, { timeout: 10_000 });
   if (plan !== "ultimate") throw new Error("only the ultimate sample is started by the gate button");
 }
@@ -127,7 +127,7 @@ const commands = {
       await startDemo(page, LOCALE);
       const before = await readWs(page);
       await page.goto(`${BASE}/${LOCALE}/app/lab`, { waitUntil: "networkidle" });
-      await page.getByRole("button", { name: LOCALE === "ar" ? "بدء التجربة" : "Start preview" }).click();
+      await page.getByRole("button", { name: LOCALE === "ar" ? "اتصل بأحمد الآن · محاكاة" : "Call Ahmed now · Simulation" }).click();
       await driveCall(page, /needs attention|تحتاج|^Sick$|^مريضة$|^No, that|^لا، بس|Running low|قارب/, transcript);
       let ws = await readWs(page);
       check("report saved", ws.reports.length === before.reports.length + 1, `${before.reports.length} → ${ws.reports.length}`);
@@ -158,6 +158,7 @@ const commands = {
       // Worker returns the missed call: delivers the message, closes the ticket, is not a farm update.
       const reportsBefore = ws.reports.length;
       await page.goto(`${BASE}/${LOCALE}/app/lab`, { waitUntil: "networkidle" });
+      await page.getByRole("button", { name: LOCALE === "ar" ? "أحمد يتصل بناقة" : "Ahmed calls NAQAH" }).click();
       await page.getByRole("button", { name: LOCALE === "ar" ? "بدء التجربة" : "Start preview" }).click();
       await driveCall(page, /Yes|إيه|نعم|^Completed$|تم/, transcript);
       ws = await readWs(page);
@@ -180,22 +181,34 @@ const commands = {
     const steps = []; let reason;
     try {
       await page.goto(`${BASE}/${LOCALE}/start`, { waitUntil: "networkidle" });
-      await page.getByRole("button", { name: LOCALE === "ar" ? /عينة|نموذج/ : /sample/i }).first().click();
-      for (let i = 0; i < 12; i++) {
-        await page.waitForTimeout(500);
-        if (page.url().includes("/app")) break;
-        steps.push(await page.locator("#current-step-title").innerText());
-        const next = page.getByRole("button", { name: LOCALE === "ar" ? /^(متابعة|تأكيد)/ : /^(Continue|Confirm)/ }).last();
-        if (!(await next.isEnabled())) { reason = `Continue disabled on "${steps.at(-1)}"`; break; }
-        await next.click();
-      }
+      const ar = LOCALE === "ar";
+      const next = () => page.getByRole("button", { name: ar ? "متابعة" : "Continue", exact: true });
+      steps.push(await page.locator("#current-step-title").innerText());
+      await page.getByLabel(ar ? "اسم العزبة" : "Ranch name").fill("Verify Ranch");
+      await page.getByLabel(ar ? "اسمك" : "Your name").fill("Verify Owner");
+      await page.getByLabel(ar ? "جوالك" : "Your mobile").fill("50 123 4567");
+      await next().click();
+      steps.push(await page.locator("#current-step-title").innerText());
+      await page.getByLabel(ar ? "الاسم" : "Name", { exact: true }).fill("Verify Worker");
+      await page.getByLabel(ar ? "الجوال" : "Mobile", { exact: true }).fill("50 765 4321");
+      await next().click();
+      steps.push(await page.locator("#current-step-title").innerText());
+      await page.getByLabel(ar ? "اليوم" : "Day", { exact: true }).selectOption("4");
+      await page.getByLabel(ar ? "الوقت" : "Time", { exact: true }).fill("17:00");
+      await page.getByLabel(ar ? "أضف سؤال" : "Add a question").fill(ar ? "هل الماء متوفر؟" : "Is water available?");
+      await page.getByRole("button", { name: ar ? "إضافة" : "Add", exact: true }).click();
+      await next().click();
+      steps.push(await page.locator("#current-step-title").innerText());
+      await page.getByRole("button", { name: ar ? "افتح لوحة العزبة" : "Open dashboard" }).click();
       await page.waitForURL(/\/app$/, { timeout: 5000 });
+      await page.reload();
       await page.screenshot({ path: `${dir}/dashboard.png`, fullPage: true });
     } catch (e) { reason ??= String(e.message ?? e).split("\n")[0]; }
     const ws = await readWs(page).catch(() => null);
     await b.close();
-    const ok = !reason && ws?.setupComplete === true && steps.length === 6;
-    out({ ok, cmd, evidence: dir, steps: steps.length, setupComplete: ws?.setupComplete ?? null, reason: ok ? undefined : reason ?? `expected 6 Basic steps + setupComplete, got ${steps.length}` });
+    const question = LOCALE === "ar" ? "هل الماء متوفر؟" : "Is water available?";
+    const ok = !reason && ws?.setupComplete === true && steps.length === 4 && ws.settings.worker.name === "Verify Worker" && ws.settings.customQuestions.some((item) => item.text === question);
+    out({ ok, cmd, evidence: dir, steps: steps.length, setupComplete: ws?.setupComplete ?? null, workerSaved: ws?.settings.worker.name === "Verify Worker", questionSaved: ws?.settings.customQuestions.some((item) => item.text === question), reason: ok ? undefined : reason ?? `expected 4 Basic steps + saved worker/question, got ${steps.length}` });
   },
   // This completes a real worker report against the configured voice server.
   async voice() {
@@ -342,9 +355,9 @@ const commands = {
     // Landing: plan CTA starts that plan's sample farm and opens /app.
     await step("landing-plan-cta", async () => {
       await page.goto(`${BASE}/${LOCALE}`, { waitUntil: "networkidle" });
-      await page.getByRole("button", { name: ar ? "جرّب الأساسية" : "Try Basic", exact: true }).first().click();
+      await page.getByRole("button", { name: ar ? "استكشف العرض التجريبي" : "Explore the demo", exact: true }).first().click();
       await page.waitForURL(new RegExp(`/${LOCALE}/app$`), { timeout: 10000 });
-      check("Try Basic opens /app on the Basic plan", (await readWs(page))?.settings?.plan === "basic");
+      check("Explore the demo opens the sample ranch", (await readWs(page))?.settings?.plan === "ultimate");
     });
     // Locale switch keeps the path.
     await step("locale-switch", async () => {
@@ -357,7 +370,7 @@ const commands = {
     // Settings: load the Ultimate sample (the rest of this run needs it).
     await step("settings-load-ultimate", async () => {
       await page.goto(`${BASE}/${LOCALE}/app/settings`, { waitUntil: "networkidle" });
-      await page.getByRole("button", { name: ar ? "تحميل مزرعة متكاملة تجريبية" : "Load sample Ultimate farm" }).click();
+      await page.getByRole("button", { name: ar ? "حمّل العزبة التجريبية" : "Load the sample ranch" }).click();
       await page.waitForTimeout(300);
       check("settings loads the Ultimate sample", (await readWs(page))?.settings?.plan === "ultimate");
     });
@@ -389,7 +402,8 @@ const commands = {
       await page.getByRole("button", { name: ar ? "محاكاة يوم حار" : "Simulate a heat day" }).click();
       await page.waitForTimeout(300);
       check("heat day stores a 46° forecast for today", (await readWs(page))?.weather?.maxTempC === 46);
-      await page.getByRole("button", { name: ar ? "بدء التجربة" : "Start preview" }).click();
+      await page.getByRole("button", { name: ar ? "اتصل بأحمد الآن · محاكاة" : "Call Ahmed now · Simulation" }).click();
+      await page.getByRole("button", { name: ar ? "أحمد يرد" : "Ahmed answers", exact: true }).click();
       const asked = await page.getByText(ar ? /الجو حار اليوم/ : /hot day/).first()
         .waitFor({ timeout: 10000 }).then(() => true, () => false);
       check("worker report asks the heat-day question", asked);
@@ -449,7 +463,7 @@ if (!commands[cmd] || args.includes("--help")) {
   doctor               read-only: our server answers, same build, Chromium available
   screens              32 screenshots (ar/en × 375/1440 × 8 pages); fails on overflow or console errors
   call-lab             worker report → owner call → task → 4 missed calls → No Answer ticket → callback closes it (asserted)
-  wizard               Basic onboarding with sample data, 6 steps, lands on /app with setupComplete
+  wizard               Basic onboarding, 4 steps, lands on /app with setupComplete
   features             landing plan CTA, locale switch, settings sample load, herd add, heat day, clock, owner inquiry, emergency, reset
   voice                complete a real report, then verify save + tamper rejection [--worker-phone E.164] [--locale ar|en] [--dry-run] [--allow-paid]
                        dry-run is the default and refuses paid summary env vars; --allow-paid permits side effects

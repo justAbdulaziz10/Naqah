@@ -4,11 +4,11 @@ import { voiceConfiguration } from "@/server/env";
 
 /** The sample line answers real phones, so a caller must never think a real farm was updated. */
 export const SAMPLE_CALL_NOTICE = {
-  ar: "هذه مكالمة تجريبية على مزرعة نموذجية، وما تنحفظ إجاباتها. في المزرعة الحقيقية ناقة هي اللي تتصل في موعد التقرير. ",
+  ar: "هذي مكالمة تجريبية على عزبة نموذجية، وما تنحفظ إجاباتها. في العزبة الحقيقية ناقة هي اللي تتصل في موعد التقرير. ",
   en: "This is a sample call on a demo farm. Your answers are not kept. On a real farm, NAQAH calls you at the report time. ",
 } as const;
 export const SAMPLE_CALL_ENDED = {
-  ar: "انتهت المكالمة التجريبية. هذا تحديث نموذجي، ولم يصل إلى أي مزرعة حقيقية.",
+  ar: "انتهت المكالمة التجريبية. هذا تحديث نموذجي، وما وصل لأي عزبة حقيقية.",
   en: "The sample call is finished. This was a demo update and did not reach a real farm.",
 } as const;
 

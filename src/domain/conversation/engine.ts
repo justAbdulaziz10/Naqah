@@ -395,7 +395,7 @@ function beginReportQuestions(session: CallSession, ws: Workspace, now: Date, re
         )
       : copy(
           "Hello Ahmed, I’m NAQAH’s automated assistant, calling for the farm report. We’ll go through the questions one at a time.",
-          "هلا أحمد، معك مساعد ناقة الآلي، أتصل عشان تقرير المزرعة. بنمشي على الأسئلة وحدة وحدة.",
+          "هلا أحمد، معك مساعد ناقة الآلي، أتصل عشان تقرير العزبة. بنمشي على الأسئلة وحدة وحدة.",
         ),
     now,
   );
@@ -537,7 +537,7 @@ function handleReportRinging(session: CallSession, ws: Workspace, now: Date, inp
   }
   const missed = copy(
     "Ahmed didn’t answer after " + REPORT_CALL_ATTEMPTS + " attempts. There is no report for this period yet, and Abdullah sees that on the dashboard. Ahmed can call NAQAH back to give the report.",
-    "ما رد أحمد بعد " + REPORT_CALL_ATTEMPTS + " محاولات. ما فيه تقرير لهذه الفترة إلى الآن، ويشوف عبدالله هذا في لوحة المزرعة. يقدر أحمد يتصل على ناقة ويعطي التقرير.",
+    "ما رد أحمد بعد " + REPORT_CALL_ATTEMPTS + " محاولات. ما فيه تقرير لهذه الفترة إلى الآن، ويشوف عبدالله هذا في لوحة العزبة. يقدر أحمد يتصل على ناقة ويعطي التقرير.",
   );
   return { session: status(addNotice(session, missed), missed, now, "report_missed", [], true), commit: commitTo(result.ws) };
 }
@@ -590,7 +590,7 @@ function startWorkerCallback(ws: Workspace, now: Date): EngineResult {
   };
   const text = copy(
     "You missed our call. Message from the owner: " + (messagesEn || "Please call Abdullah back.") + " This is a message delivery call, not a farm update.",
-    "فاتتك مكالمتنا. رسالة المالك: " + (messagesAr || "فضلاً تواصل مع عبدالله.") + " هذا اتصال لتسليم رسالة، وليس تحديثاً للمزرعة.",
+    "فاتتك مكالمتنا. رسالة المالك: " + (messagesAr || "فضلاً تواصل مع عبدالله.") + " هذا اتصال لتسليم رسالة، مو تحديث للعزبة.",
   );
   return {
     session: ask(
@@ -1335,7 +1335,7 @@ function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallS
     factsAr.push((confirmation.done ? "مهمة خلصت: " : "مهمة باقية: ") + instruction);
   }
   const baseEn = factsEn.length ? factsEn.join("; ") : "no additional farm facts";
-  const baseAr = factsAr.length ? factsAr.join("، ") : "ما فيه معلومات إضافية عن المزرعة";
+  const baseAr = factsAr.length ? factsAr.join("، ") : "ما فيه معلومات إضافية عن العزبة";
   const findingEn = findings.length ? " Important for the owner: " + findings[0].text.en : "";
   const findingAr = findings.length ? " أهم ملاحظة للمالك: " + findings[0].text.ar : "";
   const text = copy(
@@ -1571,7 +1571,7 @@ function askNextCallbackTask(session: CallSession, ws: Workspace, now: Date): Ca
   }
   return say(
     { ...session, data: { ...session.data, callbackTaskIndex: index } },
-    copy("This call did not create a farm update.", "هذا الاتصال ما أنشأ تحديثاً للمزرعة."),
+    copy("This call did not create a farm update.", "هذا الاتصال ما أنشأ تحديث للعزبة."),
     now,
     true,
   );
@@ -1737,14 +1737,14 @@ function inquiryTopicAnswer(ws: Workspace, topic: string): LocalizedText {
     }));
     return copy(lines.map((line) => line.en).join(" "), lines.map((line) => line.ar).join(" "));
   }
-  if (!latest) return copy("No farm update has been saved yet.", "ما انحفظ تحديث للمزرعة إلى الآن.");
+  if (!latest) return copy("No farm update has been saved yet.", "ما انحفظ تحديث للعزبة إلى الآن.");
   const answers = latest.answers.slice(0, 3);
   const dateEn = atRiyadh(new Date(latest.at), "en", true);
   const dateAr = atRiyadh(new Date(latest.at), "ar", true);
   if (!answers.length) {
     return copy(
       "The last farm update was saved " + dateEn + ". Its full details are on the website.",
-      "آخر تحديث للمزرعة حُفظ " + dateAr + ". تفاصيله كاملة موجودة في الموقع.",
+      "آخر تحديث للعزبة انحفظ " + dateAr + ". تفاصيله كاملة موجودة في الموقع.",
     );
   }
   const lines = answers.map((answer) => {

@@ -103,20 +103,17 @@ async function runWizard(page, locale, { owner, farm, worker, workerName, ownerP
   await settled(page);
   await page.locator("[data-step-next]").waitFor();
   check(`${locale}: setup offers no sample data to a real owner`, await page.getByText(locale === "ar" ? /بيانات تجريبية|نموذج/ : /sample/i).count() === 0);
+  await page.getByLabel(locale === "ar" ? "اسم العزبة" : "Ranch name").fill(farm);
+  await page.getByLabel(locale === "ar" ? "اسمك" : "Your name").fill(owner);
+  await page.getByLabel(locale === "ar" ? "جوالك" : "Your mobile").fill(ownerPhone);
   await next(page, go);
-  const inputs = page.locator("main input:visible");
-  await inputs.nth(0).fill(owner);
-  await inputs.nth(1).fill(ownerPhone);
-  await inputs.nth(2).fill(farm);
+  await page.getByLabel(locale === "ar" ? "الاسم" : "Name", { exact: true }).fill(workerName ?? worker);
+  await page.getByLabel(locale === "ar" ? "الجوال" : "Mobile", { exact: true }).fill(workerPhone);
   await next(page, go);
-  await page.locator("main input:visible").nth(0).fill(workerName ?? worker);
-  await page.locator("main input:visible").nth(1).fill(workerPhone);
+  await page.getByLabel(locale === "ar" ? "اليوم" : "Day", { exact: true }).selectOption("4");
+  await page.getByLabel(locale === "ar" ? "الوقت" : "Time", { exact: true }).fill("17:00");
   await next(page, go);
-  await next(page, go); // Details: keep the defaults.
-  const skip = page.getByRole("button", { name: locale === "ar" ? "تخطَّ الآن" : "Skip for now" });
-  if (await skip.count()) await skip.first().click();
-  else if (await page.locator("[data-step-next]").count()) await next(page, go);
-  await page.getByRole("button", { name: locale === "ar" ? "تأكيد وفتح لوحة المزرعة" : "Confirm and open my farm" }).click();
+  await page.getByRole("button", { name: locale === "ar" ? "افتح لوحة العزبة" : "Open dashboard" }).click();
   await page.waitForURL(`**/${locale}/app`, { timeout: 15_000 });
   await settled(page);
   await page.locator("main").getByText(farm).first().waitFor({ timeout: 10_000 }); // Proves the page below checks a rendered farm.
@@ -134,7 +131,7 @@ async function addCamel(page, locale, name) {
 async function addQuestion(page, locale, text) {
   await page.goto(`${BASE}/${locale}/app/settings`);
   await settled(page);
-  await page.getByLabel(locale === "ar" ? "أضف سؤالاً" : "Add a question").fill(text);
+  await page.getByLabel(locale === "ar" ? "أضف سؤال" : "Add a question").fill(text);
   await page.keyboard.press("Enter");
 }
 const waitFor = async (probe, label, tries = 40) => {
@@ -184,11 +181,11 @@ check("custom question saved", sql(`select text from custom_questions where farm
 
 await A.page.reload();
 await settled(A.page);
-check("refresh keeps saved data", (await A.page.getByLabel("أضف سؤالاً").count()) === 1 && (await A.page.getByText(QUESTION).count()) > 0);
+check("refresh keeps saved data", (await A.page.getByLabel("أضف سؤال").count()) === 1 && (await A.page.getByText(QUESTION).count()) > 0);
 
 // A failed save must say so, keep the edit, and recover.
 await A.page.route("**/api/account", (route) => route.abort());
-await A.page.getByLabel("أضف سؤالاً").fill("سؤال لم يُحفظ");
+await A.page.getByLabel("أضف سؤال").fill("سؤال لم يُحفظ");
 await A.page.keyboard.press("Enter");
 await A.page.getByRole("alert").filter({ hasText: "ما انحفظ" }).waitFor({ timeout: 8_000 });
 check("a failed save tells the owner, and shows no saved state", await A.page.getByText("سؤال لم يُحفظ").count() > 0);
@@ -232,7 +229,7 @@ await settled(A.page);
 await A.page.getByRole("button", { name: /تسجيل الخروج|خروج/ }).click();
 await A.page.waitForURL("**/ar/login");
 await A.page.goto(`${BASE}/ar/app`);
-await A.page.getByText("لا توجد مزرعة بعد").waitFor();
+await A.page.getByText("ما فيه عزبة هنا للحين").waitFor();
 check("signing out leaves no farm data on screen or in storage", !(await A.page.locator("body").innerText()).includes(FARM_A) && !(await storedText(A.page)).includes(FARM_A));
 await signIn(A.context, ownerA);
 await A.page.goto(`${BASE}/ar/app/calls`);

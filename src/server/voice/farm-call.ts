@@ -30,7 +30,7 @@ type Copy = Record<Locale, string>;
 
 const NOT_REGISTERED: Copy = { ar: "هذا الرقم غير مسجل لدى ناقة.", en: "This number is not registered with NAQAH." };
 const NOT_READY: Copy = {
-  ar: "إعداد هذه المزرعة ما اكتمل. فضلاً تواصل مع صاحب المزرعة.",
+  ar: "إعداد هذي العزبة ما اكتمل. فضلاً تواصل مع صاحب العزبة.",
   en: "This farm's setup isn't finished yet. Please contact the farm owner.",
 };
 const OWNER_LINE_CLOSED: Copy = {

@@ -6,12 +6,12 @@ import { sendWhatsAppText } from "@/server/whatsapp/cloud";
 
 /** Only the sample line sends these, so they must not read as a saved farm update. */
 const SAMPLE_HEADLINE = {
-  ar: "تحديث تجريبي من المزرعة النموذجية، ولم يُحفظ لمزرعة حقيقية.",
+  ar: "تحديث تجريبي من العزبة النموذجية، وما انحفظ لأي عزبة حقيقية.",
   en: "Sample update from the demo farm. It was not saved to a real farm.",
 } as const;
 /** A real farm's update call. Short: the details are on the website. */
 const FARM_HEADLINE = {
-  ar: "تحديث جديد من ناقة عن مزرعتك. التفاصيل كاملة في الموقع.",
+  ar: "تحديث جديد من ناقة عن عزبتك. التفاصيل كاملة في الموقع.",
   en: "A new update from NAQAH about your farm. Full details are on the website.",
 } as const;
 
