@@ -16,6 +16,10 @@ describe("TwiML output", () => {
     expect(twimlGather({ ...session, inputMode: "number" }, "en", "/t")).not.toContain("numDigits");
   });
 
+  it("plays the prompt inside Gather so input during the prompt is kept", () => {
+    expect(twimlGather(session, "ar", "/t")).toMatch(/^<Response><Gather\b[^>]*><Say\b[^>]*>[^<]+<\/Say><\/Gather><\/Response>$/);
+  });
+
   it("escapes XML metacharacters in text and attributes", () => {
     expect(escapeXml(`&<>"'`)).toBe("&amp;&lt;&gt;&quot;&apos;");
     expect(sayElement(`عربي & < > " '`, "ar")).toContain("عربي &amp; &lt; &gt; &quot; &apos;");

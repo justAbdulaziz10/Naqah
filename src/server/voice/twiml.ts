@@ -51,7 +51,9 @@ export function twimlGather(session: CallSession, locale: Locale, actionUrl: str
   const text = `${prefix}${agentText(session, locale)}`;
   // A quantity needs several keys, so only a choice ends at the first press.
   const digits = session.inputMode === "choices" ? ' numDigits="1"' : "";
-  return `<Response>${sayElement(text, locale)}<Gather input="speech dtmf" language="${language}" speechTimeout="auto" timeout="6"${digits} action="${escapeXml(actionUrl)}" method="POST" actionOnEmptyResult="true"></Gather></Response>`;
+  // The prompt plays inside Gather so a key pressed or an answer spoken mid-prompt still counts.
+  // With the prompt before Gather, Twilio drops that input and the call hears nothing.
+  return `<Response><Gather input="speech dtmf" language="${language}" speechTimeout="auto" timeout="6"${digits} action="${escapeXml(actionUrl)}" method="POST" actionOnEmptyResult="true">${sayElement(text, locale)}</Gather></Response>`;
 }
 
 export function twimlGoodbye(locale: Locale, text?: string): string {
