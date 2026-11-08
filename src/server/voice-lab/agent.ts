@@ -208,7 +208,7 @@ export function runLabTool(input: { session: LabSession; ws: Workspace; locale: 
 
   const atSummary = session.step === SUMMARY_STEP;
   if (check.action.kind === "answer") {
-    const review = reviewAnswer({ session, input: check.action.input, heard, locale });
+    const review = reviewAnswer({ session, input: check.action.input, heard, locale, camelNames: ws.camels.map((camel) => camel.name) });
     if (review) {
       const output = { status: "invalid", error: review.error, message: "Nothing was recorded. Ask the worker this, in your own words, then wait for their answer.", clarify: review.clarify };
       return reply({ output: stringify(output), end: null, goodbye: null, session: review.session, refused: review.error });
