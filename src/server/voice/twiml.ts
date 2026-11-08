@@ -30,10 +30,15 @@ export function sayElement(text: string, locale: Locale): string {
   return `<Say voice="${escapeXml(voice)}" language="${language}">${escapeXml(text)}</Say>`;
 }
 
+/** The ranch is «عزبة» on the phone, whichever word the question was written with. */
+export function spokenWording(text: string, locale: Locale): string {
+  return locale === "ar" ? text.replace(/المزرعة/g, "العزبة").replace(/مزرعة/g, "عزبة") : text;
+}
+
 export function agentText(session: CallSession, locale: Locale): string {
   const turn = [...session.turns].reverse().find((item) => item.speaker === "agent");
   const original = turn?.text[locale] ?? (locale === "ar" ? "تفضل، وش تبي تقول؟" : "Go ahead.");
-  const question = locale === "ar" ? original.replace(/المزرعة/g, "العزبة").replace(/مزرعة/g, "عزبة") : original;
+  const question = spokenWording(original, locale);
   if (session.inputMode === "number") return `${question} ${locale === "ar" ? "قل العدد، أو اكتبه ثم اضغط #." : "Say the number, or enter it then press #."}`;
   if (session.inputMode !== "choices" || !session.replies.length) return question;
 
@@ -57,6 +62,11 @@ export function twimlGather(session: CallSession, locale: Locale, actionUrl: str
   // With the prompt before Gather, Twilio drops that input and the call hears nothing.
   const speechTimeout = session.inputMode === "choices" ? "auto" : "2";
   return `<Response><Gather input="speech dtmf" language="${language}" speechTimeout="${speechTimeout}" timeout="6"${digits} action="${escapeXml(actionUrl)}" method="POST" actionOnEmptyResult="true">${sayElement(text, locale)}</Gather></Response>`;
+}
+
+/** Hands the call to the bridge. When the stream closes, Twilio fetches `actionUrl`. */
+export function twimlStream(actionUrl: string, streamUrl: string, ticket: string): string {
+  return `<Response><Connect action="${escapeXml(actionUrl)}"><Stream url="${escapeXml(streamUrl)}"><Parameter name="ticket" value="${escapeXml(ticket)}"/></Stream></Connect></Response>`;
 }
 
 export function twimlGoodbye(locale: Locale, text?: string): string {
