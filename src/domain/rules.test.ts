@@ -255,6 +255,17 @@ describe("scheduled verification cycle", () => {
     expect(second.ws.pendingWorkerCalls).toHaveLength(first.ws.pendingWorkerCalls.length);
   });
 
+  it("stops retrying a verification once the worker has confirmed the task", () => {
+    const { ws, taskId } = deliveredScheduledTask();
+    const started = startTaskVerification(ws, dueAt, taskId);
+    const missed = resolveWorkerCallAttempt(started.ws, dueAt, started.pendingCallId, false);
+    const closed = confirmTask(missed.ws, dueAt, taskId, true, "worker_report");
+    const call = closed.pendingWorkerCalls.find((item) => item.id === started.pendingCallId)!;
+    expect(call).toMatchObject({ state: "delivered", nextAttemptAt: null });
+    expect(dueWorkerCalls(closed, new Date(dueAt.getTime() + RETRY_DELAY_MS * 5))).toHaveLength(0);
+    expect(closed.noAnswerTickets).toHaveLength(0);
+  });
+
   it("does not verify a scheduled task before its instruction is delivered", () => {
     const sub = submitOwnerInstruction(ultimate(), THU_1710, {
       message: "Check the shade net",

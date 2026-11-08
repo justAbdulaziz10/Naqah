@@ -61,7 +61,10 @@ export function completeWorkerReport(
 
   for (const t of draft.taskConfirmations) {
     const ticket = ws.taskTickets.find((x) => x.id === t.taskId && x.status === "open");
-    if (ticket && t.done) Object.assign(ticket, { status: "closed", closedAt: at, closedVia: "worker_report" as CallKind });
+    if (ticket && t.done) {
+      Object.assign(ticket, { status: "closed", closedAt: at, closedVia: "worker_report" as CallKind });
+      stopVerificationRetries(ws, ticket.id);
+    }
   }
 
   const findings = evaluateFindings(input, draft);
@@ -467,6 +470,15 @@ export function resolveWorkerCallAttempt(
   return { ws, outcome: "no_answer_ticket" };
 }
 
+/** A closed task has nothing left to verify, so its retries stop and no No Answer Ticket follows. */
+function stopVerificationRetries(ws: Workspace, taskId: string) {
+  for (const call of ws.pendingWorkerCalls) {
+    if (call.purpose === "task_verification" && call.taskTicketId === taskId && call.state === "pending") {
+      Object.assign(call, { state: "delivered", nextAttemptAt: null });
+    }
+  }
+}
+
 /** Phase 8: only an explicit confirmation closes a Task Ticket. Deadlines never close it. */
 export function confirmTask(input: Workspace, now: Date, taskId: string, done: boolean, via: CallKind): Workspace {
   const ws = clone(input);
@@ -474,6 +486,7 @@ export function confirmTask(input: Workspace, now: Date, taskId: string, done: b
   if (!t || t.status !== "open") return ws;
   if (done) {
     Object.assign(t, { status: "closed", closedAt: iso(now), closedVia: via });
+    stopVerificationRetries(ws, t.id);
     pushEvent(ws, now, "success", {
       ar: `أكد العامل إنجاز المهمة — نُقلت للسجل: «${t.instruction}»`,
       en: `Worker confirmed the task — moved to History: “${t.instruction}”`,
