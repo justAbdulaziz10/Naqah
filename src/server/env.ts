@@ -39,7 +39,7 @@ export function voiceOwnerInquiryEnabled(): boolean {
 
 /** Server-only model name. The key itself is read by the Gemini client and is never returned. */
 export function geminiModel(): string {
-  return value("GEMINI_MODEL") || "gemini-3.5-flash";
+  return value("GEMINI_MODEL") || "gemini-3.6-flash";
 }
 
 export function geminiConfigured(): boolean {

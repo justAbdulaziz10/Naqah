@@ -202,7 +202,7 @@ function promptFor(ws: Workspace, now: Date, state: AgentState, transcript: stri
     "A bag or tank amount is quantity, not a level. تمام, fine, plenty, and sufficient are level good.",
     "ما أدري or I don't know is intent unknown, or a fact with unknown true.",
     "A changed amount is intent correction and replaces only that fact.",
-    "herd_count is the number of camels the worker counted. Put it in herdCount. It does not change the owner's official count.",
+    "herd_count is the number of camels the worker counted. Put that number in herdCount. Omit herd_count when no count was spoken. It does not change the owner's official count.",
     "A camel name must be one the speaker said. Use the registered spelling when it matches. Never invent a camel or a task id.",
     "taskDone is true only when the speaker explicitly finishes that T number. Unknown is not done.",
     "Set confirmation only when the stage is waiting for yes or no and the utterance is that answer. Otherwise omit it.",
@@ -294,7 +294,7 @@ function applyFact(ws: Workspace, now: Date, state: AgentState, fact: ParsedFact
     state.draft.answers.push({
       questionId,
       question: { en: questionId, ar: questionId },
-      answer: "I don't know",
+      answer: state.language === "ar" ? "ما أدري" : "I don't know",
       certainty: "unknown",
       followUp: false,
     });
@@ -305,6 +305,9 @@ function applyFact(ws: Workspace, now: Date, state: AgentState, fact: ParsedFact
     const current = state.draft.resourceUpdates.find((item) => item.kind === resource);
     const level = fact.level ?? current?.level ?? "unknown";
     const quantity = fact.quantity ?? current?.quantity ?? null;
+    const spoken = quantity
+      ? [level !== "unknown" ? level : null, quantity].filter(Boolean).join(" ")
+      : (fact.text || (level !== "unknown" ? level : "reported"));
     const update = { kind: resource, level, quantity, note: fact.text || null, certainty: "reported" as const };
     if (current) Object.assign(current, update);
     else state.draft.resourceUpdates.push(update);
@@ -314,7 +317,7 @@ function applyFact(ws: Workspace, now: Date, state: AgentState, fact: ParsedFact
     state.draft.answers.push({
       questionId: resourceQuestion,
       question: { en: resource, ar: resource },
-      answer: [level, quantity].filter(Boolean).join(" "),
+      answer: spoken,
       certainty: "reported",
       followUp: false,
     });
@@ -365,8 +368,9 @@ function spokenConfirmation(transcript: string): "yes" | "no" | null {
 }
 
 function spokenUnknown(transcript: string) {
-  const text = transcript.trim().replace(/[.!?؟]/g, "");
-  return /^(ما أدري|ما ادري|مدري|I don't know|I dont know)$/i.test(text);
+  const folded = fold(transcript.replace(/[.!?؟]/g, ""));
+  const core = folded.replace(/^والله/, "").replace(/والله$/, "").replace(/^honestly/, "").replace(/honestly$/, "");
+  return /^(مادري|ماادري|ماعرف|مااعرف|لااعرف|مدري|idontknow|idonotknow|notsure)$/.test(core);
 }
 
 function awaitingConfirmation(state: AgentState) {
@@ -384,6 +388,16 @@ function mergeFacts(current: ParsedFact[], updates: ParsedFact[]) {
     else pending.push(update);
   }
   return pending;
+}
+
+/** A question id without a stated count is not a herd-count answer. */
+function statedFact(fact: ParsedFact) {
+  if (fact.questionId === "herd_count") return fact.unknown || isHerdCount(fact.herdCount);
+  if (fact.unknown) return true;
+  return Boolean(
+    fact.resource || fact.quantity || fact.level || fact.camelName || fact.health ||
+    fact.allOthersHealthy || (fact.taskIndex && fact.taskDone !== null) || fact.text.trim(),
+  );
 }
 
 function factsNeedHold(facts: ParsedFact[]) {
@@ -516,6 +530,7 @@ export async function agentTurn(
       return { ...fail(workspace, state), prompt, failure: failure.code };
     }
   }
+  understood = { ...understood, facts: understood.facts.filter(statedFact) };
   const injected = INJECTION.test(transcript) || understood.intent === "unauthorized";
   if (injected) {
     return { ...askNext(workspace, now, state, speak(state.language, "I can only record what you report. ", "أسجل ما تقوله فقط. ")), prompt };
@@ -567,11 +582,29 @@ export async function agentTurn(
       return { ...askNext(workspace, now, next), prompt };
     }
     if (understood.intent === "correction" && understood.facts.length) {
+      const named = understood.facts.find((fact) => fact.camelName);
+      const matches = named?.camelName ? matchCamels(workspace, named.camelName) : [];
+      if (matches.length === 1 && named) {
+        return result(workspace, {
+          ...state,
+          pendingFacts: mergeFacts(state.pendingFacts, understood.facts),
+          camelCandidate: {
+            name: matches[0].name,
+            camelId: matches[0].id,
+            health: named.health ?? state.camelCandidate.health,
+            note: named.text || state.camelCandidate.note,
+          },
+        }, speak(state.language, `Did you mean ${matches[0].name}?`, `تقصد ${matches[0].name}؟`), prompt);
+      }
       return result(workspace, { ...state, pendingFacts: mergeFacts(state.pendingFacts, understood.facts) }, speak(state.language,
         `I heard ${understood.facts.map((fact) => fact.text || fact.quantity || fact.resource).filter(Boolean).join(", ")}. Is that right?`,
         `سمعت: ${understood.facts.map((fact) => fact.text || fact.quantity || fact.resource).filter(Boolean).join("، ")}. صحيح؟`,
       ), prompt);
     }
+    return result(workspace, state, speak(state.language,
+      `Do you mean ${state.camelCandidate.name}?`,
+      `تقصد ${state.camelCandidate.name}؟`,
+    ), prompt);
   }
 
   if (state.stage === "contradiction" || state.stage === "confirm_facts") {

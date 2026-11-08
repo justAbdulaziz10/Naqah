@@ -1,12 +1,23 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { geminiModel } from "@/server/env";
 import { interpretationSchema } from "./schema";
 
 export const geminiResponseConfig = {
   responseMimeType: "application/json" as const,
   responseJsonSchema: interpretationSchema,
-  temperature: 0,
 };
+
+/**
+ * Gemini 3.5 Flash is deprecated and routed onward, and its default thinking
+ * level ran past the 8s call budget. 3.6 Flash is the supported replacement and
+ * accepts MINIMAL. 3.7 and 3.8 reject MINIMAL, so they get LOW. Gemini 2 uses a
+ * token budget of 0; sending that budget to Gemini 3 can return HTTP 400.
+ */
+export function geminiThinkingConfig(model = geminiModel()): { thinkingLevel: ThinkingLevel } | { thinkingBudget: 0 } {
+  if (/^gemini-2(?:\.|$)/.test(model)) return { thinkingBudget: 0 };
+  if (/^gemini-3\.[78](?:-|$)/.test(model)) return { thinkingLevel: ThinkingLevel.LOW };
+  return { thinkingLevel: ThinkingLevel.MINIMAL };
+}
 
 export type GeminiFailure =
   | "bad_request"
@@ -48,8 +59,9 @@ export interface GeminiClient {
 }
 
 /**
- * One attempt, never retried. The farm webhook aborts at 12s because Twilio stops at 15s
+ * The farm webhook aborts at 12s because Twilio stops at 15s
  * (`WEBHOOK_LIMIT_MS` in farm-webhook.ts), and the save still needs time after this returns.
+ * A fast provider failure may take one more attempt inside this same budget.
  */
 export const GEMINI_TIMEOUT_MS = 8_000;
 
@@ -110,22 +122,54 @@ export function classifyGeminiFailure(error: unknown): GeminiError {
   return new GeminiError("unavailable");
 }
 
-/** One bounded JSON request. The prompt and response are not logged. */
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+type GeminiCall = (timeoutMs: number) => Promise<string>;
+
+/**
+ * One provider retry, and only when the first failure was fast enough to leave
+ * another attempt inside the same call budget. Quota, auth, and timeouts are not retried.
+ */
+export async function requestGemini(
+  timeoutMs: number,
+  call: GeminiCall,
+  sleep: (ms: number) => Promise<void> = pause,
+): Promise<string> {
+  const started = Date.now();
+  try {
+    return await call(timeoutMs);
+  } catch (error) {
+    const classified = classifyGeminiFailure(error);
+    const remaining = timeoutMs - (Date.now() - started);
+    if (classified.code !== "provider" || remaining < 2_500) throw classified;
+    const wait = Math.min(400, remaining - 2_000);
+    await sleep(wait);
+    try {
+      return await call(remaining - wait);
+    } catch (retryError) {
+      throw classifyGeminiFailure(retryError);
+    }
+  }
+}
+
+/** One bounded JSON request, plus a single fast provider retry. The prompt and response are not logged. */
 export async function generateWithGemini(prompt: string, timeoutMs = GEMINI_TIMEOUT_MS): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
   if (!apiKey) throw new GeminiError("unavailable");
   const ai = new GoogleGenAI({ apiKey });
-  try {
+  return requestGemini(timeoutMs, async (budget) => {
     const response = await ai.models.generateContent({
       model: geminiModel(),
       contents: prompt,
-      config: { ...geminiResponseConfig, abortSignal: AbortSignal.timeout(timeoutMs) },
+      config: {
+        ...geminiResponseConfig,
+        thinkingConfig: geminiThinkingConfig(),
+        abortSignal: AbortSignal.timeout(budget),
+      },
     });
     if (!response.text) throw new GeminiError("invalid");
     return response.text;
-  } catch (error) {
-    throw classifyGeminiFailure(error);
-  }
+  });
 }
 
 export function liveGeminiClient(): GeminiClient {

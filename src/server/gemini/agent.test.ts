@@ -7,7 +7,8 @@ import { createEmptyWorkspace } from "@/domain/seed";
 import type { Workspace } from "@/domain/types";
 import { voiceStep, parseVoiceEvent } from "@/server/voice/contract";
 import { agentTurn, openAgentCall, type SaveHandler } from "./agent";
-import { classifyGeminiFailure, GEMINI_TIMEOUT_MS, GeminiError, geminiResponseConfig } from "./client";
+import { ThinkingLevel } from "@google/genai";
+import { classifyGeminiFailure, GEMINI_TIMEOUT_MS, GeminiError, geminiResponseConfig, geminiThinkingConfig, requestGemini } from "./client";
 import { geminiModel } from "@/server/env";
 import { languageCapability, GEMINI_TEXT_LANGUAGES } from "./languages";
 import { interpretationSchema, parseInterpretation } from "./schema";
@@ -561,6 +562,73 @@ describe("Gemini conversation agent", () => {
     expect(turn.prompt).toContain(token);
   });
 
+  it("keeps a spoken quantity without the word unknown and switches a corrected camel", async () => {
+    const offline: GeminiClient = { async generate() { throw new Error("offline"); } };
+    let current = openReport(farm());
+    current = await agentTurn(current.workspace, NOW, current.state, "five bags left", scripted([{
+      intent: "answer",
+      facts: [{ questionId: "feed_level", resource: "feed", quantity: "خمس أكياس", text: "العلف باقي منه خمس أكياس", explicit: true }],
+    }]));
+    expect(current.state.draft.resourceUpdates.find((item) => item.kind === "feed")).toMatchObject({ quantity: "خمس أكياس", level: "unknown" });
+    expect(current.state.draft.answers.find((item) => item.questionId === "feed_level")?.answer).toBe("خمس أكياس");
+    expect(current.workspace.settings.herdCount).toBeNull();
+    expect(current.workspace.reports).toHaveLength(0);
+
+    const ws = farm();
+    ws.camels.push({ ...ws.camels[0], id: "22222222-2222-4222-8222-222222222222", name: "الشعلاء" });
+    let named = openReport(ws);
+    named = await agentTurn(named.workspace, NOW, named.state, "she is unwell", scripted([{
+      intent: "answer",
+      facts: [{ camelName: "وضحة", health: "watch", text: "تعبانة وما أكلت زين", explicit: true }],
+    }]));
+    expect(named.state.camelCandidate?.name).toBe("Wadhah");
+    expect(named.workspace.reports).toHaveLength(0);
+    named = await agentTurn(named.workspace, NOW, named.state, "not Wadhah, the other one", scripted([{
+      intent: "correction",
+      facts: [{ camelName: "الشعلاء", health: "watch", text: "الشعلاء", explicit: true }],
+    }]));
+    expect(named.state.camelCandidate).toMatchObject({ name: "الشعلاء", health: "watch" });
+    expect(named.state.draft.camelUpdates).toHaveLength(0);
+    named = await agentTurn(named.workspace, NOW, named.state, "نعم", offline);
+    expect(named.state.draft.camelUpdates).toEqual([expect.objectContaining({ camelId: "22222222-2222-4222-8222-222222222222", health: "watch" })]);
+    expect(named.workspace.reports).toHaveLength(0);
+    expect(named.say).not.toMatch(/notified|أبلغت|تم حفظ/);
+
+    const arabic = farm();
+    arabic.settings.worker.language = "ar";
+    let unknown = openReport(arabic);
+    unknown = await agentTurn(unknown.workspace, NOW, unknown.state, "والله ما أدري.", offline);
+    expect(unknown.state.draft.answers[0]).toMatchObject({ questionId: "herd_health", answer: "ما أدري", certainty: "unknown" });
+    expect(unknown.state.stage).toBe("collect");
+    expect(unknown.workspace.reports).toHaveLength(0);
+  });
+
+  it("drops a herd-count slot when the worker did not state a count", async () => {
+    const ws = farm();
+    ws.settings.herdCount = 50;
+    let current = openReport(ws);
+    current = await agentTurn(current.workspace, NOW, current.state, "the herd is well, five bags, water is fine", scripted([{
+      intent: "answer",
+      facts: [
+        { questionId: "herd_health", health: "healthy", text: "الحلال كله طيب", explicit: true, allOthersHealthy: true },
+        { questionId: "feed_level", resource: "feed", quantity: "خمس أكياس", text: "خمس أكياس", explicit: true },
+        { questionId: "water_level", resource: "water", level: "good", text: "الموية زينة", explicit: true },
+        { questionId: "herd_count", text: "", explicit: true },
+      ],
+    }]));
+    expect(current.state.stage).toBe("confirm_facts");
+    expect(current.workspace.reports).toHaveLength(0);
+    const offline: GeminiClient = { async generate() { throw new Error("offline"); } };
+    current = await agentTurn(current.workspace, NOW, current.state, "نعم", offline);
+    expect(current.state.draft.answers.find((item) => item.questionId === "feed_level")?.answer).toBe("خمس أكياس");
+    expect(current.state.draft.answers.find((item) => item.questionId === "water_level")?.answer).toBe("الموية زينة");
+    expect(current.state.draft.herdCount).toBeUndefined();
+    expect(current.state.asked).not.toContain("herd_count");
+    expect(current.state.focus).toBe("herd_count");
+    expect(current.workspace.settings.herdCount).toBe(50);
+    expect(current.workspace.reports).toHaveLength(0);
+  });
+
   it("does not start a second verification cycle after an explicit not-yet", () => {
     const ws = farm();
     ws.taskTickets = [{ id: "task-open", instruction: "Check the shade", createdAt: NOW.toISOString(), scheduledFor: NOW.toISOString(), status: "open", closedAt: null, closedVia: null }];
@@ -696,7 +764,12 @@ describe("Gemini conversation agent", () => {
 describe("Gemini client configuration", () => {
   it("defaults the model and classifies failures without a network call", () => {
     vi.stubEnv("GEMINI_MODEL", "");
-    expect(geminiModel()).toBe("gemini-3.5-flash");
+    expect(geminiModel()).toBe("gemini-3.6-flash");
+    expect(geminiThinkingConfig("gemini-3.6-flash")).toEqual({ thinkingLevel: ThinkingLevel.MINIMAL });
+    expect(geminiThinkingConfig("gemini-3.5-flash")).toEqual({ thinkingLevel: ThinkingLevel.MINIMAL });
+    expect(geminiThinkingConfig("gemini-3.8-flash")).toEqual({ thinkingLevel: ThinkingLevel.LOW });
+    expect(geminiThinkingConfig("gemini-2.5-flash")).toEqual({ thinkingBudget: 0 });
+    expect(geminiResponseConfig).not.toHaveProperty("temperature");
     vi.stubEnv("GEMINI_MODEL", "gemini-2.5-flash");
     expect(geminiModel()).toBe("gemini-2.5-flash");
     expect(geminiResponseConfig.responseJsonSchema).toBe(interpretationSchema);
@@ -724,5 +797,39 @@ describe("Gemini client configuration", () => {
     expect(planted.facts[0]).not.toHaveProperty("camelId");
     expect(planted.facts[0]).not.toHaveProperty("taskId");
     vi.unstubAllEnvs();
+  });
+
+  it("retries one fast provider failure and does not retry quota or a slow failure", async () => {
+    const sleep = async () => {};
+    let calls = 0;
+    const recovered = await requestGemini(8_000, async () => {
+      calls += 1;
+      if (calls === 1) throw new GeminiError("provider", 503, "UNAVAILABLE");
+      return "{\"ok\":true}";
+    }, sleep);
+    expect(recovered).toBe("{\"ok\":true}");
+    expect(calls).toBe(2);
+
+    calls = 0;
+    await expect(requestGemini(8_000, async () => {
+      calls += 1;
+      throw new GeminiError("quota", 429, "RESOURCE_EXHAUSTED");
+    }, sleep)).rejects.toMatchObject({ code: "quota" });
+    expect(calls).toBe(1);
+
+    calls = 0;
+    await expect(requestGemini(8_000, async () => {
+      calls += 1;
+      throw new GeminiError("provider", 503, "UNAVAILABLE");
+    }, sleep)).rejects.toMatchObject({ code: "provider" });
+    expect(calls).toBe(2);
+
+    calls = 0;
+    await expect(requestGemini(3_000, async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      throw new GeminiError("provider", 500, "INTERNAL");
+    }, sleep)).rejects.toMatchObject({ code: "provider" });
+    expect(calls).toBe(1);
   });
 });
