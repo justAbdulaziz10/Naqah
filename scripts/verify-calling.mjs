@@ -15,11 +15,13 @@ const GATEWAY = arg("gateway", "http://127.0.0.1:54357");
 const OUTBOUND = arg("outbound", "http://127.0.0.1:54359");
 const DB = arg("db", "naqah_codex_stack");
 const SHOTS = arg("shots", "artifacts/qa-codex/calling");
+const LOCALE = arg("locale", "en");
+assert(["ar", "en"].includes(LOCALE), "Arabic or English locale required");
 for (const value of [BASE, OFF, GATEWAY, OUTBOUND]) {
   const url = new URL(value);
   assert(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname) && url.pathname === "/", "Loopback HTTP origins only");
 }
-assert(DB.startsWith("naqah_codex_"), "Disposable Codex database required");
+assert(/^naqah_codex2?_/.test(DB), "Disposable Codex database required");
 mkdirSync(SHOTS, { recursive: true });
 const sql = (query) => execFileSync("psql", ["-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", DB], { input: query, encoding: "utf8" }).trim();
 const quote = (value) => `'${String(value).replaceAll("'", "''")}'`;
@@ -81,9 +83,9 @@ try {
   const farm = opened.data.farmId;
   assert.equal(sql(`select owner_id from farms where id = ${quote(farm)}`), owner.id);
   sql(`update farms set setup_complete = true, name = 'Calling QA', owner_name = 'QA Owner', owner_phone = '+15555550102', herd_count = 1, call_day = 0, call_time = '09:00' where id = ${quote(farm)};
-    update workers set name = 'QA Worker', phone = '+15555550101', language = 'en' where farm_id = ${quote(farm)};
+    update workers set name = 'QA Worker', phone = '+15555550101', language = '${LOCALE}' where farm_id = ${quote(farm)};
     update farms set primary_worker_id = (select id from workers where farm_id = ${quote(farm)}) where id = ${quote(farm)};
-    update resources set present = false where farm_id = ${quote(farm)};`);
+    update resources set present = kind in ('feed', 'water') where farm_id = ${quote(farm)};`);
   check("cron refuses a missing or incorrect secret", (await fetch(`${BASE}/api/cron/report-calls`)).status === 401 && (await fetch(`${BASE}/api/cron/report-calls`, { headers: { Authorization: "Bearer wrong" } })).status === 401);
   const cron = await (await fetch(`${BASE}/api/cron/report-calls`, { headers: { Authorization: "Bearer local-only-cron-secret" } })).json();
   check("authorized cron stays disabled and places nothing", cron.skipped === "scheduled_calls_off" && (await provider()).requests.length === 0, cron);
@@ -111,15 +113,34 @@ try {
   const request = (await provider()).requests[0];
   check("Call now uses the saved fake worker and disables recording", request.To === "+15555550101" && request.Record === "false" && request.From === "+15555550100", request);
   let reply = await webhook(request.Url, { CallSid: request.sid });
+  const firstQuestion = action(reply.xml);
+  reply = await webhook(firstQuestion, { CallSid: request.sid, SpeechResult: LOCALE === "ar" ? "ايوه" : "yes", Confidence: "0.1" });
+  check("low-confidence speech repeats the question without saving", /didn&apos;t catch|ما فهمت/.test(reply.xml) && sql(`select count(*) from reports where farm_id = ${quote(farm)}`) === "0");
   let confirmPath;
+  let quantitiesConfirmed = 0;
   for (let turn = 0; turn < 30 && action(reply.xml); turn += 1) {
     const text = said(reply.xml);
     const path = action(reply.xml);
-    if (/Confirm and save/.test(text)) confirmPath = path;
-    const answer = /how many camels/i.test(text) ? { SpeechResult: "one" } : /Press 1 for/.test(text) ? { Digits: "1" } : { SpeechResult: "Nothing new to report" };
+    if (/Confirm and save|أحفظه/.test(text)) {
+      confirmPath = path;
+      check("report stays unsaved until explicit final confirmation", sql(`select count(*) from reports where farm_id = ${quote(farm)}`) === "0");
+    }
+    if (/approximate, correct|الكمية تقديرية/.test(text)) quantitiesConfirmed += 1;
+    let answer;
+    if (reply.xml.includes('finishOnKey="#"') && /Say the number|قل العدد/.test(text)) {
+      check("quantity gather explains # and does not cut off at one digit", !reply.xml.includes("numDigits=") && /then press #|ثم اضغط #/.test(text));
+      answer = { SpeechResult: /bags|أكياس/.test(text) ? (LOCALE === "ar" ? "ثلاثين كيس" : "thirty bags") : /litres|باللتر/.test(text) ? (LOCALE === "ar" ? "مية وخمسين لتر" : "one hundred and fifty litres") : (LOCALE === "ar" ? "٤٠" : "forty") };
+    } else if (/running low|قارب يخلص/.test(text) && /feed|العلف/.test(text)) {
+      answer = { SpeechResult: LOCALE === "ar" ? "قارب يخلص" : "running low" };
+    } else if (/Press 1 for|اضغط 1 لـ/.test(text)) {
+      const label = text.split(LOCALE === "ar" ? "اضغط 1 لـ " : "Press 1 for ")[1]?.split(/، اضغط 2 لـ |\. Press 2 for /)[0];
+      answer = { SpeechResult: label || (LOCALE === "ar" ? "ايوه" : "yes") };
+    } else answer = { SpeechResult: LOCALE === "ar" ? "ما أدري" : "I don't know" };
     reply = await webhook(path, { CallSid: request.sid, ...answer });
   }
-  check("signed outbound turns save one report and finish its run", /Your update is saved/.test(reply.xml) && sql(`select count(*) from reports where farm_id = ${quote(farm)}`) === "1" && sql(`select count(*) from report_call_runs where farm_id = ${quote(farm)} and state = 'completed'`) === "1", reply);
+  check("signed outbound speech turns save one report and finish its run", /Your update is saved|تم حفظ التحديث/.test(reply.xml) && sql(`select count(*) from reports where farm_id = ${quote(farm)}`) === "1" && sql(`select count(*) from report_call_runs where farm_id = ${quote(farm)} and state = 'completed'`) === "1", reply);
+  check("compound speech quantities are confirmed and saved as approximate", quantitiesConfirmed === 2 && sql(`select count(*) from resources where farm_id = ${quote(farm)} and certainty = 'approximate' and ((kind = 'feed' and quantity = '30 bags') or (kind = 'water' and quantity = '150 litres'))`) === "2");
+  check("spoken count stays an owner proposal, not the official herd", sql(`select herd_count_reported from reports where farm_id = ${quote(farm)}`) === "40" && sql(`select herd_count from farms where id = ${quote(farm)}`) === "1");
   assert(confirmPath);
   await webhook(confirmPath, { CallSid: request.sid, Digits: "1" });
   await waitFor(async () => (await provider()).requests.length === 2);

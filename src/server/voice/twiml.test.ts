@@ -14,6 +14,15 @@ describe("TwiML output", () => {
   it("ends a choice at one key press, and lets a quantity take several", () => {
     expect(twimlGather(session, "en", "/t")).toContain('numDigits="1"');
     expect(twimlGather({ ...session, inputMode: "number" }, "en", "/t")).not.toContain("numDigits");
+    expect(twimlGather({ ...session, inputMode: "number" }, "en", "/t")).toContain('finishOnKey="#"');
+    expect(twimlGather({ ...session, inputMode: "number" }, "en", "/t")).toContain('speechTimeout="2"');
+    expect(twimlGather({ ...session, inputMode: "number" }, "en", "/t")).toContain("then press #");
+    expect(twimlGather({ ...session, inputMode: "number" }, "ar", "/t")).toContain("ثم اضغط #");
+  });
+
+  it("uses the owner's farm wording in spoken Arabic", () => {
+    const farm = { ...session, turns: [{ ...session.turns[0], text: { en: "farm", ar: "وش وضع المزرعة؟" } }] };
+    expect(twimlGather(farm, "ar", "/t")).toContain("وش وضع العزبة؟");
   });
 
   it("plays the prompt inside Gather so input during the prompt is kept", () => {

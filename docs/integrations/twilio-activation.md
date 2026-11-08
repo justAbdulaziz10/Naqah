@@ -36,6 +36,24 @@ On plain-http loopback the session cookies are not `Secure` (Safari drops Secure
 
 ### One controlled call
 
+Before the owner authorizes dialing, build the checked-out revision with
+`NEXT_PUBLIC_NAQAH_BUILD_COMMIT="$(git rev-parse HEAD)" NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1 npm run build`,
+then restart the server. The public status exposes only that build's commit, not credentials.
+From this checkout, with its own server environment loaded, run:
+
+```sh
+node --env-file=.env.local scripts/preflight-call.mjs --base https://<exact-public-origin> --expect +9665XXXXXXXX --locale ar
+```
+
+Use comma-separated `--expect` numbers if the consenting owner notification recipient is also enabled.
+All checks must pass: current build, exact local **and server** allowlist, farm mode/locale, scheduled
+calls off, recording/stored transcription off, and unsigned/wrongly signed rejection plus a signed
+probe on inbound/outbound/turn. `?preflight=1` returns before caller lookup, session handling, saving or
+dialing, even if call fields are supplied. No Twilio API, SMS or WhatsApp requests are made. The script
+does not load another checkout's environment or print tokens/numbers. HTTP is allowed only on loopback
+for local testing. A pass is not carrier/audio proof, consent, or approval to call. Quantities accept
+speech or multiple keypad digits followed by `#`; spoken quantities and camel names still need confirmation.
+
 1. The owner signs in on the preview, finishes setup with the consenting worker's mobile (`+9665…`) as
    the worker NAQAH calls, and a call time.
 2. Put exactly that number in `NAQAH_CALL_ALLOWLIST` and restart `next start` (server env is read at start).

@@ -119,6 +119,20 @@ describe("yes, no, and unknown choice matching", () => {
 
 describe("spoken numbers and times", () => {
   it.each([
+    ["ثلاثين كيس", 30], ["مية وخمسين لتر", 150], ["مائة وخمسة وعشرين لتر", 125],
+    ["تقريبا عشرة", 10], ["٤٠", 40], ["٤٠،", 40], ["حوالي ١٠٠ وخمسين", 150],
+    ["عشرين وخمسة", 25], ["ميتين وثلاثين", 230], ["ألف ومية وخمسين", 1150],
+    ["thirty bags", 30], ["one hundred and fifty litres", 150], ["a hundred and fifty litres", 150], ["about ten", 10],
+    ["twenty-five", 25], ["about 40 litres", 40], ["12.5 litres", 12.5], ["١٢٫٥ لتر", 12.5],
+  ])("understands worker quantity «%s» as %s", (speech, quantity) => {
+    expect(mapSpeechToInput(session("number"), speech)).toEqual({ text: String(quantity) });
+  });
+  it.each(["عشرين أو ثلاثين", "20 bags and 30 litres", "twenty thirty", "zero twenty", "صفر عشرين", "minus twenty", "-20", "سالب عشرة", "constructor", "ما", "one hundred and"]) (
+    "does not guess an ambiguous or partial quantity «%s»", (speech) => {
+      expect(mapSpeechToInput(session("number"), speech)).toBeNull();
+    },
+  );
+  it.each([
     ["٠", 0], ["واحد", 1], ["اثنين", 2], ["ثلاث", 3], ["أربعة", 4], ["خمسة", 5],
     ["ستة", 6], ["سبعة", 7], ["ثمانية", 8], ["تسعة", 9], ["عشرة", 10], ["أحد عشر", 11],
     ["اثنا عشر", 12], ["ثلاثة عشر", 13], ["أربعة عشر", 14], ["خمسة عشر", 15], ["ستة عشر", 16],
@@ -141,6 +155,33 @@ describe("spoken numbers and times", () => {
     expect(mapSpeechToInput(session("text"), "  ما فيه زوار  ", null, "ar")).toEqual({ text: "ما فيه زوار" });
     expect(mapSpeechToInput(session("number"), "كثير", null, "ar")).toBeNull();
     expect(mapSpeechToInput(session("none"), "yes", null, "en")).toBeNull();
+  });
+});
+
+describe("recognition quality and explicit confirmations", () => {
+  it.each(["0", "0.2", "0.49", "NaN", "", "-1", "1.1"])("repeats low-confidence or invalid confidence %s", (confidence) => {
+    expect(mapSpeechToInput(session("number"), "مية وخمسين", null, "ar", confidence)).toBeNull();
+    expect(mapSpeechToInput(session(), "yes", null, "en", confidence)).toBeNull();
+  });
+  it("accepts a missing confidence field and gives keypad input precedence", () => {
+    expect(mapSpeechToInput(session("number"), "عشرين", null, "ar", null)).toEqual({ text: "20" });
+    expect(mapSpeechToInput(session("number"), "", "150", "ar", "0.1")).toEqual({ text: "150" });
+    expect(mapSpeechToInput(session(), "no", "1", "en", "0.1")).toEqual({ value: "yes" });
+    expect(mapSpeechToInput(session("number"), "20", "1234567")).toBeNull();
+  });
+  it.each(["quantity_confirm", "herd_count_confirm", "health_name_confirm"])("requires clear speech at %s", (step) => {
+    const confirmation = { ...session(), step };
+    expect(mapSpeechToInput(confirmation, "نعم لا")).toBeNull();
+    expect(mapSpeechToInput(confirmation, "yes no")).toBeNull();
+    expect(mapSpeechToInput(confirmation, "ايوه يمكن")).toBeNull();
+    expect(mapSpeechToInput(confirmation, "yes maybe")).toBeNull();
+    expect(mapSpeechToInput(confirmation, "ما أدري")).toEqual({ value: "unknown" });
+    expect(mapSpeechToInput(confirmation, "ايوه")).toEqual({ value: "yes" });
+    expect(mapSpeechToInput(confirmation, "لا والله")).toEqual({ value: "no" });
+  });
+  it.each(["والله ما أدري", "ما أعرف والله", "I don't know honestly"])("keeps «%s» unknown", (speech) => {
+    expect(mapSpeechToInput(session("number"), speech)).toEqual({ value: "unknown" });
+    expect(mapSpeechToInput(session("text"), speech)).toEqual({ value: "unknown" });
   });
 });
 
@@ -188,12 +229,12 @@ describe("negation reads as what was meant", () => {
     expect(mapSpeechToInput(herdHealth, "والله ما أدري", null, "ar")).toEqual({ value: "unknown" });
   });
 
-  it.each([["ما نقص العلف", "good"], ["not low", "good"], ["كافي", "good"], ["مو كافي", "low"], ["ناقص شوي", "low"], ["خلص العلف", "critical"], ["ما باقي شي", "critical"]])(
+  it.each([["ما نقص العلف", "good"], ["not low", "good"], ["كافي", "good"], ["مو كافي", "low"], ["ناقص شوي", "low"], ["قارب يخلص", "low"], ["running low", "low"], ["nearly empty", "low"], ["not nearly empty", "good"], ["ما قارب يخلص", "good"], ["خلص العلف", "critical"], ["ما باقي شي", "critical"]])(
     "reads «%s» as feed level %s", (speech, value) => {
       expect(mapSpeechToInput(level, speech, null, "ar")).toEqual({ value });
     },
   );
-  it.each([["مو تعبانة", "healthy"], ["ما فيها شي", "healthy"], ["not sick", "healthy"], ["مو بخير", "sick"], ["تعبانة", "sick"], ["تحت الملاحظة", "watch"]])(
+  it.each([["مو تعبانة", "healthy"], ["ما فيها شي", "healthy"], ["not sick", "healthy"], ["سليم", "healthy"], ["مو بخير", "sick"], ["تعبانة", "sick"], ["تحت الملاحظة", "watch"]])(
     "reads «%s» as camel health %s", (speech, value) => {
       expect(mapSpeechToInput(health, speech, null, "ar")).toEqual({ value });
     },

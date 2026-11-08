@@ -58,48 +58,77 @@ const NUMBER_WORDS: Record<string, number> = {
   "ثمانين": 80, "ثمانون": 80, "تسعين": 90, "تسعون": 90,
 };
 
-const ARABIC_UNITS: Record<string, number> = {
-  واحد: 1, واحده: 1, احد: 1, اثنين: 2, اثنان: 2, ثنتين: 2, اثنتين: 2,
-  ثلاث: 3, ثلاثه: 3, اربع: 4, اربعه: 4, خمس: 5, خمسه: 5, ست: 6, سته: 6,
-  سبع: 7, سبعه: 7, ثمان: 8, ثماني: 8, ثمانيه: 8, تسع: 9, تسعه: 9,
-};
-const ARABIC_TENS: Record<string, number> = {
-  عشرين: 20, عشرون: 20, ثلاثين: 30, ثلاثون: 30, اربعين: 40, اربعون: 40,
-  خمسين: 50, خمسون: 50, ستين: 60, ستون: 60, سبعين: 70, سبعون: 70,
-  ثمانين: 80, ثمانون: 80, تسعين: 90, تسعون: 90,
+const HUNDREDS: Record<string, number> = {
+  ميه: 100, مئه: 100, مائه: 100, ميتين: 200, مئتين: 200, مائتين: 200,
+  ثلاثميه: 300, ثلاثمئه: 300, ثلاثمائه: 300, اربعميه: 400, اربعمائه: 400,
+  خمسميه: 500, خمسمائه: 500, ستميه: 600, ستمائه: 600, سبعميه: 700, سبعمائه: 700,
+  ثمانميه: 800, ثمانمائه: 800, تسعميه: 900, تسعمائه: 900,
 };
 
 /** «ما في ولا وحدة», "none", "not a single one": zero, unless it goes on to give a count («إلا وحدة»). */
-const ZERO = /(?:^|\s)(?:صفر|zero|none|nothing|nobody|not\s+(?:a\s+single|one|any)|no\s+(?:camels?|bags?|one)|ولا\s+(?:وحده|واحده|واحد|ناقه|شي|شيء|كيس|حبه|لتر|نقطه)|ما\s*(?:في|فيه)\s+(?:شي|شيء|احد)|مافي\s+(?:شي|شيء|احد)|محد)(?:\s|$)/u;
+const ZERO = /(?:^|\s)(?:صفر|zero|none|nothing|nobody|not\s+(?:a\s+single(?:\s+one)?|one|any)|no\s+(?:camels?|bags?|one)|ولا\s+(?:وحده|واحده|واحد|ناقه|شي|شيء|كيس|حبه|لتر|نقطه)|ما\s*(?:في|فيه)\s+(?:شي|شيء|احد)|مافي\s+(?:شي|شيء|احد)|محد)(?:\s|$)/u;
 const EXCEPT = /(?:^|\s)(?:الا|غير|بس|only|just|except|but)(?:\s|$)/u;
 
 export function extractNumber(input: string): number | null {
-  const normalized = normalizeSpeech(input);
-  const digit = normalized.match(/(?:^|\s)(\d+(?:\.\d+)?)(?=\s|$)/u);
-  if (digit) return Number(digit[1]);
+  const normalized = normalizeSpeech(input).replaceAll("٫", ".");
   const plain = normalized.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-  if (ZERO.test(plain) && !EXCEPT.test(plain)) return 0;
-
-  const tokens = normalized.match(/[\p{L}\p{N}]+/gu) ?? [];
-  for (let index = 0; index < tokens.length; index += 1) {
-    const pair = `${tokens[index]} ${tokens[index + 1] ?? ""}`.trim();
-    if (pair in NUMBER_WORDS) return NUMBER_WORDS[pair];
-    const nextJoined = tokens[index + 1]?.startsWith("و") ? tokens[index + 1].slice(1) : "";
-    if (ARABIC_UNITS[tokens[index]] && ARABIC_TENS[nextJoined]) {
-      return ARABIC_UNITS[tokens[index]] + ARABIC_TENS[nextJoined];
-    }
-    if (ARABIC_TENS[tokens[index]] && ARABIC_UNITS[nextJoined]) {
-      return ARABIC_TENS[tokens[index]] + ARABIC_UNITS[nextJoined];
-    }
-    if (ARABIC_UNITS[tokens[index]] && tokens[index + 1] === "و" && ARABIC_TENS[tokens[index + 2]]) {
-      return ARABIC_UNITS[tokens[index]] + ARABIC_TENS[tokens[index + 2]];
-    }
-    if (ARABIC_TENS[tokens[index]] && tokens[index + 1] === "و" && ARABIC_UNITS[tokens[index + 2]]) {
-      return ARABIC_TENS[tokens[index]] + ARABIC_UNITS[tokens[index + 2]];
-    }
-    if (tokens[index] in NUMBER_WORDS) return NUMBER_WORDS[tokens[index]];
+  if (/(?:^|\s)(?:سالب|minus|negative|between|بين|او|or)(?:\s|$)|[-−]\s*\d/u.test(normalized)) return null;
+  const numericValue = (token: string): number | undefined => {
+    if (/^\d+(?:\.\d+)?$/.test(token)) return Number(token);
+    return Object.hasOwn(NUMBER_WORDS, token) ? NUMBER_WORDS[token] : Object.hasOwn(HUNDREDS, token) ? HUNDREDS[token] : undefined;
+  };
+  if (ZERO.test(plain) && !EXCEPT.test(plain)) {
+    const remaining = plain.replace(ZERO, " ").match(/[\p{L}\p{N}]+/gu) ?? [];
+    return remaining.some((token) => (numericValue(token) ?? 0) > 0) ? null : 0;
   }
-  return null;
+  const tokens = (normalized.match(/\d+(?:\.\d+)?|\p{L}+/gu) ?? []).flatMap((token) =>
+    token.startsWith("و") && numericValue(token) === undefined && numericValue(token.slice(1)) !== undefined
+      ? ["و", token.slice(1)] : [token]);
+  let total = 0;
+  let group: number | null = null;
+  let previous: number | null = null;
+  let ended = false;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (["و", "and"].includes(token) && (group !== null || total > 0)) {
+      if (numericValue(tokens[index + 1] ?? "") === undefined) return null;
+      continue;
+    }
+    if (["hundred", "thousand", "الف", "الاف"].includes(token)) {
+      if (ended) return null;
+      if (token === "hundred") {
+        if (group !== null && (group < 1 || group > 9)) return null;
+        group = (group ?? 1) * 100;
+        previous = group;
+      } else {
+        if (total || (group !== null && (!Number.isInteger(group) || group < 1 || group > 999))) return null;
+        total = (group ?? 1) * 1000;
+        group = null;
+        previous = null;
+      }
+      continue;
+    }
+    const pair = `${tokens[index]} ${tokens[index + 1] ?? ""}`.trim();
+    const paired = Boolean(tokens[index + 1]) && Object.hasOwn(NUMBER_WORDS, pair);
+    const value = paired ? NUMBER_WORDS[pair] : numericValue(token);
+    if (value === undefined) {
+      if (group !== null || total) ended = true;
+      continue;
+    }
+    if (ended) return null;
+    if (paired) index += 1;
+    if (previous !== null) {
+      const descending = (previous >= 100 && previous % 100 === 0 && value < 100) ||
+        (previous >= 20 && previous < 100 && previous % 10 === 0 && value > 0 && value < 10);
+      const arabicUnitFirst = previous > 0 && previous < 10 && value >= 20 && value <= 90 &&
+        value % 10 === 0 && tokens[index - 1] === "و";
+      if (!descending && !arabicUnitFirst) return null;
+    }
+    group = (group ?? 0) + value;
+    previous = value;
+  }
+  const result = total + (group ?? 0);
+  return (group !== null || total > 0) && Number.isFinite(result) && result <= 999999 ? result : null;
 }
 
 function formatTime(hour: number, minute: number, meridiem?: string): string | null {
@@ -218,7 +247,8 @@ interface Reading {
 }
 
 function readSpeech(transcript: string): Reading {
-  const text = normalizeSpeech(transcript).replace(/n['’]t\b/g, " not").replace(/\bcannot\b/g, "can not");
+  const text = normalizeSpeech(transcript).replace(/n['’]t\b/g, " not").replace(/\bcannot\b/g, "can not")
+    .replace(/(?:قارب|قرب)\s+يخلص|بيخلص(?:ون)?|nearly\s+empty|almost\s+(?:gone|finished)/gu, " low ");
   const reading: Reading = { unknown: false, affirm: false, deny: false, bareNegation: false, said: new Set(), negated: new Set() };
   const plain = text.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   if (UNKNOWN_PHRASE.test(plain)) reading.unknown = true;
@@ -343,7 +373,7 @@ function intentReply(session: CallSession, reading: Reading): string | null {
 
 /** These steps change the farm for good, so a near match is not enough: it takes a clear answer. */
 function needsClearAnswer(session: CallSession): boolean {
-  if (session.step === "report_summary" || session.step === "callback_task_confirmation") return true;
+  if (["report_summary", "callback_task_confirmation", "quantity_confirm", "herd_count_confirm", "health_name_confirm"].includes(session.step)) return true;
   return currentItem(session)?.kind === "task";
 }
 
@@ -376,6 +406,8 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   if (exact) return { value: exact.value };
 
   const reading = readSpeech(transcript);
+  if (needsClearAnswer(session) && /(?:^|\s)(?:يمكن|اظن|اعتقد|اتوقع|maybe|perhaps|probably|possibly|i\s+think)(?:\s|$)/u.test(normalized)) return null;
+  if (needsClearAnswer(session) && reading.affirm && (reading.deny || reading.bareNegation)) return null;
   const intended = intentReply(session, reading);
   if (intended) return { value: intended };
   if (reading.unknown) return null;
@@ -402,6 +434,7 @@ export function mapSpeechToInput(
   transcript: string,
   digits: string | null = null,
   locale: Locale = "ar",
+  confidence: string | null = null,
 ): AnswerInput | null {
   if (session.inputMode === "none") return null;
   if (session.inputMode === "number" && digits && /^\d{1,6}$/.test(digits)) return { text: digits };
@@ -415,9 +448,12 @@ export function mapSpeechToInput(
     return { text: digits };
   }
 
+  if (digits) return null;
+  if (confidence !== null && (!confidence.trim() || !Number.isFinite(Number(confidence)) || Number(confidence) < 0.5 || Number(confidence) > 1)) return null;
   const raw = transcript.trim().slice(0, 300);
   // Spelling varies by recogniser, and «ما ادري» saved as free text would read as a reported fact.
-  if (session.inputMode !== "choices" && UNKNOWN_WORDS.has(compact(raw))) {
+  if (session.inputMode !== "choices" && ((session.inputMode === "number" && UNKNOWN_PHRASE.test(compact(raw))) || UNKNOWN_WORDS.has(compact(raw)) ||
+    /^(?:والله\s+)?(?:ما\s*ادري|ما\s*اعرف|لا\s*اعرف|مدري|i\s*don\s*t\s*know|i\s*do\s*not\s*know|not\s*sure)(?:\s+(?:والله|honestly))?$/.test(compact(raw)))) {
     const reply = unknownReply(session.replies);
     if (reply) return { value: reply.value };
   }

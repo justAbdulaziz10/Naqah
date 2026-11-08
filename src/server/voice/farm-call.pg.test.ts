@@ -241,8 +241,49 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       const call = await new Call(farm.worker).start();
       for (let turns = 0; turns < 8 && !/how many bags/i.test(call.text); turns++) await call.press("1");
       expect(call.xml).not.toContain('numDigits="1"');
+      expect(call.xml).toContain('finishOnKey="#"');
+      expect(call.text).toContain("then press #");
       await call.press("12");
       expect(call.text).toContain("12 bags");
+    });
+
+    it.each([
+      ["ar", "عشرين", "20"], ["ar", "ثلاثين كيس", "30"], ["ar", "مية وخمسين لتر", "150"],
+      ["ar", "تقريبا عشرة", "10"], ["ar", "٤٠", "40"],
+      ["en", "thirty bags", "30"], ["en", "one hundred and fifty litres", "150"],
+    ])("confirms then persists %s worker speech «%s»", async (language, speech, quantity) => {
+      const farm = seedFarm({ language });
+      const call = await new Call(farm.worker).start();
+      let quantityConfirmed = false;
+      for (let turns = 0; turns < 25 && !call.ended; turns += 1) {
+        const row = await readVoiceSession(createServiceClient()!, call.sid);
+        expect(row).not.toBeNull();
+        const current = row!.session;
+        if (current.step === "report_summary") {
+          expect(quantityConfirmed).toBe(true);
+          expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(0);
+          await call.say(language === "ar" ? "تمام" : "yes");
+        } else if (current.step === "quantity_input") {
+          await call.say(speech);
+          expect(call.text).toContain(`${quantity} `);
+          expect((await readVoiceSession(createServiceClient()!, call.sid))!.session.step).toBe("quantity_confirm");
+          expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(0);
+        } else if (current.step === "quantity_confirm") {
+          const partial = await call.post({ UnstableSpeechResult: "yes" });
+          call.xml = await partial.text();
+          call.path = nextPath(call.xml);
+          expect((await readVoiceSession(createServiceClient()!, call.sid))!.session.step).toBe("quantity_confirm");
+          const uncertain = await call.post({ SpeechResult: "yes", Confidence: "0.1" });
+          call.xml = await uncertain.text();
+          call.path = nextPath(call.xml);
+          expect((await readVoiceSession(createServiceClient()!, call.sid))!.session.step).toBe("quantity_confirm");
+          await call.say(language === "ar" ? "ايوه" : "yes");
+          quantityConfirmed = true;
+        } else if (current.inputMode === "number") await call.say(language === "ar" ? "واحد" : "one");
+        else await call.press("1");
+      }
+      expect(call.text).toMatch(/Your update is saved|تم حفظ التحديث/);
+      expect(sql(`select quantity || ':' || certainty from resources where farm_id = ${q(farm.id)} and kind = 'feed'`)).toBe(`${quantity} bags:approximate`);
     });
 
     it("clears a call whose end was never reported, on the next inbound call", async () => {
@@ -265,6 +306,19 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
   });
 
   describe("webhook trust", () => {
+    it("keeps signed preflight probes inert even with an active CallSid", async () => {
+      const farm = seedFarm();
+      const call = await new Call(farm.worker).start();
+      const before = await readVoiceSession(createServiceClient()!, call.sid);
+      for (const [path, handler] of [["inbound", inbound], ["turn", turn], ["outbound", outbound]] as const) {
+        const response = await handler(hook(`/api/voice/${path}?preflight=1`, { CallSid: call.sid, From: farm.worker, Digits: "1" }));
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ preflight: true });
+      }
+      expect(await readVoiceSession(createServiceClient()!, call.sid)).toEqual(before);
+      expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(0);
+      expect(count(`calls where farm_id = ${q(farm.id)}`)).toBe(0);
+    });
     it("rejects a bad or missing signature and writes nothing", async () => {
       const farm = seedFarm();
       const fields = { CallSid: sid(), From: farm.worker };

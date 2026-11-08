@@ -47,6 +47,7 @@ export async function POST(request: Request): Promise<Response> {
       seq: Number(seq),
       speech: hook.form.get("SpeechResult") ?? "",
       digits: hook.form.get("Digits"),
+      confidence: hook.form.get("Confidence"),
       now: new Date(),
     }));
   }
@@ -74,7 +75,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const current = replayVoiceState(state);
     if (current.session.done) return hangUpWithCurrentTurn(current.session, state.l);
-    const input = mapSpeechToInput(current.session, form.get("SpeechResult") ?? "", form.get("Digits"), state.l);
+    const input = mapSpeechToInput(current.session, form.get("SpeechResult") ?? "", form.get("Digits"), state.l, form.get("Confidence"));
 
     if (!input) {
       const misses = trailingMissCount(state.a);

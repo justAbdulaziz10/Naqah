@@ -193,7 +193,7 @@ function missedInput(row: VoiceSessionRow): AnswerInput | "ask_again" | "give_up
 
 export async function answerFarmCall(
   client: SupabaseClient,
-  input: { callSid: string; seq: number; speech: string; digits: string | null; now: Date },
+  input: { callSid: string; seq: number; speech: string; digits: string | null; confidence?: string | null; now: Date },
 ): Promise<string> {
   const { callSid, seq, speech, digits, now } = input;
   const row = await readVoiceSession(client, callSid);
@@ -203,7 +203,7 @@ export async function answerFarmCall(
 
   const { session, locale } = row;
   const { workspace } = requireFarm(await loadFarm(client, { id: row.farm_id }));
-  const spoken = mapSpeechToInput(session, speech, digits, locale);
+  const spoken = mapSpeechToInput(session, speech, digits, locale, input.confidence);
   const next = row.seq + 1;
   const missed = spoken ? null : missedInput(row);
   if (missed === "give_up") return advance(client, row, { ...session, done: true }, row.misses, twimlGoodbye(locale, MISSED_TWICE[locale]));

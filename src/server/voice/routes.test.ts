@@ -21,6 +21,7 @@ const envNames = [
   "NAQAH_VOICE_ARABIC_VOICE", "NAQAH_VOICE_ENGLISH_VOICE", "TWILIO_AUTH_TOKEN", "TWILIO_ACCOUNT_SID",
   "TWILIO_PHONE_NUMBER", "NAQAH_CALL_OWNER", "NEXT_PUBLIC_NAQAH_PHONE_NUMBER", "WHATSAPP_PHONE_NUMBER_ID",
   "WHATSAPP_TOKEN", "NAQAH_OWNER_WHATSAPP", "WHATSAPP_TEMPLATE_NAME", "WHATSAPP_TEMPLATE_LANGUAGE",
+  "NEXT_PUBLIC_NAQAH_BUILD_COMMIT",
 ];
 
 function request(url: string, fields: Record<string, string> = {}) {
@@ -421,6 +422,13 @@ describe("voice webhook routes", () => {
     });
     expect(result.status).toBe(1);
     expect(JSON.parse(result.stdout).reason).toBe("set --worker-phone or NAQAH_WORKER_PHONE to a registered caller ID");
+  });
+
+  it("reports a full build commit only, never arbitrary environment text", async () => {
+    vi.stubEnv("NEXT_PUBLIC_NAQAH_BUILD_COMMIT", "a".repeat(40));
+    expect((await (await status()).json()).version.commit).toBe("a".repeat(40));
+    vi.stubEnv("NEXT_PUBLIC_NAQAH_BUILD_COMMIT", "not-a-commit-or-a-secret");
+    expect((await (await status()).json()).version.commit).toBeNull();
   });
 
   it("reports whether Twilio signature validation is enabled without exposing the token", async () => {

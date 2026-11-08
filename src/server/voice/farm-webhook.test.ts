@@ -47,6 +47,20 @@ afterEach(() => {
 });
 
 describe("farm webhooks", () => {
+  it.each(["/api/voice/inbound", "/api/voice/turn"])("validates a read-only probe on %s without starting a call", async (path) => {
+    const handler = path.endsWith("inbound") ? inbound : turn;
+    const response = await handler(hook(`${path}?preflight=1`, { Preflight: "1", CallSid: CALL }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ preflight: true, recording: false, transcription: false });
+    expect(mock.start).not.toHaveBeenCalled();
+    expect(mock.answer).not.toHaveBeenCalled();
+    expect(mock.end).not.toHaveBeenCalled();
+    expect((await handler(hook(`${path}?preflight=1`, { Preflight: "1" }, "wrong"))).status).toBe(403);
+  });
+  it("passes final recognition confidence and ignores unstable partial speech", async () => {
+    await turn(hook("/api/voice/turn?n=0", { CallSid: CALL, UnstableSpeechResult: "ايوه", Confidence: "0.1" }));
+    expect(mock.answer).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ speech: "", confidence: "0.1" }));
+  });
   it("passes a signed call through", async () => {
     const response = await inbound(hook("/api/voice/inbound", { CallSid: CALL, From: "+966500000001" }));
     expect(await response.text()).toContain("started");
