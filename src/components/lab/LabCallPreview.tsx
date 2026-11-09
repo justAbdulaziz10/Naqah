@@ -12,7 +12,7 @@ export function LabCallPreview({ selected, ws, m, availability, onStart }: {
   selected: PickerScenario;
   ws: Workspace;
   m: ReturnType<typeof useI18n>["m"];
-  availability: { text: string; enabled: boolean };
+  availability: { text: string; enabled: boolean; time?: string };
   onStart: () => void;
 }) {
   const caller = selected === "worker_inbound"
@@ -45,7 +45,10 @@ export function LabCallPreview({ selected, ws, m, availability, onStart }: {
       </div>
       <div className="flex min-h-[150px] flex-col items-center justify-center bg-cream px-5 py-6 text-center">
         <h2 className="font-semibold text-espresso">{title}</h2>
-        <p className="mt-1 max-w-sm text-sm leading-relaxed text-muted">{availability.text}</p>
+        <p className="mt-1 max-w-sm text-sm leading-relaxed text-muted">
+          {availability.text}
+          {availability.time ? <> <span className="ltr-nums inline-block font-semibold text-espresso">{availability.time}</span></> : null}
+        </p>
         <Button onClick={onStart} size="lg" className="mt-5 w-full sm:w-auto" disabled={!availability.enabled}>
           {selected === "report_call" ? m.lab.phone.startReportCall + " · " + m.lab.phone.simulation : m.lab.phone.start}
         </Button>
