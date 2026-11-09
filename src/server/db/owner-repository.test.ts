@@ -81,6 +81,14 @@ describe("owner repository", () => {
     await expect(repository.ensureFarm()).rejects.toMatchObject({ code: "not_found" });
     expect(calls.some((call) => call.op === "upsert" && call.table === "farms")).toBe(false);
   });
+  it("keeps a missing plan-selection column classified as an unavailable schema, not a missing farm", async () => {
+    const { client, calls } = fakeClient({
+      farms: { data: null, error: { code: "42703", message: "column farms.plan_selected_at does not exist" } },
+    });
+    await expect(createOwnerRepository(client, "owner").initialPlanState()).rejects.toMatchObject({ code: "unavailable" });
+    expect(calls.find((call) => call.table === "farms" && call.op === "select")?.args).toEqual(["plan_selected_at, setup_complete"]);
+    expect(calls.some((call) => ["insert", "upsert", "update"].includes(call.op))).toBe(false);
+  });
   it("requires an explicit confirmation for an incomplete legacy farm, but leaves completed farms alone", async () => {
     const incomplete = fakeClient({ farms: { data: { id: farmId, plan_selected_at: null, setup_complete: false }, error: null } });
     expect(await createOwnerRepository(incomplete.client, "owner").initialPlanState()).toEqual({ required: true, setupComplete: false, existingFarm: true });

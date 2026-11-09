@@ -19,5 +19,6 @@ $PSQL -d postgres -c "drop database if exists $DB"
 $PSQL -d postgres -c "create database $DB"
 $PSQL -d "$DB" -f bootstrap.sql
 for migration in ../migrations/*.sql; do $PSQL -d "$DB" -1 -f "$migration"; done
+$PSQL -d "$DB" -f plan_selection.sql
 cd ../..
 NAQAH_TEST_DB="$DB" npx vitest run src/server/db/custom-question.pg.test.ts
