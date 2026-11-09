@@ -1,10 +1,10 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, use, useContext, useMemo, type ReactNode } from "react";
 import type { Locale, LocalizedText } from "@/domain/types";
 import { dirOf } from "./config";
 import { formatDate, formatDateTime, formatNumber, formatRelative, formatTime } from "./format";
-import { getMessages, type Messages } from "./messages";
+import type { Messages } from "./messages";
 
 interface I18nValue {
   locale: Locale;
@@ -26,12 +26,23 @@ interface I18nValue {
 
 const I18nContext = createContext<I18nValue | null>(null);
 
+const messageLoaders: Record<Locale, () => Promise<{ messages: Messages }>> = {
+  ar: () => import("@/i18n/messages/.generated/ar.mjs"),
+  en: () => import("@/i18n/messages/.generated/en.mjs"),
+};
+const messagePromises: Partial<Record<Locale, Promise<Messages>>> = {};
+
+function messagesFor(locale: Locale): Promise<Messages> {
+  return (messagePromises[locale] ??= messageLoaders[locale]().then(({ messages }) => messages));
+}
+
 export function I18nProvider({ locale, children }: { locale: Locale; children: ReactNode }) {
+  const messages = use(messagesFor(locale));
   const value = useMemo<I18nValue>(
     () => ({
       locale,
       dir: dirOf(locale),
-      m: getMessages(locale),
+      m: messages,
       t: (text) => text[locale],
       fmt: {
         dateTime: (iso, opts) => formatDateTime(iso, locale, opts),
@@ -42,7 +53,7 @@ export function I18nProvider({ locale, children }: { locale: Locale; children: R
       },
       href: (path) => `/${locale}${path === "/" ? "" : path}`,
     }),
-    [locale],
+    [locale, messages],
   );
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

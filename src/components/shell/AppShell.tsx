@@ -163,6 +163,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p className="px-3 text-xs font-semibold text-muted">{m.common.demo.label}</p>
             <Link
               href={href("/app/lab")}
+              prefetch={false}
               aria-current={isActive("/app/lab") ? "page" : undefined}
               className={cn(
                 "relative mt-1 flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 transition-colors duration-200",
@@ -180,6 +181,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {voiceLab ? (
           <Link
             href={href("/app/voice-lab")}
+            prefetch={false}
             aria-current={isActive("/app/voice-lab") ? "page" : undefined}
             className={cn(
               "mt-2 flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-[0.95rem] font-semibold transition-colors duration-200",
@@ -208,7 +210,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="ms-auto flex items-center gap-1">
               <LocaleSwitcher />
               {voiceLab ? (
-                <Link href={href("/app/voice-lab")} aria-label={m.voiceLab.nav} className="inline-flex size-11 items-center justify-center rounded-full hover:bg-espresso/5">
+                <Link href={href("/app/voice-lab")} prefetch={false} aria-label={m.voiceLab.nav} className="inline-flex size-11 items-center justify-center rounded-full hover:bg-espresso/5">
                   <Microphone size={22} aria-hidden />
                 </Link>
               ) : null}
@@ -282,7 +284,7 @@ function DemoNotice({ showSimulate, labHref }: { showSimulate: boolean; labHref:
             <DemoClock />
           </div>
           {showSimulate ? (
-            <Link href={labHref} className="naqah-nudge inline-flex min-h-11 items-center gap-1 font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
+            <Link href={labHref} prefetch={false} className="naqah-nudge inline-flex min-h-11 items-center gap-1 font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
               {m.common.demo.simulateCall}
               <ArrowRight size={14} className="naqah-nudge-icon rtl:-scale-x-100" aria-hidden />
             </Link>
