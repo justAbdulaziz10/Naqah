@@ -109,6 +109,12 @@ export const setup = defineMessages({
     },
     plans: {
       caption: "Basic and Ultimate compared",
+      price: {
+        monthlyPerRanch: "Monthly per ranch",
+        currency: "SAR",
+        beforeVat: "before VAT",
+        includingVat: (percent: number) => `including ${percent}% VAT`,
+      },
       yours: "Your plan",
       workers: "Workers",
       reportCall: "Report call",
@@ -330,6 +336,12 @@ export const setup = defineMessages({
     },
     plans: {
       caption: "مقارنة الأساسية والمتكاملة",
+      price: {
+        monthlyPerRanch: "شهريًا لكل مزرعة",
+        currency: "ريال",
+        beforeVat: "قبل الضريبة",
+        includingVat: (percent: number) => `شامل ضريبة القيمة المضافة ${percent}٪`,
+      },
       yours: "باقتك",
       workers: "العمال",
       reportCall: "مكالمة التقرير",

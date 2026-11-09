@@ -3,13 +3,14 @@
 import { PLAN_LIMITS } from "@/domain/catalog";
 import type { Plan } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
+import { PlanPrice } from "@/components/plans/PlanPrice";
 import { cn } from "@/lib/cn";
 
 const PLANS: Plan[] = ["basic", "ultimate"];
 
 /**
  * Basic next to Ultimate, with the owner's plan marked. Read-only: plans are changed by the NAQAH
- * team, never from here, and no prices are shown (none are set).
+ * team, never from here. Prices are shown for reference only; billing is not implemented.
  */
 export function PlanComparison({ current, className }: { current: Plan; className?: string }) {
   const { m } = useI18n();
@@ -42,6 +43,14 @@ export function PlanComparison({ current, className }: { current: Plan; classNam
           </tr>
         </thead>
         <tbody className="divide-y divide-stone/60">
+          <tr>
+            <th scope="row" className="py-3 pe-3 text-start font-medium text-muted">{p.price.monthlyPerRanch}</th>
+            {PLANS.map((plan) => (
+              <td key={plan} className={cn("py-3 pe-2 leading-snug", plan === current ? "font-semibold text-espresso" : "text-espresso/80")}>
+                <PlanPrice plan={plan} copy={p.price} compact showLabel={false} />
+              </td>
+            ))}
+          </tr>
           {rows.map((row) => (
             <tr key={row.key}>
               <th scope="row" className="py-3 pe-3 text-start font-medium text-muted">{row.label}</th>

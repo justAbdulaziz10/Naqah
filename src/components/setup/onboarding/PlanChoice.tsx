@@ -3,6 +3,7 @@
 import { Check } from "@phosphor-icons/react";
 import { PLAN_LIMITS } from "@/domain/catalog";
 import type { Plan, Weekday } from "@/domain/types";
+import { PlanPrice } from "@/components/plans/PlanPrice";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useIsAccount } from "@/store/workspace";
@@ -78,6 +79,7 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
         <PlanRhythm plan={plan} day={day} className="mt-4 h-3" />
         <span className="mt-3 block text-[1.0625rem] leading-snug">{plan === "basic" ? p.basicRhythm : p.ultimateRhythm}</span>
         <span className="mt-1 block text-[0.9375rem] leading-relaxed text-muted">{plan === "basic" ? p.basicExtras : p.ultimateExtras}</span>
+        <PlanPrice plan={plan} copy={p.price} compact className="mt-4 border-t border-stone pt-3" />
         {blocked ? <span className="mt-2 block text-[0.9375rem] text-danger">{p.tooManyForBasic}</span> : null}
       </>
     );
@@ -102,7 +104,6 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
           className="sr-only"
           checked={selected}
           disabled={blocked || (initial && props.disabled === true)}
-          aria-label={p.rhythmLabel(m.common.plans[plan], plan === "basic")}
           onChange={() => choose(plan)}
         />
         {body}

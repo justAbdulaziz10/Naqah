@@ -172,7 +172,7 @@ Copied from the specs — the MVP picks a placeholder behavior and marks it in c
 7. Retry scope/exhaustion beyond the No Answer Ticket. (MVP: ticket stays open until callback)
 8. How emergency categories are used during calls. (MVP: shown to the owner; worker calls owner directly)
 9. Predefined question categories and wording. (MVP: DRAFT in `catalog.ts`)
-10. AI model, voice/telephony provider, payments and prices. (MVP: none — simulated)
+10. AI model, voice/telephony provider and payment processing. (MVP: none — simulated; display-only plan prices are set below)
 
 ## 8. Production roadmap (demo → real service)
 
@@ -238,9 +238,11 @@ The implemented contract is `docs/integrations/voice-data-contract.md`.
 Note: Vercel Hobby cron runs at most once a day; the 20-minute retry needs Vercel Pro, Supabase `pg_cron`
 (free) calling the route, or Twilio's own scheduling.
 
-### 8.5 Payments
-Out of scope for the MVP (no prices shown, nothing charged). When decided: Moyasar or Tap (Saudi) or Stripe, with the
-plan stored on `farms.plan`.
+### 8.5 Payments and displayed prices
+Payment processing is out of scope for the MVP; showing prices does not charge or subscribe an owner. The public
+monthly price per ranch is Basic: SAR 299 before VAT (SAR 344 including 15% VAT), and Ultimate: SAR 999 before VAT
+(SAR 1,149 including 15% VAT). When payment processing is approved: Moyasar or Tap (Saudi) or Stripe, with the plan
+stored on `farms.plan`.
 
 ### 8.6 Deployment
 Vercel Hobby (free). `NEXT_PUBLIC_SITE_URL` is used for metadata/OG URLs. No other environment variables are needed

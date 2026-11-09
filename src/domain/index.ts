@@ -1,5 +1,6 @@
 export * from "./types";
 export * from "./catalog";
+export * from "./pricing";
 export * from "./clock";
 export * from "./rules";
 export * from "./findings";
