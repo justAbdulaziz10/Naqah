@@ -7,7 +7,7 @@
 import { pushCall, pushEvent } from "./actions";
 import { HOUR, REPORT_CALL_GRACE_MS, REPORT_CALL_RETRIES, RETRY_DELAY_MS } from "./clock";
 import { uid } from "./id";
-import { reportDoneThisPeriod } from "./rules";
+import { reportDoneThisPeriod, reportPlanHasContent } from "./rules";
 import { previousScheduledCall } from "./schedule";
 import type { ReportCallRun, Workspace } from "./types";
 
@@ -48,13 +48,14 @@ export function dialableWorkerPhone(ws: Workspace): string | null {
   return /^\+[1-9]\d{7,14}$/.test(phone) ? phone : null;
 }
 
-export type ReportCallBlock = "no_worker_phone" | "already_reported" | "in_progress";
+export type ReportCallBlock = "no_worker_phone" | "already_reported" | "in_progress" | "no_questions";
 
 /** Why a report call can't start now, or null when it can. Shared by "Call now" and the scheduler. */
 export function reportCallBlock(ws: Workspace, now: Date): ReportCallBlock | null {
   if (!dialableWorkerPhone(ws)) return "no_worker_phone";
   if (reportCallRuns(ws).some((run) => reportCallIsLive(run, now))) return "in_progress";
   if (reportDoneThisPeriod(ws, now)) return "already_reported";
+  if (!reportPlanHasContent(ws, now)) return "no_questions";
   return null;
 }
 
@@ -198,6 +199,18 @@ export function endReportCallWithoutReport(input: Workspace, now: Date, runId: s
 /** A placement that could not be retried after this long since its slot is given up as missed. */
 export const REPORT_CALL_GIVE_UP_MS = 3 * 60 * 60 * 1000;
 
+function giveUpReportCall(input: Workspace, now: Date, runId: string): Workspace {
+  const ws = structuredClone(input);
+  const run = reportCallRuns(ws).find((r) => r.id === runId)!;
+  run.state = "missed";
+  run.nextAttemptAt = null;
+  pushEvent(ws, now, "attention", {
+    ar: `فاتت مكالمة التقرير مع ${ws.settings.worker.name}. لا يوجد تقرير لهذه الفترة بعد.`,
+    en: `The report call with ${ws.settings.worker.name} was missed. There is no report for this period yet.`,
+  });
+  return ws;
+}
+
 export interface ReportCallClaim {
   runId: string;
   attempt: number;
@@ -211,8 +224,12 @@ export interface ReportCallClaim {
  * running at once can't both claim it. Unchanged workspace and null when nothing is due.
  */
 export function claimDueReportCall(input: Workspace, now: Date): { ws: Workspace; claim: ReportCallClaim | null } {
+  // A retry left waiting while every question was off must not ring days later for an old slot.
+  const stale = dueReportCallAttempts(input, now).find((run) => now.getTime() - new Date(run.occurrence).getTime() > REPORT_CALL_GIVE_UP_MS);
+  if (stale) return { ws: giveUpReportCall(input, now, stale.id), claim: null };
   const phone = dialableWorkerPhone(input);
-  if (!phone) return { ws: input, claim: null };
+  // A retry is checked here too: the owner may have switched everything off since the first attempt.
+  if (!phone || !reportPlanHasContent(input, now)) return { ws: input, claim: null };
   let ws = input;
   let run: ReportCallRun | undefined = dueReportCallAttempts(input, now)[0];
   if (!run) {

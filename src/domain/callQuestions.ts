@@ -8,20 +8,20 @@ export type SkippedQuestion =
   | { question: PredefinedQuestion; reason: "herd_count" };
 
 export interface CallQuestionPlan {
-  /** NAQAH's own questions, in the order the call asks them. */
+  /** NAQAH's own questions that can apply here, in catalog order. `plannedQuestions` decides what is asked and when. */
   asked: PredefinedQuestion[];
   /** NAQAH's questions this ranch won't hear, and why. */
   skipped: SkippedQuestion[];
-  /** The owner's questions, asked after NAQAH's. */
+  /** The owner's own questions. */
   custom: CustomQuestion[];
   /** Ultimate: open tasks are checked at the end of the call. */
   checksTasks: boolean;
 }
 
 /**
- * What the next report call asks, for the owner to read. Mirrors the report queue in
- * `conversation/engine.ts`: applicable questions (the herd check only with a known herd size),
- * then the owner's questions, then open tasks on Ultimate. A hot-day water check may come first.
+ * Which of NAQAH's questions this ranch can hear, and why the rest are left out. The order and
+ * on/off switches are the owner's plan (`plannedQuestions`); open tasks come last on Ultimate,
+ * and a hot-day water check may come first.
  */
 export function callQuestionPlan(ws: Workspace): CallQuestionPlan {
   const applicable = applicableQuestions(ws);

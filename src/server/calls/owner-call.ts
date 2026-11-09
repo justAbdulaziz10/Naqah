@@ -11,6 +11,8 @@ import { runFarmAction } from "@/server/db/service-repository";
 import { ownerUpdateCallEnabled, outboundConfig } from "./config";
 import { signCallToken } from "./token";
 import { createTwilioCaller, type OutboundCaller, type OutboundCallResult } from "./twilio";
+import { testCallsEnabled } from "./test-call-config";
+import { isTestRanch } from "./test-call-store";
 
 const E164 = /^\+[1-9]\d{7,14}$/;
 
@@ -20,6 +22,7 @@ export async function callOwnerAfterReport(
   caller: OutboundCaller = createTwilioCaller(),
 ): Promise<OutboundCallResult | null> {
   if (!ownerUpdateCallEnabled()) return null;
+  if (testCallsEnabled() && await isTestRanch(client, input.farmId)) return null;
   const config = outboundConfig();
   if (!config) return { placed: false, reason: "not_configured" };
   const { result: claimed } = await runFarmAction(client, input.farmId, (ws) => {

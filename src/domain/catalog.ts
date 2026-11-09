@@ -79,8 +79,8 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: null,
     answerKind: "yesno",
     text: {
-      ar: "الحلال كله موجود وكامل العدد؟",
-      en: "Are all the camels present and accounted for?",
+      ar: "كم عدد الحلال كله اليوم؟",
+      en: "How many camels are there in total today?",
     },
   },
   {

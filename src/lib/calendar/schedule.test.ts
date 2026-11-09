@@ -32,6 +32,8 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
       farm: { name: "عزبة النخيل", location: "" },
       worker: { name: "Worker", phone: "0500000001", language: "ar" },
       customQuestions: [],
+      reportMode: "guided",
+      questionPlan: [],
       criteria: [],
       emergencies: [],
       window: null,

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { LabSession } from "./answer-guards";
+import type { LabSession } from "./agent";
 import type { Locale } from "@/domain/types";
 
 export const LAB_TTL_MS = 30 * 60 * 1000;

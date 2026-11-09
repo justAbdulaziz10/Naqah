@@ -1,7 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { farmAlerts, farmInstructions } from "@/domain/alerts";
+import { PREDEFINED_QUESTIONS } from "@/domain/catalog";
+import { reportPlanHasContent } from "@/domain/rules";
 import { createEmptyWorkspace } from "@/domain/seed";
-import type { Plan } from "@/domain/types";
+import type { Plan, QuestionPlanEntry } from "@/domain/types";
 import {
   parseCamelPatch, parseCriterion, parseEmergency, parseFarmProfile, parseNewCamel, parseResource, parseWorker, requiredText,
 } from "@/server/farm/input";
@@ -75,6 +77,17 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
     assertWritten(await client.from(table).delete().eq("farm_id", farm).eq("id", row).select("id"));
   }
 
+  /** Custom ids map to their stored rows, as insertRow does. Refused if the call would have nothing to ask. */
+  async function storablePlan(plan: QuestionPlanEntry[], farm: string): Promise<QuestionPlanEntry[]> {
+    const predefined = new Set(PREDEFINED_QUESTIONS.map((question) => question.id));
+    const questionPlan = plan.map((entry) => (predefined.has(entry.id) ? entry : { ...entry, id: toDbId(farm, entry.id) }));
+    const { workspace } = requireFarm(await loadFarm(client, { id: farm }));
+    if (!reportPlanHasContent({ ...workspace, settings: { ...workspace.settings, questionPlan } }, new Date())) {
+      throw new DbError("invalid_input", "questionPlan");
+    }
+    return questionPlan;
+  }
+
   return {
     /** Read-only routing signal. A missing/default plan is never treated as owner consent. */
     async initialPlanState(): Promise<InitialPlanState> {
@@ -144,6 +157,7 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
     async saveFarmProfile(input: unknown) {
       const values = parseFarmProfile(input);
       const farm = await currentFarmId();
+      if (values.question_plan) values.question_plan = await storablePlan(values.question_plan, farm);
       assertWritten(await client.from("farms").update(values).eq("id", farm).select("id"));
     },
     /** The primary worker (the one NAQAH calls), for screens that still edit a single worker. */

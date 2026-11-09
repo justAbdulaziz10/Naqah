@@ -4,13 +4,14 @@ import { ArrowRight, CheckCircle, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { SupplyGauges } from "@/components/visuals/SupplyGauges";
-import { RESOURCE_LABELS } from "@/domain";
 import type { FarmReport, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { CertaintyBadge } from "./DashboardPrimitives";
 import { callEntries } from "./callStories";
 import { mentions } from "./matters";
+import { ReportCoverage } from "./ReportCoverage";
+import { reportResources } from "./reportCoverageFacts";
 
 const row = "grid grid-cols-1 py-4 sm:grid-cols-[4.5rem_6.5rem_minmax(0,1fr)] sm:gap-x-5";
 
@@ -45,9 +46,8 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
   const briefing = story?.type === "report" ? story.briefings.find((call) => call.outcome === "completed") ?? story.briefings.at(-1) ?? null : null;
   const delivery = story?.type === "report" ? story.deliveries.at(-1)?.find((call) => call.outcome === "completed") ?? null : null;
   const custom = new Set(ws.settings.customQuestions.map((question) => question.id));
-  const answers = report.answers.filter((answer) => custom.has(answer.questionId) && !answer.followUp);
-  const supplies = ws.resources.filter((resource) => resource.present);
-  const absent = ws.resources.filter((resource) => !resource.present);
+  const answers = report.answers.filter((answer) => custom.has(answer.questionId) && !answer.followUp && report.coverage?.find((entry) => entry.questionId === answer.questionId)?.status !== "not_reported");
+  const supplies = reportResources(ws, report);
   // Findings are told in full under "Needs your attention"; here they are indexed by camel where one is named.
   const flagged = report.findings.map((finding) => {
     const camel = ws.camels.find((item) => mentions(finding.text.ar, item.name) || mentions(finding.text.en, item.name));
@@ -67,6 +67,7 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
             <time className="ltr-nums" dateTime={report.at}>{fmt.dateTime(report.at, { weekday: "long", day: "numeric", month: "short", hour: undefined, minute: undefined })}</time>
           </p>
         </figcaption>
+        <ReportCoverage ws={ws} report={report} />
         <ol className="border-t border-stone/70">
           {answers.length ? (
             <Line at={report.at} who={worker} index={index++}>
@@ -106,8 +107,7 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
           </Line>
           {supplies.length ? (
             <Line who={o.resources} index={index++}>
-              <SupplyGauges resources={ws.resources} />
-              {absent.length ? <p className="mt-3 text-[0.8125rem] text-muted">{o.absentResources(absent.map((resource) => t(RESOURCE_LABELS[resource.kind])).join("، "))}</p> : null}
+              <SupplyGauges resources={supplies} />
             </Line>
           ) : null}
           <Line at={briefing?.at ?? null} who={m.visual.calls.naqah} whoTone="text-brown" index={index++}>

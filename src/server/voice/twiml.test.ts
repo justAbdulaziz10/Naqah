@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CallSession } from "@/domain/conversation/engine";
-import { escapeXml, sayElement, twimlGather, twimlGoodbye } from "./twiml";
+import { agentText, escapeXml, sayElement, twimlGather, twimlGoodbye } from "./twiml";
 
 const session: CallSession = {
   scenario: "report_call", step: "confirm",
@@ -11,6 +11,16 @@ const session: CallSession = {
 };
 
 describe("TwiML output", () => {
+  it("asks for a spoken answer on text steps", () => {
+    expect(agentText({ ...session, inputMode: "text" }, "ar")).toContain("قل إجابتك بصوتك");
+    expect(agentText({ ...session, inputMode: "text" }, "en")).toContain("say your answer aloud");
+  });
+
+  it("never swaps words inside literal owner-written text", () => {
+    const literal = { ...session, turns: [{ ...session.turns[0], literal: true, text: { ar: "أحمد، وش وضع المزرعة؟", en: "Ahmed, how is the farm?" } }] };
+    expect(agentText(literal, "ar")).toContain("أحمد، وش وضع المزرعة؟");
+    expect(agentText(literal, "ar")).not.toContain("العزبة");
+  });
   it("ends a choice at one key press, and lets a quantity take several", () => {
     expect(twimlGather(session, "en", "/t")).toContain('numDigits="1"');
     expect(twimlGather({ ...session, inputMode: "number" }, "en", "/t")).not.toContain("numDigits");

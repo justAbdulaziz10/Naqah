@@ -25,6 +25,8 @@ export interface Turn {
   speaker: "agent" | "worker" | "owner" | "system";
   text: LocalizedText;
   at: string;
+  /** The owner's own words or the worker's, spoken as written: no sample names to swap. */
+  literal?: boolean;
 }
 
 export interface Reply {
@@ -35,8 +37,8 @@ export interface Reply {
 
 export type ReportItem =
   | { kind: "weather_heat_day"; id: string; question: LocalizedText }
-  | { kind: "predefined"; id: string; question: LocalizedText; answerKind: PredefinedQuestion["answerKind"]; resource: ResourceKind | null }
-  | { kind: "custom"; id: string; question: LocalizedText }
+  | { kind: "predefined"; id: string; question: LocalizedText; answerKind: PredefinedQuestion["answerKind"]; resource: ResourceKind | null; required?: boolean }
+  | { kind: "custom"; id: string; question: LocalizedText; required?: boolean }
   | { kind: "task"; id: string; taskId: string; question: LocalizedText };
 
 export interface ConversationData {
@@ -74,6 +76,15 @@ export interface ConversationData {
   inquiryTopics?: string[];
   callbackTaskIds?: string[];
   callbackTaskIndex?: number;
+  /** Bumped by every correction, so a confirmation can only apply to the draft the worker heard. */
+  draftRevision?: number;
+  /** Re-asking one item from the summary: the next step goes back to the summary. */
+  correcting?: boolean;
+  /** How this report was taken. Absent on a call still choosing, which is read as guided. */
+  reportMode?: "guided" | "open";
+  /** Open mode: camel observations whose camel the worker hasn't named yet. */
+  openClarify?: { status: HealthStatus; note: string | null }[];
+  openNotes?: number;
 }
 
 export interface CallSession {
@@ -99,7 +110,17 @@ export interface EngineResult {
 export interface AnswerInput {
   value?: string;
   text?: string;
+  /** Open mode: what the worker reported, already checked against their words. */
+  facts?: OpenFact[];
 }
+
+/** One thing the worker said in open mode. `evidence` is their words; it is checked, then never stored. */
+export type OpenFact =
+  | { type: "camel_health"; camelId: string | null; scope: "one" | "all"; status: HealthStatus; note: string | null; evidence: string }
+  | { type: "herd_count"; count: number; evidence: string }
+  | { type: "resource"; resource: ResourceKind; level: Level | null; quantity: number | null; evidence: string }
+  | { type: "custom"; questionId: string; answer: string; evidence: string }
+  | { type: "other"; note: string; evidence: string };
 
 export interface ReportCallAvailability {
   /** Why "Call now" can't start, or null. */
@@ -160,8 +181,8 @@ export function blank(scenario: Scenario, now: Date): CallSession {
   };
 }
 
-export function turn(session: CallSession, speaker: Turn["speaker"], text: LocalizedText, now: Date): CallSession {
-  return { ...session, turns: [...session.turns, { speaker, text, at: now.toISOString() }] };
+export function turn(session: CallSession, speaker: Turn["speaker"], text: LocalizedText, now: Date, literal = false): CallSession {
+  return { ...session, turns: [...session.turns, { speaker, text, at: now.toISOString(), ...(literal ? { literal } : {}) }] };
 }
 
 export function ask(
@@ -171,9 +192,10 @@ export function ask(
   step: string,
   replies: Reply[] = [],
   inputMode: InputMode = "choices",
+  literal = false,
 ): CallSession {
   return {
-    ...turn(session, "agent", text, now),
+    ...turn(session, "agent", text, now, literal),
     step,
     replies,
     inputMode,

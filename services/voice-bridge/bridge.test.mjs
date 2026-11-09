@@ -113,12 +113,13 @@ async function fixture(options = {}) {
       response.writeHead(options.sessionStatus || 200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({
         instructions: 'Mock instructions', tools: [{ type: 'function', name: 'answer_question', parameters: { type: 'object' } }],
-        opening: 'Mock opening', locale: 'en', maxSeconds: options.maxSeconds || 120,
+        opening: 'Mock opening', locale: 'en', maxSeconds: options.maxSeconds || 120, ...options.session,
       }));
     } else if (request.url === '/api/voice/realtime/tool') {
       if (options.toolDelay) await delay(options.toolDelay);
       response.writeHead(options.toolStatus || 200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify(options.toolResult || { output: '{"ok":true}', awaitingConfirmation: false, end: null, goodbye: null }));
+      const result = typeof options.toolResult === 'function' ? options.toolResult(record.body) : options.toolResult;
+      response.end(JSON.stringify(result || { output: '{"ok":true}', awaitingConfirmation: false, end: null, goodbye: null, sayText: 'Mock next question' }));
     } else {
       response.writeHead(207, 'Mock response', { 'x-mock-result': 'passed', 'set-cookie': ['first=1', 'second=2'] });
       response.write(rawBody.slice(0, 3));
@@ -195,6 +196,46 @@ async function fixture(options = {}) {
       await Promise.all([new Promise((resolve) => upstream.close(resolve)), new Promise((resolve) => providerServer.close(resolve))]);
     },
   };
+}
+
+async function waitFor(predicate) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (predicate()) return;
+    await delay(5);
+  }
+  assert.ok(predicate(), 'Mock state timeout');
+}
+
+async function playPrompt(state, connection, transcript, acknowledge = true) {
+  const offset = connection.messages.received.length;
+  const itemId = `audio-${state.responseId}`;
+  state.audio(160, itemId);
+  send(state.provider, { type: 'response.output_audio.done', item_id: itemId, content_index: 0 });
+  if (transcript !== undefined) send(state.provider, {
+    type: 'response.output_audio_transcript.done', response_id: state.responseId,
+    item_id: itemId, content_index: 0, transcript,
+  });
+  state.complete();
+  await waitFor(() => connection.messages.received.slice(offset).some((event) => event.mark?.name.startsWith('prompt-')));
+  const marks = connection.messages.received.slice(offset).filter((event) => event.event === 'mark');
+  if (acknowledge) {
+    for (const event of marks) send(connection.socket, { event: 'mark', streamSid: STREAM_SID, mark: event.mark });
+    await delay(10);
+  }
+  return marks;
+}
+
+async function workerTool(state, callId, name = 'answer_question', transcript = 'Mock worker words', args = {}) {
+  const previous = state.responseId;
+  send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 0 });
+  send(state.provider, { type: 'input_audio_buffer.committed', item_id: callId });
+  send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: callId, content_index: 0, transcript });
+  await waitFor(() => state.responseId !== previous);
+  send(state.provider, { type: 'response.function_call_arguments.done', call_id: callId, name, arguments: JSON.stringify(args) });
+  state.complete();
+  await state.providerInbox.wait((event) => event.item?.call_id === callId);
+  await delay(10);
+  return state.requests.find((request) => request.body?.toolCallId === callId).body;
 }
 
 test('configuration fails closed and provider overrides can only reach loopback ws', () => {
@@ -285,6 +326,7 @@ test('audio from before session.updated is dropped; both directions remain raw m
     const update = state.providerEvents.find((event) => event.type === 'session.update');
     assert.equal(update.session.model, 'gpt-realtime-2.1');
     assert.equal(update.session.instructions, 'Mock instructions');
+    assert.equal(update.session.tool_choice, 'required');
     assert.equal(update.session.audio.input.format.type, 'audio/pcmu');
     assert.equal(update.session.audio.output.format.type, 'audio/pcmu');
     assert.equal(update.session.audio.input.turn_detection.type, 'server_vad');
@@ -292,6 +334,7 @@ test('audio from before session.updated is dropped; both directions remain raw m
     assert.equal(state.providerAuth, 'Bearer mock-key-never-paid');
     const opening = state.providerEvents.find((event) => event.type === 'response.create');
     assert.match(opening.response.instructions, /Mock opening/);
+    assert.equal(opening.response.tool_choice, 'none');
     await delay(10);
     state.audio(160);
     const output = await messages.wait((event) => event.event === 'media');
@@ -347,7 +390,7 @@ test('barge-in truncates completed but unplayed audio without cancelling a finis
 });
 
 test('tool round trip forwards signed args and speech; awaitingConfirmation resets speech', async () => {
-  const state = await fixture({ toolResult: { output: '{"summary":true}', awaitingConfirmation: true, end: null, goodbye: null } });
+  const state = await fixture({ toolResult: { output: '{"summary":true}', awaitingConfirmation: true, end: null, goodbye: null, sayText: 'Mock next question' } });
   try {
     const { socket } = await state.connect();
     await state.ready(socket);
@@ -451,23 +494,25 @@ test('one committed worker turn cannot authorize two queued answers', async () =
   } finally { await state.close(); }
 });
 
-test('an answer waits for the worker\'s words and carries them to the server', async () => {
-  const state = await fixture({ autoComplete: true, limits: { transcriptionMs: 500 } });
-  try {
-    const { socket } = await state.connect();
-    await state.ready(socket);
-    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'answer-words' });
-    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'words-answer', name: 'answer_question', arguments: '{"value":"yes"}' });
-    await delay(30);
-    assert.equal(state.requests.some((request) => request.body?.toolCallId === 'words-answer'), false);
-    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'answer-words', content_index: 0, transcript: 'العلف زين' });
-    await state.providerInbox.wait((event) => event.item?.call_id === 'words-answer');
-    assert.equal(state.requests.find((request) => request.body?.toolCallId === 'words-answer').body.workerUtterance, 'العلف زين');
-  } finally { await state.close(); }
-});
+for (const name of ['answer_question', 'record_facts', 'finish_update', 'choose_mode', 'repeat_or_clarify', 'confirm_report', 'correct_report', 'flag_urgent']) {
+  test(`${name} waits for the worker's words and carries them to the server`, async () => {
+    const state = await fixture({ autoComplete: true, limits: { transcriptionMs: 500 } });
+    try {
+      const { socket } = await state.connect();
+      await state.ready(socket);
+      send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'answer-words' });
+      send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'words-answer', name, arguments: '{"value":"yes"}' });
+      await delay(30);
+      assert.equal(state.requests.some((request) => request.body?.toolCallId === 'words-answer'), false);
+      send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'answer-words', content_index: 0, transcript: 'العلف زين' });
+      await state.providerInbox.wait((event) => event.item?.call_id === 'words-answer');
+      assert.equal(state.requests.find((request) => request.body?.toolCallId === 'words-answer').body.workerUtterance, 'العلف زين');
+    } finally { await state.close(); }
+  });
+}
 
 test('a reply that is not the server-spoken summary never counts as hearing it', async () => {
-  const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: true, end: null, goodbye: null } });
+  const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: true, end: null, goodbye: null, sayText: 'Mock next question' } });
   try {
     const { socket, messages } = await state.connect();
     await state.ready(socket);
@@ -501,7 +546,7 @@ for (const scenario of [
 ]) {
   const { transcript, delayedSpeech, noSpeechStart } = scenario;
   test(`summary playback requires matching content and a later worker turn: ${JSON.stringify(scenario)}`, async () => {
-    const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: true, summaryText: 'Mock summary', end: null, goodbye: null } });
+    const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: true, summaryText: 'Mock summary', summaryId: 'revision-1', end: null, goodbye: null } });
     try {
       const { socket, messages } = await state.connect();
       await state.ready(socket);
@@ -530,14 +575,17 @@ for (const scenario of [
       send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'confirmation', content_index: 0, transcript: 'yes' });
       send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'confirmation-tool', name: 'confirm_report', arguments: '{"confirmed":true}' });
       await state.providerInbox.wait((event) => event.item?.call_id === 'confirmation-tool');
-      assert.equal(state.requests.find((request) => request.body?.toolCallId === 'confirmation-tool').body.heardSummary,
-        transcript === 'Mock summary' && !delayedSpeech && !noSpeechStart);
+      const body = state.requests.find((request) => request.body?.toolCallId === 'confirmation-tool').body;
+      const heard = transcript === 'Mock summary' && !delayedSpeech && !noSpeechStart;
+      assert.equal(body.heardSummary, heard);
+      assert.equal(body.heardSummaryId, heard ? 'revision-1' : undefined);
+      assert.equal('heardSummaryId' in body, heard);
     } finally { await state.close(); }
   });
 }
 
 test('interrupted summary is not heard; only a complete re-read and its marks allow confirmation', async () => {
-  const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: true, summaryText: 'Mock summary', end: null, goodbye: null } });
+  const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: true, summaryText: 'Mock summary', summaryId: 'revision-1', end: null, goodbye: null } });
   try {
     const { socket, messages } = await state.connect();
     await state.ready(socket);
@@ -560,6 +608,7 @@ test('interrupted summary is not heard; only a complete re-read and its marks al
     send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'interrupted-confirm', name: 'confirm_report', arguments: '{"confirmed":true}' });
     await state.providerInbox.wait((event) => event.item?.call_id === 'interrupted-confirm');
     assert.equal(state.requests.find((request) => request.body?.toolCallId === 'interrupted-confirm').body.heardSummary, false);
+    assert.equal('heardSummaryId' in state.requests.find((request) => request.body?.toolCallId === 'interrupted-confirm').body, false);
     state.complete();
     await delay(20);
     state.audio(160, 'summary-reread');
@@ -576,6 +625,7 @@ test('interrupted summary is not heard; only a complete re-read and its marks al
     send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'reread-confirm', name: 'confirm_report', arguments: '{"confirmed":true}' });
     await state.providerInbox.wait((event) => event.item?.call_id === 'reread-confirm');
     assert.equal(state.requests.find((request) => request.body?.toolCallId === 'reread-confirm').body.heardSummary, true);
+    assert.equal(state.requests.find((request) => request.body?.toolCallId === 'reread-confirm').body.heardSummaryId, 'revision-1');
   } finally { await state.close(); }
 });
 
@@ -844,11 +894,10 @@ test('duplicate callSid cannot consume a second ticket or start a second provide
   } finally { await state.close(); }
 });
 
-test('silence, call duration and message size limits close the stream', async () => {
-  for (const limit of ['silence', 'duration', 'size', 'invalid-start']) {
+test('call duration and message size limits close the stream', async () => {
+  for (const limit of ['duration', 'size', 'invalid-start']) {
     const state = await fixture({
       maxSeconds: limit === 'duration' ? 0.06 : 120,
-      limits: { silenceMs: limit === 'silence' ? 60 : 45_000 },
     });
     try {
       const { socket } = await state.connect();
@@ -859,6 +908,292 @@ test('silence, call duration and message size limits close the stream', async ()
     } finally { await state.close(); }
   }
 });
+
+test('sayText is spoken verbatim as a question without leaking text to logs', async () => {
+  const question = 'وش حالة العلف في العزبة؟';
+  const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: false, end: null, goodbye: null, sayText: question } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'question-tool');
+    const response = state.providerEvents.filter((event) => event.type === 'response.create').at(-1).response;
+    assert.deepEqual(response, {
+      output_modalities: ['audio'], tool_choice: 'none',
+      instructions: `Say only the following text verbatim, with no additions: ${JSON.stringify(question)}`,
+    });
+    assert.ok(state.logs.some((record) => record.event === 'response_requested' && record.kind === 'question'));
+    assert.ok(!JSON.stringify(state.logs).includes(question));
+    assert.ok(!JSON.stringify(state.logs).includes('Mock worker words'));
+  } finally { await state.close(); }
+});
+
+test('speech during a tool call cannot replace the question the server has queued', async () => {
+  const question = 'Next question';
+  const state = await fixture({ toolDelay: 40, toolResult: { output: '{}', awaitingConfirmation: false, end: null, goodbye: null, sayText: question } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    const previous = state.responseId;
+    send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 0 });
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'first' });
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'first', content_index: 0, transcript: 'Mock answer' });
+    await waitFor(() => state.responseId !== previous);
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'first', name: 'answer_question', arguments: '{}' });
+    state.complete();
+    send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 100 });
+    await state.providerInbox.wait((event) => event.item?.call_id === 'first');
+    send(state.provider, { type: 'input_audio_buffer.speech_stopped' });
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'second' });
+    await waitFor(() => state.logs.some((record) => record.event === 'turn_discarded_for_prompt'));
+    await waitFor(() => state.providerEvents.filter((event) => event.type === 'response.create').at(-1)?.response?.instructions?.includes(question));
+  } finally { await state.close(); }
+});
+
+test('silent results request no reply after a fully played prompt', async () => {
+  const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: false, end: null, goodbye: null, silent: true } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    const before = state.providerEvents.filter((event) => event.type === 'response.create').length;
+    await workerTool(state, 'noise', 'repeat_or_clarify');
+    assert.equal(state.providerEvents.filter((event) => event.type === 'response.create').length, before + 1);
+    assert.ok(state.logs.some((record) => record.event === 'tool_silent'));
+    assert.equal(connection.socket.readyState, WebSocket.OPEN);
+  } finally { await state.close(); }
+});
+
+test('silent results re-speak a cut-off prompt without granting worker speech', async () => {
+  const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: false, end: null, goodbye: null, silent: true } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    const oldMarks = await playPrompt(state, connection, undefined, false);
+    await workerTool(state, 'noise', 'repeat_or_clarify');
+    const response = state.providerEvents.filter((event) => event.type === 'response.create').at(-1).response;
+    assert.match(response.instructions, /Mock opening/);
+    assert.equal(response.tool_choice, 'none');
+    assert.ok(connection.messages.received.some((event) => event.event === 'clear'));
+    for (const event of oldMarks) send(connection.socket, { event: 'mark', streamSid: STREAM_SID, mark: event.mark });
+    await playPrompt(state, connection);
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'no-new-worker', name: 'repeat_or_clarify', arguments: '{}' });
+    await state.providerInbox.wait((event) => event.item?.call_id === 'no-new-worker');
+    const body = state.requests.find((request) => request.body?.toolCallId === 'no-new-worker').body;
+    assert.equal(body.userSpokeSinceLastTool, false);
+    assert.equal(body.workerUtterance, '');
+  } finally { await state.close(); }
+});
+
+test('a later fully heard summary replaces the id sent on all subsequent tools', async () => {
+  const state = await fixture({ toolResult: (body) => ({
+    output: '{}', awaitingConfirmation: true, end: null, goodbye: null,
+    ...(body.toolCallId === 'first-summary' ? { summaryText: 'First summary', summaryId: 'revision-1' }
+      : body.toolCallId === 'second-summary' ? { summaryText: 'Corrected summary', summaryId: 'revision-2' } : { silent: true }),
+  }) });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    const first = await workerTool(state, 'first-summary');
+    assert.equal('heardSummaryId' in first, false);
+    await playPrompt(state, connection, 'First summary');
+    const correction = await workerTool(state, 'second-summary', 'correct_report');
+    assert.equal(correction.heardSummaryId, 'revision-1');
+    await playPrompt(state, connection, 'Corrected summary');
+    const after = await workerTool(state, 'after-summary', 'repeat_or_clarify');
+    assert.equal(after.heardSummaryId, 'revision-2');
+  } finally { await state.close(); }
+});
+
+for (const interrupted of ['summary', 'reprompt']) {
+  test(`silent result replays a cut-off ${interrupted} with the correct summary evidence`, async () => {
+    const state = await fixture({
+      limits: { repromptMs: interrupted === 'reprompt' ? 70 : 10_000 },
+      toolResult: (body) => ({
+        output: '{}', awaitingConfirmation: true, end: null, goodbye: null,
+        ...(body.toolCallId === 'start-summary'
+          ? { summaryText: 'Mock summary', summaryId: 'current-summary', repromptText: 'Summary nudge' } : { silent: true }),
+      }),
+    });
+    try {
+      const connection = await state.connect();
+      await state.ready(connection.socket);
+      await playPrompt(state, connection);
+      await workerTool(state, 'start-summary');
+      let staleMarks;
+      if (interrupted === 'reprompt') {
+        await playPrompt(state, connection, 'Mock summary');
+        await waitFor(() => state.responseId === 'response-4');
+        staleMarks = await playPrompt(state, connection, undefined, false);
+      } else staleMarks = await playPrompt(state, connection, 'Mock summary', false);
+      const noise = await workerTool(state, 'summary-noise', 'repeat_or_clarify');
+      assert.equal(noise.heardSummaryId, interrupted === 'reprompt' ? 'current-summary' : undefined);
+      assert.match(state.providerEvents.filter((event) => event.type === 'response.create').at(-1).response.instructions, /Mock summary/);
+      for (const event of staleMarks) send(connection.socket, { event: 'mark', streamSid: STREAM_SID, mark: event.mark });
+      await playPrompt(state, connection, interrupted === 'summary' ? 'Mock summary' : undefined);
+      const confirmation = await workerTool(state, 'after-silent-replay', 'confirm_report', 'yes', { confirmed: true });
+      assert.equal(confirmation.heardSummary, true);
+      assert.equal(confirmation.heardSummaryId, 'current-summary');
+    } finally { await state.close(); }
+  });
+}
+
+test('reprompts wait for full playback marks, run twice, then time out after one more interval', async () => {
+  const state = await fixture({ session: { repromptText: 'Mock nudge' }, limits: { repromptMs: 80, maxReprompts: 2 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    const marks = await playPrompt(state, connection, undefined, false);
+    await delay(100);
+    assert.equal(state.logs.filter((record) => record.event === 'reprompt').length, 0);
+    for (const event of marks.filter((event) => event.mark.name.startsWith('audio-'))) {
+      send(connection.socket, { event: 'mark', streamSid: STREAM_SID, mark: event.mark });
+    }
+    await delay(100);
+    assert.equal(state.logs.filter((record) => record.event === 'reprompt').length, 0);
+    const final = marks.find((event) => event.mark.name.startsWith('prompt-'));
+    send(connection.socket, { event: 'mark', streamSid: STREAM_SID, mark: final.mark });
+    await delay(30);
+    assert.equal(state.logs.filter((record) => record.event === 'reprompt').length, 0);
+    for (const count of [1, 2]) {
+      await waitFor(() => state.providerEvents.filter((event) => event.type === 'response.create').length === count + 1 && state.responseId === `response-${count + 1}`);
+      const response = state.providerEvents.filter((event) => event.type === 'response.create').at(-1).response;
+      assert.match(response.instructions, /Mock nudge/);
+      assert.equal(response.tool_choice, 'none');
+      assert.deepEqual(state.logs.filter((record) => record.event === 'reprompt').map((record) => record.count), count === 1 ? [1] : [1, 2]);
+      await delay(100);
+      assert.equal(connection.socket.readyState, WebSocket.OPEN);
+      assert.equal(state.logs.filter((record) => record.event === 'reprompt').length, count);
+      await playPrompt(state, connection);
+    }
+    await delay(30);
+    assert.equal(connection.socket.readyState, WebSocket.OPEN);
+    await closed(connection.socket);
+    assert.ok(state.logs.some((record) => record.event === 'silence_timeout'));
+    assert.equal(state.requests.length, 1);
+  } finally { await state.close(); }
+});
+
+test('any worker speech resets the reprompt count, including a noise turn with a silent result', async () => {
+  const state = await fixture({
+    toolResult: { output: '{}', awaitingConfirmation: false, end: null, goodbye: null, silent: true },
+    limits: { repromptMs: 70, maxReprompts: 1 },
+  });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await waitFor(() => state.responseId === 'response-2');
+    await playPrompt(state, connection);
+    await workerTool(state, 'noise-reset', 'repeat_or_clarify');
+    await waitFor(() => state.responseId === 'response-4');
+    await playPrompt(state, connection);
+    assert.deepEqual(state.logs.filter((record) => record.event === 'reprompt').map((record) => record.count), [1, 1]);
+    await closed(connection.socket);
+    assert.ok(state.logs.some((record) => record.event === 'silence_timeout'));
+  } finally { await state.close(); }
+});
+
+for (const pending of ['tool', 'response', 'requested', 'speech']) {
+  test(`no reprompt while ${pending} is pending`, async () => {
+    const options = { limits: { repromptMs: 50 }, toolDelay: pending === 'tool' ? 180 : 0 };
+    const state = await fixture(options);
+    try {
+      const connection = await state.connect();
+      await state.ready(connection.socket);
+      await playPrompt(state, connection);
+      if (pending === 'speech') send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 0 });
+      else {
+        options.noResponse = pending === 'requested';
+        send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'pending-tool', name: 'repeat_or_clarify', arguments: '{}' });
+        if (pending !== 'tool') await state.providerInbox.wait((event) => event.item?.call_id === 'pending-tool');
+      }
+      await delay(110);
+      assert.equal(state.logs.filter((record) => record.event === 'reprompt').length, 0);
+      assert.equal(connection.socket.readyState, WebSocket.OPEN);
+    } finally { await state.close(); }
+  });
+}
+
+for (const mode of ['default', 'custom', 'summary']) {
+  test(`tool prompt uses its ${mode} reprompt text and preserves heard summary evidence`, async () => {
+    const state = await fixture({
+      limits: { repromptMs: 70 },
+      toolResult: (body) => ({
+        output: '{}', awaitingConfirmation: mode === 'summary', end: null, goodbye: null,
+        ...(body.toolCallId !== 'prompt-tool' ? { silent: true } : mode === 'summary'
+          ? { summaryText: 'Mock summary', summaryId: 'summary-revision', repromptText: 'Summary nudge' }
+          : { sayText: 'Mock question', ...(mode === 'custom' ? { repromptText: 'Question nudge' } : {}) }),
+      }),
+    });
+    try {
+      const connection = await state.connect();
+      await state.ready(connection.socket);
+      await playPrompt(state, connection);
+      await workerTool(state, 'prompt-tool');
+      await playPrompt(state, connection, mode === 'summary' ? 'Mock summary' : undefined);
+      await waitFor(() => state.responseId === 'response-4');
+      const response = state.providerEvents.filter((event) => event.type === 'response.create').at(-1).response;
+      assert.match(response.instructions, new RegExp(mode === 'summary' ? 'Summary nudge' : mode === 'custom' ? 'Question nudge' : 'Mock question'));
+      await playPrompt(state, connection);
+      const body = await workerTool(state, 'after-reprompt', 'confirm_report', 'yes', { confirmed: true });
+      assert.equal(body.userSpokeSinceLastTool, true);
+      assert.equal(body.heardSummary, mode === 'summary');
+      assert.equal(body.heardSummaryId, mode === 'summary' ? 'summary-revision' : undefined);
+    } finally { await state.close(); }
+  });
+}
+
+for (const fields of [{}, { summaryText: 42 }, { summaryId: 42, sayText: 'Question' }, { sayText: 42 },
+  { sayText: 'Question', repromptText: false }, { silent: false }, { silent: 'true' },
+  { sayText: ' ' }, { summaryText: '' }, { sayText: 'Question', silent: true },
+  { summaryText: '', silent: true }, { summaryText: '', sayText: 'Question' },
+  { summaryText: 'Summary', sayText: 'Question' }]) {
+  test(`invalid tool result ends via tool_failed: ${JSON.stringify(fields)}`, async () => {
+    const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: false, end: null, goodbye: null, ...fields } });
+    try {
+      const { socket } = await state.connect();
+      await state.ready(socket);
+      send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'invalid-result', name: 'repeat_or_clarify', arguments: '{}' });
+      await closed(socket);
+      assert.ok(state.logs.some((record) => record.event === 'tool_failed'));
+      assert.equal(state.providerEvents.filter((event) => event.type === 'response.create').length, 1);
+    } finally { await state.close(); }
+  });
+}
+
+test('end_call neither waits for nor forwards a worker transcript', async () => {
+  const state = await fixture({
+    toolResult: { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: null },
+    limits: { transcriptionMs: 500 },
+  });
+  try {
+    const { socket } = await state.connect();
+    await state.ready(socket);
+    state.complete();
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'end-worker' });
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'end-tool', name: 'end_call', arguments: '{}' });
+    await closed(socket);
+    const body = state.requests.find((request) => request.body?.toolCallId === 'end-tool').body;
+    assert.equal('workerUtterance' in body, false);
+    assert.ok(state.logs.some((record) => record.event === 'tool_ended'));
+  } finally { await state.close(); }
+});
+
+for (const repromptText of [null, 1, false, {}]) {
+  test(`session rejects non-string repromptText: ${JSON.stringify(repromptText)}`, async () => {
+    const state = await fixture({ session: { repromptText } });
+    try {
+      const { socket } = await state.connect();
+      start(socket);
+      await closed(socket);
+      assert.equal(state.provider, undefined);
+      assert.ok(state.logs.some((record) => record.event === 'session_failed'));
+    } finally { await state.close(); }
+  });
+}
 
 test('ordinary HTTP streams unchanged method, URL, body and duplicate headers', async () => {
   const state = await fixture();

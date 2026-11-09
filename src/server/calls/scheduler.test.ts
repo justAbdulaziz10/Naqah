@@ -5,6 +5,8 @@ import { toDbId } from "@/server/db/ids";
 import { verifyCallToken } from "./token";
 import { recordingCaller } from "./twilio";
 
+vi.mock("server-only", () => ({}));
+
 /** One farm held in memory; runFarmAction applies the pure action to it like the database would. */
 const store = vi.hoisted(() => ({ ws: null as unknown as Workspace, saves: 0 }));
 vi.mock("@/server/db/service-repository", () => ({

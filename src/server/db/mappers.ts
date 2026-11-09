@@ -1,5 +1,5 @@
 import { RESOURCE_KINDS } from "@/domain/catalog";
-import type { CallSchedule, Integrations, ReportCallRun, ReportingWindow, Weekday, Worker, Workspace } from "@/domain/types";
+import type { CallSchedule, Integrations, QuestionPlanEntry, ReportCallRun, ReportMode, ReportingWindow, Weekday, Worker, Workspace } from "@/domain/types";
 import { toDbId } from "./ids";
 import type {
   CallRow, FarmRows, FindingRow, ReportAnswerRow, ReportCallRunRow, ReportRow, WorkerCallAttemptRow, WorkerRow,
@@ -41,6 +41,18 @@ function integrationsFrom(row: FarmRows["farm"]): Integrations | undefined {
   return { supplierName: row.supplier_name, supplierPhone: row.supplier_phone };
 }
 
+const REPORT_MODES: readonly ReportMode[] = ["worker_choice", "guided", "open"];
+
+/** Owners can write this column directly, so anything malformed is dropped. Missing until migrated: today's call. */
+function questionPlanFrom(value: unknown): QuestionPlanEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const entry = item as Partial<QuestionPlanEntry> | null;
+    if (typeof entry?.id !== "string" || typeof entry.enabled !== "boolean" || typeof entry.required !== "boolean") return [];
+    return [{ id: entry.id, enabled: entry.enabled, required: entry.required }];
+  });
+}
+
 /** Rows → the document every domain function works on. */
 export function workspaceFromRows(rows: FarmRows): Workspace {
   const { farm } = rows;
@@ -62,6 +74,8 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
       customQuestions: [...rows.customQuestions]
         .sort((a, b) => a.sort_order - b.sort_order)
         .map((q) => ({ id: q.id, text: q.text, createdAt: q.created_at })),
+      reportMode: REPORT_MODES.includes(farm.report_mode as ReportMode) ? (farm.report_mode as ReportMode) : "guided",
+      questionPlan: questionPlanFrom(farm.question_plan),
       criteria: rows.criteria.map((c) => ({ id: c.id, kind: c.kind, label: c.label, enabled: c.enabled })),
       emergencies: rows.emergencies.map((e) => ({ id: e.id, kind: e.kind, label: e.label })),
       window: windowFrom(farm),
@@ -99,6 +113,8 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
       id: r.id,
       at: r.at,
       callId: r.call_id ?? "",
+      ...(r.mode ? { mode: r.mode } : {}),
+      ...(r.coverage?.length ? { coverage: r.coverage } : {}),
       ...(r.herd_count_reported !== null && r.herd_count_reported !== undefined && { herdCountReported: r.herd_count_reported }),
       answers: [...r.report_answers]
         .sort((a, b) => a.sort_order - b.sort_order)
@@ -195,6 +211,8 @@ export function historyRows(ws: Workspace, farmId: string) {
 
   const reports: ReportRow[] = ws.reports.map((r) => ({
     id: id(r.id), farm_id: farmId, call_id: optional(r.callId), at: r.at, herd_count_reported: r.herdCountReported ?? null,
+    ...(r.mode !== undefined ? { mode: r.mode } : {}),
+    ...(r.coverage !== undefined ? { coverage: r.coverage } : {}),
   }));
   const reportCallRuns: ReportCallRunRow[] = (ws.reportCalls ?? []).map((r) => ({
     id: id(r.id),

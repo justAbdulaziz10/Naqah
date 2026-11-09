@@ -210,7 +210,7 @@ const CONCEPTS: Record<Concept, readonly string[]> = {
   healthy: ["بخير", "زين", "زينه", "زينين", "طيب", "طيبه", "طيبين", "سليم", "سليمه", "سالمه", "سالمين", "عال", "كويس", "كويسه", "كويسين", "جيد", "جيده", "healthy", "well", "fine", "good", "ok", "okay", "alright"],
   sick: [
     "مريض", "مريضه", "مرضى", "مريضات", "تعبان", "تعبانه", "تعبانين", "مصاب", "مصابه", "مصابين", "عيان", "عيانه",
-    "مشكله", "مشاكل", "تعرج", "sick", "ill", "injured", "hurt", "unwell", "limping", "wrong", "problem", "problems", "issue", "issues",
+    "مشكله", "مشاكل", "تعرج", "عرجا", "عرجاء", "يعرج", "طايح", "طايحه", "ضعيف", "ضعيفه", "هزيله", "هزيل", "متعب", "متعبه", "مسقوم", "مسقومه", "ميت", "ميته", "نافق", "نافقه", "جربانه", "جرب", "sick", "ill", "injured", "hurt", "unwell", "limping", "wrong", "problem", "problems", "issue", "issues",
   ],
   watch: ["متابعه", "ملاحظه", "مراقبه", "نراقبها", "watch", "observation"],
   damaged: ["خربان", "خربانه", "مكسور", "مكسوره", "broken", "damaged"],
@@ -230,7 +230,7 @@ const WELLBEING = new Set(["تمام", "طيب", "اوكي", "ok", "okay"]);
 /** «لا» / "no" at the start of a clause answers the question; it doesn't negate what follows. */
 const INTERJECTIONS = new Set(["لا", "no", "nope", "nah"]);
 /** …unless it is a determiner: «لا يوجد», "no camel". */
-const DETERMINED = new Set(["يوجد", "احد", "شي", "شيء", "ناقه", "وحده", "camel", "camels", "one", "animal", "problem", "problems", "sign", "signs"]);
+export const DETERMINED = new Set(["يوجد", "احد", "شي", "شيء", "ناقه", "وحده", "camel", "camels", "one", "animal", "problem", "problems", "sign", "signs"]);
 const SCOPE_NEGATORS = new Set([
   "ما", "ماهو", "ماهي", "مهو", "مهي", "مهوب", "مهيب", "مهب", "مو", "مب", "مش", "ليس", "ليست", "لم", "لن", "لا", "ولا", "بدون", "غير", "مافي", "مافيه", "ماكو", "محد",
   "not", "never", "without", "no", "none", "nothing", "nobody", "neither", "nor",
@@ -374,7 +374,8 @@ function intentReply(session: CallSession, reading: Reading): string | null {
   if (values.has("confirm_save") && values.has("end_without_save")) {
     if (!has(reading, "save") && !has(reading, "save", true) &&
       (reading.said.size > 0 || reading.negated.size > 0)) return null;
-    if (reading.deny || negatedSomething) return "end_without_save";
+    if (has(reading, "save", true)) return "end_without_save";
+    if (reading.deny || negatedSomething) return values.has("correct") ? "correct" : "end_without_save";
     return reading.affirm || has(reading, "save") ? "confirm_save" : null;
   }
   const isTask = item?.kind === "task" || session.step === "callback_task_confirmation";
@@ -424,7 +425,7 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   const normalized = compact(transcript);
   const exact = session.replies.find((item) => [item.value, item.label.ar, item.label.en].some((text) => compact(text) === normalized));
   if (exact) return { value: exact.value };
-  if (session.step === "health_pick") {
+  if (session.step === "health_pick" || session.step === "open_clarify") {
     const nameKey = (text: string) => compact(text).split(" ").map((word) => word.startsWith("ال") && word.length > 3 ? word.slice(2) : word).join(" ");
     const names = session.replies.filter((reply) => [reply.label.ar, reply.label.en].some((label) => nameKey(label) === nameKey(transcript)));
     if (names.length === 1) return { value: names[0].value };
@@ -467,6 +468,10 @@ export function mapSpeechToInput(
   void confidence;
   if (session.inputMode === "none") return null;
   if (session.inputMode === "number" && digits && /^\d{1,6}$/.test(digits)) return { text: digits };
+  if (session.inputMode === "choices" && digits && /^\d{2}$/.test(digits)) {
+    const reply = session.replies[Number(digits) - 1];
+    return reply ? { value: reply.value } : null;
+  }
   if (digits && /^\d$/.test(digits)) {
     if (session.inputMode === "choices") {
       const reply = session.replies[Number(digits) - 1];
@@ -474,17 +479,32 @@ export function mapSpeechToInput(
     }
     if (session.inputMode === "number") return { text: digits };
     if (session.inputMode === "time") return { text: extractTime(digits) ?? digits };
-    return { text: digits };
+    return null;
   }
 
   if (digits) return null;
   const raw = transcript.trim().slice(0, 300);
+  const normalized = compact(raw);
+  if (["report_summary", "report_correct_pick"].includes(session.step) && session.replies.some((reply) => reply.value === "end_without_save") && /(?:^|\s)(?:لا\s+(?:تحفظ|تحفظه|تحفظها|تسجل|تسجله)|بدون\s+حفظ|don\s*t\s+save|do\s+not\s+save|save\s+nothing)(?:\s|$)/u.test(normalized)) return { value: "end_without_save" };
+  if (session.step === "open_more" && /^(?:لا|لاء|لا والله|بس|خلاص|ما عندي شي|ما عندي شيء|ما فيه شي|مافيه شي|no|nothing|nothing else|that s all|done)$/.test(normalized)) return { value: "open_done" };
+  if (session.step === "report_mode_choice") {
+    if (/(?:^|\s)(?:مفتوح|مفتوحه|open|freely)(?:\s|$)/u.test(normalized)) return { value: "mode_open" };
+    if (/(?:^|\s)(?:اسئله|سوال|guided|questions)(?:\s|$)/u.test(normalized)) return { value: "mode_guided" };
+  }
+  if (session.step === "report_correct_pick") {
+    if (/^(?:ارجع|رجوع|الملخص|back|summary|back to summary)$/.test(normalized)) return { value: "back_to_summary" };
+    if (/^(?:لا تحفظ|لا تحفظه|لا تحفظ التقرير|لا تحفظ التحديث|don t save|do not save|don t save it|do not save it)$/.test(normalized)) return { value: "end_without_save" };
+    const correction = overlapReply(session.replies.filter((reply) => reply.value.startsWith("correct:")), raw, locale);
+    if (correction) return { value: correction.value };
+    return null;
+  }
   // Spelling varies by recogniser, and «ما ادري» saved as free text would read as a reported fact.
   if (session.inputMode !== "choices" && ((session.inputMode === "number" && UNKNOWN_PHRASE.test(compact(raw))) || UNKNOWN_WORDS.has(compact(raw)) ||
     /^(?:والله\s+)?(?:ما\s*ادري|ما\s*اعرف|لا\s*اعرف|مدري|i\s*don\s*t\s*know|i\s*do\s*not\s*know|not\s*sure)(?:\s+(?:والله|honestly))?$/.test(compact(raw)))) {
     const reply = unknownReply(session.replies);
     if (reply) return { value: reply.value };
   }
+  if (session.replies.some((reply) => reply.value === "skip_question") && /^(?:تخطي|تخطاه|تخطى|skip|skip it)$/.test(compact(raw))) return { value: "skip_question" };
   if (isOffTopicAnswer(session, compact(raw))) return null;
   if (session.inputMode === "text") return raw ? { text: raw } : null;
   if (session.inputMode === "number") {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { applicableQuestions, type Workspace } from "@/domain";
+import { plannedQuestions, type Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { Step } from "./EstateMatters";
 
@@ -12,7 +12,7 @@ import { Step } from "./EstateMatters";
 export function FirstReport({ ws, worker }: { ws: Workspace; worker: string }) {
   const { m, href } = useI18n();
   const o = m.app.overview;
-  const questions = applicableQuestions(ws).length + ws.settings.customQuestions.length;
+  const questions = plannedQuestions(ws).length;
 
   return (
     <section aria-labelledby="first-report" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-6 sm:px-8 sm:py-7">

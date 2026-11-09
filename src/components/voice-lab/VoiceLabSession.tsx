@@ -112,10 +112,11 @@ function Conversation({ copy, lab, inCall, onReset }: { copy: Copy; lab: ReturnT
 function Line({ entry, copy }: { entry: TranscriptEntry; copy: Copy }) {
   if (entry.role === "tool") {
     const tools: Record<string, string> = copy.transcript.tools;
+    const outcomes: Record<string, string> = copy.transcript.outcomes;
     return (
       <p className={cn("flex items-center gap-2 text-xs font-semibold", entry.clarifying ? "text-warn" : entry.refused ? "text-danger" : "text-ok")}>
         <span aria-hidden className={cn("size-1.5 rounded-full bg-current")} />
-        {tools[entry.name] ?? entry.name} · {entry.refused ? `${entry.clarifying ? copy.transcript.clarifying : copy.transcript.refused} (${entry.refused})` : entry.declined ? copy.transcript.declined : copy.transcript.accepted}
+        {tools[entry.name] ?? entry.name} · {entry.refused ? `${entry.clarifying ? copy.transcript.clarifying : copy.transcript.refused} (${entry.refused})` : entry.declined ? copy.transcript.declined : outcomes[entry.name] ?? copy.transcript.accepted}
       </p>
     );
   }
@@ -202,10 +203,17 @@ function DraftReport({ copy, view, queue }: { copy: Copy; view: LabView | null; 
         <span className="ltr-nums text-xs tabular-nums text-muted">{answered}/{questions.length}</span>
       </div>
 
+      {view ? (
+        <p className="mt-3 text-sm">
+          <span className="text-muted">{copy.report.mode}: </span>
+          <span className="font-semibold">{copy.report.modes[view.mode ?? "choosing"]}</span>
+        </p>
+      ) : null}
+
       <ol aria-label={copy.report.questions} className="mt-4 space-y-2">
         {questions.map((question, index) => {
           const done = index < answered;
-          const current = Boolean(view) && !view?.done && !view?.isSummary && index === answered;
+          const current = view?.mode === "guided" && !view.done && !view.isSummary && index === answered;
           return (
             <li key={`${index}-${question}`} className="flex gap-2.5 text-sm">
               <span aria-hidden className={cn("mt-1.5 size-2.5 shrink-0 rounded-full border-[1.5px] border-brown", done && "bg-brown", current && "ring-2 ring-brown/25")} />
@@ -224,6 +232,14 @@ function DraftReport({ copy, view, queue }: { copy: Copy; view: LabView | null; 
         <>
           <h3 className="mt-4 text-sm font-semibold">{copy.report.structured}</h3>
           <Facts facts={structured} copy={copy} />
+        </>
+      ) : null}
+
+      {view?.notReported.length ? (
+        <>
+          <h3 className="mt-4 text-sm font-semibold">{copy.report.notReported}</h3>
+          <ul className="mt-1 list-inside list-disc space-y-1 text-sm">{view.notReported.map((topic) => <li key={topic} dir="auto">{topic}</li>)}</ul>
+          <p className="mt-1 text-xs text-muted">{copy.report.notReportedNote}</p>
         </>
       ) : null}
 

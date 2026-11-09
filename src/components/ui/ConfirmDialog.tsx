@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Button } from "./Button";
 
 /** Mount it only while asking. Focus starts on the safe choice, and Escape counts as cancelling. */
@@ -13,6 +13,8 @@ export function ConfirmDialog({
   onCancel,
   tone = "danger",
   extra,
+  children,
+  confirmDisabled = false,
 }: {
   title: string;
   body: string;
@@ -24,6 +26,9 @@ export function ConfirmDialog({
   tone?: "danger" | "primary";
   /** A third way out that gives something up, like leaving without saving. Always last. */
   extra?: { label: string; onClick: () => void };
+  /** Anything the person must see or answer before confirming. */
+  children?: ReactNode;
+  confirmDisabled?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -52,10 +57,11 @@ export function ConfirmDialog({
     >
       <h2 id={titleId} className="text-lg font-bold">{title}</h2>
       <p id={bodyId} className="mt-2 leading-relaxed text-muted">{body}</p>
+      {children}
       <div className="mt-6 flex flex-wrap justify-end gap-2">
         {/* showModal() focuses the first control, so the safe choice comes first. */}
         <Button variant="secondary" className="max-sm:w-full" onClick={onCancel}>{cancelLabel}</Button>
-        <Button variant={tone} className="max-sm:w-full" onClick={onConfirm}>{confirmLabel}</Button>
+        <Button variant={tone} className="max-sm:w-full" disabled={confirmDisabled} onClick={onConfirm}>{confirmLabel}</Button>
         {extra ? <Button variant="ghost" className="text-danger! max-sm:w-full" onClick={extra.onClick}>{extra.label}</Button> : null}
       </div>
     </dialog>

@@ -7,6 +7,8 @@ import { SupplyGauges } from "@/components/visuals/SupplyGauges";
 import type { FarmReport, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { ReportAnswers } from "./ReportAnswers";
+import { ReportCoverage } from "./ReportCoverage";
+import { reportResources } from "./reportCoverageFacts";
 
 const full = { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" } as const;
 
@@ -21,7 +23,7 @@ export function ReportSheet({ ws, report, worker, onClose }: { ws: Workspace; re
   const naqahAnswers = report.answers.filter((answer) => !custom.has(answer.questionId));
   const ownerAnswers = report.answers.filter((answer) => custom.has(answer.questionId));
   // Supplies are kept as they stand now, so they belong to a report only when this call set them.
-  const supplies = ws.resources.filter((resource) => resource.present && resource.updatedAt === report.at);
+  const supplies = reportResources(ws, report);
 
   return (
     <Sheet
@@ -31,6 +33,7 @@ export function ReportSheet({ ws, report, worker, onClose }: { ws: Workspace; re
       onClose={onClose}
       footer={<p className="text-[0.8125rem] leading-relaxed text-muted">{c.note}</p>}
     >
+      <ReportCoverage ws={ws} report={report} />
       <section aria-labelledby="sheet-findings">
         <h3 id="sheet-findings" className="text-sm font-semibold text-muted">{c.findings}</h3>
         {report.findings.length ? (

@@ -21,7 +21,7 @@ export type LabMode = "voice" | "text";
 
 /** The phone call's settings, except the audio format WebRTC negotiates and the transcript the Lab shows. */
 export function labSession(mode: LabMode, locale: Locale, instructions: string) {
-  const base = { type: "realtime", model: LAB_MODEL, instructions, tools: REALTIME_TOOLS, tool_choice: "auto", reasoning: { effort: "minimal" } };
+  const base = { type: "realtime", model: LAB_MODEL, instructions, tools: REALTIME_TOOLS, tool_choice: "required", reasoning: { effort: "minimal" } };
   if (mode === "text") return { ...base, output_modalities: ["text"], audio: { input: { turn_detection: null } } };
   return {
     ...base,

@@ -6,7 +6,7 @@
  * a model or a replayed webhook. See docs/integrations/voice-data-contract.md.
  */
 import { completeWorkerCallback, completeWorkerReport, confirmTask, recordOwnerInquiry, recordOwnerNotification, rejectOwnerInquiry, rejectWorkerReport, resolveWorkerCallAttempt, startTaskVerification, submitOwnerInstruction, submitOwnerInstructionBatch, type AttemptOutcome, type InstructionInput, type RejectReason } from "@/domain/actions";
-import type { ReportDraft } from "@/domain/findings";
+import { reportDraftIssue, type ReportDraft } from "@/domain/findings";
 import { isHerdCount } from "@/domain/herd";
 import { endReportCallWithoutReport, reportCallRuns, resolveReportCallAttempt, type ReportCallOutcome } from "@/domain/reportCalls";
 import { dueTaskVerifications, reportDoneThisPeriod, routeOwnerInboundCall, routeWorkerInboundCall } from "@/domain/rules";
@@ -138,6 +138,15 @@ function draft(value: unknown): ReportDraft {
   if (herd !== null && typeof herd !== "boolean") throw invalid("herdAccountedFor");
   return {
     answers: list(input.answers, "answers").map(answer),
+    ...(input.mode !== undefined ? { mode: oneOf(input.mode, ["guided", "open"] as const, "mode") } : {}),
+    ...(input.coverage !== undefined ? { coverage: list(input.coverage, "coverage").map((item) => {
+      const entry = record(item);
+      return {
+        questionId: requiredText(entry.questionId, "questionId", 100),
+        status: oneOf(entry.status, ["reported", "unknown", "not_reported"] as const, "status"),
+      };
+    }) } : {}),
+    ...(input.urgentNote !== undefined ? { urgentNote: input.urgentNote === null ? null : requiredText(input.urgentNote, "urgentNote", 500) } : {}),
     camelUpdates: list(input.camelUpdates ?? [], "camelUpdates", MAX_HERD).map((item) => {
       const camel = record(item);
       return {
@@ -287,6 +296,8 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
   const saved: VoiceOutcome = { status: "saved" };
   switch (event.type) {
     case "worker_report": {
+      const issue = reportDraftIssue(event.draft);
+      if (issue) throw invalid(issue);
       if (event.reportCallId) {
         // NAQAH placed this call: the run, not caller ID, says whose report it is.
         const run = reportCallRuns(ws).find((item) => item.id === event.reportCallId);

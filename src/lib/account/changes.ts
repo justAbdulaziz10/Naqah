@@ -4,6 +4,8 @@
  * actions. Only fields owners may write appear here, so a simulated report or ticket can never
  * reach a real farm: anything else in the document is ignored and replaced on the next load.
  */
+import { nowFor } from "@/domain/clock";
+import { reportModeOf, reportPlanHasContent } from "@/domain/rules";
 import type { Settings, Worker, Workspace } from "@/domain/types";
 import { normalizePhone } from "@/server/farm/input";
 
@@ -71,6 +73,18 @@ function herdChange(base: Workspace, next: Workspace): Input {
   };
 }
 
+const plansMatch = (base: Workspace, next: Workspace) => same(base.settings.questionPlan ?? [], next.settings.questionPlan ?? []);
+const hasContent = (ws: Workspace) => reportPlanHasContent(ws, nowFor(ws));
+
+/** A plan that leaves the call with nothing to ask stays on the screen, flagged, and is not sent. */
+function reportPlanChange(base: Workspace, next: Workspace): Input {
+  const mode = reportModeOf(next);
+  return {
+    ...(reportModeOf(base) === mode ? {} : { reportMode: mode }),
+    ...(plansMatch(base, next) || !hasContent(next) ? {} : { questionPlan: next.settings.questionPlan ?? [] }),
+  };
+}
+
 /** Primary first. Every account worker has an id (from the server, or a screen id until saved). */
 const workerList = (settings: Pick<Settings, "worker" | "otherWorkers">) =>
   [settings.worker, ...(settings.otherWorkers ?? [])].filter((w): w is Worker & { id: string } => Boolean(w.id));
@@ -122,7 +136,8 @@ const timeShape = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
  * Edits on the screen that differ from the server but can't be sent yet: a half-typed mobile, a
- * cleared ranch name, a partly chosen call time or a herd count that isn't a whole number. They
+ * cleared ranch name, a partly chosen call time, a herd count that isn't a whole number or a
+ * question plan with nothing to ask. They
  * are what keeps a section from being "saved" and what a sign-out must not silently drop.
  */
 export function unsentDrafts(base: Workspace, next: Workspace): string[] {
@@ -144,6 +159,8 @@ export function unsentDrafts(base: Workspace, next: Workspace): string[] {
   if (!same(from.ownerCallSchedule ?? null, ownerSchedule) && ownerSchedule?.time && !timeShape.test(ownerSchedule.time)) drafts.push("ownerCallSchedule");
   const count = to.herdCount ?? null;
   if (!same(from.herdCount ?? null, count) && count !== null && (!Number.isInteger(count) || count < 0 || count > 100_000)) drafts.push("herdCount");
+  // A farm already saved this way stays quiet until the owner touches it.
+  if (!hasContent(next) && (!plansMatch(base, next) || hasContent(base))) drafts.push("questionPlan");
   return drafts;
 }
 
@@ -203,6 +220,9 @@ export function ownerChanges(base: Workspace, next: Workspace): OwnerChange[] {
     const ready = Boolean(trimmed(to.worker.name) || normalizePhone(trimmed(to.worker.phone))) || workerList(from).some((w) => w.id === primary);
     if (ready) changes.push({ kind: "primaryWorker", id: primary });
   }
+  // After the questions, so the plan is checked against the questions this save leaves in place.
+  const reportPlan = reportPlanChange(base, next);
+  if (Object.keys(reportPlan).length) changes.push({ kind: "profile", input: reportPlan });
   // Last, so a farm is only marked ready once everything before it has been sent.
   if (base.setupComplete !== next.setupComplete) changes.push({ kind: "profile", input: { setupComplete: next.setupComplete } });
   return changes;
@@ -266,6 +286,8 @@ export function mergeEdits(before: Workspace, local: Workspace, fresh: Workspace
       window: same(before.settings.window, local.settings.window) ? fresh.settings.window : local.settings.window,
       integrations: same(before.settings.integrations, local.settings.integrations) ? fresh.settings.integrations : local.settings.integrations,
       customQuestions: mergeList(before.settings.customQuestions, local.settings.customQuestions, fresh.settings.customQuestions, byId),
+      reportMode: reportModeOf(before) === reportModeOf(local) ? fresh.settings.reportMode : local.settings.reportMode,
+      questionPlan: plansMatch(before, local) ? fresh.settings.questionPlan : local.settings.questionPlan,
       criteria: mergeList(before.settings.criteria, local.settings.criteria, fresh.settings.criteria, byId),
       emergencies: mergeList(before.settings.emergencies, local.settings.emergencies, fresh.settings.emergencies, byId),
     },
@@ -283,6 +305,7 @@ export function withServerIds(ws: Workspace, created: Record<string, string>): W
       worker: ws.settings.worker.id && created[ws.settings.worker.id] ? { ...ws.settings.worker, id: created[ws.settings.worker.id] } : ws.settings.worker,
       otherWorkers: ws.settings.otherWorkers && remap(ws.settings.otherWorkers as (Worker & { id: string })[]),
       customQuestions: remap(ws.settings.customQuestions),
+      questionPlan: ws.settings.questionPlan && remap(ws.settings.questionPlan),
       criteria: remap(ws.settings.criteria),
       emergencies: remap(ws.settings.emergencies),
     },

@@ -4,6 +4,8 @@ import { CaretDown, PencilSimple } from "@phosphor-icons/react";
 import { PlanComparison } from "@/components/plans/PlanComparison";
 import type { ReactNode } from "react";
 import { ReportCallFields, useCallSentence } from "@/components/schedule/ReportCallSection";
+import { nowFor } from "@/domain/clock";
+import { plannedQuestions, reportPlanHasContent } from "@/domain/rules";
 import { isCompleteCallSchedule } from "@/domain/schedule";
 import type { Workspace } from "@/domain/types";
 import { allWorkers } from "@/domain/workers";
@@ -35,7 +37,8 @@ export function stepNeedsFixing(key: WizardStepKey, ws: Workspace): boolean {
   // The scheduler only calls farms with a complete schedule, so setup doesn't finish without one.
   if (key === "call") {
     return !isCompleteCallSchedule(ws.settings.plan, ws.settings.callSchedule)
-      || !isCompleteCallSchedule(ws.settings.plan, ws.settings.ownerCallSchedule);
+      || !isCompleteCallSchedule(ws.settings.plan, ws.settings.ownerCallSchedule)
+      || !reportPlanHasContent(ws, nowFor(ws));
   }
   return false;
 }
@@ -97,7 +100,7 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
   const account = useIsAccount();
   const r = m.setup.ready;
   const call = useCallSentence(ws);
-  const { owner, farm, plan, worker, herdCount, customQuestions } = ws.settings;
+  const { owner, farm, plan, worker, herdCount } = ws.settings;
   const workers = allWorkers(ws.settings).filter((item) => item.name.trim() || item.phone.trim());
   const gaps = getCallSetupGaps(ws);
   const notSet = <span className="text-muted">{r.notSet}</span>;
@@ -132,7 +135,7 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
         <SummaryRow label={r.call} step="call" onEdit={onEdit}>
           {call ? call.sentence : notSet}
         </SummaryRow>
-        <SummaryRow label={r.questions} step="call" onEdit={onEdit}>{r.questionsValue(customQuestions.length)}</SummaryRow>
+        <SummaryRow label={r.questions} step="call" onEdit={onEdit}>{r.questionsPlanned(plannedQuestions(ws).length)}</SummaryRow>
         <SummaryRow label={r.plan} step="call" onEdit={onEdit}>
           <span className="font-semibold">{m.common.plans[plan]}</span>
           <details className="group mt-1">

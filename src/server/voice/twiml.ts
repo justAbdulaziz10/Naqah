@@ -31,14 +31,15 @@ export function sayElement(text: string, locale: Locale): string {
 }
 
 /** The ranch is «عزبة» on the phone, whichever word the question was written with. */
-export function spokenWording(text: string, locale: Locale): string {
-  return locale === "ar" ? text.replace(/المزرعة/g, "العزبة").replace(/مزرعة/g, "عزبة") : text;
+export function spokenWording(text: string, locale: Locale, literal = false): string {
+  return locale === "ar" && !literal ? text.replace(/المزرعة/g, "العزبة").replace(/مزرعة/g, "عزبة") : text;
 }
 
 export function agentText(session: CallSession, locale: Locale): string {
   const turn = [...session.turns].reverse().find((item) => item.speaker === "agent");
   const original = turn?.text[locale] ?? (locale === "ar" ? "تفضل، وش تبي تقول؟" : "Go ahead.");
-  const question = spokenWording(original, locale);
+  const question = spokenWording(original, locale, turn?.literal);
+  if (session.inputMode === "text") return `${question} ${locale === "ar" ? "قل إجابتك بصوتك." : "Please say your answer aloud."}`;
   if (session.inputMode === "number") return `${question} ${locale === "ar" ? "قل العدد، أو اكتبه ثم اضغط #." : "Say the number, or enter it then press #."}`;
   if (session.inputMode !== "choices" || !session.replies.length) return question;
 
@@ -46,7 +47,8 @@ export function agentText(session: CallSession, locale: Locale): string {
     const label = reply.label[locale];
     return locale === "ar" ? `اضغط ${index + 1} لـ ${label}` : `Press ${index + 1} for ${label}`;
   });
-  return `${question} ${choices.join(locale === "ar" ? "، " : ". ")}`;
+  const many = session.replies.length > 9;
+  return `${question} ${choices.join(locale === "ar" ? "، " : ". ")}${many ? (locale === "ar" ? "، ثم اضغط #." : ". Then press #.") : ""}`;
 }
 
 export function twimlSay(text: string, locale: Locale, hangup = false): string {
@@ -57,7 +59,7 @@ export function twimlGather(session: CallSession, locale: Locale, actionUrl: str
   const language = locale === "ar" ? "ar-SA" : "en-US";
   const text = `${prefix}${agentText(session, locale)}`;
   // A quantity needs several keys, so only a choice ends at the first press.
-  const digits = session.inputMode === "choices" ? ' numDigits="1"' : ' finishOnKey="#"';
+  const digits = session.inputMode === "choices" && session.replies.length <= 9 ? ' numDigits="1"' : ' finishOnKey="#"';
   const speechTimeout = session.inputMode === "choices" ? "auto" : "2";
   const prompt = sayElement(text, locale);
   const summary = session.step === "report_summary";
