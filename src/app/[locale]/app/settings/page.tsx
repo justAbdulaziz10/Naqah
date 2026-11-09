@@ -1,7 +1,8 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { CaretDown } from "@phosphor-icons/react";
 import { Button, Card, CardBody, ConfirmDialog } from "@/components/ui";
 import {
@@ -15,11 +16,9 @@ import {
   hasOwnSetupData,
   type WorkspaceUpdate,
 } from "@/components/setup";
-import { IntegrationsSection } from "@/components/integrations/IntegrationsSection";
 import { ReportCallFields } from "@/components/schedule/ReportCallSection";
 import { CallingStateNote } from "@/components/setup/CallingState";
 import { LogoutButton } from "@/components/auth/LogoutButton";
-import { PlanComparison } from "@/components/plans/PlanComparison";
 import { PlanChoice } from "@/components/setup/onboarding/PlanChoice";
 import { RanchWeek } from "@/components/setup/onboarding/RanchWeek";
 import { useI18n } from "@/i18n/client";
@@ -29,6 +28,46 @@ import { useIsAccount, useSaveStatus, useWorkspaceStore } from "@/store/workspac
 
 /** Jump targets clear the app's sticky header and the section nav (measured below). */
 const anchor = "scroll-mt-[var(--settings-offset,9rem)]";
+
+function PlanComparisonLoading() {
+  return (
+    <div aria-hidden="true" className="mt-3 min-h-[26rem] divide-y divide-stone/60 border-y border-stone/70">
+      {Array.from({ length: 6 }, (_, index) => (
+        <div key={index} className="flex min-h-16 items-center gap-4 px-3">
+          <span className="h-3 w-1/3 rounded-sm bg-stone/45" />
+          <span className="h-3 flex-1 rounded-sm bg-stone/30" />
+          <span className="h-3 flex-1 rounded-sm bg-stone/30" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function IntegrationsLoading() {
+  return (
+    <div aria-hidden="true" className="min-h-[36rem] space-y-3">
+      <div className="h-7 w-40 rounded-sm bg-stone/45" />
+      <div className="overflow-hidden rounded-[var(--radius-card)] border border-stone/70 bg-cream">
+        {Array.from({ length: 5 }, (_, index) => (
+          <div key={index} className="min-h-24 border-b border-stone/70 px-5 py-5 last:border-b-0">
+            <div className="h-4 w-1/3 rounded-sm bg-stone/45" />
+            <div className="mt-3 h-3 w-2/3 rounded-sm bg-stone/30" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const PlanComparison = dynamic(
+  () => import("@/components/plans/PlanComparison").then((module) => module.PlanComparison),
+  { loading: PlanComparisonLoading },
+);
+
+const IntegrationsSection = dynamic(
+  () => import("@/components/integrations/IntegrationsSection").then((module) => module.IntegrationsSection),
+  { loading: IntegrationsLoading },
+);
 
 function GroupTitle({ id, title, lead }: { id: string; title: string; lead?: string }) {
   return (
@@ -50,6 +89,36 @@ function SettingsCard({ id, title, saved, children }: { id?: string; title: stri
       </div>
       <CardBody>{children}</CardBody>
     </Card>
+  );
+}
+
+/** Load the large connections panel shortly before it enters view; retain its jump target meanwhile. */
+function DeferredIntegrations() {
+  const target = useRef<HTMLDivElement>(null);
+  const [requested, setRequested] = useState(false);
+  useEffect(() => {
+    if (requested || !target.current) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setRequested(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "480px 0px" },
+    );
+    observer.observe(target.current);
+    return () => observer.disconnect();
+  }, [requested]);
+
+  return (
+    <div
+      ref={target}
+      id={requested ? undefined : "connections"}
+      className={anchor}
+    >
+      {requested ? <IntegrationsSection /> : <IntegrationsLoading />}
+    </div>
   );
 }
 
@@ -88,10 +157,17 @@ function useCurrentGroup(ids: string[], offset: number) {
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(update);
     };
+    const layoutObserver = new ResizeObserver(onScroll);
+    layoutObserver.observe(document.documentElement);
     update();
     window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    window.addEventListener("hashchange", onScroll);
     return () => {
       window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      window.removeEventListener("hashchange", onScroll);
+      layoutObserver.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
   }, [key, offset]);
@@ -109,6 +185,7 @@ export default function SettingsPage() {
   const saveFailed = useSaveStatus((state) => state.status === "failed") && !account; // The account banner covers it.
   const [edited, setEdited] = useState<string | null>(null);
   const [confirmingSample, setConfirmingSample] = useState(false);
+  const [showPlanComparison, setShowPlanComparison] = useState(false);
   const headerHeight = useHeaderHeight();
   const navHeight = 52;
   const groups = [
@@ -198,12 +275,12 @@ export default function SettingsPage() {
           <div className="space-y-10">
             <div id="settings-plan" className={anchor}>
               <PlanChoice {...fields("call")} />
-              <details className="group mt-3">
+              <details className="group mt-3" onToggle={(event) => setShowPlanComparison(event.currentTarget.open)}>
                 <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-[0.9375rem] font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown [&::-webkit-details-marker]:hidden">
                   {m.setup.plans.compare}
                   <CaretDown size={14} className="transition-transform group-open:rotate-180" aria-hidden />
                 </summary>
-                <PlanComparison current={ws.settings.plan} className="mt-3" />
+                {showPlanComparison ? <PlanComparison current={ws.settings.plan} className="mt-3" /> : null}
               </details>
             </div>
             <ReportCallFields {...fields("call")} />
@@ -234,7 +311,7 @@ export default function SettingsPage() {
         </Card>
       </section>
 
-      <IntegrationsSection />
+      <DeferredIntegrations />
 
       {account ? (
         <section id="settings-account" aria-labelledby="settings-account-title" className={cn(anchor, "space-y-3")}>

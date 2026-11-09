@@ -14,7 +14,7 @@ import { useCallSentence } from "@/components/schedule/ReportCallSection";
 import { CallSetupStatus, getCallSetupGaps } from "@/components/setup";
 import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { RhythmStrip } from "@/components/visuals/RhythmStrip";
-import { HEALTH_LABELS, lastReportAt, openNoAnswerTickets, ownerAllowanceUsed, routeOwnerInboundCall, sameWeek } from "@/domain";
+import { HEALTH_LABELS, lastReportAt, openNoAnswerTickets, ownerAllowanceUsed, ownerMissedCallbackUsed, routeOwnerInboundCall } from "@/domain";
 import { reportRhythm } from "@/domain/rhythm";
 import { useI18n } from "@/i18n/client";
 import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
@@ -89,7 +89,7 @@ export default function OverviewPage() {
               <time className="ltr-nums" dateTime={next.toISOString()}>{fmt.dateTime(next, dayTime)}</time>
             </span>
             <span className="text-[0.9375rem] text-cream/75">
-              {scheduledOff ? o.callingInactive : <>{fmt.dateTime(next, dayMonth)} · <span className="font-semibold text-gold">{fmt.relative(next, now)}</span></>}
+              {scheduledOff ? o.callingInactive : <>{fmt.dateTime(next, dayMonth)} · <span className="font-semibold text-cream">{fmt.relative(next, now)}</span></>}
             </span>
           </p>
         ) : (
@@ -112,9 +112,7 @@ export default function OverviewPage() {
 
   const ownerRoute = routeOwnerInboundCall(ws, now);
   const allowanceUsed = ownerAllowanceUsed(ws, now);
-  const missedCallbackUsed = ws.calls.some(
-    (item) => item.kind === "owner_inquiry" && item.summary.en === "Owner called back after a missed notification" && sameWeek(item.at, now),
-  );
+  const missedCallbackUsed = ownerMissedCallbackUsed(ws, now);
   const allowance = ws.settings.plan === "ultimate" ? null : (
     <div className="min-w-0 lg:max-w-xs lg:border-s lg:border-stone/70 lg:ps-8">
       <p className="text-sm text-muted">{o.allowance}</p>

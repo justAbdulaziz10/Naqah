@@ -18,7 +18,7 @@ const variants: Record<Variant, string> = {
 };
 
 const sizes: Record<Size, string> = {
-  sm: "h-9 px-4 text-sm",
+  sm: "min-h-11 px-4 text-sm",
   md: "h-11 px-5 text-[0.95rem]",
   lg: "h-13 px-7 text-base",
 };
@@ -58,7 +58,7 @@ export function IconButton({ className, label, ...props }: ComponentProps<"butto
       aria-label={label}
       title={label}
       className={cn(
-        "inline-flex size-10 items-center justify-center rounded-full text-espresso transition hover:bg-espresso/5 active:scale-95",
+        "inline-flex size-11 items-center justify-center rounded-full text-espresso transition hover:bg-espresso/5 active:scale-95",
         className,
       )}
       {...props}

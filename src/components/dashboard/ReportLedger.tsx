@@ -8,7 +8,7 @@ import { RESOURCE_LABELS } from "@/domain";
 import type { FarmReport, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
-import { CertaintyBadge, HealthBadge } from "./DashboardPrimitives";
+import { CertaintyBadge } from "./DashboardPrimitives";
 import { callEntries } from "./callStories";
 import { mentions } from "./matters";
 
@@ -90,12 +90,9 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
                   <li key={item.id} className="flex items-start gap-2 leading-relaxed text-espresso">
                     <WarningCircle size={17} weight="fill" className="mt-1 shrink-0 text-warn" aria-hidden />
                     {item.camel ? (
-                      <span className="flex min-w-0 flex-wrap items-center gap-x-3">
                       <Link href={`${href("/app/herd")}#camel-${item.camel.id}`} className="naqah-name -my-2.5 inline-block py-2.5 font-semibold underline decoration-stone underline-offset-4 hover:decoration-brown">
                         {item.camel.name}
                       </Link>
-                      <HealthBadge health={item.camel.health} />
-                      </span>
                     ) : <span>{item.text}</span>}
                   </li>
                 ))}

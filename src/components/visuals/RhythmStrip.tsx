@@ -124,7 +124,7 @@ export function RhythmStrip({ slots, weekly, now, planned = false, className }: 
                 {index < slots.length - 1 ? (
                   <span
                     className={cn(
-                      "absolute top-1/2 w-full -translate-y-1/2 ltr:left-1/2 rtl:right-1/2",
+                      "absolute top-1/2 start-1/2 w-full -translate-y-1/2",
                       solid ? "naqah-draw border-t-2 border-cream/55" : "border-t-2 border-dashed border-cream/20",
                     )}
                   />
