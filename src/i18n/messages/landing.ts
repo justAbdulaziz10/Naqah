@@ -112,13 +112,7 @@ export const landing = defineMessages({
     },
     plans: {
       title: "Choose your rhythm",
-      pricing: (percent: number) => `Per ranch, per month. Prices are shown before and including ${percent}% VAT.`,
-      price: {
-        monthlyPerRanch: "Monthly per ranch",
-        currency: "SAR",
-        beforeVat: "before VAT",
-        includingVat: (percent: number) => `including ${percent}% VAT`,
-      },
+      pricing: "Pricing hasn’t been set yet.",
       caption: "Basic and Ultimate compared",
       feature: "What you get",
       details: "Compare every detail",
@@ -262,13 +256,7 @@ export const landing = defineMessages({
     },
     plans: {
       title: "اختر إيقاعك",
-      pricing: (percent: number) => `شهريًا لكل مزرعة. الأسعار موضحة قبل الضريبة وشاملة ${percent}٪ ضريبة قيمة مضافة.`,
-      price: {
-        monthlyPerRanch: "شهريًا لكل مزرعة",
-        currency: "ريال",
-        beforeVat: "قبل الضريبة",
-        includingVat: (percent: number) => `شامل ضريبة القيمة المضافة ${percent}٪`,
-      },
+      pricing: "الأسعار ما تحددت بعد.",
       caption: "مقارنة بين الأساسية والمتكاملة",
       feature: "اللي تحصل عليه",
       details: "قارن كل التفاصيل",

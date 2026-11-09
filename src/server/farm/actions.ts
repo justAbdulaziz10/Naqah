@@ -15,7 +15,6 @@ import { requestReportCallNow, type CallNowResult } from "@/server/calls/schedul
 import { createTwilioCaller } from "@/server/calls/twilio";
 import { createServiceClient } from "@/server/db/service-client";
 import { farmVoiceMissing, voiceMode } from "@/server/env";
-import type { Plan } from "@/domain/types";
 
 const DB_TIMEOUT_MS = 8_000;
 
@@ -42,35 +41,11 @@ function accountWorkspace(loaded: LoadedFarm, ownerId: string): AccountWorkspace
 
 export async function ensureFarm() { return asOwner((r) => r.ensureFarm()); }
 
-/** Validated routing data for the plan gate; ownerId is a stale-page hint, not authorization. */
-export async function initialPlanState() {
-  return asOwner(async (r, ownerId) => ({ ownerId, state: await r.initialPlanState() }));
-}
-
-/**
- * The browser owner id is only a stale-page precondition. Authorization and the RPC identity
- * come from getOwner() and the session-bound repository; it cannot select another owner's farm.
- */
-export async function selectInitialPlan(input: unknown, expectedOwnerId: unknown) {
-  return asOwner(async (r, ownerId) => {
-    if (input !== "basic" && input !== "ultimate") throw new DbError("invalid_input");
-    if (typeof expectedOwnerId !== "string" || expectedOwnerId.length > 128) throw new DbError("invalid_input");
-    if (ownerId !== expectedOwnerId) throw new DbError("conflict");
-    const plan: Plan = input;
-    await r.selectInitialPlan(plan);
-    // Retryable, stable-id setup defaults are created only after the choice is recorded.
-    await r.ensureFarm();
-    return { plan };
-  });
-}
-
 /** Entering the dashboard or setup. Without Supabase configured there is no account to open. */
 export async function openAccount() {
   if (!isAccountDataEnabled()) return { ok: false as const, error: "unavailable" as const };
   if (!getSupabaseConfig()) return { ok: false as const, error: "unauthenticated" as const };
   return asOwner(async (r, ownerId) => {
-    const selection = await r.initialPlanState();
-    if (selection.required) throw new DbError("plan_required");
     await r.ensureFarm();
     return accountWorkspace(await r.load(), ownerId);
   });
@@ -90,12 +65,7 @@ export async function saveOwnerEdits(changes: unknown, farm: unknown) {
   });
 }
 
-export async function loadWorkspace() {
-  return asOwner(async (r, ownerId) => {
-    if ((await r.initialPlanState()).required) throw new DbError("plan_required");
-    return accountWorkspace(await r.load(), ownerId);
-  });
-}
+export async function loadWorkspace() { return asOwner(async (r, ownerId) => accountWorkspace(await r.load(), ownerId)); }
 export async function listAlerts() { return asOwner((r) => r.alerts(new Date())); }
 export async function listInstructions() { return asOwner((r) => r.instructions()); }
 

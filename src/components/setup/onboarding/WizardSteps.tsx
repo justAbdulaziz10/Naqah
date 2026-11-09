@@ -47,10 +47,9 @@ export function TeamStep(props: SetupFieldsProps) {
 
 export function CallStep(props: SetupFieldsProps) {
   const { m } = useI18n();
-  const account = useIsAccount();
   return (
     <div className="space-y-12">
-      {account ? null : <PlanChoice {...props} />}
+      <PlanChoice {...props} />
       <ReportCallFields {...props} />
       <FieldGroup title={m.setup.questions.title}>
         {/* What the worker will hear, set like the call itself. */}

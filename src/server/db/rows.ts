@@ -11,8 +11,6 @@ export interface FarmRow {
   id: string;
   owner_id: string;
   plan: Plan;
-  /** NULL means no owner-confirmed initial plan (or an existing completed legacy farm). */
-  plan_selected_at: string | null;
   setup_complete: boolean;
   owner_name: string;
   owner_phone: string;
