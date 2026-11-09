@@ -259,6 +259,7 @@ export const app = defineMessages({
       attemptsNoAnswer: (count: string) => `${count} attempts, no answer`,
       answeredOn: (attempt: string) => `Answered on attempt ${attempt}`,
       emptyFilter: "No calls of this kind yet",
+      showEarlier: "Show earlier",
     },
     labels: {
       reported: "Reported by worker",
@@ -532,6 +533,7 @@ export const app = defineMessages({
       attemptsNoAnswer: (count: string) => `${count} محاولات، بدون رد`,
       answeredOn: (attempt: string) => `ردّ في المحاولة ${attempt}`,
       emptyFilter: "ما فيه مكالمات من هالنوع للحين",
+      showEarlier: "عرض الأيام السابقة",
     },
     labels: {
       reported: "حسب إفادة العامل",

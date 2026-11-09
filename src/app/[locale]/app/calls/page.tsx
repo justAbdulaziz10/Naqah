@@ -11,11 +11,12 @@ import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { CallActivity } from "@/components/visuals/CallActivity";
 import { ReportFlow, type FlowStep } from "@/components/visuals/ReportFlow";
 import { Button, ButtonLink, Card, Segmented } from "@/components/ui";
-import { dayKey, latestReportCall } from "@/domain";
+import { latestReportCall } from "@/domain";
 import type { CallKind, CallLog, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
+import { CALL_HISTORY_PAGE_DAYS, pageCallEntries } from "@/components/calls/paging";
 
 type CallFilter = "all" | CallGroup;
 
@@ -209,6 +210,7 @@ export default function CallsPage() {
   const now = useNow();
   const account = useIsAccount();
   const [filter, setFilter] = useState<CallFilter>("all");
+  const [visibleDayCount, setVisibleDayCount] = useState(CALL_HISTORY_PAGE_DAYS);
   const [openReportId, setOpenReportId] = useState<string | null>(null);
   const linked = useHashTarget("report-", Boolean(ws));
 
@@ -220,14 +222,10 @@ export default function CallsPage() {
   }
 
   const entries = useMemo(() => (ws ? callEntries(ws) : []), [ws]);
-  const days = useMemo(() => {
-    const groups = new Map<string, typeof entries>();
-    for (const entry of entries.filter((item) => filter === "all" || item.group === filter)) {
-      const key = dayKey(new Date(entry.at));
-      groups.set(key, [...(groups.get(key) ?? []), entry]);
-    }
-    return [...groups.entries()];
-  }, [entries, filter]);
+  const { days, hasEarlier } = useMemo(
+    () => pageCallEntries(entries, filter, visibleDayCount),
+    [entries, filter, visibleDayCount],
+  );
 
   if (!ws) return null;
   const worker = ws.settings.worker.name.trim() || m.app.overview.unnamedWorker;
@@ -253,7 +251,10 @@ export default function CallsPage() {
 
           <Segmented
             value={filter}
-            onChange={setFilter}
+            onChange={(next) => {
+              setFilter(next);
+              setVisibleDayCount(CALL_HISTORY_PAGE_DAYS);
+            }}
             label={c.filterLabel}
             className="w-full justify-between [&>button]:min-h-11 [&>button]:flex-1 sm:w-auto sm:justify-start sm:[&>button]:flex-none"
             options={[
@@ -266,22 +267,37 @@ export default function CallsPage() {
 
           {days.length ? (
             <div className="space-y-7">
-              {days.map(([day, group]) => (
-                <section key={day} aria-labelledby={`calls-day-${day}`}>
-                  <h2 id={`calls-day-${day}`} className="mb-3 flex items-baseline gap-2 text-sm font-semibold text-espresso">
-                    {fmt.date(group[0].at)}
-                  </h2>
-                  <Card className="naqah-stagger divide-y divide-stone/70 overflow-hidden">
-                    {group.map((entry, index) => (
-                      <div key={entry.id} style={{ "--i": index } as CSSProperties}>
-                        {entry.type === "report"
-                          ? <StoryRow story={entry} worker={worker} onOpen={() => entry.report && setOpenReportId(entry.report.id)} />
-                          : <ChainRow ws={ws} chain={entry} worker={worker} />}
-                      </div>
-                    ))}
-                  </Card>
-                </section>
-              ))}
+              <div id="calls-history" className="space-y-7">
+                {days.map(([day, group]) => (
+                  <section key={day} aria-labelledby={`calls-day-${day}`}>
+                    <h2 id={`calls-day-${day}`} className="mb-3 flex items-baseline gap-2 text-sm font-semibold text-espresso">
+                      {fmt.date(group[0].at)}
+                    </h2>
+                    <Card className="naqah-stagger divide-y divide-stone/70 overflow-hidden">
+                      {group.map((entry, index) => (
+                        <div key={entry.id} style={{ "--i": index } as CSSProperties}>
+                          {entry.type === "report"
+                            ? <StoryRow story={entry} worker={worker} onOpen={() => entry.report && setOpenReportId(entry.report.id)} />
+                            : <ChainRow ws={ws} chain={entry} worker={worker} />}
+                        </div>
+                      ))}
+                    </Card>
+                  </section>
+                ))}
+              </div>
+              {hasEarlier ? (
+                <div className="flex justify-center">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="min-h-11"
+                    aria-controls="calls-history"
+                    onClick={() => setVisibleDayCount((count) => count + CALL_HISTORY_PAGE_DAYS)}
+                  >
+                    {c.showEarlier}
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ) : (
             <Card className="px-5 py-10 text-center text-muted">{c.emptyFilter}</Card>
