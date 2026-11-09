@@ -275,6 +275,7 @@ exception here.
 - The landing is one photographic story: hero with the sample evening rail, the scroll-led `CallStory` (worker's call → report → owner's call → dashboard), principles with the retry rail, `PlanWeeks` with "Compare every detail", and the closing invitation. Dark scrims under text on photos are allowed for contrast. Times above story steps are timeline markers, not eyebrows. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`. Photos and their credits are tracked in `docs/design/asset-ledger.md`.
 - Arabic pages lead with Alexandria (`--font-arabic`). next/font's "Montserrat Fallback" covers every codepoint, so with Montserrat first, Arabic renders in Arial.
 - Motion is subtle and meaningful (entrances, state changes, sheets), never hides content, and stops under `prefers-reduced-motion`.
+  Exception (owner request, Nov 2026): the landing hero photograph is scroll-linked (`HeroDrift` + `.naqah-drift`): the further the page scrolls, the more the herd drifts, sinks and draws closer. It is driven by the reader's scroll, never a perpetual loop, and stays still under reduced motion.
 
 ### Known pitfalls (learned the hard way)
 - **Store hydration:** localStorage rehydration runs *inside* zustand's `create()`, before `useWorkspaceStore` is

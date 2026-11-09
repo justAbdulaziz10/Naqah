@@ -14,6 +14,7 @@ import { CallStory } from "./CallStory";
 import { EstatePhoto } from "./EstatePhoto";
 import { EntryActions } from "./EntryActionsServer";
 import { EveningRail } from "./EveningRail";
+import { HeroDrift } from "./HeroDrift";
 import { MobileNavigation } from "./LandingActions";
 import { MotionRoot } from "./MotionRoot";
 import { PlanWeeks } from "./PlanWeeks";
@@ -121,9 +122,10 @@ export function LandingPage({ locale }: { locale: Locale }) {
         <section aria-labelledby="landing-title">
           <div className="relative isolate h-[min(62svh,31rem)] sm:h-[38rem] lg:h-[calc(100svh-10rem)] lg:max-h-[52rem] lg:min-h-[34rem]">
             {/* This photo fills the viewport at every breakpoint. */}
-            <div className="absolute inset-0 -z-10">
+            {/* The herd moves with the scroll: the further down, the more it moves. */}
+            <HeroDrift className="naqah-drift absolute inset-0 -z-10">
               <EstatePhoto id="hero" locale={locale} eager sizes="100vw" ground="bg-sand-soft" className="naqah-settle h-full w-full" />
-            </div>
+            </HeroDrift>
             <div className={`${frame} pt-8 sm:pt-14 lg:pt-[clamp(2.5rem,7vh,5rem)]`}>
               <h1
                 id="landing-title"

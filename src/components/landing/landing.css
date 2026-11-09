@@ -156,3 +156,15 @@
     scale: 1 0.35;
   }
 }
+
+/* The hero herd moves with the scroll: the further down, the more it drifts, sinks and draws closer.
+ * `--hero-drift` (0 → 1) comes from HeroDrift; `transform` composes with the one-off `scale` settle.
+ * The scale always exceeds the sink, so no edge of the photograph ever shows. */
+@media (prefers-reduced-motion: no-preference) {
+  .naqah-drift img {
+    transform: translate3d(calc(var(--hero-drift, 0) * -5%), calc(var(--hero-drift, 0) * 12%), 0)
+      scale(calc(1 + var(--hero-drift, 0) * 0.3));
+    transform-origin: 50% 40%;
+    will-change: transform;
+  }
+}
