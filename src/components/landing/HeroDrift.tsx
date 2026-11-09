@@ -3,8 +3,8 @@
 import { useEffect, useRef, type ReactNode } from "react";
 
 /**
- * Ties the hero photograph to the scroll: the further the page is scrolled, the more the herd moves
- * (it drifts, sinks behind the page and draws closer). Writes one CSS variable, `--hero-drift`
+ * Ties the hero photograph to the scroll: the further the page is scrolled, the further the herd
+ * moves to the right. Writes one CSS variable, `--hero-drift`
  * (0 at the top → 1 once the hero has left the screen); landing.css turns it into motion.
  * Progressive enhancement: without script or under reduced motion the photograph stays still.
  */

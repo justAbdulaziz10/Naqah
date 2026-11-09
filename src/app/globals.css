@@ -7,7 +7,7 @@
  *   text-gold / bg-gold (accent, decorative or large text only), border-stone (hairlines).
  */
 @theme {
-  --color-ivory: #f5f0e8;
+  --color-ivory: #fdfaf3; /* milk white (owner request, Nov 2026; was #f5f0e8) */
   --color-cream: #fffcf8;
   --color-espresso: #29241f;
   --color-brown: #614832;
