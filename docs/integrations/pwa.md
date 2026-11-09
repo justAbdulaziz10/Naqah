@@ -14,7 +14,7 @@ The Settings → Connections → App and notifications card provides the browser
 | `VAPID_PRIVATE_KEY` | Server-only VAPID key for `POST /api/push`. |
 | `VAPID_SUBJECT` | Optional VAPID contact URL or `mailto:` address. Defaults to `mailto:hello@naqah.app`. |
 
-The public key and private key must be from the same VAPID pair. Keep `VAPID_PRIVATE_KEY` in the deployment environment only; never place it in client code or commit it. The push route returns `501 push_not_configured` if either key is unset or the optional `web-push` runtime dependency is unavailable.
+The public key and private key must be from the same VAPID pair. Keep `VAPID_PRIVATE_KEY` in the deployment environment only; never place it in client code or commit it. The push route returns `501 push_not_configured` if either key is unset or the optional `web-push` runtime dependency is unavailable. `POST /api/push` accepts only same-origin requests with the app's notification title, locale route, tag, and subscription shape; it caps JSON at 64 KiB and limits each IP to 10 sends per minute. With account mode enabled it also requires a validated owner session. The browser demo remains same-origin only.
 
 ## How to test
 

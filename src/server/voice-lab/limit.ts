@@ -1,11 +1,18 @@
-const WINDOW_MS = 60 * 60 * 1000;
-const MAX_OPENS = 30;
-const opens = new Map<string, number[]>();
+import { reserveRateLimit } from "@/server/rate-limit";
 
-/** A brake on a looping page. One server instance only: the owner allowlist is the actual gate. */
-export function allowLabOpen(ownerId: string, nowMs: number): boolean {
-  const recent = (opens.get(ownerId) ?? []).filter((at) => nowMs - at < WINDOW_MS);
-  if (recent.length >= MAX_OPENS) return false;
-  opens.set(ownerId, [...recent, nowMs]);
+const WINDOW_SECONDS = 60 * 60;
+const MAX_OWNER_OPENS = 30;
+const MAX_GLOBAL_OPENS = 300;
+
+/** Quotas are shared when the database RPC is available and instance-local while it is unavailable. */
+export async function allowLabOpen(ownerId: string, nowMs: number): Promise<boolean> {
+  const owner = await reserveRateLimit(`voice-lab:owner:${ownerId}`, MAX_OWNER_OPENS, WINDOW_SECONDS, nowMs);
+  if (!owner) return false;
+
+  const global = await reserveRateLimit("voice-lab:global", MAX_GLOBAL_OPENS, WINDOW_SECONDS, nowMs);
+  if (!global) {
+    await owner.release();
+    return false;
+  }
   return true;
 }

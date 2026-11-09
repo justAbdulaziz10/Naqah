@@ -125,7 +125,7 @@ WebSockets, so production needs a separately hosted bridge; that needs owner app
   tested against mocks, not the real model. If the real transcript differs, the call falls back to the scripted keypad path.
 - The report is saved before the session row advances (`planTurn`, then `advanceRow`). A confirmed report can land while a
   fallback takes over; it is not lost or duplicated (`${callSid}:report`), but the two are not one transaction.
-- `/api/voice/realtime/*` and the Twilio webhooks read the whole body before checking its size and signature.
+- Request bodies are bounded before parsing or signature work: Twilio forms are capped at 32 KiB, JSON APIs at 64 KiB, and signed realtime bridge requests at 16 KiB. Oversized requests receive 413. Realtime signatures still cover the exact bounded raw body before JSON parsing.
 - Callback-delivered instructions, including grouped messages, receive one scheduled verification cycle per still-open
   task once due. Open No Answer Tickets still block delivery; existing verification cycles prevent duplicates.
   This is covered locally, not proven against live telephony. Missing callback-ticket evidence fails closed; the current

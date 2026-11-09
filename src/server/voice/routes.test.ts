@@ -268,6 +268,17 @@ describe("voice webhook routes", () => {
     expect((await turn(badTurn)).status).toBe(403);
   });
 
+  it("returns 413 for oversized sample-line inbound and turn forms", async () => {
+    const inboundResponse = await inbound(new Request("https://naqah.test/api/voice/inbound", {
+      method: "POST", headers: { "content-length": String(32 * 1024 + 1) }, body: "x",
+    }));
+    const turnResponse = await turn(new Request("https://naqah.test/api/voice/turn", {
+      method: "POST", headers: { "content-length": String(32 * 1024 + 1) }, body: "x",
+    }));
+    expect(inboundResponse.status).toBe(413);
+    expect(turnResponse.status).toBe(413);
+  });
+
   it("accepts signatures for relative action URLs resolved through forwarded public headers", async () => {
     vi.stubEnv("TWILIO_AUTH_TOKEN", "route-test-token");
     const publicInbound = "https://naqah.test/api/voice/inbound";
@@ -364,13 +375,15 @@ describe("voice webhook routes", () => {
     expect(gatherActionRaw(xml)).toBeNull();
   });
 
-  it("allows the explicit unsigned-voice production override without enabling paid summaries", async () => {
+  it("refuses unsigned voice even when the legacy override is set in production", async () => {
     vi.stubEnv("TWILIO_AUTH_TOKEN", "");
     vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("NAQAH_ALLOW_UNSIGNED_VOICE", "1");
     const response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966507782190" }));
     expect(response.status).toBe(200);
-    expect(gatherActionRaw(await response.text())).toMatch(/^\/api\/voice\/turn\?s=/);
+    const xml = await response.text();
+    expect(xmlText(xml, "Say")).toContain("خط الاتصال غير مفعّل");
+    expect(gatherActionRaw(xml)).toBeNull();
   });
 
   it("returns goodbye TwiML and logs only the error name when engine replay throws", async () => {

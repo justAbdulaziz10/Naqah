@@ -40,6 +40,20 @@ describe("account route", () => {
     expect(mock.save).toHaveBeenCalledWith([], "created");
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
+  it("returns 413 for an oversized JSON body and rejects malformed JSON", async () => {
+    const oversized = await POST(new Request("https://naqah.test/api/account", {
+      method: "POST",
+      headers: { origin: "https://naqah.test", host: "naqah.test", "content-type": "application/json" },
+      body: JSON.stringify({ op: "save", changes: "x".repeat(70_000) }),
+    }));
+    expect(oversized.status).toBe(413);
+    expect(await oversized.json()).toEqual({ ok: false, error: "payload_too_large" });
+    const malformed = await POST(new Request("https://naqah.test/api/account", {
+      method: "POST", headers: { origin: "https://naqah.test", host: "naqah.test" }, body: "{",
+    }));
+    expect(malformed.status).toBe(400);
+    expect(mock.save).not.toHaveBeenCalled();
+  });
   it("refuses an unknown operation", async () => {
     expect((await call({ op: "drop" })).status).toBe(400);
   });

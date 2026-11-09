@@ -27,8 +27,9 @@ Call Lab simulates calls; if signature validation is off, it says automatic owne
    `https://<your-domain>/api/voice/status`, also using **HTTP POST**.
 3. Set `NAQAH_VOICE_SECRET` to a strong random secret, `NAQAH_WORKER_PHONE` to the worker's registered E.164 number,
    and `NEXT_PUBLIC_NAQAH_PHONE_NUMBER` to the purchased number. Set `TWILIO_AUTH_TOKEN` to require signature
-   validation on every inbound/turn webhook; production voice is disabled without it unless
-   `NAQAH_ALLOW_UNSIGNED_VOICE=1` is deliberately set. Unsigned calls never send paid owner summaries. Optionally set
+   validation on every inbound/turn webhook. Production voice always refuses requests without the token, regardless of
+   `NAQAH_ALLOW_UNSIGNED_VOICE`. With no token, only the non-production sample line accepts unsigned calls; they never
+   send paid owner summaries. Optionally set
    `NAQAH_OWNER_PHONE` to let the owner call in for an inquiry.
 4. In Vercel project settings, add the same server variables to the environments you use. Add the public number as
    `NEXT_PUBLIC_NAQAH_PHONE_NUMBER`, then redeploy so it is available to the Settings card.
@@ -54,7 +55,7 @@ Confirm current number availability and local requirements directly with either 
 | `NAQAH_WORKER_PHONE` | Registered worker caller ID, preferably E.164. Required for live voice. |
 | `NAQAH_OWNER_PHONE` | Owner caller ID; enables owner inquiry matching and is required for owner call summaries. |
 | `NAQAH_PUBLIC_BASE_URL` | Public origin Twilio signs; takes precedence over forwarded headers. |
-| `NAQAH_ALLOW_UNSIGNED_VOICE` | Set to `1` to permit unsigned voice in production; owner summaries remain disabled. |
+| `NAQAH_ALLOW_UNSIGNED_VOICE` | Legacy setting; it cannot permit unsigned production voice. Local sample-line signature checks depend on whether `TWILIO_AUTH_TOKEN` is set. |
 | `NAQAH_VOICE_LOCALE` | `ar` by default, or `en`. |
 | `NAQAH_VOICE_ARABIC_VOICE` | Twilio `<Say>` voice override; defaults to `Polly.Zeina`. |
 | `NAQAH_VOICE_ENGLISH_VOICE` | Twilio `<Say>` voice override; defaults to `Polly.Joanna`. |

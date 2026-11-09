@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ create: vi.fn(), signOut: vi.fn(), signInWithOtp: vi.fn(), redirect: vi.fn(), ip: '203.0.113.1' }));
 vi.mock('@/lib/supabase/server', () => ({ createWritableClient: mock.create }));
+vi.mock('server-only', () => ({}));
 vi.mock('next/navigation', () => ({ redirect: mock.redirect }));
 vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'x-forwarded-for': `${mock.ip}, 10.0.0.1` }) }));
 import { logout, sendOwnerOtp } from './actions';
