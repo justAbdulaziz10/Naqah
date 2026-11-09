@@ -69,7 +69,7 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
               aria-hidden
               className={cn(
                 "inline-flex size-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
-                selected ? "border-brown bg-brown text-cream" : "border-sand bg-white",
+                selected ? "border-brown bg-brown text-cream" : "border-sand bg-cream",
               )}
             >
               {selected ? <Check size={13} weight="bold" /> : null}
@@ -85,7 +85,7 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
     );
     const frame = cn(
       "flex flex-col rounded-2xl border p-5 text-start text-espresso transition-[border-color,background-color,box-shadow] duration-200",
-      selected ? "border-brown bg-white shadow-[inset_0_0_0_1px_var(--color-brown)]" : "border-stone bg-white/60",
+      selected ? "border-brown bg-cream shadow-[inset_0_0_0_1px_var(--color-brown)]" : "border-stone bg-cream/60",
     );
     if (!selectable) return <div className={frame}>{body}</div>;
     return (
@@ -93,7 +93,7 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
         className={cn(
           frame,
           "cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-brown",
-          !selected && !blocked && "hover:border-sand hover:bg-white",
+          !selected && !blocked && "hover:border-sand hover:bg-cream",
           blocked && "cursor-not-allowed opacity-70",
         )}
       >

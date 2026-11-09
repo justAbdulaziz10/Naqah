@@ -8,7 +8,7 @@
  */
 @theme {
   --color-ivory: #fdfaf3; /* milk white (owner request, Nov 2026; was #f5f0e8) */
-  --color-cream: #fffcf8;
+  --color-cream: #fefcf7; /* milk white surfaces (owner request, Nov 2026; was #fffcf8) */
   --color-espresso: #29241f;
   --color-brown: #614832;
   --color-brown-deep: #4e3927;

@@ -13,7 +13,7 @@ import { formatSaudiMobile, fromLocalSaudiPart, localSaudiPart, phoneNeedsFixing
  */
 
 export const wizardControl =
-  "h-14 w-full rounded-xl border border-stone bg-white px-4 text-[1.0625rem] text-espresso placeholder:text-muted transition focus:border-brown focus:outline-none focus:ring-4 focus:ring-brown/15 disabled:bg-ivory disabled:text-muted";
+  "h-14 w-full rounded-xl border border-stone bg-cream px-4 text-[1.0625rem] text-espresso placeholder:text-muted transition focus:border-brown focus:outline-none focus:ring-4 focus:ring-brown/15 disabled:bg-ivory disabled:text-muted";
 
 export function StepField({
   label,
@@ -109,7 +109,7 @@ export function PhoneField({
         <div
           dir="ltr"
           className={cn(
-            "flex h-14 w-full items-stretch overflow-hidden rounded-xl border bg-white transition focus-within:border-brown focus-within:ring-4 focus-within:ring-brown/15",
+            "flex h-14 w-full items-stretch overflow-hidden rounded-xl border bg-cream transition focus-within:border-brown focus-within:ring-4 focus-within:ring-brown/15",
             invalid ? "border-danger" : "border-stone",
           )}
         >
@@ -179,7 +179,7 @@ export function ChoiceRow({
     <div
       className={cn(
         "flex min-h-15 items-center rounded-xl border transition-colors has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-brown",
-        checked ? "border-brown bg-white shadow-[inset_0_0_0_1px_var(--color-brown)]" : "border-stone bg-white/70 hover:border-sand hover:bg-white",
+        checked ? "border-brown bg-cream shadow-[inset_0_0_0_1px_var(--color-brown)]" : "border-stone bg-cream/70 hover:border-sand hover:bg-cream",
       )}
     >
       <label className="flex min-h-15 min-w-0 flex-1 cursor-pointer items-center gap-3 px-4 py-2.5">
@@ -204,7 +204,7 @@ export function ChoiceRow({
           className={cn(
             "inline-flex size-6 shrink-0 items-center justify-center border-2 transition-colors",
             type === "radio" ? "rounded-full" : "rounded-md",
-            checked ? "border-brown bg-brown text-cream" : "border-sand bg-white",
+            checked ? "border-brown bg-brown text-cream" : "border-sand bg-cream",
           )}
         >
           {checked ? type === "radio" ? <span className="size-2.5 rounded-full bg-cream" /> : <Check size={14} weight="bold" /> : null}

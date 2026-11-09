@@ -158,7 +158,7 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
             type="button"
             disabled={!canAddWorker(ws.settings)}
             onClick={() => editList((list) => [...list, newWorker(list[0]?.language ?? "ar")])}
-            className="inline-flex min-h-12 items-center gap-2 rounded-full border border-stone bg-white px-5 font-semibold text-espresso transition hover:border-sand disabled:cursor-not-allowed disabled:text-muted"
+            className="inline-flex min-h-12 items-center gap-2 rounded-full border border-stone bg-cream px-5 font-semibold text-espresso transition hover:border-sand disabled:cursor-not-allowed disabled:text-muted"
           >
             <Plus size={18} weight="bold" aria-hidden />
             {s.add}

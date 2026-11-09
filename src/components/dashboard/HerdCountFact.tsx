@@ -8,7 +8,7 @@ import { toastWhenSaved } from "./toastWhenSaved";
 import { useNow, useWorkspaceStore } from "@/store/workspace";
 
 const quietButton =
-  "inline-flex min-h-11 items-center rounded-full border border-stone bg-cream px-4 text-sm font-semibold text-espresso transition hover:border-sand hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown";
+  "inline-flex min-h-11 items-center rounded-full border border-stone bg-cream px-4 text-sm font-semibold text-espresso transition hover:border-sand hover:bg-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown";
 
 /**
  * The official camel count, owner-controlled, with how many are registered by name. When the

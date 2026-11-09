@@ -276,21 +276,21 @@ export function CallStory() {
 
       {/* Wide screens: one stage that changes with the step in the middle of the screen. */}
       <div className="hidden lg:col-span-7 lg:block">
-        <div data-ui className="sticky top-24 isolate flex h-[min(46rem,calc(100svh-8rem))] flex-col overflow-hidden bg-espresso">
-          {/* The ranch behind the paperwork, darkened so the pieces read. */}
+        <div data-ui className="sticky top-24 isolate flex h-[min(46rem,calc(100svh-8rem))] flex-col overflow-hidden bg-ivory">
+          {/* The ranch behind the paperwork, washed in milk white so the pieces read. */}
           <div aria-hidden className="absolute inset-0 -z-10">
             <EstatePhoto
               id="evening"
               locale={locale}
               sizes="(min-width: 1360px) 718px, (min-width: 1024px) calc(58.33vw - 76px), 1px"
-              ground="bg-brown-deep"
+              ground="bg-ivory"
               className="h-full w-full"
             />
-            <div className="absolute inset-0 bg-espresso/70" />
+            <div className="absolute inset-0 bg-ivory/85" />
           </div>
-          <nav aria-label={story.progress} className="px-8 pt-7 text-cream">
+          <nav aria-label={story.progress} className="px-8 pt-7 text-espresso">
             <ol className="relative grid grid-cols-4">
-              <span aria-hidden className="absolute inset-x-[12.5%] top-[5px] h-0.5 bg-cream/25" />
+              <span aria-hidden className="absolute inset-x-[12.5%] top-[5px] h-0.5 bg-espresso/20" />
               <span
                 aria-hidden
                 className="naqah-progress absolute start-[12.5%] top-[5px] h-0.5 bg-gold"
@@ -302,17 +302,17 @@ export function CallStory() {
                     type="button"
                     onClick={() => jump(index)}
                     aria-current={active === index ? "step" : undefined}
-                    className="group flex min-h-11 flex-col items-center gap-2 px-2 text-[0.8125rem] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream"
+                    className="group flex min-h-11 flex-col items-center gap-2 px-2 text-[0.8125rem] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-espresso"
                   >
                     <span
                       aria-hidden
                       className={cn(
                         "size-3 rounded-full border-2 transition-[background-color,border-color,scale] duration-300 group-hover:scale-125",
-                        index <= active ? "border-gold bg-gold" : "border-cream/50 bg-espresso",
+                        index <= active ? "border-gold bg-gold" : "border-espresso/40 bg-ivory",
                         index === active && "scale-125",
                       )}
                     />
-                    <span className={cn("ltr-nums tabular-nums transition-colors", index === active ? "font-semibold text-cream" : "text-cream/65 group-hover:text-cream")}>
+                    <span className={cn("ltr-nums tabular-nums transition-colors", index === active ? "font-semibold text-espresso" : "text-muted group-hover:text-espresso")}>
                       {step.time || story.anyTime}
                     </span>
                     <span className="sr-only">{step.title}</span>

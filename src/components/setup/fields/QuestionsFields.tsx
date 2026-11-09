@@ -170,7 +170,7 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
               <button
                 type="submit"
                 disabled={!draft.trim()}
-                className="inline-flex h-12 shrink-0 items-center justify-center gap-2 self-start rounded-full border border-stone bg-white px-5 font-semibold text-espresso transition hover:border-sand disabled:cursor-not-allowed disabled:text-muted sm:h-14 sm:self-auto"
+                className="inline-flex h-12 shrink-0 items-center justify-center gap-2 self-start rounded-full border border-stone bg-cream px-5 font-semibold text-espresso transition hover:border-sand disabled:cursor-not-allowed disabled:text-muted sm:h-14 sm:self-auto"
               >
                 <Plus size={18} weight="bold" aria-hidden />
                 {m.common.actions.add}

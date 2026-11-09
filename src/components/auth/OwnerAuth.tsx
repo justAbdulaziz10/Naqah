@@ -126,7 +126,7 @@ function PhoneAuth({ mode, next }: { mode: 'login' | 'signup'; next: string | nu
         <p id={hintId} className="text-sm text-muted">{m.codeHint}</p>
       </div> : <div className="flex flex-col gap-2">
         <label htmlFor={phoneId} className="text-sm font-semibold">{m.phone}</label>
-        <div dir="ltr" className={cn('flex h-12 w-full items-stretch overflow-hidden rounded-xl border bg-white/70 transition focus-within:border-brown focus-within:bg-white focus-within:ring-4 focus-within:ring-brown/15',
+        <div dir="ltr" className={cn('flex h-12 w-full items-stretch overflow-hidden rounded-xl border bg-cream/70 transition focus-within:border-brown focus-within:bg-cream focus-within:ring-4 focus-within:ring-brown/15',
           issue === 'invalidPhone' ? 'border-danger' : 'border-stone', (!!busy || googlePending || !configured) && 'opacity-60')}>
           <span className="ltr-nums flex items-center border-e border-stone bg-ivory px-3.5 font-medium text-muted">
             <span className="sr-only">{m.phoneCountry}</span><span aria-hidden>+966</span>
