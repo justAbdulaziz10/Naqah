@@ -3,7 +3,7 @@ import { createElement, type ComponentType, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Locale } from "@/domain/types";
-import { I18nProvider } from "@/i18n/client";
+import { I18nProvider, preloadMessages } from "@/i18n/client";
 import { CallStory } from "./CallStory";
 
 const ElementI18nProvider = I18nProvider as unknown as ComponentType<{
@@ -12,7 +12,8 @@ const ElementI18nProvider = I18nProvider as unknown as ComponentType<{
 }>;
 
 describe("landing call story server render", () => {
-  it("ships the first call visual and stage image in visible markup", () => {
+  it("ships the first call visual and stage image in visible markup", async () => {
+    await preloadMessages("en");
     const markup = renderToStaticMarkup(
       createElement(ElementI18nProvider, { locale: "en" }, createElement(CallStory)),
     );

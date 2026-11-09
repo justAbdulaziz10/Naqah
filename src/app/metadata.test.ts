@@ -24,8 +24,10 @@ describe("metadata base URL", () => {
     );
   });
 
-  it("uses localhost only outside production", () => {
+  it("uses localhost outside a Vercel production deploy", () => {
     expect(resolveMetadataBase({ NODE_ENV: "development" }).toString()).toBe("http://localhost:3000/");
+    // `next build` sets NODE_ENV=production locally and in CI; the demo must still build without env vars.
+    expect(resolveMetadataBase({ NODE_ENV: "production" }).toString()).toBe("http://localhost:3000/");
   });
 
   it("rejects malformed configured URLs", () => {

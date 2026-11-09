@@ -32,8 +32,25 @@ const messageLoaders: Record<Locale, () => Promise<{ messages: Messages }>> = {
 };
 const messagePromises: Partial<Record<Locale, Promise<Messages>>> = {};
 
+type TrackedPromise = Promise<Messages> & { status?: "pending" | "fulfilled"; value?: Messages };
+
+/** Once loaded, the promise is marked fulfilled so React's `use()` reads it synchronously (no re-suspend). */
 function messagesFor(locale: Locale): Promise<Messages> {
-  return (messagePromises[locale] ??= messageLoaders[locale]().then(({ messages }) => messages));
+  const cached = messagePromises[locale];
+  if (cached) return cached;
+  const promise: TrackedPromise = messageLoaders[locale]().then(({ messages }) => {
+    promise.status = "fulfilled";
+    promise.value = messages;
+    return messages;
+  });
+  promise.status = "pending";
+  messagePromises[locale] = promise;
+  return promise;
+}
+
+/** Load a locale's catalog ahead of rendering (tests, or before a client-side locale switch). */
+export function preloadMessages(locale: Locale): Promise<Messages> {
+  return messagesFor(locale);
 }
 
 export function I18nProvider({ locale, children }: { locale: Locale; children: ReactNode }) {

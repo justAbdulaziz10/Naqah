@@ -13,14 +13,15 @@ export function resolveMetadataBase(env: MetadataEnvironment = process.env): URL
   const configuredUrl = env.NEXT_PUBLIC_SITE_URL?.trim();
   if (configuredUrl) return parseMetadataUrl(configuredUrl, "NEXT_PUBLIC_SITE_URL");
 
-  const isProduction = env.VERCEL_ENV === "production" || env.NODE_ENV === "production";
-  if (!isProduction) return new URL("http://localhost:3000");
-
   const vercelProjectUrl = env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
   if (vercelProjectUrl) {
     const normalizedUrl = /^https?:\/\//i.test(vercelProjectUrl) ? vercelProjectUrl : `https://${vercelProjectUrl}`;
     return parseMetadataUrl(normalizedUrl, "VERCEL_PROJECT_PRODUCTION_URL");
   }
+
+  // `next build` always runs with NODE_ENV=production, so only a real Vercel production deploy must fail
+  // loudly; local and CI builds of the demo need no environment variables.
+  if (env.VERCEL_ENV !== "production") return new URL("http://localhost:3000");
 
   throw new Error(
     "Missing NEXT_PUBLIC_SITE_URL for production metadata. Set it or provide VERCEL_PROJECT_PRODUCTION_URL.",

@@ -2,18 +2,13 @@
 
 import { useEffect, useMemo } from "react";
 import { useI18n } from "@/i18n/client";
-import { getMessages } from "@/i18n/messages";
+// Only the small PWA slice: importing "@/i18n/messages" here would ship every catalog to every page.
+import { pwa } from "@/i18n/messages/integrations/pwa";
 import { useInstallPrompt } from "./useInstallPrompt";
 
 const OFFLINE_TRANSLATIONS = {
-  ar: {
-    title: getMessages("ar").integrations.pwa.offlineTitle,
-    body: getMessages("ar").integrations.pwa.offlineBody,
-  },
-  en: {
-    title: getMessages("en").integrations.pwa.offlineTitle,
-    body: getMessages("en").integrations.pwa.offlineBody,
-  },
+  ar: { title: pwa.ar.offlineTitle, body: pwa.ar.offlineBody },
+  en: { title: pwa.en.offlineTitle, body: pwa.en.offlineBody },
 };
 
 /** Register the root-scoped worker only on a production origin, after the page load. */

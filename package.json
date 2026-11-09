@@ -9,6 +9,7 @@
     "prebuild": "node src/i18n/messages/generate-catalogs.mjs",
     "start": "next start",
     "lint": "eslint",
+    "pretest": "node src/i18n/messages/generate-catalogs.mjs",
     "test": "vitest run",
     "typecheck": "next typegen && tsc --noEmit",
     "budget": "node scripts/bundle-budget.mjs"

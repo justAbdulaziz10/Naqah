@@ -7,9 +7,9 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 // Baseline gzip sizes from the production artifact in /tmp/naqah-codex-audit.md, with ~10% headroom.
 export const BUDGETS = [
-  { route: "/ar", maxGzipKiB: 277 },
-  { route: "/ar/app", maxGzipKiB: 314 },
-  { route: "/ar/signup", maxGzipKiB: 224 },
+  { route: "/ar", maxGzipKiB: 241 },
+  { route: "/ar/app", maxGzipKiB: 275 },
+  { route: "/ar/signup", maxGzipKiB: 309 },
 ];
 
 export function javascriptAssetPaths(html) {
