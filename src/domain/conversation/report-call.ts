@@ -390,7 +390,10 @@ function nextReportItem(session: CallSession, ws: Workspace, now: Date): CallSes
   if (session.data.correcting) {
     return askReportSummary({ ...session, data: { ...session.data, correcting: undefined, currentQuestionId: undefined } }, ws, now);
   }
-  const index = (session.data.reportIndex ?? 0) + 1;
+  // Kept notes stay in the queue for the read-back, but they are never asked.
+  const queue = session.data.queue ?? [];
+  let index = (session.data.reportIndex ?? 0) + 1;
+  while (queue[index] && isOpenNote(queue[index])) index += 1;
   return askReportItem(
     { ...session, data: { ...session.data, reportIndex: index, currentQuestionId: undefined } },
     ws,
@@ -1083,7 +1086,9 @@ function itemFor(session: CallSession, id: string, build: () => ReportItem | nul
   if (!item) return { session, item: null };
   const firstTask = queue.findIndex((entry) => entry.kind === "task");
   const at = firstTask < 0 ? queue.length : firstTask;
-  return { session: { ...session, data: { ...session.data, queue: [...queue.slice(0, at), item, ...queue.slice(at)] } }, item };
+  // A note added while a later question is being asked must not shift which question that is.
+  const reportIndex = (session.data.reportIndex ?? 0) >= at ? (session.data.reportIndex ?? 0) + 1 : session.data.reportIndex;
+  return { session: { ...session, data: { ...session.data, queue: [...queue.slice(0, at), item, ...queue.slice(at)], reportIndex } }, item };
 }
 
 function predefinedItem(session: CallSession, id: string) {

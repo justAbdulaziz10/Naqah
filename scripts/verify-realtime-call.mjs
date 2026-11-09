@@ -6,9 +6,11 @@
  * The bridge runs with a preloaded guard that refuses every non-loopback socket.
  *
  *   node scripts/verify-realtime-call.mjs [--label final] [--only R1,R6] [--skip-scripted] [--keep-src]
+ *     [--root /tmp/naqah-rm-rt] [--pg-port 54480] [--rest-port 54481] [--gateway-port 54482] [--app-port 3720]
+ *     [--bridge-port 3722] [--provider-port 3723] [--refuse-port 3724] [--proxy-port 3725] [--limits-port 3726]
  *
  * The model only ever calls tools; the server chooses every spoken word, and the mock plays it back verbatim.
- * Results: /tmp/naqah-rm-rt/logs/<label>/ (result.json, summary.txt, next.log, bridge.log). Exit code 1 on any failure.
+ * Results: <root>/logs/<label>/ (result.json, summary.txt, next.log, bridge.log). Exit code 1 on any failure.
  */
 import { execFileSync, spawn } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
@@ -27,7 +29,7 @@ const arg = (name, fallback) => {
 const flag = (name) => process.argv.includes(`--${name}`);
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const ROOT = "/tmp/naqah-rm-rt";
+const ROOT = arg("root", "/tmp/naqah-rm-rt");
 const SRC = join(ROOT, "src");
 const BASE = join(ROOT, "base");
 const PGDATA = join(ROOT, "pg");
@@ -36,15 +38,15 @@ const LABEL = arg("label", "run");
 const LOGS = join(ROOT, "logs", LABEL);
 const ONLY = arg("only", "")?.split(",").filter(Boolean);
 const PG_BIN = "/opt/homebrew/opt/postgresql@17/bin";
-const PG_PORT = "54480";
-const REST_PORT = "54481";
-const GATEWAY_PORT = "54482";
-const APP_PORT = "3720";
-const BRIDGE_PORT = "3722";
-const PROVIDER_PORT = 3723;
-const REFUSE_BRIDGE_PORT = "3724";
-const REWRITE_PROXY_PORT = "3725";
-const LIMITS_BRIDGE_PORT = "3726";
+const PG_PORT = arg("pg-port", "54480");
+const REST_PORT = arg("rest-port", "54481");
+const GATEWAY_PORT = arg("gateway-port", "54482");
+const APP_PORT = arg("app-port", "3720");
+const BRIDGE_PORT = arg("bridge-port", "3722");
+const PROVIDER_PORT = Number(arg("provider-port", "3723"));
+const REFUSE_BRIDGE_PORT = arg("refuse-port", "3724");
+const REWRITE_PROXY_PORT = arg("proxy-port", "3725");
+const LIMITS_BRIDGE_PORT = arg("limits-port", "3726");
 const DB = "naqah_rt3";
 const GATEWAY = `http://127.0.0.1:${GATEWAY_PORT}`;
 const APP = `http://127.0.0.1:${APP_PORT}`;
@@ -435,8 +437,8 @@ async function callNow(ranch) {
 }
 
 /** Answer the phone and bring up the stream: returns the Twilio side and the provider side. */
-async function placeCall(ranch, { startStream = true, bridgePort } = {}) {
-  const call = await callNow(ranch);
+async function placeCall(ranch, { startStream = true, bridgePort, placed } = {}) {
+  const call = placed ?? await callNow(ranch);
   await call.answer();
   if (!call.connect) throw new Error(`Answer TwiML has no <Connect>: ${call.xml.slice(0, 400)}`);
   const opened = await call.open({ bridgePort });
@@ -545,7 +547,14 @@ async function confirmAndFinish(call, stream, upstream) {
   return confirmed;
 }
 
-/** One saved report, its run linked, session gone, owner told, dashboard showing it. */
+/** The owner is called at the owner's own time by the scheduler, so saving a report never dials them. */
+async function assertOwnerNotDialled() {
+  await sleep(1200);
+  const dialled = (await outbound()).map((r) => r.To);
+  check("saving the report does not dial the owner", !dialled.includes(OWNER), dialled);
+}
+
+/** One saved report, its run linked, session gone, no call straight to the owner, dashboard showing it. */
 async function assertSaved(ranch, call, { expected = [], herd } = {}) {
   const status = await call.finalStatus("completed");
   check("final status callback is accepted", status.status === 204, status);
@@ -570,8 +579,7 @@ async function assertSaved(ranch, call, { expected = [], herd } = {}) {
   const last = ws.reports?.at?.(-1);
   check("the owner's dashboard reads the report", ws.reports?.length === 1 && Boolean(ws.lastUpdateAt) && last?.answers?.length === answers.length, { reports: ws.reports?.length, lastUpdateAt: ws.lastUpdateAt, answers: last?.answers?.length });
   check("the dashboard's run is completed", ws.reportCalls?.at?.(-1)?.state === "completed", ws.reportCalls?.at?.(-1));
-  await waitFor(async () => (await outbound()).some((r) => r.To === OWNER), "owner call", 20).catch(() => {});
-  check("the owner gets one update call", (await outbound()).filter((r) => r.To === OWNER).length === 1, (await outbound()).map((r) => r.To));
+  await assertOwnerNotDialled();
   return ws;
 }
 
@@ -602,6 +610,12 @@ async function driveScripted(call, how) {
 /* ─────────────────── scenarios ─────────────────── */
 
 let provider;
+
+scenario("M0", "The migrations this verifier depends on are applied", async () => {
+  for (const file of ["20261109182526_owner_summary_schedule.sql", "20261110090000_mvp_owner_runs.sql"]) check(`${file} is in the tree`, existsSync(join(SRC, "supabase/migrations", file)));
+  const columns = sql("select string_agg(column_name, ',') from information_schema.columns where table_schema = 'public' and table_name = 'farms' and column_name in ('owner_call_day', 'owner_call_time', 'owner_call_run')");
+  check("the owner schedule and owner run columns exist", ["owner_call_day", "owner_call_time", "owner_call_run"].every((name) => columns.includes(name)), columns);
+});
 
 scenario("R1a", "Happy path: ranch with camels, resources and a custom question (natural Saudi speech)", async () => {
   const ranch = await makeFarm(FULL);
@@ -1028,6 +1042,31 @@ scenario("R8", "Worker hangs up mid-call: nothing saved, run ends via the status
   check("the owner receives no update call", !(await outbound()).some((r) => r.To === OWNER), (await outbound()).map((r) => r.To));
   const late = await post(call.afterUrl, callFields(call.sid));
   check("a late /after does not resume or claim a save", !/تم حفظ/.test(says(late.xml)) && !gather(late.xml), late.xml.slice(0, 300));
+});
+
+scenario("R8b", "Scheduled call: a worker hang-up uses the attempt, and the retry comes 20 minutes later", async () => {
+  const ranch = await makeFarm(FULL);
+  sql(`update farms set call_day = extract(dow from now() at time zone 'Asia/Riyadh' - interval '1 minute')::int,
+       call_time = (now() at time zone 'Asia/Riyadh' - interval '1 minute')::time where id = ${q(ranch.farm)}`);
+  await resetOutbound();
+  const cron = async () => (await fetch(`${APP}/api/cron/report-calls`, { headers: { Authorization: `Bearer ${CRON_SECRET}` } })).json();
+  check("the cron dials the due slot", (await cron()).placed === 1);
+  const first = new RealtimeCall((await outbound())[0]);
+  const { call, stream, upstream } = await placeCall(ranch, { placed: first });
+  await answerUntil(call, stream, upstream, (s) => s.q === "feed_level" && s.step === "report_question");
+  stream.stop();
+  stream.closeNormally();
+  await call.finalStatus("completed");
+  assertUnsaved(ranch, "the interrupted attempt");
+  let [latest] = run(ranch.farm);
+  check("the run keeps calling, 20 minutes out", latest.state === "calling" && latest.next_attempt_at && Math.abs(new Date(latest.next_attempt_at) - Date.now() - 20 * 60_000) < 120_000, latest);
+  check("no redial before the retry is due", (await cron()).placed === 0 && (await outbound()).length === 1);
+  sql(`update report_call_runs set next_attempt_at = now() - interval '1 second' where farm_id = ${q(ranch.farm)} and state = 'calling'`);
+  check("the retry is placed when due", (await cron()).placed === 1 && (await outbound()).length === 2);
+  [latest] = run(ranch.farm);
+  check("the retry is the second attempt", latest.attempts?.length === 2, latest.attempts);
+  check("no owner call came from the interruption", !(await outbound()).some((r) => r.To === OWNER), (await outbound()).map((r) => r.To));
+  await new RealtimeCall((await outbound())[1]).finalStatus("no-answer");
 });
 
 scenario("R9a", "No start message: the bridge closes within 10 s", async () => {

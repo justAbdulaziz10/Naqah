@@ -93,6 +93,10 @@ const TEXT_MISS: Copy = {
   ar: "هالسؤال يحتاج إجابة بصوتك. ",
   en: "Please say your answer aloud; keypad digits cannot answer this question. ",
 };
+const NOTED_BACK: Copy = {
+  ar: "سجلتها ملاحظة، وخلنا نرجع للسؤال. ",
+  en: "I've kept that as a note. Back to the question. ",
+};
 const UNKNOWN_FALLBACK: Copy = {
   ar: "ما قدرت أحدد الإجابة، بسجل هالسؤال غير معروف ونكمل. ",
   en: "I could not determine that answer. I will mark this question unknown and continue. ",
@@ -378,7 +382,7 @@ async function answerFarmCallTurn(client: SupabaseClient, input: FarmCallInput, 
   context.status = spoken ? "answered" : fallback ? "unknown" : "not_understood";
   if (!spoken && !fallback) {
     if (silenceCount >= 3 || unmatched >= 6) return advance(client, row, { ...session, done: true }, row.misses, twimlGoodbye(locale, MISSED_TWICE[locale]));
-    const prefix = hasInput ? (session.inputMode === "text" ? TEXT_MISS : SPOKEN_MISS)[locale] : (silenceCount === 1 ? MISS_ONCE : MISS_AGAIN)[locale];
+    const prefix = hasInput ? (offTopic ? NOTED_BACK : session.inputMode === "text" ? TEXT_MISS : SPOKEN_MISS)[locale] : (silenceCount === 1 ? MISS_ONCE : MISS_AGAIN)[locale];
     return advance(client, row, { ...session, voiceSilences: silenceCount, voiceUnmatched: unmatched }, Math.min(row.misses + 1, 2), respond(session, session.turns.length - 1, workspace, locale, next, prefix));
   }
 

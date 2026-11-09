@@ -4,7 +4,7 @@ import { placeReportCallAttempt, resolveReportCallAttempt, startReportCall } fro
 import { evaluateFindings } from "../findings";
 import { createDemoWorkspace } from "../seed";
 import type { Workspace } from "../types";
-import { addUrgentNote, answer, reportSummaryId, resumeOpenAsGuided, start, type AnswerInput, type CallSession, type OpenFact } from "./engine";
+import { addUrgentNote, addWorkerNote, answer, reportSummaryId, resumeOpenAsGuided, start, type AnswerInput, type CallSession, type OpenFact } from "./engine";
 
 const NOW = fromRiyadh(2026, 11, 5, 17, 10);
 const CUSTOM_ID = "custom-vet";
@@ -362,5 +362,28 @@ describe("open mode", () => {
     expect(resumeOpenAsGuided(session, ws, NOW).step).toBe("report_question");
     const more = step(session, ws, { facts: [{ type: "resource", resource: "water", level: "good", quantity: null, evidence: "x" }] });
     expect(resumeOpenAsGuided(more, ws, NOW).step).toBe("report_summary");
+  });
+});
+
+describe("kept notes in guided mode", () => {
+  it("reads a note back but never asks it as a question", () => {
+    const { ws, session } = callOn();
+    const noted = addWorkerNote(session, "العلف زين");
+    expect(noted.data.currentQuestionId).toBe("herd_health");
+    const summary = answerEverything(noted, ws);
+    expect(summary.turns.some((entry) => entry.text.ar.includes("وش الملاحظة الصحيحة"))).toBe(false);
+    expect(lastLine(summary)).toContain("ملاحظة: العلف زين");
+  });
+
+  it("does not shift the question being asked when a note arrives during a task", () => {
+    const { ws, session } = callOn((workspace) => {
+      workspace.settings.questionPlan = ["herd_health", "herd_count", "feed_level", "water_level", "fences_condition", "shelter_condition", "medicine_stock", CUSTOM_ID].map((id) => ({ id, enabled: false, required: true }));
+      workspace.taskTickets.push({ id: "fix-gate", instruction: "أصلح البوابة", createdAt: NOW.toISOString(), scheduledFor: null, status: "open", closedAt: null, closedVia: null });
+      workspace.pendingWorkerCalls = [];
+    });
+    expect(session.data.currentQuestionId).toBe("task_fix-gate");
+    const noted = addWorkerNote(session, "الوايت تأخر");
+    expect(noted.data.queue?.[noted.data.reportIndex ?? 0]?.id).toBe("task_fix-gate");
+    expect(step(noted, ws, { value: "yes" }).step).toBe("report_summary");
   });
 });

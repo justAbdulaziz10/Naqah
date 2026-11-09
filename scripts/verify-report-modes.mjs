@@ -6,8 +6,10 @@
  * The mock model only calls tools; the server chooses every spoken word and the mock plays it back verbatim.
  *
  *   node scripts/verify-report-modes.mjs [--label final] [--only A,G] [--keep]
+ *     [--root /tmp/naqah-rm-modes] [--pg-port 54480] [--rest-port 54481] [--gateway-port 54482]
+ *     [--app-port 3720] [--bridge-port 3722] [--provider-port 3723] [--limits-port 3724]
  *
- * Results: /tmp/naqah-rm-modes/logs/<label>/ while it runs; deleted at the end unless --keep. Exit code 1 on any failure.
+ * Results: <root>/logs/<label>/ while it runs; deleted at the end unless --keep. Exit code 1 on any failure.
  */
 import { execFileSync, spawn } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
@@ -25,7 +27,7 @@ const arg = (name, fallback) => {
 const flag = (name) => process.argv.includes(`--${name}`);
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const ROOT = "/tmp/naqah-rm-modes";
+const ROOT = arg("root", "/tmp/naqah-rm-modes");
 const SRC = join(ROOT, "src");
 const PGDATA = join(ROOT, "pg");
 const SOCK = join(ROOT, "sock");
@@ -33,13 +35,13 @@ const LABEL = arg("label", "run");
 const LOGS = join(ROOT, "logs", LABEL);
 const ONLY = arg("only", "")?.split(",").filter(Boolean);
 const PG_BIN = "/opt/homebrew/opt/postgresql@17/bin";
-const PG_PORT = "54480";
-const REST_PORT = "54481";
-const GATEWAY_PORT = "54482";
-const APP_PORT = "3720";
-const BRIDGE_PORT = "3722";
-const PROVIDER_PORT = 3723;
-const LIMITS_BRIDGE_PORT = "3724";
+const PG_PORT = arg("pg-port", "54480");
+const REST_PORT = arg("rest-port", "54481");
+const GATEWAY_PORT = arg("gateway-port", "54482");
+const APP_PORT = arg("app-port", "3720");
+const BRIDGE_PORT = arg("bridge-port", "3722");
+const PROVIDER_PORT = Number(arg("provider-port", "3723"));
+const LIMITS_BRIDGE_PORT = arg("limits-port", "3724");
 const DB = "naqah_rm_modes";
 const GATEWAY = `http://127.0.0.1:${GATEWAY_PORT}`;
 const APP = `http://127.0.0.1:${APP_PORT}`;
@@ -447,7 +449,14 @@ async function toolBurst(upstream, calls) {
   return (await Promise.all(outputs)).map(output);
 }
 
-/** One saved report, its run linked, the session gone, the owner told once. */
+/** The owner is called at the owner's own time by the scheduler, so saving a report never dials them. */
+async function assertOwnerNotDialled() {
+  await sleep(1200);
+  const dialled = (await outbound()).map((r) => r.To);
+  check("saving the report does not dial the owner", !dialled.includes(OWNER), dialled);
+}
+
+/** One saved report, its run linked, the session gone, and no call straight to the owner. */
 async function assertSaved(ranch, call) {
   const status = await call.finalStatus();
   check("the final status callback is accepted", status.status === 204, status);
@@ -456,8 +465,7 @@ async function assertSaved(ranch, call) {
   const [latest] = runs(ranch.farm);
   check("the run is completed and linked to the report", latest?.state === "completed" && latest?.report_id === reports[0]?.id, latest);
   check("the voice session is cleaned up", sessions(call.sid) === 0, sessions(call.sid));
-  await waitFor(async () => (await outbound()).some((r) => r.To === OWNER), "owner call", 20).catch(() => {});
-  check("the owner gets one update call", (await outbound()).filter((r) => r.To === OWNER).length === 1, (await outbound()).map((r) => r.To));
+  await assertOwnerNotDialled();
   return reports[0];
 }
 
@@ -514,6 +522,12 @@ const CONTRADICTION = /unknown \(|غير معروف \(|ما أدري \(/i;
 /* ─────────────────── scenarios ─────────────────── */
 
 let provider;
+
+scenario("M0", "The migrations this verifier depends on are applied", async () => {
+  for (const file of ["20261109182526_owner_summary_schedule.sql", "20261110090000_mvp_owner_runs.sql"]) check(`${file} is in the tree`, existsSync(join(SRC, "supabase/migrations", file)));
+  const columns = sql("select string_agg(column_name, ',') from information_schema.columns where table_schema = 'public' and table_name = 'farms' and column_name in ('owner_call_day', 'owner_call_time', 'owner_call_run')");
+  check("the owner schedule and owner run columns exist", ["owner_call_day", "owner_call_time", "owner_call_run"].every((name) => columns.includes(name)), columns);
+});
 
 scenario("A", "Guided: only enabled questions, owner's order, verbatim wording, full read-back, one report", async () => {
   const ranch = await makeFarm({ ...FULL, questions: ([vet]) => [on(vet), on("water_level"), on("herd_health"), off("feed_level"), off("herd_count")] });
@@ -639,6 +653,25 @@ scenario("C3", "An unreadable no after a refused yes stays silent and records no
   check("the tool still gets a result", out?.status === "ok", out);
   await live.hangUp();
   assertUnsaved(ranch);
+});
+
+scenario("C4", "Off-topic guided words are kept as a note, read back and saved", async () => {
+  const ranch = await makeFarm(healthOnly);
+  const live = await open(ranch);
+  const words = "العلف زين";
+  const refused = await live.say(words, "answer_question", { value: "yes", topic: "herd" });
+  check("the words do not answer the question", refused?.error === "answer_off_topic" && live.s?.step === "report_question" && live.s?.q === "herd_health", refused);
+  check("the worker hears it is a note and the question again", hasEvery(live.said, ["سجلتها ملاحظة", TEXT.health]), live.said);
+  check("the note is kept, nothing is guessed", live.s?.draft.answers.some((answer) => answer.questionId.startsWith("open_note_") && answer.answer === words) && live.s?.draft.camelUpdates.length === 0, live.s?.draft);
+  const reached = await live.say("كلها بخير", "answer_question", { value: "yes", topic: "herd" });
+  check("the note is not asked as a question of its own", !live.spoken.some((line) => line.includes("الملاحظة الصحيحة")), live.spoken);
+  check("the summary comes next and reads the note back", reached?.isSummary === true && live.said.includes(words), { reached, said: live.said });
+  if (reached?.isSummary !== true) { await live.hangUp(); return; }
+  const saved = await live.save();
+  check("the report saves", saved?.status === "saved", saved);
+  await assertSaved(ranch, live.call);
+  check("the note is saved in the worker's words", answersOf(ranch.farm).some((row) => row.answer === words), answersOf(ranch.farm));
+  check("a note changes no camel", camelsOf(ranch.farm).every((camel) => camel.health !== "sick"), camelsOf(ranch.farm));
 });
 
 scenario("D1", "Noise blips: silent first, repeated only after that, no state change", async () => {
@@ -808,25 +841,31 @@ scenario("G", "Open: one utterance fills its topics, the rest stay not_reported,
   check("the task is closed by the worker's yes", sql(`select status from task_tickets where id = ${q(ranch.taskIds[0])}`) === "closed");
 });
 
-const refusedFacts = (live) => async (label, words, facts) => {
-  const before = fingerprint(live.s);
+/** Facts the words don't support change nothing on the ranch, but the worker's words are kept as a note. */
+const notedFacts = (live) => async (label, words, facts) => {
+  const factsOf = (s) => JSON.stringify({ camels: s?.draft.camelUpdates, resources: s?.draft.resourceUpdates, herd: s?.draft.herdCount });
+  const before = live.s;
   const out = await live.say(words, "record_facts", { facts });
-  check(`${label} is refused`, out?.error === "facts_not_supported", out);
-  check(`${label} changes nothing`, fingerprint(live.s) === before, live.s?.draft);
+  check(`${label} is not refused`, out?.status === "ok" && !out?.error, out);
+  check(`${label} changes no fact`, factsOf(live.s) === factsOf(before), live.s?.draft);
+  check(`${label} leaves the call listening`, live.s?.step === "open_more", live.s?.step);
+  const note = live.s?.draft.answers.at(-1);
+  check(`${label} is kept in the worker's words`, live.s?.draft.answers.length === before?.draft.answers.length + 1 && note?.questionId.startsWith("open_note_") && note?.answer === words, live.s?.draft.answers);
+  check(`${label} is reported to the worker as a note`, live.said.includes("سجلت كلامك كملاحظة"), live.said);
 };
 
 scenario("H1", "Open safety: unheard facts dropped, numbers must match the words", async () => {
   const ranch = await makeFarm({ ...FULL, mode: "open" });
   const live = await open(ranch);
-  const expectRefused = refusedFacts(live);
+  const expectNoted = notedFacts(live);
   const partly = await live.say("العلف ناقص", "record_facts", { facts: [
     { type: "resource", resource: "feed", level: "low", quantity: null, evidence: "العلف ناقص" },
     { type: "resource", resource: "water", level: "low", quantity: null, evidence: "الموية ناقصة" },
   ] });
   check("a fact whose evidence was not said is dropped", live.s?.draft.resourceUpdates.map((entry) => entry.kind).join() === "feed", live.s?.draft.resourceUpdates);
   check("the supported fact still counts", partly?.status === "ok" && live.s?.step === "open_more", partly);
-  await expectRefused("a quantity that does not match the words", "عندنا عشرين كيس علف", [{ type: "resource", resource: "feed", level: null, quantity: 50, evidence: "عشرين كيس علف" }]);
-  await expectRefused("a herd count that does not match the words", "عشرين ناقة", [{ type: "herd_count", count: 30, evidence: "عشرين ناقة" }]);
+  await expectNoted("a quantity that does not match the words", "عندنا عشرين كيس علف", [{ type: "resource", resource: "feed", level: null, quantity: 50, evidence: "عشرين كيس علف" }]);
+  await expectNoted("a herd count that does not match the words", "عشرين ناقة", [{ type: "herd_count", count: 30, evidence: "عشرين ناقة" }]);
   await live.say("عشرين ناقة", "record_facts", { facts: [{ type: "herd_count", count: 20, evidence: "عشرين ناقة" }] });
   check("a matching herd count is kept", live.s?.draft.herdCount === 20, live.s?.draft.herdCount);
   const end = await live.say("لا بس", "finish_update", {});
@@ -845,8 +884,8 @@ scenario("H2", "Open safety: all camels needs explicit words, and an unclear cam
   const ranch = await makeFarm({ ...FULL, mode: "open" });
   const live = await open(ranch);
   const [noora, mazoon] = [ranch.camelIds["نورة"], ranch.camelIds["مزون"]];
-  await refusedFacts(live)("all camels without the words", "الحلال زين", [{ type: "camel_health", camelId: null, scope: "all", status: "healthy", note: null, evidence: "الحلال زين" }]);
-  check("no camel was touched by the refused claim", live.s?.draft.camelUpdates.length === 0, live.s?.draft.camelUpdates);
+  await notedFacts(live)("all camels without the words", "الحلال زين", [{ type: "camel_health", camelId: null, scope: "all", status: "healthy", note: null, evidence: "الحلال زين" }]);
+  check("no camel was touched by the unsupported claim", live.s?.draft.camelUpdates.length === 0, live.s?.draft.camelUpdates);
   await live.say("كل الحلال بخير", "record_facts", { facts: [{ type: "camel_health", camelId: null, scope: "all", status: "healthy", note: null, evidence: "كل الحلال بخير" }] });
   check("all camels with the words applies to every camel", live.s?.draft.camelUpdates.length === 3 && live.s?.draft.camelUpdates.every((entry) => entry.health === "healthy"), live.s?.draft.camelUpdates);
 
@@ -876,19 +915,29 @@ scenario("H2", "Open safety: all camels needs explicit words, and an unclear cam
   assertReadBack(summary, ranch.farm);
 });
 
-scenario("H3", "Open safety: three refused updates in a row move on, keeping what was captured", async () => {
+scenario("H3", "Open safety: unsupported updates become kept notes, the worker is never asked to repeat them, and they reach the owner", async () => {
   const ranch = await makeFarm({ ...FULL, mode: "open" });
   const live = await open(ranch);
   await live.say("العلف ناقص", "record_facts", { facts: [{ type: "resource", resource: "feed", level: "low", quantity: null, evidence: "العلف ناقص" }] });
   const claim = [{ type: "camel_health", camelId: null, scope: "all", status: "healthy", note: null, evidence: "الحلال زين" }];
-  await refusedFacts(live)("the first unsupported update", "الحلال زين", claim);
-  await refusedFacts(live)("the second unsupported update", "الحلال زين", claim);
-  const third = await live.say("الحلال زين", "record_facts", { facts: claim });
-  check("the third one moves on to the read-back", third?.isSummary === true && live.s?.step === "report_summary", third);
-  check("no camel was changed by the refused claims", live.s?.draft.camelUpdates.length === 0, live.s?.draft.camelUpdates);
-  check("the captured fact is still in the read-back", live.said.includes("العلف"), live.said);
-  await live.hangUp();
-  assertUnsaved(ranch);
+  const expectNoted = notedFacts(live);
+  await expectNoted("the first unsupported update", "الحلال زين", claim);
+  await expectNoted("the second unsupported update", "الحلال زين ما عليه", claim);
+  await expectNoted("the third unsupported update", "الحلال زين والله", claim);
+  check("the call is still listening", live.s?.step === "open_more", live.s?.step);
+  const end = await live.say("لا بس", "finish_update", {});
+  check("finish_update brings the read-back", end?.isSummary === true && live.s?.step === "report_summary", end);
+  const summary = live.said;
+  check("no camel was changed by the unsupported claims", live.s?.draft.camelUpdates.length === 0, live.s?.draft.camelUpdates);
+  check("the captured fact is in the read-back", summary.includes("العلف"), summary);
+  check("the worker's notes are in the read-back", hasEvery(summary, ["الحلال زين", "الحلال زين ما عليه", "الحلال زين والله"]), summary);
+  const saved = await live.save();
+  check("the report saves", saved?.status === "saved", saved);
+  await assertSaved(ranch, live.call);
+  const notes = answersOf(ranch.farm).filter((row) => row.question_id.startsWith("open_note_"));
+  check("the notes are saved as the worker said them", notes.map((row) => row.answer).join("|") === "الحلال زين|الحلال زين ما عليه|الحلال زين والله", notes);
+  check("the camels stayed unknown", camelsOf(ranch.farm).every((camel) => camel.health === "unknown"), camelsOf(ranch.farm));
+  check("no finding was made from the notes", !findingsOf(ranch.farm).some((finding) => finding.text_ar.includes("الحلال زين")), findingsOf(ranch.farm));
 });
 
 scenario("I1", "Worker choice: the worker picks guided", async () => {
@@ -974,7 +1023,7 @@ scenario("J", "Urgent: the worker is told to call the owner, the note is read ba
   const urgent = findings.filter((finding) => finding.text_ar.includes(words));
   check("the note is saved as exactly one finding", urgent.length === 1, findings);
   check("the finding says it was reported by the worker", /بحسب إفادة العامل/.test(urgent[0]?.text_ar ?? "") && /reported by the worker/.test(urgent[0]?.text_en ?? ""), urgent[0]);
-  check("no dispatch: only the ordinary owner update followed", (await outbound()).every((request) => request.To === WORKER || request.To === OWNER), (await outbound()).map((request) => request.To));
+  check("no dispatch: the call to the worker is the only call placed", (await outbound()).every((request) => request.To === WORKER), (await outbound()).map((request) => request.To));
 });
 
 scenario("K1", "Double confirm_report and repeated ids save one report", async () => {
@@ -1010,7 +1059,7 @@ scenario("K1", "Double confirm_report and repeated ids save one report", async (
   await assertSaved(ranch, live.call);
 });
 
-scenario("K2", "Two concurrent confirmations save one report and call the owner once", async () => {
+scenario("K2", "Two concurrent confirmations save one report and never dial the owner", async () => {
   const ranch = await makeFarm(healthOnly);
   const live = await open(ranch);
   await live.say("كلها بخير", "answer_question", { value: "yes", topic: "herd" });
