@@ -3,9 +3,10 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceClient } from "@/server/db/service-client";
 import { realtimeVoiceConfig } from "@/server/env";
+import { readBoundedText } from "@/lib/http/body";
 
 const MAX_SKEW_MS = 60_000;
-const MAX_BODY_CHARS = 16_000;
+const MAX_BODY_BYTES = 16 * 1024;
 
 function internalKey(secret: string): Buffer {
   return createHmac("sha256", secret).update("naqah-bridge-internal").digest();
@@ -34,8 +35,9 @@ export interface BridgeRequest {
 export async function bridgeRequest(request: Request): Promise<BridgeRequest | Response> {
   const config = realtimeVoiceConfig();
   if (!config) return new Response(null, { status: 404 });
-  const raw = await request.text();
-  if (raw.length > MAX_BODY_CHARS) return new Response(null, { status: 413 });
+  const bounded = await readBoundedText(request, MAX_BODY_BYTES);
+  if (!bounded.ok) return new Response(null, { status: bounded.status });
+  const raw = bounded.text;
   const now = new Date();
   const verified = validBridgeSignature(request.headers.get("x-naqah-bridge-timestamp"), request.headers.get("x-naqah-bridge-signature"), raw, config.secret, now.getTime());
   if (!verified) return new Response(null, { status: 403 });

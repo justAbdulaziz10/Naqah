@@ -71,6 +71,13 @@ describe("farm webhooks", () => {
     expect(response.status).toBe(403);
     expect(mock.start).not.toHaveBeenCalled();
   });
+  it("returns 413 for oversized form bodies before signature or farm work", async () => {
+    const response = await inbound(new Request(`${BASE}/api/voice/inbound`, {
+      method: "POST", headers: { "content-length": String(32 * 1024 + 1) }, body: "x",
+    }));
+    expect(response.status).toBe(413);
+    expect(mock.start).not.toHaveBeenCalled();
+  });
   it.each(["TWILIO_AUTH_TOKEN", "NAQAH_PUBLIC_BASE_URL", "SUPABASE_SECRET_KEY"])("closes the line without %s", async (name) => {
     vi.stubEnv(name, "");
     const xml = await (await inbound(hook("/api/voice/inbound", { CallSid: CALL }))).text();

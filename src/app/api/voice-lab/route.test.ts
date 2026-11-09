@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetRateLimitState } from "@/server/rate-limit";
 
 const writes: string[] = [];
 const reads: string[] = [];
@@ -40,6 +41,7 @@ const post = (body: object, headers: Record<string, string> = {}) =>
 const urls: { url: string; method: string }[] = [];
 
 beforeEach(() => {
+  resetRateLimitState();
   writes.length = 0;
   reads.length = 0;
   urls.length = 0;
@@ -48,6 +50,9 @@ beforeEach(() => {
   vi.stubEnv("NAQAH_VOICE_LAB_OWNERS", "owner@example.test");
   vi.stubEnv("OPENAI_API_KEY", "sk-test-key");
   vi.stubEnv("NAQAH_VOICE_SECRET", "test-secret");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+  vi.stubEnv("SUPABASE_SECRET_KEY", "");
+  vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
     urls.push({ url: String(input), method: init?.method ?? "GET" });
     return new Response("v=0\r\nanswer", { status: 201, headers: { Location: "/v1/realtime/calls/rtc_test123" } });
@@ -57,6 +62,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 async function runCall() {
@@ -114,6 +120,22 @@ describe("POST /api/voice-lab", () => {
     expect((await post({ op: "open" }, { origin: "https://evil.test" })).status).toBe(403);
     owner = null;
     expect((await post({ op: "open", mode: "text", locale: "ar", sdp: "v=0" })).status).toBe(401);
+    expect(urls).toEqual([]);
+  });
+
+  it("bounds JSON before parsing and rejects malformed JSON", async () => {
+    const oversized = await POST(new Request(`${origin}/api/voice-lab`, {
+      method: "POST",
+      headers: { origin, host: "localhost:3640", "content-type": "application/json" },
+      body: JSON.stringify({ op: "open", sdp: "x".repeat(70_000) }),
+    }));
+    expect(oversized.status).toBe(413);
+    expect(await oversized.json()).toEqual({ ok: false, error: "payload_too_large" });
+    const malformed = await POST(new Request(`${origin}/api/voice-lab`, {
+      method: "POST", headers: { origin, host: "localhost:3640" }, body: "{",
+    }));
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toEqual({ ok: false, error: "invalid_input" });
     expect(urls).toEqual([]);
   });
 

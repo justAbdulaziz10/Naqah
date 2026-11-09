@@ -8,24 +8,26 @@ import { allowLabOpen } from "@/server/voice-lab/limit";
 import { createLabCall, hangUpLabCall, LAB_MAX_SECONDS, LAB_MODEL, labPricing, labSession, type LabMode } from "@/server/voice-lab/openai";
 import { LAB_TTL_MS, signLabState, verifyLabState, type LabSource, type LabState } from "@/server/voice-lab/state";
 import { farmReady, sampleLabWorkspace } from "@/server/voice-lab/workspace";
+import { MAX_JSON_BODY_BYTES, readBoundedJson } from "@/lib/http/body";
+import { hasSameOrigin } from "@/lib/http/origin";
+import type { VoiceLabErrorCode, VoiceLabFailureResponse, VoiceLabSuccessBody, VoiceLabSuccessResponse } from "@/server/voice-lab/api";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 const MAX_SDP = 64 * 1024;
 const MAX_HEARD = 600;
 const FARM_TIMEOUT_MS = 8_000;
-const fail = (error: string, status: number, extra: object = {}) => Response.json({ ok: false, error, ...extra }, { status, headers: NO_STORE });
-const done = (body: object) => Response.json({ ok: true, ...body }, { headers: NO_STORE });
-
-function sameOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  if (!origin || !host) return false;
-  try {
-    return new URL(origin).host === host;
-  } catch {
-    return false;
+const fail = (error: VoiceLabErrorCode, status: number, extra: { provider?: string } = {}): Response => {
+  const response = { ok: false, error, ...extra } satisfies VoiceLabFailureResponse;
+  return Response.json(response, { status, headers: NO_STORE });
+};
+const done = (body?: VoiceLabSuccessBody): Response => {
+  if (!body) {
+    const response = { ok: true } satisfies VoiceLabSuccessResponse;
+    return Response.json(response, { headers: NO_STORE });
   }
-}
+  const response = { ok: true, ...body } satisfies VoiceLabSuccessResponse;
+  return Response.json(response, { headers: NO_STORE });
+};
 
 /** Read through the owner's own session and RLS. The service key is never involved. */
 async function ownerFarm(ownerId: string): Promise<Workspace | null> {
@@ -43,14 +45,16 @@ async function workspaceFor(ownerId: string, source: LabSource | null, locale: L
 
 export async function POST(request: Request): Promise<Response> {
   if (!voiceLabEnabled()) return fail("unavailable", 404);
-  if (!sameOrigin(request)) return fail("forbidden", 403);
+  if (!hasSameOrigin(request)) return fail("forbidden", 403);
 
   const { user, unavailable } = await getOwner();
   if (!user) return fail(unavailable ? "auth_unavailable" : "unauthenticated", unavailable ? 503 : 401);
   if (!isVoiceLabOwner(user)) return fail("unavailable", 404);
 
-  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!body) return fail("invalid_input", 400);
+  const parsed = await readBoundedJson(request, MAX_JSON_BODY_BYTES);
+  if (!parsed.ok) return fail(parsed.status === 413 ? "payload_too_large" : "invalid_input", parsed.status);
+  if (typeof parsed.value !== "object" || parsed.value === null || Array.isArray(parsed.value)) return fail("invalid_input", 400);
+  const body = parsed.value as Record<string, unknown>;
   const apiKey = voiceLabOpenAiKey();
   const secret = voiceLabSecret();
   const now = new Date();
@@ -75,7 +79,7 @@ export async function POST(request: Request): Promise<Response> {
       const mode: LabMode | null = body.mode === "voice" || body.mode === "text" ? body.mode : null;
       const locale: Locale | null = body.locale === "ar" || body.locale === "en" ? body.locale : null;
       if (!mode || !locale || typeof body.sdp !== "string" || !body.sdp.startsWith("v=0") || body.sdp.length > MAX_SDP) return fail("invalid_input", 400);
-      if (!allowLabOpen(user.id, now.getTime())) return fail("rate_limited", 429);
+      if (!(await allowLabOpen(user.id, now.getTime()))) return fail("rate_limited", 429);
 
       const loaded = await workspaceFor(user.id, null, locale, now);
       if (!loaded) return fail("farm_unavailable", 503);
@@ -102,7 +106,7 @@ export async function POST(request: Request): Promise<Response> {
 
     if (body.op === "close") {
       await hangUpLabCall(apiKey, state.c);
-      return done({});
+      return done();
     }
 
     if (body.op === "tool") {

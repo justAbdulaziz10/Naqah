@@ -6,6 +6,8 @@ import { checkTwilioWebhookSignature } from "@/server/twilio/signature";
 import { SAVE_FAILED } from "./farm-call";
 import { twimlGoodbye, twimlResponse } from "./twiml";
 import { preflightResponse } from "./preflight";
+import { MAX_FORM_BODY_BYTES, readBoundedText } from "@/lib/http/body";
+import { voiceMessages } from "./messages";
 
 // Twilio stops waiting at 15 seconds, so the caller must hear an honest failure before that.
 const WEBHOOK_LIMIT_MS = 12_000;
@@ -22,9 +24,11 @@ export async function farmWebhook(request: Request): Promise<FarmWebhook | Respo
   const client = createServiceClient();
   if (!client || farmVoiceMissing().length) {
     console.error("[NAQAH] farm voice is not configured");
-    return twimlResponse(twimlGoodbye(locale, locale === "ar" ? "خط الاتصال غير مفعّل حالياً." : "The phone line is not configured yet."));
+    return twimlResponse(twimlGoodbye(locale, voiceMessages[locale].lineNotConfigured));
   }
-  const form = new URLSearchParams(await request.text());
+  const bounded = await readBoundedText(request, MAX_FORM_BODY_BYTES);
+  if (!bounded.ok) return twimlResponse(twimlGoodbye(locale), bounded.status);
+  const form = new URLSearchParams(bounded.text);
   if (!checkTwilioWebhookSignature(request, form).verified) return twimlResponse(twimlGoodbye(locale), 403);
   if (new URL(request.url).searchParams.get("preflight") === "1") return preflightResponse();
   const callSid = form.get("CallSid") ?? "";

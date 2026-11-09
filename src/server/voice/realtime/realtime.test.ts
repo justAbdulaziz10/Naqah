@@ -364,6 +364,44 @@ describe("internal signature", () => {
     expect((await sessionRoute(signed("/api/voice/realtime/session", {}, Date.now(), "wrong-secret"))).status).toBe(403);
     expect(mock.load).not.toHaveBeenCalled();
   });
+  it("rejects invalid bridge signatures on session, tool, and after routes", async () => {
+    for (const [path, route] of [
+      ["/api/voice/realtime/session", sessionRoute],
+      ["/api/voice/realtime/tool", toolRoute],
+      ["/api/voice/realtime/after", afterRoute],
+    ] as const) {
+      expect((await route(signed(path, {}, Date.now(), "wrong-secret"))).status, path).toBe(403);
+    }
+    expect(mock.load).not.toHaveBeenCalled();
+  });
+  it("bounds all bridge route bodies before signature parsing", async () => {
+    const raw = "x".repeat(16 * 1024 + 1);
+    const timestamp = String(Date.now());
+    const headers = {
+      "x-naqah-bridge-timestamp": timestamp,
+      "x-naqah-bridge-signature": bridgeSignature(timestamp, raw, SECRET),
+    };
+    const makeRequest = (path: string) => new Request(`${BASE}${path}`, { method: "POST", headers, body: raw });
+    for (const [path, route] of [
+      ["/api/voice/realtime/session", sessionRoute],
+      ["/api/voice/realtime/tool", toolRoute],
+    ] as const) {
+      expect((await route(makeRequest(path))).status, path).toBe(413);
+    }
+  });
+  it("rejects signed malformed JSON after verifying the raw body", async () => {
+    const timestamp = String(Date.now());
+    const raw = "{";
+    const response = await sessionRoute(new Request(`${BASE}/api/voice/realtime/session`, {
+      method: "POST",
+      headers: {
+        "x-naqah-bridge-timestamp": timestamp,
+        "x-naqah-bridge-signature": bridgeSignature(timestamp, raw, SECRET),
+      },
+      body: raw,
+    }));
+    expect(response.status).toBe(400);
+  });
 });
 
 describe("session response", () => {

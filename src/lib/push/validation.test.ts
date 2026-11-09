@@ -7,10 +7,10 @@ const subscription = {
 };
 
 const payload = {
-  title: "NAQAH | Important update",
+  title: "NAQAH (Demo) | Important farm update",
   body: "A farm event needs attention.",
-  url: "/ar/app/tickets",
-  tag: "naqah-event-1",
+  url: "/en/app/tickets",
+  tag: "naqah-evt_1234567890",
 };
 
 describe("push request validation", () => {
@@ -59,5 +59,28 @@ describe("push request validation", () => {
     expect(isPushPayload({ ...payload, url: "https://example.test/" })).toBe(false);
     expect(isPushPayload({ ...payload, url: "//example.test/" })).toBe(false);
     expect(isPushRequestBody({ subscription, payload: { ...payload, url: "/\\example.test" } })).toBe(false);
+  });
+
+  it("accepts only notifications shaped by the app's builder", () => {
+    expect(isPushPayload({ ...payload, title: "NAQAH update" })).toBe(false);
+    expect(isPushPayload({ ...payload, url: "/ar/app/tickets" })).toBe(false);
+    expect(isPushPayload({ ...payload, title: "NAQAH (Demo) | Owner call" })).toBe(false);
+    expect(isPushPayload({ ...payload, url: "/ar/app/settings" })).toBe(false);
+    expect(isPushPayload({ ...payload, extra: "unsupported" })).toBe(false);
+    expect(isPushSubscription({ ...subscription, expirationTime: null })).toBe(true);
+    expect(isPushSubscription({ ...subscription, expirationTime: "later" })).toBe(false);
+    expect(isPushRequestBody({ subscription, payload: { ...payload, extra: true } })).toBe(false);
+    expect(isPushPayload({
+      title: "NAQAH | Test notification",
+      body: "Notifications are ready for important ranch updates.",
+      url: "/en/app",
+      tag: "naqah-test-notification",
+    })).toBe(true);
+    expect(isPushPayload({
+      title: "NAQAH | Test notification",
+      body: "A different notification",
+      url: "/en/app",
+      tag: "naqah-test-notification",
+    })).toBe(false);
   });
 });

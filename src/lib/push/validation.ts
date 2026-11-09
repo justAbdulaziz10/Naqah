@@ -19,8 +19,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function hasExactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const keys = Object.keys(value);
+  return keys.length === expected.length && expected.every((key) => Object.hasOwn(value, key));
+}
+
 export function isPushSubscription(value: unknown): value is PushSubscriptionInput {
-  if (!isRecord(value) || !isRecord(value.keys)) return false;
+  if (!isRecord(value) || !(hasExactKeys(value, ["endpoint", "keys"]) || hasExactKeys(value, ["endpoint", "expirationTime", "keys"])) || !isRecord(value.keys) || !hasExactKeys(value.keys, ["p256dh", "auth"])) return false;
+  if (Object.hasOwn(value, "expirationTime") && value.expirationTime !== null && (typeof value.expirationTime !== "number" || !Number.isFinite(value.expirationTime) || value.expirationTime < 0)) return false;
   if (typeof value.endpoint !== "string" || value.endpoint.length > 4096) return false;
 
   try {
@@ -51,14 +57,37 @@ function isSubdomainOf(hostname: string, domain: string): boolean {
 }
 
 export function isPushPayload(value: unknown): value is PushPayload {
-  if (!isRecord(value)) return false;
-  return typeof value.title === "string" && value.title.length > 0 && value.title.length <= 120
-    && typeof value.body === "string" && value.body.length <= 500
-    && typeof value.url === "string" && value.url.startsWith("/") && !value.url.startsWith("//")
-      && !value.url.includes("\\") && !/[\u0000-\u001f]/.test(value.url) && value.url.length <= 200
-    && typeof value.tag === "string" && value.tag.length > 0 && value.tag.length <= 120;
+  if (!isRecord(value) || !hasExactKeys(value, ["title", "body", "url", "tag"])) return false;
+  if (typeof value.title !== "string" || typeof value.body !== "string" || typeof value.url !== "string" || typeof value.tag !== "string") return false;
+  if (!value.body.trim() || value.body.length > 500 || /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(value.body)) return false;
+  if (!/^naqah-[A-Za-z0-9_-]{1,120}$/.test(value.tag)) return false;
+
+  const titles: Record<string, { locale: "ar" | "en"; kind: "owner" | "update" | "test" }> = {
+    "NAQAH (Demo) | Owner call": { locale: "en", kind: "owner" },
+    "NAQAH (Demo) | Important farm update": { locale: "en", kind: "update" },
+    "NAQAH | Owner call": { locale: "en", kind: "owner" },
+    "NAQAH | Important farm update": { locale: "en", kind: "update" },
+    "ناقة (تجريبي) | اتصال المالك": { locale: "ar", kind: "owner" },
+    "ناقة (تجريبي) | مستجد مهم في العزبة": { locale: "ar", kind: "update" },
+    "ناقة | اتصال المالك": { locale: "ar", kind: "owner" },
+    "ناقة | مستجد مهم في العزبة": { locale: "ar", kind: "update" },
+    "NAQAH | Test notification": { locale: "en", kind: "test" },
+    "ناقة | تنبيه تجريبي": { locale: "ar", kind: "test" },
+  };
+  const title = titles[value.title];
+  const match = /^\/(ar|en)\/app(?:\/(calls|tickets))?$/.exec(value.url);
+  if (!title || !match || match[1] !== title.locale) return false;
+  if (title.kind === "owner") return match[2] === "calls";
+  if (title.kind === "test") {
+    const expectedBody = title.locale === "en"
+      ? "Notifications are ready for important ranch updates."
+      : "التنبيهات جاهزة لمستجدات العزبة المهمة.";
+    return value.url === `/${title.locale}/app` && value.tag === "naqah-test-notification" && value.body === expectedBody;
+  }
+  return match[2] === undefined || match[2] === "tickets";
 }
 
 export function isPushRequestBody(value: unknown): value is PushRequestBody {
-  return isRecord(value) && isPushSubscription(value.subscription) && isPushPayload(value.payload);
+  return isRecord(value) && hasExactKeys(value, ["subscription", "payload"])
+    && isPushSubscription(value.subscription) && isPushPayload(value.payload);
 }

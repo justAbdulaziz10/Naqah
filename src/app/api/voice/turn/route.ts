@@ -8,19 +8,8 @@ import { VOICE_MISS_VALUE, signVoiceState, verifyVoiceState } from "@/server/voi
 import { scheduleOwnerSummary } from "@/server/voice/summary";
 import { SAMPLE_CALL_ENDED, twimlGather, twimlGoodbye, twimlResponse } from "@/server/voice/twiml";
 import { checkTwilioWebhookSignature } from "@/server/twilio/signature";
-
-const MISS_ONCE = {
-  ar: "معليش، ما فهمت عليك. ",
-  en: "Sorry, I didn't catch that. ",
-} as const;
-const MISS_AGAIN = {
-  ar: "معليش، ما وصلتني الإجابة. نعيد السؤال مرة أخيرة. ",
-  en: "Sorry, I still didn't catch that. Let's try once more. ",
-} as const;
-const MISSED_TWICE = {
-  ar: "ما قدرت أفهم إجابتك. تقدر تتصل مرة ثانية، يعطيك العافية.",
-  en: "I couldn't understand your answer. Please call again. Thank you.",
-} as const;
+import { MAX_FORM_BODY_BYTES, readBoundedText } from "@/lib/http/body";
+import { voiceMessages } from "@/server/voice/messages";
 
 function hangUpWithCurrentTurn(session: ReturnType<typeof replayVoiceState>["session"], locale: "ar" | "en") {
   const final = [...session.turns].reverse().find((turn) => turn.speaker === "agent")?.text[locale];
@@ -55,15 +44,12 @@ export async function POST(request: Request): Promise<Response> {
 
   const config = voiceConfiguration();
   if (!config.secret || !config.workerPhone || shouldRefuseUnsignedVoice()) {
-    return twimlResponse(twimlGoodbye(config.locale, config.locale === "ar" ? "خط الاتصال غير مفعّل حالياً." : "The phone line is not configured yet."));
+    return twimlResponse(twimlGoodbye(config.locale, voiceMessages[config.locale].lineNotConfigured));
   }
 
-  let form: URLSearchParams;
-  try {
-    form = new URLSearchParams(await request.text());
-  } catch {
-    return twimlResponse(twimlGoodbye(config.locale));
-  }
+  const bounded = await readBoundedText(request, MAX_FORM_BODY_BYTES);
+  if (!bounded.ok) return twimlResponse(twimlGoodbye(config.locale), bounded.status);
+  const form = new URLSearchParams(bounded.text);
   const signature = checkTwilioWebhookSignature(request, form);
   if (!signature.valid) return twimlResponse(twimlGoodbye(config.locale), 403);
   const url = new URL(request.url);
@@ -85,12 +71,12 @@ export async function POST(request: Request): Promise<Response> {
     if (!input) {
       const misses = trailingMissCount(state.a);
       const hasInput = Boolean(form.get("SpeechResult")?.trim() || form.get("Digits"));
-      if (misses >= 2 && !hasInput) return twimlResponse(twimlGoodbye(state.l, MISSED_TWICE[state.l]));
+      if (misses >= 2 && !hasInput) return twimlResponse(twimlGoodbye(state.l, voiceMessages[state.l].missedTwice));
       const fallback = misses >= 1 ? unknownReply(current.session.replies) : undefined;
       if (fallback) state.a.push({ value: fallback.value });
       else {
         state.a.push({ value: VOICE_MISS_VALUE });
-        return responseForState(request, state, (misses >= 1 ? MISS_AGAIN : MISS_ONCE)[state.l]).response;
+        return responseForState(request, state, voiceMessages[state.l][misses >= 1 ? "missAgain" : "missOnce"]).response;
       }
     } else {
       state.a.push(input);

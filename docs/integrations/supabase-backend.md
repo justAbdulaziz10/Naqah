@@ -1,6 +1,6 @@
 # Supabase backend foundation
 
-Status (2026-11-08): migrations **0001–0005, `20261107213717_owner_flow`, and `20261108000000_pending_worker_call_tasks` are applied** to the live project `ydsgmzxqjimwbamnksxe`. 0001–0005 were
+Status (2026-11-09): migrations **0001–0005, `20261107213717_owner_flow`, and `20261108000000_pending_worker_call_tasks` are applied** to the live project `ydsgmzxqjimwbamnksxe`. The new `20261109000000_rate_limits.sql` migration is pending and has not been applied live. 0001–0005 were
 verified to match these files exactly (normalized statement hashes). Owner flow is recorded live as `20261107213717`, and its repository filename matches. The grouped task-link migration was applied after a dry run listed it alone. Account mode is still opt-in: until the exact
 build-time `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` is set, everyone stays on the browser demo and `/api/account` returns
 404. The voice routes use this code only when `NAQAH_VOICE_MODE=farm`; see `twilio-activation.md`.
@@ -61,6 +61,8 @@ The complete sequence is **0001 → 0002 → 0003 → 0004 → 0005 → 20261107
 `20261108000000_pending_worker_call_tasks.sql` keeps one worker call linked to multiple Task Tickets through
 `pending_worker_call_tasks`. The original `task_ticket_id` remains for compatibility with older call rows and writers.
 The hosted migration history and resulting schema, RLS and grants were verified after application.
+
+`20261109000000_rate_limits.sql` adds a service-role-only `rate_limit_buckets` table with RLS enabled and no user policies. Its atomic `consume_rate_limit` RPC backs OTP phone/IP limits, voice-lab per-owner/global quotas (30 per owner and 300 total per hour), and the push relay's per-IP quota. The migration is pending; until it is applied, requests fall back to the existing process-local fixed-window limiter and log one warning per process when the RPC is unavailable. OTP failed-send reservations and partial multi-bucket reservations are released through `release_rate_limit` when the RPC is available; a release RPC failure can leave a database slot charged until its window expires. Do not rely on cross-instance quotas until the migration is applied and verified.
 
 The plan-selection feature adds `20261108010000_initial_plan_selection.sql`. It records an owner's first Basic or
 Ultimate choice in `farms.plan_selected_at` through `select_initial_plan`, before creating a new farm or continuing

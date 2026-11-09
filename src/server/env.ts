@@ -13,7 +13,9 @@ export function voiceSignatureValidationEnabled(): boolean {
 
 export function shouldRefuseUnsignedVoice(): boolean {
   const production = process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
-  return production && process.env.NAQAH_ALLOW_UNSIGNED_VOICE !== "1" && !voiceSignatureValidationEnabled();
+  // Production always fails closed when the signing token is missing. The legacy override is
+  // intentionally ignored there; unsigned local/test fixtures remain usable outside production.
+  return production && !voiceSignatureValidationEnabled();
 }
 
 /** `farm` is a real call on a real farm. Anything else is the sample line, which saves nothing. */

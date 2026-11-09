@@ -6,6 +6,8 @@ import { signVoiceState } from "@/server/voice/state";
 import { SAMPLE_CALL_NOTICE, twimlGather, twimlGoodbye, twimlResponse } from "@/server/voice/twiml";
 import { checkTwilioWebhookSignature } from "@/server/twilio/signature";
 import { normalizeSpeech } from "@/server/voice/speech";
+import { MAX_FORM_BODY_BYTES, readBoundedText } from "@/lib/http/body";
+import { voiceMessages } from "@/server/voice/messages";
 
 function normalizePhone(phone: string): string {
   let digits = normalizeSpeech(phone).replace(/\D/g, "");
@@ -15,9 +17,7 @@ function normalizePhone(phone: string): string {
 }
 
 function disabledResponse(locale: "ar" | "en") {
-  return twimlResponse(
-    twimlGoodbye(locale, locale === "ar" ? "خط الاتصال غير مفعّل حالياً." : "The phone line is not configured yet."),
-  );
+  return twimlResponse(twimlGoodbye(locale, voiceMessages[locale].lineNotConfigured));
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -30,12 +30,9 @@ export async function POST(request: Request): Promise<Response> {
   const config = voiceConfiguration();
   if (!config.secret || !config.workerPhone || shouldRefuseUnsignedVoice()) return disabledResponse(config.locale);
 
-  let form: URLSearchParams;
-  try {
-    form = new URLSearchParams(await request.text());
-  } catch {
-    return twimlResponse(twimlGoodbye(config.locale));
-  }
+  const bounded = await readBoundedText(request, MAX_FORM_BODY_BYTES);
+  if (!bounded.ok) return twimlResponse(twimlGoodbye(config.locale), bounded.status);
+  const form = new URLSearchParams(bounded.text);
   const signature = checkTwilioWebhookSignature(request, form);
   if (!signature.valid) return twimlResponse(twimlGoodbye(config.locale), 403);
 
@@ -47,9 +44,7 @@ export async function POST(request: Request): Promise<Response> {
   if (caller && caller === worker) scenario = "report_call";
   else if (caller && owner && caller === owner) scenario = "owner_inquiry";
   else {
-    return twimlResponse(
-      twimlGoodbye(config.locale, config.locale === "ar" ? "هذا الرقم غير مسجل لدى ناقة." : "This number is not registered with NAQAH."),
-    );
+    return twimlResponse(twimlGoodbye(config.locale, voiceMessages[config.locale].unregisteredCaller));
   }
 
   const callSid = form.has("CallSid") ? form.get("CallSid") ?? "" : undefined;
