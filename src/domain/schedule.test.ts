@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest";
+import { completeWorkerReport } from "./actions";
 import { fromRiyadh } from "./clock";
-import { isCompleteCallSchedule, nextScheduledCall } from "./schedule";
+import type { ReportDraft } from "./findings";
+import { createEmptyWorkspace } from "./seed";
+import { isCompleteCallSchedule, nextScheduledCall, upcomingReportCall } from "./schedule";
 
 // Thursday 5 Nov 2026, 17:10 Riyadh.
 const THU_1710 = fromRiyadh(2026, 11, 5, 17, 10);
+const emptyDraft: ReportDraft = {
+  answers: [],
+  camelUpdates: [],
+  resourceUpdates: [],
+  herdAccountedFor: true,
+  taskConfirmations: [],
+};
 
 describe("report call schedule", () => {
   it("needs a day and a time on Basic, only a time on Ultimate", () => {
@@ -43,5 +53,32 @@ describe("report call schedule", () => {
     const lateUtc = new Date(Date.UTC(2026, 10, 5, 22, 30));
     expect(nextScheduledCall(lateUtc, "ultimate", { day: null, time: "01:00" })).toEqual(fromRiyadh(2026, 11, 7, 1, 0));
     expect(nextScheduledCall(lateUtc, "basic", { day: 5, time: "02:00" })).toEqual(fromRiyadh(2026, 11, 6, 2, 0));
+  });
+
+  it("skips the remaining Basic weekly slot only when the completed report is in this Riyadh week", () => {
+    const ws = createEmptyWorkspace("basic");
+    ws.settings.callSchedule = { day: 4, time: "17:00" };
+    const now = fromRiyadh(2026, 11, 5, 16, 0);
+    expect(upcomingReportCall(ws, now)).toEqual(fromRiyadh(2026, 11, 5, 17, 0));
+
+    const reported = completeWorkerReport(ws, fromRiyadh(2026, 11, 5, 15, 0), emptyDraft).ws;
+    expect(upcomingReportCall(reported, now)).toEqual(fromRiyadh(2026, 11, 12, 17, 0));
+
+    const sundaySchedule = { ...ws, settings: { ...ws.settings, callSchedule: { day: 0 as const, time: "09:00" } } };
+    const beforeWeekBoundary = completeWorkerReport(sundaySchedule, fromRiyadh(2026, 11, 7, 23, 55), emptyDraft).ws;
+    expect(upcomingReportCall(beforeWeekBoundary, fromRiyadh(2026, 11, 8, 0, 5))).toEqual(fromRiyadh(2026, 11, 8, 9, 0));
+  });
+
+  it("skips the remaining Ultimate daily slot only when the completed report is in today’s Riyadh day", () => {
+    const ws = createEmptyWorkspace("ultimate");
+    ws.settings.callSchedule = { day: null, time: "17:00" };
+    const now = fromRiyadh(2026, 11, 5, 9, 0);
+    expect(upcomingReportCall(ws, now)).toEqual(fromRiyadh(2026, 11, 5, 17, 0));
+
+    const reported = completeWorkerReport(ws, fromRiyadh(2026, 11, 5, 8, 0), emptyDraft).ws;
+    expect(upcomingReportCall(reported, now)).toEqual(fromRiyadh(2026, 11, 6, 17, 0));
+
+    const beforeDayBoundary = completeWorkerReport(ws, fromRiyadh(2026, 11, 5, 23, 55), emptyDraft).ws;
+    expect(upcomingReportCall(beforeDayBoundary, fromRiyadh(2026, 11, 6, 0, 5))).toEqual(fromRiyadh(2026, 11, 6, 17, 0));
   });
 });

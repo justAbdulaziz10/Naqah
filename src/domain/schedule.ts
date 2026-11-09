@@ -5,8 +5,9 @@
  *
  * Owner-facing only for now: nothing here places a call. See docs/integrations/call-schedule.md.
  */
-import { fromRiyadh, riyadhParts, toMinutes } from "./clock";
-import type { CallSchedule, Plan, Weekday } from "./types";
+import { fromRiyadh, riyadhParts, sameDay, sameWeek, toMinutes } from "./clock";
+import { reportDoneThisPeriod } from "./rules";
+import type { CallSchedule, Plan, Weekday, Workspace } from "./types";
 
 export const CALL_SCHEDULE_TIME_ZONE = "Asia/Riyadh";
 
@@ -49,4 +50,13 @@ export function previousScheduledCall(now: Date, plan: Plan, schedule: CallSched
     if (candidate.getTime() <= now.getTime()) return candidate;
   }
   return null; // Unreachable: day -7 always matches and is in the past.
+}
+
+/** The next report call NAQAH will place, skipping a period already completed. */
+export function upcomingReportCall(ws: Workspace, now: Date): Date | null {
+  const { plan, callSchedule } = ws.settings;
+  const next = nextScheduledCall(now, plan, callSchedule);
+  if (!next || !reportDoneThisPeriod(ws, now)) return next;
+  const samePeriod = plan === "basic" ? sameWeek(next, now) : sameDay(next, now);
+  return samePeriod ? nextScheduledCall(next, plan, callSchedule) : next;
 }
