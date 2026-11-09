@@ -4,8 +4,32 @@ import { ownerBriefing } from "../findings";
 import { taskTicketsEnabled } from "../rules";
 import type { LocalizedText, Workspace } from "../types";
 
-import { copy, reply, blank, ask, say, addNotice, commitTo, workerTurn } from './shared';
+import { copy, reply, blank, ask, say, commitTo, workerTurn } from './shared';
 import type { CallSession, EngineResult, AnswerInput } from './shared';
+
+/**
+ * The real outbound owner call. The owner already answered, so there is no "would you like to answer" step.
+ * Basic hears the findings and the call ends. Ultimate is asked for instructions and nothing is saved before confirmation.
+ * The status callback records the notification; this start does not.
+ */
+export function startLiveOwnerBriefing(ws: Workspace, now: Date, reportId: string): EngineResult {
+  const report = ws.reports.find((item) => item.id === reportId);
+  const briefing = ownerBriefing(report?.findings ?? []);
+  const session = { ...blank("owner_notification", now), data: { reportId } };
+  const told = say(session, briefing, now);
+  if (!taskTicketsEnabled(ws)) {
+    return { session: say(told, copy("That's the update. Thank you.", "هذا التحديث. شكراً لك."), now, true) };
+  }
+  return {
+    session: ask(
+      told,
+      copy("Do you have any instructions for the worker?", "هل عندك أي تعليمات تبي أقولها للعامل؟"),
+      now,
+      "instruction_yesno",
+      [reply("instruction_yes", "Yes, I do", "إيه"), reply("instruction_no", "No, thanks", "لا، شكراً")],
+    ),
+  };
+}
 
 export function startOwnerNotification(ws: Workspace, now: Date, requestedReportId?: string): EngineResult {
   const report = requestedReportId

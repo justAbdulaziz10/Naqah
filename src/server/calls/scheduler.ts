@@ -4,6 +4,7 @@
  * Twilio to place the call. A call Twilio never placed is undone, not logged as unanswered.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { claimDueWorkerCall, releaseWorkerCallClaim } from "@/domain/actions";
 import {
   abandonReportCallAttempt, claimDueReportCall, dialableWorkerPhone, placeReportCallAttempt, startReportCall,
   type ReportCallBlock,
@@ -13,6 +14,7 @@ import type { Locale } from "@/domain/types";
 import { DbError } from "@/server/db/errors";
 import { toDbId } from "@/server/db/ids";
 import { listScheduledFarmIds, runFarmAction } from "@/server/db/service-repository";
+import { callOwnerAfterReport } from "./owner-call";
 import { signCallToken } from "./token";
 import type { OutboundCaller } from "./twilio";
 
@@ -40,16 +42,79 @@ export async function runReportCallScheduler(
         const claimed = claimDueReportCall(ws, now);
         return { ws: claimed.ws, result: claimed.claim ? { ...claimed.claim, locale: workerLocale(ws) } : null };
       });
-      if (!claim) continue;
-      const placed = await dial(client, caller, farmId, claim, { baseUrl, now });
-      if (placed) summary.placed += 1;
-      else summary.failed += 1;
+      if (claim) {
+        const placed = await dial(client, caller, farmId, claim, { baseUrl, now });
+        if (placed) summary.placed += 1;
+        else summary.failed += 1;
+      }
     } catch (error) {
       summary.errors += 1;
       console.error(`[NAQAH] report call scheduler failed for a farm (${error instanceof DbError ? error.code : error instanceof Error ? error.name : "unknown"})`);
     }
+    await dialDueWorkerCall(client, caller, farmId, summary, { baseUrl, now });
+    await dialDueOwnerSummary(client, caller, farmId, summary, now);
   }
   return summary;
+}
+
+/** One due instruction or verification call. The claim is saved before Twilio is asked. */
+async function dialDueWorkerCall(
+  client: SupabaseClient,
+  caller: OutboundCaller,
+  farmId: string,
+  summary: SchedulerSummary,
+  options: { baseUrl: string; now: Date },
+) {
+  try {
+    const { result: claim } = await runFarmAction(client, farmId, (ws) => {
+      const claimed = claimDueWorkerCall(ws, options.now);
+      const phone = dialableWorkerPhone(ws);
+      if (!claimed.pendingCallId) return { ws: claimed.ws, result: null };
+      if (!phone) return { ws: releaseWorkerCallClaim(claimed.ws, claimed.pendingCallId, options.now), result: null };
+      return {
+        ws: claimed.ws,
+        result: { pendingCallId: claimed.pendingCallId, attempt: claimed.attempt, phone, locale: workerLocale(ws) },
+      };
+    });
+    if (!claim) return;
+    const pendingId = toDbId(farmId, claim.pendingCallId);
+    const query = `s=${encodeURIComponent(signCallToken({ k: "worker", f: farmId, p: pendingId, n: claim.attempt, l: claim.locale, t: options.now.getTime() }))}`;
+    const placed = await caller.place({
+      to: claim.phone,
+      url: `${options.baseUrl}/api/voice/worker?${query}`,
+      statusCallback: `${options.baseUrl}/api/voice/worker/status?${query}`,
+      timeoutSeconds: REPORT_CALL_RING_SECONDS,
+      statusEvents: ["completed"],
+    });
+    if (placed.placed) {
+      summary.placed += 1;
+      return;
+    }
+    summary.failed += 1;
+    await runFarmAction(client, farmId, (ws) => ({ ws: releaseWorkerCallClaim(ws, pendingId, options.now), result: null }));
+  } catch (error) {
+    summary.errors += 1;
+    console.error(`[NAQAH] worker call scheduler failed for a farm (${error instanceof DbError ? error.code : error instanceof Error ? error.name : "unknown"})`);
+  }
+}
+
+/** A saved report whose owner call time has arrived. No call when nothing is queued. */
+async function dialDueOwnerSummary(
+  client: SupabaseClient,
+  caller: OutboundCaller,
+  farmId: string,
+  summary: SchedulerSummary,
+  now: Date,
+) {
+  try {
+    const placed = await callOwnerAfterReport(client, { farmId, reportCallId: null, now }, caller);
+    if (!placed) return;
+    if (placed.placed) summary.placed += 1;
+    else summary.failed += 1;
+  } catch (error) {
+    summary.errors += 1;
+    console.error(`[NAQAH] owner summary scheduler failed for a farm (${error instanceof DbError ? error.code : error instanceof Error ? error.name : "unknown"})`);
+  }
 }
 
 type Claim = { runId: string; attempt: number; phone: string; locale: Locale };

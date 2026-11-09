@@ -189,7 +189,7 @@ describe.skipIf(!database)("domain flows through the real schema", () => {
     save(instruction.ws, "CA-instruction");
     const pendingId = current.pendingWorkerCalls[0].id;
     for (let attempt = 0; attempt < 3; attempt++) {
-      save(resolveWorkerCallAttempt(current, minutes(5 + attempt * 20), pendingId, false).ws, `CA-attempt-${attempt}`);
+      save(resolveWorkerCallAttempt(current, minutes(5 + attempt * 20), pendingId, "unanswered").ws, `CA-attempt-${attempt}`);
     }
     expect(current.pendingWorkerCalls[0].attempts).toHaveLength(3);
     expect(current.pendingWorkerCalls[0].state).toBe("no_answer_ticket");
@@ -199,7 +199,7 @@ describe.skipIf(!database)("domain flows through the real schema", () => {
     const withHistory = {
       ...current,
       noAnswerTickets: [...current.noAnswerTickets, {
-        id: "nat_hist",
+        id: "nat_aabbccddee",
         createdAt: call.attempts.at(-1)!.at,
         purpose: "instruction" as const,
         message: call.message,

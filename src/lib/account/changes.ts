@@ -47,6 +47,13 @@ function windowChange(base: Workspace, next: Workspace): Input {
   return { window: value };
 }
 
+function ownerCallScheduleChange(base: Workspace, next: Workspace): Input {
+  const value = next.settings.ownerCallSchedule ?? null;
+  if (same(base.settings.ownerCallSchedule ?? null, value)) return {};
+  if (value?.time && !timeShape.test(value.time)) return {};
+  return { ownerCallSchedule: value };
+}
+
 function callScheduleChange(base: Workspace, next: Workspace): Input {
   const value = next.settings.callSchedule ?? null;
   if (same(base.settings.callSchedule ?? null, value)) return {};
@@ -133,6 +140,8 @@ export function unsentDrafts(base: Workspace, next: Workspace): string[] {
   if (!trimmed(to.farm.name) && trimmed(from.farm.name)) drafts.push("farmName");
   const schedule = to.callSchedule ?? null;
   if (!same(from.callSchedule ?? null, schedule) && schedule?.time && !timeShape.test(schedule.time)) drafts.push("callSchedule");
+  const ownerSchedule = to.ownerCallSchedule ?? null;
+  if (!same(from.ownerCallSchedule ?? null, ownerSchedule) && ownerSchedule?.time && !timeShape.test(ownerSchedule.time)) drafts.push("ownerCallSchedule");
   const count = to.herdCount ?? null;
   if (!same(from.herdCount ?? null, count) && count !== null && (!Number.isInteger(count) || count < 0 || count > 100_000)) drafts.push("herdCount");
   return drafts;
@@ -151,6 +160,7 @@ export function ownerChanges(base: Workspace, next: Workspace): OwnerChange[] {
     ...phoneChange("supplierPhone", from.integrations?.supplierPhone, to.integrations?.supplierPhone),
     ...windowChange(base, next),
     ...callScheduleChange(base, next),
+    ...ownerCallScheduleChange(base, next),
     ...herdChange(base, next),
   };
 
@@ -249,6 +259,7 @@ export function mergeEdits(before: Workspace, local: Workspace, fresh: Workspace
       farm: scalars((ws) => ws.settings.farm),
       ...mergeWorkers(before.settings, local.settings, fresh.settings),
       callSchedule: same(before.settings.callSchedule, local.settings.callSchedule) ? fresh.settings.callSchedule : local.settings.callSchedule,
+      ownerCallSchedule: same(before.settings.ownerCallSchedule, local.settings.ownerCallSchedule) ? fresh.settings.ownerCallSchedule : local.settings.ownerCallSchedule,
       herdCount: same(before.settings.herdCount, local.settings.herdCount) ? fresh.settings.herdCount : local.settings.herdCount,
       herdCountReviewedAt: same(before.settings.herdCountReviewedAt, local.settings.herdCountReviewedAt)
         ? fresh.settings.herdCountReviewedAt : local.settings.herdCountReviewedAt,

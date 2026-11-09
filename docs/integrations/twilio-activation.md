@@ -293,8 +293,9 @@ that farm's history.
   scheduler once one exists.
 - **Quantity units.** Stored and spoken in English even on an Arabic call: «العلف: كافٍ (12 bags)».
 - **Heat-day question.** Weather isn't stored on the server, so real calls don't ask it.
-- **Instruction and task-verification calls.** The scheduler places report calls only. Owner
-  instructions and scheduled task checks (`pending_worker_calls`) are not dialled yet.
+- **Instruction and task-verification calls.** The report-call cron also dials one due
+  `pending_worker_calls` row and one due owner summary. Answering the phone is not delivery.
+  Delivery is the conversation's confirmation. A hang-up before that is an interrupted attempt.
 - **Answering machines.** A voicemail that picks up counts as answered; the questions play to it and
   the run ends unsaved. Twilio `MachineDetection` is not enabled.
 - **Owner update call.** It reads the findings and hangs up; owner instructions by phone after a

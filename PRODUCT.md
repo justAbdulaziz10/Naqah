@@ -52,9 +52,10 @@ receives facts labelled with where they came from and how certain they are.
   worker calls back. Owner calls are not redialed.
 - **Not approved, do not add:** native apps, a website chatbot, multiple farms or workers, diagnosis,
   purchasing, extra reporting updates, new channels, automated emergency dispatch.
-- **Current state:** the demo runs in the browser. No real calls reach the dashboard, and nothing is
-  charged. **Calling the worker from NAQAH is not connected**, so it must never look like it works.
-  Simulation stays clearly labelled.
+- **Current state:** the browser demo is still a simulation and is labelled as one. The server
+  places worker report, instruction, verification, and owner-summary calls only when the telephony
+  flags and Twilio credentials are configured. Nothing is charged by the demo. Owner-summary time
+  is `farms.owner_call_day` / `owner_call_time`, separate from the worker's `call_day` / `call_time`.
 - **Terminology:** حلال for the herd, عزبة for the estate in Arabic; "task ticket" and "No Answer
   Ticket" are the product's terms for those records.
 

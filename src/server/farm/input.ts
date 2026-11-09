@@ -87,6 +87,12 @@ function callSchedule(value: unknown) {
   return { call_day: (day ?? null) as number | null, call_time: (time || null) as string | null };
 }
 
+/** When NAQAH calls the owner with the saved report. Independent of the worker's report time. */
+function ownerCallSchedule(value: unknown) {
+  const parsed = callSchedule(value);
+  return { owner_call_day: parsed.call_day, owner_call_time: parsed.call_time };
+}
+
 function herdCount(value: unknown) {
   if (value === null) return null;
   if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 100_000) throw invalid("herdCount");
@@ -127,6 +133,7 @@ export function parseFarmProfile(value: unknown) {
     ...(given(input, "supplierPhone") && { supplier_phone: phone(input.supplierPhone, "supplierPhone") }),
     ...(given(input, "window") && window(input.window)),
     ...(given(input, "callSchedule") && callSchedule(input.callSchedule)),
+    ...(given(input, "ownerCallSchedule") && ownerCallSchedule(input.ownerCallSchedule)),
     ...(given(input, "herdCount") && { herd_count: herdCount(input.herdCount) }),
     ...(given(input, "herdCountReviewedAt") && { herd_count_reviewed_at: timestamp(input.herdCountReviewedAt, "herdCountReviewedAt") }),
     ...(given(input, "setupComplete") && { setup_complete: bool(input.setupComplete, "setupComplete") }),

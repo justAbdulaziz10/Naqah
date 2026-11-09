@@ -74,6 +74,6 @@ export function hangUp(session: CallSession, ws: Workspace, now: Date): EngineRe
   if (session.done) return { session };
   const ended = say(session, copy("This call has ended.", "انتهى الاتصال."), now, true);
   if (session.scenario === "report_call") return { session: ended, ...hangUpReportCall(session, ws, now) };
-  if (session.scenario === "worker_outbound") return hangUpWorkerOutbound(session, ws, ended);
+  if (session.scenario === "worker_outbound") return hangUpWorkerOutbound(session, ws, ended, now);
   return { session: ended };
 }

@@ -704,7 +704,8 @@ describe("Call Lab conversation engine", () => {
     expect(waiting.pendingWorkerCalls.filter((call) => call.purpose === "task_verification")).toHaveLength(0);
     expect(waiting.pendingWorkerCalls.filter((call) => call.purpose === "instruction" && call.state === "pending")).toHaveLength(1);
 
-    const delivered = applyAnswer(blocked.session, waiting, due, { value: "answer" });
+    const heard = applyAnswer(blocked.session, waiting, due, { value: "answer" });
+    const delivered = applyAnswer(heard.session, heard.ws, due, { value: "received" });
     const verified = start(delivered.ws, due, "worker_outbound");
     const ready = verified.commit?.(delivered.ws) ?? delivered.ws;
     expect(ready.pendingWorkerCalls.filter((call) => call.purpose === "task_verification")).toHaveLength(1);

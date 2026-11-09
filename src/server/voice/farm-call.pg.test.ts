@@ -443,6 +443,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
     });
     it("places only one owner notification when confirmation webhooks arrive concurrently", async () => {
       const farm = seedFarm({ owner: "+15555550102" });
+      sql(`update farms set owner_call_time = '00:00', owner_call_day = null where id = ${q(farm.id)}`);
       vi.stubEnv("NAQAH_CALL_OWNER", "1");
       vi.stubEnv("TWILIO_ACCOUNT_SID", `AC${"0".repeat(32)}`);
       vi.stubEnv("TWILIO_PHONE_NUMBER", "+15555550100");

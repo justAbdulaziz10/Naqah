@@ -38,6 +38,22 @@ export function nextScheduledCall(now: Date, plan: Plan, schedule: CallSchedule 
   return null; // Unreachable: day 7 always matches and is in the future.
 }
 
+/**
+ * When the owner summary for a report saved at `now` may be dialed.
+ * A slot still ahead in this period waits. A slot that already passed is due now,
+ * because the summary cannot be spoken before the report exists.
+ * Returns null until the owner has chosen a complete schedule.
+ */
+export function ownerSummaryDueAt(now: Date, plan: Plan, schedule: CallSchedule | null | undefined): Date | null {
+  if (!isCompleteCallSchedule(plan, schedule)) return null;
+  const upcoming = nextScheduledCall(now, plan, schedule);
+  const previous = previousScheduledCall(now, plan, schedule);
+  const samePeriod = (at: Date) => (plan === "basic" ? sameWeek(at, now) : sameDay(at, now));
+  if (upcoming && samePeriod(upcoming)) return upcoming;
+  if (previous && samePeriod(previous)) return new Date(now.getTime());
+  return upcoming;
+}
+
 /** The latest scheduled call at or before `now`, or null while the schedule is unfinished. */
 export function previousScheduledCall(now: Date, plan: Plan, schedule: CallSchedule | null | undefined): Date | null {
   if (!schedule || !isCompleteCallSchedule(plan, schedule)) return null;

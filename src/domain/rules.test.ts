@@ -141,7 +141,7 @@ describe("AI → worker calls (Phase 7)", () => {
     const id = sub.pendingCallId!;
     const outcomes: string[] = [];
     for (let i = 0; i < 4; i++) {
-      const r = resolveWorkerCallAttempt(ws, new Date(THU_1710.getTime() + i * RETRY_DELAY_MS), id, false);
+      const r = resolveWorkerCallAttempt(ws, new Date(THU_1710.getTime() + i * RETRY_DELAY_MS), id, "unanswered");
       ws = r.ws;
       outcomes.push(r.outcome);
     }
@@ -170,7 +170,7 @@ describe("tickets (Phases 6 & 8)", () => {
     expect(ws.taskTickets.find((t) => t.id === taskId)?.status).toBe("open");
     expect(overdueScheduledTasks(ws, afterDeadline).map((t) => t.id)).toContain(taskId);
     expect(dueTaskVerifications(ws, afterDeadline).map((t) => t.id)).not.toContain(taskId);
-    ws = resolveWorkerCallAttempt(ws, THU_1710, sub.pendingCallId!, true).ws;
+    ws = resolveWorkerCallAttempt(ws, THU_1710, sub.pendingCallId!, "delivered").ws;
     expect(dueTaskVerifications(ws, afterDeadline).map((t) => t.id)).toContain(taskId);
     ws = confirmTask(ws, THU_1830, taskId, false, "worker_task_verification");
     expect(ws.taskTickets.find((t) => t.id === taskId)?.status).toBe("open");
@@ -243,7 +243,7 @@ describe("scheduled verification cycle", () => {
       actionable: true,
       scheduledFor: dueAt.toISOString(),
     });
-    const delivered = resolveWorkerCallAttempt(sub.ws, THU_1710, sub.pendingCallId!, true);
+    const delivered = resolveWorkerCallAttempt(sub.ws, THU_1710, sub.pendingCallId!, "delivered");
     return { ws: delivered.ws, taskId: sub.taskId! };
   }
 
@@ -265,7 +265,7 @@ describe("scheduled verification cycle", () => {
   it("stops retrying a verification once the worker has confirmed the task", () => {
     const { ws, taskId } = deliveredScheduledTask();
     const started = startTaskVerification(ws, dueAt, taskId);
-    const missed = resolveWorkerCallAttempt(started.ws, dueAt, started.pendingCallId, false);
+    const missed = resolveWorkerCallAttempt(started.ws, dueAt, started.pendingCallId, "unanswered");
     const closed = confirmTask(missed.ws, dueAt, taskId, true, "worker_report");
     const call = closed.pendingWorkerCalls.find((item) => item.id === started.pendingCallId)!;
     expect(call).toMatchObject({ state: "delivered", nextAttemptAt: null });
@@ -282,7 +282,7 @@ describe("scheduled verification cycle", () => {
     expect(dueTaskVerifications(sub.ws, dueAt).map((task) => task.id)).not.toContain(sub.taskId);
     let ws = sub.ws;
     for (let i = 0; i < 4; i++) {
-      ws = resolveWorkerCallAttempt(ws, new Date(THU_1710.getTime() + i * RETRY_DELAY_MS), sub.pendingCallId!, false).ws;
+      ws = resolveWorkerCallAttempt(ws, new Date(THU_1710.getTime() + i * RETRY_DELAY_MS), sub.pendingCallId!, "unanswered").ws;
     }
     expect(ws.pendingWorkerCalls.find((call) => call.id === sub.pendingCallId)?.state).toBe("no_answer_ticket");
     expect(dueTaskVerifications(ws, new Date(dueAt.getTime() + 4 * RETRY_DELAY_MS)).map((task) => task.id)).not.toContain(sub.taskId);
@@ -296,7 +296,7 @@ describe("scheduled verification cycle", () => {
     const outcomes: string[] = [];
     for (let i = 0; i < 3; i++) {
       const at = new Date(dueAt.getTime() + i * RETRY_DELAY_MS);
-      const result = resolveWorkerCallAttempt(current, at, started.pendingCallId, false);
+      const result = resolveWorkerCallAttempt(current, at, started.pendingCallId, "unanswered");
       current = result.ws;
       outcomes.push(result.outcome);
       if (i < 2) {
@@ -318,7 +318,7 @@ describe("scheduled verification cycle", () => {
   it("leaves the ticket open after not yet and does not start another cycle", () => {
     const { ws, taskId } = deliveredScheduledTask();
     const started = startTaskVerification(ws, dueAt, taskId);
-    const answered = resolveWorkerCallAttempt(started.ws, dueAt, started.pendingCallId, true);
+    const answered = resolveWorkerCallAttempt(started.ws, dueAt, started.pendingCallId, "delivered");
     const open = confirmTask(answered.ws, dueAt, taskId, false, "worker_task_verification");
     const later = fromRiyadh(2026, 11, 6, 9, 0);
     expect(open.taskTickets.find((task) => task.id === taskId)?.status).toBe("open");
@@ -332,7 +332,7 @@ describe("scheduled verification cycle", () => {
   it("closes only the confirmed task", () => {
     const { ws, taskId } = deliveredScheduledTask();
     const started = startTaskVerification(ws, dueAt, taskId);
-    const answered = resolveWorkerCallAttempt(started.ws, dueAt, started.pendingCallId, true);
+    const answered = resolveWorkerCallAttempt(started.ws, dueAt, started.pendingCallId, "delivered");
     const closed = confirmTask(answered.ws, dueAt, taskId, true, "worker_task_verification");
     expect(closed.taskTickets.find((task) => task.id === taskId)?.status).toBe("closed");
     expect(overdueScheduledTasks(closed, dueAt).map((task) => task.id)).not.toContain(taskId);
@@ -345,7 +345,7 @@ describe("scheduled verification cycle", () => {
       actionable: true,
       scheduledFor: null,
     });
-    const delivered = resolveWorkerCallAttempt(sub.ws, THU_1710, sub.pendingCallId!, true).ws;
+    const delivered = resolveWorkerCallAttempt(sub.ws, THU_1710, sub.pendingCallId!, "delivered").ws;
     expect(dueTaskVerifications(delivered, dueAt).map((task) => task.id)).not.toContain(sub.taskId);
     expect(overdueScheduledTasks(delivered, dueAt).map((task) => task.id)).not.toContain(sub.taskId);
     expect(delivered.taskTickets.find((task) => task.id === sub.taskId)?.status).toBe("open");
@@ -362,7 +362,7 @@ describe("scheduled verification after callback delivery", () => {
         ws,
         new Date(startedAt.getTime() + attempt * RETRY_DELAY_MS),
         pendingCallId,
-        false,
+        "unanswered",
       ).ws;
     }
     return ws;
@@ -463,7 +463,7 @@ describe("scheduled verification after callback delivery", () => {
     const delivered = completeWorkerCallback(missed.ws, THU_1830);
     const started = startTaskVerification(delivered, dueAt, missed.taskIds[0]);
     let ws = started.ws;
-    if (state === "delivered") ws = resolveWorkerCallAttempt(ws, dueAt, started.pendingCallId, true).ws;
+    if (state === "delivered") ws = resolveWorkerCallAttempt(ws, dueAt, started.pendingCallId, "delivered").ws;
     if (state === "no_answer_ticket") ws = exhaustCall(ws, started.pendingCallId, dueAt);
     expect(ws.pendingWorkerCalls.find((call) => call.id === started.pendingCallId)?.state).toBe(state);
     const later = new Date(dueAt.getTime() + 4 * RETRY_DELAY_MS);

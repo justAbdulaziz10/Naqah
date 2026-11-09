@@ -354,6 +354,8 @@ export interface Settings {
   window: ReportingWindow | null;
   /** NAQAH → worker report call time. Optional: older workspaces lack it. */
   callSchedule?: CallSchedule | null;
+  /** When NAQAH calls the owner with the saved report. Separate from the worker's report time. */
+  ownerCallSchedule?: CallSchedule | null;
   integrations?: Integrations;
 }
 
@@ -368,6 +370,8 @@ export interface Workspace {
   /** Time of the latest successful farm update. */
   lastUpdateAt: string | null;
   reports: FarmReport[];
+  /** One queued owner summary. A newer saved report replaces it. Absent on older workspaces. */
+  ownerSummary?: { reportId: string; notBefore: string } | null;
   calls: CallLog[];
   taskTickets: TaskTicket[];
   noAnswerTickets: NoAnswerTicket[];

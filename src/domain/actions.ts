@@ -4,6 +4,8 @@
  * through these functions so the rules live in exactly one place.
  */
 import { MAX_RETRIES, RETRY_DELAY_MS } from "./clock";
+import { dueTaskVerifications, dueWorkerCalls } from "./rules";
+import { ownerSummaryDueAt } from "./schedule";
 import { evaluateFindings, type ReportDraft } from "./findings";
 import { uid } from "./id";
 import type {
@@ -145,7 +147,35 @@ export function completeWorkerReport(
       ar: `رُصدت ${findings.length} ملاحظة تطابق معايير المالك`,
       en: `${findings.length} ${findings.length === 1 ? "finding matches" : "findings match"} the owner's criteria`,
     });
-  return { ws, report };
+  return { ws: queueOwnerSummary(ws, now, report.id), report };
+}
+
+/** Queue the saved report for the owner's chosen call time. A newer report replaces an older queued summary. */
+export function queueOwnerSummary(input: Workspace, now: Date, reportId: string): Workspace {
+  if (!input.reports.some((report) => report.id === reportId)) return input;
+  const due = ownerSummaryDueAt(now, input.settings.plan, input.settings.ownerCallSchedule);
+  if (!due) return input;
+  const ws = clone(input);
+  ws.ownerSummary = { reportId, notBefore: due.toISOString() };
+  return ws;
+}
+
+/** Take the queued summary when it is due. A second caller sees nothing left to dial. */
+export function claimDueOwnerSummary(input: Workspace, now: Date): { ws: Workspace; reportId: string | null; notBefore: string | null } {
+  const queued = input.ownerSummary;
+  if (!queued || Date.parse(queued.notBefore) > now.getTime()) return { ws: clone(input), reportId: null, notBefore: null };
+  const ws = clone(input);
+  ws.ownerSummary = null;
+  if (!input.reports.some((report) => report.id === queued.reportId)) return { ws, reportId: null, notBefore: null };
+  return { ws, reportId: queued.reportId, notBefore: queued.notBefore };
+}
+
+/** Put a summary back when the telephone provider refused the call. A newer queue wins. */
+export function restoreOwnerSummary(input: Workspace, reportId: string, notBefore: string): Workspace {
+  if (input.ownerSummary) return input;
+  const ws = clone(input);
+  ws.ownerSummary = { reportId, notBefore };
+  return ws;
 }
 
 /**
@@ -427,28 +457,62 @@ export function startTaskVerification(input: Workspace, now: Date, taskId: strin
   return { ws, pendingCallId: pending.id };
 }
 
+const WORKER_DIAL_LOCK_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Start due verifications, then reserve the next due worker call so a second scheduler pass cannot dial it.
+ * The reservation is not an attempt. Twilio's status callback records the attempt.
+ */
+export function claimDueWorkerCall(input: Workspace, now: Date): { ws: Workspace; pendingCallId: string | null; attempt: number } {
+  let ws = clone(input);
+  for (const task of dueTaskVerifications(ws, now)) ws = startTaskVerification(ws, now, task.id).ws;
+  const call = dueWorkerCalls(ws, now)[0];
+  if (!call) return { ws, pendingCallId: null, attempt: 0 };
+  call.nextAttemptAt = new Date(now.getTime() + WORKER_DIAL_LOCK_MS).toISOString();
+  return { ws, pendingCallId: call.id, attempt: call.attempts.length + 1 };
+}
+
+/** Release a reservation when the provider never placed the call. */
+export function releaseWorkerCallClaim(input: Workspace, pendingCallId: string, now: Date): Workspace {
+  const ws = clone(input);
+  const call = ws.pendingWorkerCalls.find((item) => item.id === pendingCallId && item.state === "pending");
+  if (call) call.nextAttemptAt = iso(now);
+  return ws;
+}
+
 export type AttemptOutcome = "delivered" | "retry_scheduled" | "no_answer_ticket";
 
 /**
+ * How a worker call ended.
+ * Picking up is not delivery. `interrupted` means the worker answered and the call ended
+ * before the instructions were confirmed or the verification question was answered.
+ */
+export type WorkerAttemptResult = "unanswered" | "interrupted" | "delivered";
+
+/**
  * Record one AI → worker call attempt.
- * An unsuccessful attempt waits 20 minutes. The third unsuccessful attempt stops.
- * No new No Answer Ticket is created. Open tasks and undelivered instructions stay as they are.
+ * An unsuccessful attempt, including a hang-up before the required outcome, waits 20 minutes.
+ * The third unsuccessful attempt stops. No new No Answer Ticket is created.
+ * Open tasks and undelivered instructions stay as they are.
+ * The stored state name `no_answer_ticket` is the existing database value for an exhausted call.
+ * It does not insert a ticket.
  */
 export function resolveWorkerCallAttempt(
   input: Workspace,
   now: Date,
   pendingCallId: string,
-  answered: boolean,
+  result: WorkerAttemptResult,
 ): { ws: Workspace; outcome: AttemptOutcome } {
   const ws = clone(input);
   const call = ws.pendingWorkerCalls.find((c) => c.id === pendingCallId);
   if (!call || call.state !== "pending") return { ws, outcome: "delivered" };
   const at = iso(now);
+  const answered = result !== "unanswered";
   call.attempts.push({ at, answered });
   const attempt = call.attempts.length;
   const kind: CallKind = call.purpose === "instruction" ? "worker_instruction" : "worker_task_verification";
 
-  if (answered) {
+  if (result === "delivered") {
     call.state = "delivered";
     call.nextAttemptAt = null;
     if (call.relayId) {
@@ -483,17 +547,24 @@ export function resolveWorkerCallAttempt(
     at,
     outcome: "no_answer",
     attempt,
-    summary: { ar: `لم يرد العامل (المحاولة ${attempt})`, en: `Worker didn't answer (attempt ${attempt})` },
+    summary: result === "interrupted"
+      ? { ar: `انقطع الاتصال قبل اكتمال التسليم (المحاولة ${attempt})`, en: `The call ended before delivery was confirmed (attempt ${attempt})` }
+      : { ar: `لم يرد العامل (المحاولة ${attempt})`, en: `Worker didn't answer (attempt ${attempt})` },
     ticketId: call.taskTicketId,
     reportId: null,
   });
 
   if (attempt <= MAX_RETRIES) {
     call.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
-    pushEvent(ws, now, "neutral", {
-      ar: `لم يرد العامل — إعادة المحاولة بعد ٢٠ دقيقة (${attempt}/${MAX_RETRIES + 1})`,
-      en: `Worker didn't answer — retrying in 20 minutes (${attempt}/${MAX_RETRIES + 1})`,
-    });
+    pushEvent(ws, now, "neutral", result === "interrupted"
+      ? {
+          ar: `انقطع الاتصال — إعادة المحاولة بعد ٢٠ دقيقة (${attempt}/${MAX_RETRIES + 1})`,
+          en: `The call ended early — retrying in 20 minutes (${attempt}/${MAX_RETRIES + 1})`,
+        }
+      : {
+          ar: `لم يرد العامل — إعادة المحاولة بعد ٢٠ دقيقة (${attempt}/${MAX_RETRIES + 1})`,
+          en: `Worker didn't answer — retrying in 20 minutes (${attempt}/${MAX_RETRIES + 1})`,
+        });
     return { ws, outcome: "retry_scheduled" };
   }
 

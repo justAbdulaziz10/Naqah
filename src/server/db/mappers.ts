@@ -20,6 +20,11 @@ function callScheduleFrom(row: FarmRows["farm"]): CallSchedule | null {
   return { day: row.call_day === null ? null : (row.call_day as Weekday), time: hhmm(row.call_time) };
 }
 
+function ownerCallScheduleFrom(row: FarmRows["farm"]): CallSchedule | null {
+  if ((row.owner_call_day ?? null) === null && (row.owner_call_time ?? null) === null) return null;
+  return { day: row.owner_call_day == null ? null : (row.owner_call_day as Weekday), time: hhmm(row.owner_call_time ?? null) };
+}
+
 const workerFrom = (row: WorkerRow): Worker => ({ id: row.id, name: row.name, phone: row.phone, language: row.language });
 
 /** The primary worker is the one NAQAH calls: the farm's choice, or the oldest when none is set. */
@@ -61,6 +66,7 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
       emergencies: rows.emergencies.map((e) => ({ id: e.id, kind: e.kind, label: e.label })),
       window: windowFrom(farm),
       callSchedule: callScheduleFrom(farm),
+      ownerCallSchedule: ownerCallScheduleFrom(farm),
       integrations: integrationsFrom(farm),
     },
     camels: rows.camels.map((c) => ({
@@ -86,6 +92,9 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
         updatedAt: r.updated_at,
       })),
     lastUpdateAt: farm.last_update_at,
+    ownerSummary: farm.owner_summary_report_id && farm.owner_summary_not_before
+      ? { reportId: farm.owner_summary_report_id, notBefore: new Date(farm.owner_summary_not_before).toISOString() }
+      : null,
     reports: byTime(rows.reports, (r) => r.at).map((r) => ({
       id: r.id,
       at: r.at,

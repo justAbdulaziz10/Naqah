@@ -99,18 +99,23 @@ describe("change sets", () => {
   });
   it("carries one report with its call, event and bookkeeping", () => {
     const ws = stored(createDemoWorkspace("en", "ultimate"));
-    const changes = diffWorkspace(ws, completeWorkerReport(ws, now, draft).ws, farmId, { providerCallId: "CA1" });
+    const saved = completeWorkerReport(ws, now, draft);
+    const changes = diffWorkspace(ws, saved.ws, farmId, { providerCallId: "CA1" });
     expect(changes.reports).toHaveLength(1);
     expect(changes.calls).toEqual([expect.objectContaining({ kind: "worker_report", provider_call_id: "CA1" })]);
-    expect(changes.farm).toEqual({ last_update_at: now.toISOString() });
+    expect(changes.farm).toEqual({
+      last_update_at: now.toISOString(),
+      owner_summary_report_id: toDbId(farmId, saved.report.id),
+      owner_summary_not_before: "2026-11-08T16:00:00.000Z",
+    });
     expect(changes.events?.length).toBeGreaterThan(0);
   });
   it("sends only new attempts", () => {
     const ws = stored(createEmptyWorkspace("ultimate"));
     const first = stored(submitOwnerInstruction(ws, now, { message: "m", actionable: true, scheduledFor: null }).ws);
     const pendingId = first.pendingWorkerCalls[0].id;
-    const once = resolveWorkerCallAttempt(first, now, pendingId, false).ws;
-    const twice = resolveWorkerCallAttempt(once, new Date(now.getTime() + 1_200_000), pendingId, false).ws;
+    const once = resolveWorkerCallAttempt(first, now, pendingId, "unanswered").ws;
+    const twice = resolveWorkerCallAttempt(once, new Date(now.getTime() + 1_200_000), pendingId, "unanswered").ws;
     expect(diffWorkspace(once, twice, farmId).worker_call_attempts).toHaveLength(1);
   });
   it("refuses an action that edits settings or the herd", () => {

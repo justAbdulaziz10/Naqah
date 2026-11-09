@@ -31,6 +31,11 @@ export interface FarmRow {
   /** Report call schedule (0006), Asia/Riyadh. Basic: day + time weekly. Ultimate: time daily. */
   call_day: number | null;
   call_time: string | null;
+  /** Owner summary schedule. Optional so rows loaded before that migration still type-check. */
+  owner_call_day?: number | null;
+  owner_call_time?: string | null;
+  owner_summary_report_id?: string | null;
+  owner_summary_not_before?: string | null;
   herd_count: number | null;
   herd_count_reviewed_at: string | null;
   primary_worker_id: string | null;

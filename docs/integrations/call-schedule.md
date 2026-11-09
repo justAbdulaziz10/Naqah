@@ -43,11 +43,17 @@ The UI is the "Report call" section in Settings: `src/components/schedule/Report
 ## Where it is saved
 
 - **Demo mode:** in the browser, through the zustand store (`naqah-workspace-v1` in localStorage).
-- **Account mode:** `farms.call_day` / `farms.call_time` (migration 0006, applied live). The owner's edit goes through
+- **Account mode:** `farms.call_day` / `farms.call_time` for the worker. The owner's own summary time is
+  `farms.owner_call_day` / `farms.owner_call_time` (migration `20261109182526`). The owner's edit goes through
   `ownerChanges` (`callSchedule` on the profile change) → `parseFarmProfile` → the owner's session under RLS.
   A half-typed time is not sent. `adopt()` keeps the local value while the owner is typing.
 
-## Outbound calling (Twilio + scheduler, not built here)
+## Outbound calling
+
+The cron in `src/server/calls/scheduler.ts` places the worker report, a due instruction or verification
+call, and a due owner summary. The owner is not called inside the report webhook. A summary waits
+until its chosen time; if that time already passed when the report was saved, the next scheduler pass
+may dial it. No summary is dialed when no report is queued.
 
 - Compute the due time with `nextScheduledCall` from `src/domain/schedule.ts`. It is pure and uses
   Riyadh time; pass the server clock, never a client value.

@@ -67,6 +67,10 @@ export interface ConversationData {
   startedVerificationCallIds?: string[];
   pendingIndex?: number;
   currentCallId?: string;
+  /** The task a live verification call is asking about. */
+  currentTaskId?: string;
+  /** Set once this telephone call confirmed delivery, so a later status callback cannot record it again. */
+  deliveryCompleted?: boolean;
   inquiryTopics?: string[];
   callbackTaskIds?: string[];
   callbackTaskIndex?: number;
