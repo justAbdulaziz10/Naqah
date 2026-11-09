@@ -41,6 +41,16 @@ describe("schedule slots", () => {
 });
 
 describe("scheduled report calls", () => {
+  it("frees the line when a ringing call never got its final status", () => {
+    const { ws } = startReportCall(farm(), THU_1700, "manual");
+    ws.reportCalls![0].nextAttemptAt = null;
+    ws.reportCalls![0].attempts = [{ at: THU_1700.toISOString(), result: "pending" }];
+    expect(startReportCall(ws, new Date(THU_1700.getTime() + 60 * MINUTE), "manual").blocked).toBe("in_progress");
+    const later = startReportCall(ws, new Date(THU_1700.getTime() + 121 * MINUTE), "manual");
+    expect(later.blocked).toBeNull();
+    expect(later.ws.reportCalls!.map((run) => run.state)).toEqual(["missed", "calling"]);
+  });
+
   it("frees the line when an answered call never got its final status", () => {
     const { ws } = startReportCall(farm(), THU_1700, "manual");
     ws.reportCalls![0].state = "answered";

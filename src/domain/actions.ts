@@ -61,7 +61,10 @@ export function completeWorkerReport(
 
   for (const t of draft.taskConfirmations) {
     const ticket = ws.taskTickets.find((x) => x.id === t.taskId && x.status === "open");
-    if (ticket && t.done) Object.assign(ticket, { status: "closed", closedAt: at, closedVia: "worker_report" as CallKind });
+    if (ticket && t.done) {
+      Object.assign(ticket, { status: "closed", closedAt: at, closedVia: "worker_report" as CallKind });
+      stopVerificationRetries(ws, ticket.id);
+    }
   }
 
   const findings = evaluateFindings(input, draft);
@@ -283,8 +286,87 @@ export function submitOwnerInstruction(
   return { ws, pendingCallId: pending.id, taskId };
 }
 
-/** Phase 7/8: at a task's scheduled time the AI calls the worker to verify completion. */
+/**
+ * Approved instructions from one owner conversation.
+ * Each Ultimate actionable item gets its own Task Ticket. Basic relays them.
+ * All of them go out on one worker call, and a repeated batchId changes nothing.
+ */
+export function submitOwnerInstructionBatch(
+  input: Workspace,
+  now: Date,
+  instructions: InstructionInput[],
+  batchId: string,
+  deliveryMessage?: string,
+): { ws: Workspace; pendingCallId: string | null; taskIds: string[]; created: boolean } {
+  const existing = input.pendingWorkerCalls.find((call) => call.batchId === batchId);
+  if (existing) {
+    return { ws: clone(input), pendingCallId: existing.id, taskIds: existing.coveredTaskIds ?? [], created: false };
+  }
+  if (!batchId.trim() || instructions.length === 0 || instructions.some((item) => !item.message.trim())) {
+    return { ws: clone(input), pendingCallId: null, taskIds: [], created: false };
+  }
+
+  const ws = clone(input);
+  const at = iso(now);
+  const taskIds: string[] = [];
+  const relayed: string[] = [];
+  for (const instr of instructions) {
+    if (ws.settings.plan === "ultimate" && instr.actionable) {
+      const taskId = uid("tsk");
+      taskIds.push(taskId);
+      ws.taskTickets.push({
+        id: taskId,
+        instruction: instr.message,
+        createdAt: at,
+        scheduledFor: instr.scheduledFor,
+        status: "open",
+        closedAt: null,
+        closedVia: null,
+      });
+      pushEvent(ws, now, "attention", {
+        ar: `فُتحت مهمة جديدة: «${instr.message}»`,
+        en: `Task ticket opened: “${instr.message}”`,
+      });
+    } else {
+      relayed.push(instr.message);
+    }
+  }
+
+  let relayId: string | null = null;
+  if (relayed.length) {
+    relayId = uid("rly");
+    ws.relays.push({ id: relayId, at, message: relayed.join("\n"), delivered: false });
+    pushEvent(ws, now, "neutral", {
+      ar: "رسالة المالك ستُنقل للعامل بدون تذكرة",
+      en: "Owner's message will be relayed without a ticket",
+    });
+  }
+
+  const pending: PendingWorkerCall = {
+    id: uid("pwc"),
+    purpose: "instruction",
+    message: deliveryMessage?.trim() || instructions.map((item) => item.message).join("\n"),
+    taskTicketId: taskIds.length === 1 ? taskIds[0] : null,
+    relayId,
+    attempts: [],
+    nextAttemptAt: at,
+    state: "pending",
+    batchId,
+    coveredTaskIds: taskIds,
+  };
+  ws.pendingWorkerCalls.push(pending);
+  return { ws, pendingCallId: pending.id, taskIds, created: true };
+}
+
+/**
+ * Phase 7/8: at a task's scheduled time the AI calls the worker to verify completion.
+ * One call record per task. A repeated call returns that record and does not add another.
+ */
 export function startTaskVerification(input: Workspace, now: Date, taskId: string): { ws: Workspace; pendingCallId: string } {
+  const existing = input.pendingWorkerCalls.find(
+    (call) => call.purpose === "task_verification" && call.taskTicketId === taskId,
+  );
+  if (existing) return { ws: clone(input), pendingCallId: existing.id };
   const ws = clone(input);
   const task = ws.taskTickets.find((t) => t.id === taskId);
   const pending: PendingWorkerCall = {
@@ -388,6 +470,15 @@ export function resolveWorkerCallAttempt(
   return { ws, outcome: "no_answer_ticket" };
 }
 
+/** A closed task has nothing left to verify, so its retries stop and no No Answer Ticket follows. */
+function stopVerificationRetries(ws: Workspace, taskId: string) {
+  for (const call of ws.pendingWorkerCalls) {
+    if (call.purpose === "task_verification" && call.taskTicketId === taskId && call.state === "pending") {
+      Object.assign(call, { state: "delivered", nextAttemptAt: null });
+    }
+  }
+}
+
 /** Phase 8: only an explicit confirmation closes a Task Ticket. Deadlines never close it. */
 export function confirmTask(input: Workspace, now: Date, taskId: string, done: boolean, via: CallKind): Workspace {
   const ws = clone(input);
@@ -395,6 +486,7 @@ export function confirmTask(input: Workspace, now: Date, taskId: string, done: b
   if (!t || t.status !== "open") return ws;
   if (done) {
     Object.assign(t, { status: "closed", closedAt: iso(now), closedVia: via });
+    stopVerificationRetries(ws, t.id);
     pushEvent(ws, now, "success", {
       ar: `أكد العامل إنجاز المهمة — نُقلت للسجل: «${t.instruction}»`,
       en: `Worker confirmed the task — moved to History: “${t.instruction}”`,
@@ -417,6 +509,7 @@ export function completeWorkerCallback(input: Workspace, now: Date): Workspace {
   const ws = clone(input);
   const at = iso(now);
   const open = ws.noAnswerTickets.filter((t) => t.status === "open");
+  if (!open.length) return ws;
   for (const t of open) {
     Object.assign(t, { status: "closed", closedAt: at });
     for (const c of ws.pendingWorkerCalls) {

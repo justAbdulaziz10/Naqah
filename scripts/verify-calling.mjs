@@ -115,7 +115,7 @@ try {
   let reply = await webhook(request.Url, { CallSid: request.sid });
   const firstQuestion = action(reply.xml);
   reply = await webhook(firstQuestion, { CallSid: request.sid, SpeechResult: LOCALE === "ar" ? "ايوه" : "yes", Confidence: "0.1" });
-  check("low-confidence speech repeats the question without saving", /didn&apos;t catch|ما فهمت/.test(reply.xml) && sql(`select count(*) from reports where farm_id = ${quote(farm)}`) === "0");
+  check("low-confidence speech is accepted, with nothing saved yet", !/didn&apos;t catch|ما فهمت/.test(reply.xml) && sql(`select count(*) from reports where farm_id = ${quote(farm)}`) === "0");
   let confirmPath;
   let quantitiesConfirmed = 0;
   for (let turn = 0; turn < 30 && action(reply.xml); turn += 1) {

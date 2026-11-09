@@ -123,7 +123,7 @@ export function EstateMatters({ ws, matters, unanswered, reportAt, worker, now }
   // A calm day has no section at all: the estate header has already said so.
   if (!shownUnanswered.length && !shownMatters.length) return null;
   return (
-    <section aria-labelledby="estate-matters" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-6 sm:px-8 sm:py-7">
+    <section aria-labelledby="estate-matters" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-5 sm:px-8 sm:py-7">
       <h2 id="estate-matters" className="text-2xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{m.app.overview.attention}</h2>
       <ul className="mt-6 divide-y divide-stone/70">
         {shownUnanswered.map((ticket) => <UnansweredRow key={ticket.id} ws={ws} ticket={ticket} worker={worker} />)}

@@ -321,8 +321,8 @@ function PhoneStage({
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-cream/65">{m.lab.phone.caller}</p>
-            <p className="truncate text-lg font-bold">{caller.name}</p>
-            <p className={cn("truncate text-sm text-cream/70", !caller.naqah && "ltr-nums")}>{caller.subtitle}</p>
+            <p className="naqah-name text-lg font-bold">{caller.name}</p>
+            <p className={cn("naqah-name text-sm text-cream/70", !caller.naqah && "ltr-nums")}>{caller.subtitle}</p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-cream/75">
@@ -341,7 +341,7 @@ function PhoneStage({
             <div className="flex items-center gap-2">
               <SpeakerHigh size={16} className="text-cream/75" aria-hidden />
               <span className="text-xs font-semibold text-cream/80">{m.lab.phone.speakLines}</span>
-              <Switch checked={speakLines} onChange={setSpeakLines} label={m.lab.phone.speakLines} className="h-11 w-16" />
+              <Switch checked={speakLines} onChange={setSpeakLines} label={m.lab.phone.speakLines} />
             </div>
           ) : null}
         </div>

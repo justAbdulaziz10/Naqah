@@ -210,7 +210,7 @@ export const setup = defineMessages({
         retry: (time: string, attempt: number, of: number) => `No answer. NAQAH tries again at ${time} (${attempt} of ${of})`,
         answered: (worker: string) => `${worker} is on the report call`,
         missed: (worker: string) => `${worker} didn’t answer the last report call`,
-        unsaved: (worker: string) => `${worker} answered, but the call ended before the report was saved`,
+        unsaved: (worker: string) => `The call to ${worker} connected, but ended before the report was saved`,
       },
       callNowResult: {
         placed: (worker: string) => `NAQAH is calling ${worker}. The report appears here when the call ends.`,
@@ -431,7 +431,7 @@ export const setup = defineMessages({
         retry: (time: string, attempt: number, of: number) => `ما رد. ناقة تعيد الاتصال الساعة ${time} (${attempt} من ${of})`,
         answered: (worker: string) => `${worker} في مكالمة التقرير`,
         missed: (worker: string) => `${worker} ما رد على آخر مكالمة تقرير`,
-        unsaved: (worker: string) => `${worker} رد، لكن المكالمة انتهت قبل حفظ التقرير`,
+        unsaved: (worker: string) => `المكالمة مع ${worker} اتصلت، لكنها انتهت قبل حفظ التقرير`,
       },
       callNowResult: {
         placed: (worker: string) => `ناقة تتصل على ${worker}. يظهر التقرير هنا بعد نهاية المكالمة.`,

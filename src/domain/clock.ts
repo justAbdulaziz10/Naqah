@@ -16,6 +16,8 @@ export const MAX_RETRIES = 3;
 export const REPORT_CALL_RETRIES = 2;
 /** A scheduled slot is only called within this long after its time, so a late scheduler never calls hours later. */
 export const REPORT_CALL_GRACE_MS = 60 * 60 * 1000;
+/** How long Twilio lets a report call ring before giving up. */
+export const REPORT_CALL_RING_SECONDS = 60;
 
 /** Current time as the workspace sees it (includes the demo clock offset). */
 export function nowFor(ws: Pick<Workspace, "clockOffsetMs">, realNow = Date.now()): Date {

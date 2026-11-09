@@ -108,9 +108,15 @@
     outline-offset: 2px;
     border-radius: 6px;
   }
-  /* Numbers, phone numbers and ids always render left-to-right. */
+  /*
+   * Numbers, phone numbers and ids render left-to-right. Text with Arabic letters in it («1 من 4»,
+   * «5:40 م») takes its order from those letters, so it is never reversed. Inputs stay fixed.
+   */
   .ltr-nums {
     direction: ltr;
+    unicode-bidi: plaintext;
+  }
+  input.ltr-nums {
     unicode-bidi: isolate;
   }
 }

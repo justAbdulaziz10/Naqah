@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyWorkspace } from '@/domain/seed';
 import type { PendingWorkerCall } from '@/domain/types';
+import { voiceStep, type VoiceEvent } from '@/server/voice/contract';
 import { diffWorkspace, hasChanges } from './diff';
 import { toDbId } from './ids';
 import { historyRows, workspaceFromRows } from './mappers';
@@ -65,5 +66,46 @@ describe('pending call relational task mapping', () => {
     expect(loaded.taskTicketId).toBe(id('tsk_legacy'));
     if (explicit) expect(loaded.coveredTaskIds).toEqual([]);
     else expect(loaded).not.toHaveProperty('coveredTaskIds');
+  });
+  it('maps one Task C instruction batch onto one persisted call and rejects a replay', () => {
+    const now = new Date('2026-11-08T09:00:00Z');
+    const items = [
+      { message: 'Fill the water', actionable: true, scheduledFor: null },
+      { message: 'Check Wadhah tomorrow', actionable: true, scheduledFor: '2026-11-09T06:00:00.000Z' },
+      { message: 'Bring feed if it is low', actionable: true, scheduledFor: null },
+    ];
+    const event = (eventId: string): VoiceEvent => ({
+      version: 1, eventId, providerCallId: 'CA_LOCAL', type: 'owner_instruction',
+      message: items.map((item) => item.message).join('\n'), actionable: true, scheduledFor: null,
+      deliveryMessage: 'Tell the worker all three instructions', items,
+    });
+    const ultimate = createEmptyWorkspace('ultimate');
+    const saved = voiceStep(ultimate, now, event('local-group:ultimate'));
+    expect(saved.result).toEqual({ status: 'saved' });
+    expect(saved.ws.taskTickets.map((task) => task.instruction)).toEqual(items.map((item) => item.message));
+    expect(saved.ws.taskTickets.every((task) => task.status === 'open')).toBe(true);
+    expect(saved.ws.pendingWorkerCalls).toHaveLength(1);
+    const row = diffWorkspace(ultimate, saved.ws, farm).pending_worker_calls?.[0] as { batch_id?: string; covered_task_ids?: string[]; message?: string };
+    expect(row.batch_id).toBe('local-group:ultimate');
+    expect(row.message).toBe('Tell the worker all three instructions');
+    expect(row.covered_task_ids).toEqual(saved.ws.taskTickets.map((task) => id(task.id)));
+    expect(row.covered_task_ids?.join(' ')).not.toContain('Fill the water');
+    const replay = voiceStep(saved.ws, now, event('local-group:ultimate'));
+    expect(replay.result).toEqual({ status: 'unchanged' });
+    expect(replay.ws.taskTickets).toHaveLength(3);
+    expect(replay.ws.pendingWorkerCalls).toHaveLength(1);
+    expect(hasChanges(diffWorkspace(saved.ws, replay.ws, farm))).toBe(false);
+
+    const basicBefore = createEmptyWorkspace('basic');
+    const basic = voiceStep(basicBefore, now, event('local-group:basic'));
+    expect(basic.result).toEqual({ status: 'saved' });
+    expect(basic.ws.taskTickets).toHaveLength(0);
+    expect(basic.ws.relays).toHaveLength(1);
+    expect(basic.ws.pendingWorkerCalls).toHaveLength(1);
+    const basicRow = diffWorkspace(basicBefore, basic.ws, farm).pending_worker_calls?.[0] as { batch_id?: string; covered_task_ids?: string[] };
+    expect(basicRow.batch_id).toBe('local-group:basic');
+    expect(basicRow.covered_task_ids).toEqual([]);
+    expect(voiceStep(basic.ws, now, event('local-group:basic')).result).toEqual({ status: 'unchanged' });
+    expect(basic.ws.taskTickets).toHaveLength(0);
   });
 });

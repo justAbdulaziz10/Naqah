@@ -14,6 +14,8 @@ export interface OutboundCallRequest {
   statusCallback: string;
   /** Seconds to ring before Twilio reports no-answer. */
   timeoutSeconds?: number;
+  /** Twilio progress events to send to `statusCallback`; omitted, only the final status arrives. */
+  statusEvents?: ("initiated" | "ringing" | "answered" | "completed")[];
 }
 
 export type OutboundCallResult =
@@ -45,6 +47,7 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
         Timeout: String(request.timeoutSeconds ?? 30),
         Record: "false",
       });
+      for (const event of request.statusEvents ?? []) body.append("StatusCallbackEvent", event);
       if (request.url) {
         body.set("Url", request.url);
         body.set("Method", "POST");

@@ -22,7 +22,7 @@ function CallingVisual() {
           <p className="font-semibold leading-tight">{calling.title}</p>
           <p className="text-[0.875rem] text-muted">{calling.role}</p>
         </div>
-        <span className="ltr-nums text-[0.875rem] tabular-nums text-muted">17:40</span>
+        <span className="ltr-nums text-[0.875rem] tabular-nums text-muted">{m.landing.story.steps[0].time}</span>
       </div>
       <ol className="grid gap-2.5 p-5">
         {call.lines.map((line, index) => {

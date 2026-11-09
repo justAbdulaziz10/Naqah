@@ -175,7 +175,7 @@ export const lab = defineMessages({
       current: "بتوقيت الرياض",
       plus20: "+20 دقيقة",
       plusHour: "+ساعة",
-      nextDay: "غداً، 5:00 مساءً",
+      nextDay: "غداً، 5:00 م",
     },
     phone: {
       caller: "المتصل",
