@@ -6,6 +6,8 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { answer, start, type AnswerInput, type CallSession, type EngineResult } from "@/domain/conversation/engine";
+import { startLiveOwnerBriefing } from "@/domain/conversation/owner-briefing";
+import { startLiveWorkerDelivery } from "@/domain/conversation/worker-outbound";
 import { makePersonalizer, personalizeTree } from "@/domain/conversation/personalize";
 import type { ReportDraft } from "@/domain/findings";
 import type { Locale, Workspace } from "@/domain/types";
@@ -140,6 +142,38 @@ function eventFor(before: CallSession | null, result: EngineResult, input: Answe
   } else if (before.step === "callback_task_confirmation") {
     const taskId = before.data.callbackTaskIds?.[before.data.callbackTaskIndex ?? 0];
     return { ...base, eventId: `${callSid}:task:${taskId}`, type: "task_confirmation", taskId, done: input?.value === "yes", via: "worker_callback" };
+  } else if (before.scenario === "owner_notification" && before.step === "instruction_confirm") {
+    const items = before.data.pendingInstructions ?? [];
+    const message = items.map((item) => item.message).join("\n");
+    return {
+      ...base,
+      eventId: `owner-instructions:${before.data.reportId ?? callSid}`,
+      type: "owner_instruction",
+      message,
+      actionable: items.some((item) => item.actionable),
+      scheduledFor: null,
+      items,
+      deliveryMessage: message,
+    };
+  } else if (before.scenario === "worker_outbound" && before.data.currentCallId) {
+    const pendingCallId = before.data.currentCallId;
+    const eventId = `${callSid}:worker:${pendingCallId}`;
+    if (before.step === "outbound_answer") {
+      return { ...base, eventId, type: "worker_call_attempt", pendingCallId, answered: false };
+    }
+    if (before.step === "outbound_receipt" || before.step === "outbound_task_confirmation") {
+      return {
+        ...base,
+        eventId,
+        type: "worker_call_attempt",
+        pendingCallId,
+        answered: true,
+        completed: true,
+        ...(before.step === "outbound_task_confirmation" && before.data.currentTaskId
+          ? { taskId: before.data.currentTaskId, taskDone: input?.value === "yes" }
+          : {}),
+      };
+    }
   }
   throw new DbError("invalid_input", "call outcome has no voice event");
 }
@@ -235,10 +269,15 @@ export async function planTurn(
 
   const result = answer(session, workspace, now, chosen);
   const event = eventFor(session, result, chosen, callSid);
+  const saveParty = session.scenario === "owner_notification"
+    ? { party: "owner" as const, call: "notification" as const }
+    : session.scenario === "worker_outbound"
+      ? { party: "system" as const }
+      : row.party;
   let outcome: VoiceOutcome | null = null;
   if (event) {
     try {
-      outcome = await save(client, row.farm_id, row.party, event, now);
+      outcome = await save(client, row.farm_id, saveParty, event, now);
     } catch (error) {
       console.error(`[NAQAH] voice save failed (${error instanceof DbError ? error.code : "unknown"})`);
       const retry = row.misses === 0 && !(error instanceof DbError && error.code === "invalid_input");
@@ -392,6 +431,91 @@ export async function reportCallStatus(
   if (await boundElsewhere(client, token, callSid)) return;
   const base = { version: 1, eventId: `${callSid}:final:${status}`, providerCallId: callSid, reportCallId: token.r, attempt: token.n };
   const event = status === "completed" ? { ...base, type: "report_call_ended" } : { ...base, type: "report_call_attempt", answered: false };
+  await save(client, token.f, { party: "system" }, event, now);
+  await deleteVoiceSession(client, callSid);
+}
+
+async function openLiveCall(
+  client: SupabaseClient,
+  input: { farmId: string; callSid: string; locale: Locale; now: Date; party: "owner" | "worker"; result: EngineResult },
+): Promise<string> {
+  const { workspace } = requireFarm(await loadFarm(client, { id: input.farmId }));
+  const response = respond(input.result.session, 0, workspace, input.locale, 0);
+  if (input.result.session.done) return response;
+  const row = await createVoiceSession(client, {
+    call_sid: input.callSid,
+    farm_id: input.farmId,
+    party: input.party,
+    locale: input.locale,
+    session: withoutTranscript(input.result.session),
+    last_response: response,
+    created_at: input.now.toISOString(),
+  });
+  return row?.last_response ?? response;
+}
+
+/** The owner answered the summary call. Basic ends after the findings. Ultimate collects instructions. */
+export async function answerOwnerCall(
+  client: SupabaseClient,
+  input: { token: Extract<CallToken, { k: "owner" }>; callSid: string; now: Date },
+): Promise<string> {
+  const { token, callSid, now } = input;
+  const repeated = await readVoiceSession(client, callSid);
+  if (repeated) return repeated.farm_id === token.f ? repeated.last_response : twimlGoodbye(token.l);
+  const { workspace } = requireFarm(await loadFarm(client, { id: token.f }));
+  const report = workspace.reports.find((item) => item.id === token.r);
+  if (!report) return twimlGoodbye(token.l);
+  return openLiveCall(client, {
+    farmId: token.f,
+    callSid,
+    locale: token.l,
+    now,
+    party: "owner",
+    result: startLiveOwnerBriefing(workspace, now, report.id),
+  });
+}
+
+/** The worker answered an instruction or verification call reserved by the scheduler. */
+export async function answerWorkerCall(
+  client: SupabaseClient,
+  input: { token: Extract<CallToken, { k: "worker" }>; callSid: string; now: Date },
+): Promise<string> {
+  const { token, callSid, now } = input;
+  const repeated = await readVoiceSession(client, callSid);
+  if (repeated) return repeated.farm_id === token.f ? repeated.last_response : twimlGoodbye(token.l);
+  const { workspace } = requireFarm(await loadFarm(client, { id: token.f }));
+  const call = workspace.pendingWorkerCalls.find((item) => item.id === token.p && item.state === "pending");
+  if (!call || call.attempts.length + 1 !== token.n) return twimlGoodbye(token.l);
+  return openLiveCall(client, {
+    farmId: token.f,
+    callSid,
+    locale: token.l,
+    now,
+    party: "worker",
+    result: startLiveWorkerDelivery(workspace, now, call.id),
+  });
+}
+
+/**
+ * Final status of an instruction or verification call.
+ * Picking up is not delivery. The conversation records delivery with this same event id;
+ * a status that arrives afterwards is a replay and cannot mark the call delivered.
+ */
+export async function workerCallStatus(
+  client: SupabaseClient,
+  input: { token: Extract<CallToken, { k: "worker" }>; callSid: string; status: string; now: Date },
+): Promise<void> {
+  const { token, callSid, status, now } = input;
+  if (!FINAL_STATUSES.has(status)) return;
+  const event = {
+    version: 1,
+    eventId: `${callSid}:worker:${token.p}`,
+    providerCallId: callSid,
+    type: "worker_call_attempt",
+    pendingCallId: token.p,
+    answered: status === "completed",
+    completed: false,
+  };
   await save(client, token.f, { party: "system" }, event, now);
   await deleteVoiceSession(client, callSid);
 }

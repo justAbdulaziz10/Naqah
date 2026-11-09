@@ -34,15 +34,21 @@ export async function findCaller(client: SupabaseClient, rawPhone: string): Prom
  * still ringing or waiting for a retry. The domain decides what is actually due (reportCalls.ts).
  */
 export async function listScheduledFarmIds(client: SupabaseClient): Promise<string[]> {
-  const [scheduled, active] = await Promise.all([
+  const [scheduled, active, summaries, workerCalls] = await Promise.all([
     client.from("farms").select("id").eq("setup_complete", true).not("call_time", "is", null).limit(5000),
     client.from("report_call_runs").select("farm_id").in("state", ["calling", "answered"]).limit(5000),
+    client.from("farms").select("id").not("owner_summary_not_before", "is", null).limit(5000),
+    client.from("pending_worker_calls").select("farm_id").eq("state", "pending").limit(5000),
   ]);
   if (scheduled.error) throw fromPostgrest(scheduled.error);
   if (active.error) throw fromPostgrest(active.error);
+  if (summaries.error) throw fromPostgrest(summaries.error);
+  if (workerCalls.error) throw fromPostgrest(workerCalls.error);
   return [...new Set([
     ...(scheduled.data ?? []).map((row) => row.id as string),
     ...(active.data ?? []).map((row) => row.farm_id as string),
+    ...(summaries.data ?? []).map((row) => row.id as string),
+    ...(workerCalls.data ?? []).map((row) => row.farm_id as string),
   ])];
 }
 

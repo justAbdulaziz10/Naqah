@@ -92,6 +92,8 @@ export function ReportCallFields({ ws, onChange, showErrors = false }: SetupFiel
         </StepField>
       </div>
 
+      <OwnerCallFields ws={ws} onChange={onChange} showErrors={showErrors} />
+
       <div className="border-t border-stone/80 pt-5">
         <WeekStrip plan={plan} schedule={schedule} now={now} className="max-w-md" />
         <div aria-live="polite">
@@ -102,6 +104,66 @@ export function ReportCallFields({ ws, onChange, showErrors = false }: SetupFiel
             </div>
           ) : null}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** When NAQAH calls the owner. This is not the worker's report time. */
+function OwnerCallFields({ ws, onChange, showErrors = false }: SetupFieldsProps) {
+  const { m, t } = useI18n();
+  const s = m.setup.call;
+  const weekly = ws.settings.plan === "basic";
+  const schedule = ws.settings.ownerCallSchedule ?? null;
+  const needsDay = weekly && (schedule?.day ?? null) === null && (showErrors || Boolean(schedule?.time));
+  const needsTime = showErrors && !schedule?.time;
+
+  function updateSchedule(patch: Partial<CallSchedule>) {
+    onChange((current) => {
+      const previous = current.settings.ownerCallSchedule;
+      const next: CallSchedule = { day: previous?.day ?? null, time: previous?.time ?? "", ...patch };
+      return { ...current, settings: { ...current.settings, ownerCallSchedule: next } };
+    });
+  }
+
+  return (
+    <div className="space-y-4 border-t border-stone/80 pt-5">
+      <div>
+        <h3 className="text-lg font-semibold text-espresso">{s.ownerTitle}</h3>
+        <p className="mt-1 text-muted">{s.ownerLead}</p>
+      </div>
+      <div className={cn("grid gap-x-5 gap-y-5", weekly ? "grid-cols-2" : "sm:grid-cols-2")}>
+        {weekly ? (
+          <StepField label={s.ownerDay} error={needsDay && showErrors ? s.needDay : undefined}>
+            {({ id, describedBy }) => (
+              <StepSelect
+                id={id}
+                aria-describedby={describedBy}
+                aria-invalid={(needsDay && showErrors) || undefined}
+                value={schedule?.day ?? ""}
+                onChange={(event) => updateSchedule({ day: Number(event.target.value) as Weekday })}
+              >
+                <option value="" disabled>{s.chooseDay}</option>
+                {WEEKDAY_LABELS.map((label, index) => <option key={index} value={index}>{t(label)}</option>)}
+              </StepSelect>
+            )}
+          </StepField>
+        ) : null}
+        <StepField label={s.ownerTime} hint={s.timeHint} error={needsTime ? s.needTime : undefined}>
+          {({ id, describedBy }) => (
+            <StepInput
+              id={id}
+              type="time"
+              dir="ltr"
+              required
+              className={cn("ltr-nums", needsTime && "border-danger")}
+              aria-invalid={needsTime || undefined}
+              aria-describedby={describedBy}
+              value={schedule?.time ?? ""}
+              onChange={(event) => updateSchedule({ time: event.target.value })}
+            />
+          )}
+        </StepField>
       </div>
     </div>
   );

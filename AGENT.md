@@ -28,11 +28,11 @@ Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. P
 | Registered workers / herd | up to **3** workers; the owner keeps the official herd count, a worker's count is a proposal | up to **10** workers; same |
 | Owner calls the AI | **one call per week** (an answered notification call consumes it) | unlimited |
 | Missed notification | owner may call back **once** (this MVP counts it as the weekly call — *open decision*) | unlimited anyway |
-| Owner instructions during post-update call | relayed to the worker, **no ticket** | actionable → **Task Ticket** (OPEN) with a time or "any time"; information-only → no ticket |
+| Owner summary call | weekly, at the owner's own day and time, after the report is saved. Summary, then the call ends. No instruction question and no task tickets | daily, at the owner's own time. Summary, then spoken instructions. Information is relayed with no ticket. An executable instruction becomes one **Task Ticket**. One grouped worker call delivers the confirmed batch |
 | Task tickets | — | close **only** when the worker explicitly confirms; deadlines never close them; closed → History |
 | Task verification | — | scheduled time → AI calls the worker; "any time" → asked during later worker interactions |
-| AI → worker no answer | retry after **20 min**, up to **3 retries**, then **No Answer Ticket** | same |
-| Worker returns missed call | always answered (even outside the window); delivers missed messages; closes the No Answer Ticket; **not** a farm update and does not consume the report | same |
+| AI → worker no answer | **3 attempts total**, 20 min apart, then stop. No new No Answer Ticket. | same |
+| Worker returns missed call | always answered (even outside the window); delivers missed messages; closes a **historical** No Answer Ticket if one is still open. No new ticket is created. **Not** a farm update and does not consume the report | same |
 | Emergency | worker calls the owner **directly** — never through the AI | same |
 
 Agent behavior (from `NAQAH_AI_Agent_Identity_DRAFT_v0.1`): identifies itself as automated; one question at a time;
@@ -164,12 +164,12 @@ action plugs into a webhook.
 
 Copied from the specs — the MVP picks a placeholder behavior and marks it in code with `OPEN DECISION`:
 1. Basic missed-notification callback: does it consume the weekly owner call? (MVP: yes)
-2. Can Basic relay instructions without tickets? (MVP: yes, per diagram f3)
+2. Can Basic relay instructions without tickets? **No.** Basic does not ask for or relay instructions. (Supersedes diagram f3.)
 3. Exact response when Basic's owner allowance is used. (MVP: polite refusal + "details are on the website")
 4. Unregistered caller handling. (MVP: Call Lab only simulates the registered worker)
 5. Ultimate second daily report attempt. (MVP: politely rejected)
 6. Whether tasks can be created during owner-initiated inquiry calls. (MVP: no)
-7. Retry scope/exhaustion beyond the No Answer Ticket. (MVP: ticket stays open until callback)
+7. Retry exhaustion. **Settled:** three worker attempts, 20 minutes apart, then stop. No new No Answer Ticket. Open tasks stay open. Historical tickets still close when the worker calls back.
 8. How emergency categories are used during calls. (MVP: shown to the owner; worker calls owner directly)
 9. Predefined question categories and wording. (MVP: DRAFT in `catalog.ts`)
 10. AI model, voice/telephony provider and payment processing. (MVP: none — simulated; display-only plan prices are set below)
@@ -227,10 +227,10 @@ The implemented contract is `docs/integrations/voice-data-contract.md`.
 | Report call answered / ended (built) | `POST /api/voice/outbound`, `/api/voice/outbound/status` (signed token, not caller ID) | report conversation, `resolveReportCallAttempt` (20 min × 2 retries → missed), `endReportCallWithoutReport` |
 | Worker calls in | `POST /api/voice/inbound` (caller = worker) | `routeWorkerInboundCall` → callback / returned missed report call / "NAQAH will call you" |
 | Report finished | tool `save_report` | `evaluateFindings`, `completeWorkerReport` |
-| Notify owner | outbound call right after save | `ownerBriefing`, `recordOwnerNotification(answered)` |
-| Owner gives instruction | tool `submit_instruction` | `submitOwnerInstruction` (Ultimate actionable → task ticket) |
-| Instruction retries (not dialled yet) | a future cron | `dueWorkerCalls`, `resolveWorkerCallAttempt` (20 min × 3 → No Answer ticket) |
-| Scheduled task check (not dialled yet) | a future cron | `dueTaskVerifications`, `startTaskVerification`, `confirmTask` |
+| Notify owner | same cron, when `owner_summary_not_before` is due. Not inside the report webhook | `queueOwnerSummary`, `claimDueOwnerSummary`, `/api/voice/owner` |
+| Owner gives instruction | spoken on that Ultimate call, saved only after confirmation | `submitOwnerInstructionBatch` (executable → task ticket; information → no ticket; one worker call) |
+| Instruction or verification call | same cron. Answering is not delivery | `claimDueWorkerCall`, `/api/voice/worker`, `resolveWorkerCallAttempt` (`delivered` only when `completed`) |
+| Scheduled task check | the same worker call, after the instruction was delivered | `dueTaskVerifications`, `startTaskVerification`, `confirmTask` on an explicit yes |
 | Worker returns missed call | `POST /api/voice/inbound` | `completeWorkerCallback` (not a farm update) |
 | Owner calls in | `POST /api/voice/inbound` (caller = owner) | `routeOwnerInboundCall` → `recordOwnerInquiry` / `rejectOwnerInquiry` |
 | Emergency | none: the worker calls the owner directly | — |

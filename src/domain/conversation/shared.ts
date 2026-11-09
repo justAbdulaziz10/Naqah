@@ -58,6 +58,7 @@ export interface ConversationData {
   startedReportCallId?: string;
   reportId?: string;
   instruction?: string;
+  pendingInstructions?: { message: string; actionable: boolean; scheduledFor: string | null }[];
   actionable?: boolean;
   scheduledFor?: string | null;
   /** Riyadh calendar day (YYYY-MM-DD) chosen for a scheduled task. */
@@ -66,6 +67,10 @@ export interface ConversationData {
   startedVerificationCallIds?: string[];
   pendingIndex?: number;
   currentCallId?: string;
+  /** The task a live verification call is asking about. */
+  currentTaskId?: string;
+  /** Set once this telephone call confirmed delivery, so a later status callback cannot record it again. */
+  deliveryCompleted?: boolean;
   inquiryTopics?: string[];
   callbackTaskIds?: string[];
   callbackTaskIndex?: number;

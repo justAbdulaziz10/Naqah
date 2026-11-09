@@ -8,17 +8,18 @@ import { useI18n } from "@/i18n/client";
 import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
 import { isSaudiMobile } from "./phone";
 
-export type CallSetupGap = "owner" | "farm" | "worker" | "schedule";
+export type CallSetupGap = "owner" | "farm" | "worker" | "schedule" | "ownerSchedule";
 
 /** What NAQAH still needs before it could call: the owner, the ranch name, the called worker and the call time. */
 export function getCallSetupGaps(ws: Workspace): CallSetupGap[] {
   const gaps: CallSetupGap[] = [];
-  const { owner, farm, worker, plan, callSchedule } = ws.settings;
+  const { owner, farm, worker, plan, callSchedule, ownerCallSchedule } = ws.settings;
 
   if (!owner.name.trim() || !isSaudiMobile(owner.phone)) gaps.push("owner");
   if (!farm.name.trim()) gaps.push("farm");
   if (!worker.name.trim() || !isSaudiMobile(worker.phone)) gaps.push("worker");
   if (!isCompleteCallSchedule(plan, callSchedule)) gaps.push("schedule");
+  if (!isCompleteCallSchedule(plan, ownerCallSchedule)) gaps.push("ownerSchedule");
 
   return gaps;
 }

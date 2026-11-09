@@ -129,6 +129,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
   ];
   // NAQAH calls the worker at the end of the workday: Basic every Thursday, Ultimate every day.
   ws.settings.callSchedule = { day: plan === "basic" ? 4 : null, time: "17:00" };
+  ws.settings.ownerCallSchedule = { day: plan === "basic" ? 4 : null, time: "19:00" };
 
   ws.settings.herdCount = 42;
   ws.camels = CAMELS[locale].map(([name, tag, sex, age]) => ({

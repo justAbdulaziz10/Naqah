@@ -50,7 +50,7 @@ How the telephony layer (Twilio + voice model) reports to the farm. Code:
 | `owner_instruction` | `message`, `actionable`, `scheduledFor`, optional `items` and `deliveryMessage` | `submitOwnerInstruction`; with `items`, `submitOwnerInstructionBatch` (one worker call, a replayed `eventId` changes nothing) |
 | `owner_notification` | `reportId`, `answered` | `recordOwnerNotification` |
 | `task_verification_start` | `taskId` | `startTaskVerification`, once per task |
-| `worker_call_attempt` | `pendingCallId`, `answered` | `resolveWorkerCallAttempt` (20 min × 3, then No Answer ticket) |
+| `worker_call_attempt` | `pendingCallId`, `answered`, optional `completed`, optional `taskId` and `taskDone` | `answered` without `completed` is an interruption, not delivery. `completed` delivers. `taskDone` closes a task only when it is true. 3 attempts total, 20 min apart, then stop; no new No Answer ticket |
 | `report_call_attempt` | `reportCallId`, `attempt`, `answered` | `resolveReportCallAttempt` (20 min × 2 retries, then missed); a callback for another attempt is ignored |
 
 `worker_report`, `worker_callback` and `task_confirmation` come from the worker's call;

@@ -98,14 +98,10 @@ describe('pending call relational task mapping', () => {
 
     const basicBefore = createEmptyWorkspace('basic');
     const basic = voiceStep(basicBefore, now, event('local-group:basic'));
-    expect(basic.result).toEqual({ status: 'saved' });
+    expect(basic.result).toEqual({ status: 'unchanged' });
     expect(basic.ws.taskTickets).toHaveLength(0);
-    expect(basic.ws.relays).toHaveLength(1);
-    expect(basic.ws.pendingWorkerCalls).toHaveLength(1);
-    const basicRow = diffWorkspace(basicBefore, basic.ws, farm).pending_worker_calls?.[0] as { batch_id?: string; covered_task_ids?: string[] };
-    expect(basicRow.batch_id).toBe('local-group:basic');
-    expect(basicRow.covered_task_ids).toEqual([]);
-    expect(voiceStep(basic.ws, now, event('local-group:basic')).result).toEqual({ status: 'unchanged' });
-    expect(basic.ws.taskTickets).toHaveLength(0);
+    expect(basic.ws.relays).toHaveLength(0);
+    expect(basic.ws.pendingWorkerCalls).toHaveLength(0);
+    expect(hasChanges(diffWorkspace(basicBefore, basic.ws, farm))).toBe(false);
   });
 });

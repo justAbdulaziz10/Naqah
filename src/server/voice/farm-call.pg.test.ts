@@ -443,6 +443,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
     });
     it("places only one owner notification when confirmation webhooks arrive concurrently", async () => {
       const farm = seedFarm({ owner: "+15555550102" });
+      sql(`update farms set owner_call_time = '00:00', owner_call_day = null where id = ${q(farm.id)}`);
       vi.stubEnv("NAQAH_CALL_OWNER", "1");
       vi.stubEnv("TWILIO_ACCOUNT_SID", `AC${"0".repeat(32)}`);
       vi.stubEnv("TWILIO_PHONE_NUMBER", "+15555550100");
@@ -632,24 +633,19 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
         const pending = sql(`insert into pending_worker_calls (farm_id, purpose, message, next_attempt_at)
           values (${q(farm.id)}, 'instruction', 'Move the herd', ${q(SUNDAY.toISOString())}) returning id`).split("\n")[0];
         const client = createServiceClient()!;
-        for (let attempt = 0; attempt < 4; attempt += 1) {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
           const now = new Date(SUNDAY.getTime() + attempt * 20 * 60_000);
           vi.setSystemTime(now);
           const event = { version: 1 as const, eventId: `${pending}:${attempt}`, providerCallId: sid(), type: "worker_call_attempt" as const, pendingCallId: pending, answered: false };
           expect((await applyVoiceEvent(client, farm.id, { party: "system" }, event, now)).status).toBe("saved");
           await applyVoiceEvent(client, farm.id, { party: "system" }, event, now);
           expect(count(`worker_call_attempts where pending_call_id = ${q(pending)}`)).toBe(attempt + 1);
-          if (attempt < 3) {
+          if (attempt < 2) {
             expect(sql(`select extract(epoch from next_attempt_at)::bigint from pending_worker_calls where id = ${q(pending)}`)).toBe(String((now.getTime() + 20 * 60_000) / 1000));
-            expect(count(`no_answer_tickets where farm_id = ${q(farm.id)}`)).toBe(0);
           }
+          expect(count(`no_answer_tickets where farm_id = ${q(farm.id)}`)).toBe(0);
         }
-        expect(count(`no_answer_tickets where farm_id = ${q(farm.id)} and status = 'open'`)).toBe(1);
         expect(sql(`select next_attempt_at is null from pending_worker_calls where id = ${q(pending)}`)).toBe("t");
-        const call = await new Call(farm.worker).start();
-        expect(call.text).toContain("Move the herd");
-        await call.press("1");
-        expect(count(`no_answer_tickets where farm_id = ${q(farm.id)} and status = 'closed'`)).toBe(1);
         expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(0);
       });
       function missedCall(farm: Farm, overdue?: string) {

@@ -33,7 +33,10 @@ export function stepNeedsFixing(key: WizardStepKey, ws: Workspace): boolean {
     return !worker.name.trim() || !worker.phone.trim() || allWorkers(ws.settings).some((item) => phoneNeedsFixing(item.phone));
   }
   // The scheduler only calls farms with a complete schedule, so setup doesn't finish without one.
-  if (key === "call") return !isCompleteCallSchedule(ws.settings.plan, ws.settings.callSchedule);
+  if (key === "call") {
+    return !isCompleteCallSchedule(ws.settings.plan, ws.settings.callSchedule)
+      || !isCompleteCallSchedule(ws.settings.plan, ws.settings.ownerCallSchedule);
+  }
   return false;
 }
 

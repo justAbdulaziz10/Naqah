@@ -278,7 +278,7 @@ export interface NoAnswerTicket {
 
 /**
  * An AI → worker call that may need retries
- * (initial attempt + up to 3 retries, 20 minutes apart, then a No Answer Ticket).
+ * (3 attempts total, 20 minutes apart, then stop; no new No Answer Ticket).
  */
 export interface PendingWorkerCall {
   id: string;
@@ -354,6 +354,8 @@ export interface Settings {
   window: ReportingWindow | null;
   /** NAQAH → worker report call time. Optional: older workspaces lack it. */
   callSchedule?: CallSchedule | null;
+  /** When NAQAH calls the owner with the saved report. Separate from the worker's report time. */
+  ownerCallSchedule?: CallSchedule | null;
   integrations?: Integrations;
 }
 
@@ -368,6 +370,8 @@ export interface Workspace {
   /** Time of the latest successful farm update. */
   lastUpdateAt: string | null;
   reports: FarmReport[];
+  /** One queued owner summary. A newer saved report replaces it. Absent on older workspaces. */
+  ownerSummary?: { reportId: string; notBefore: string } | null;
   calls: CallLog[];
   taskTickets: TaskTicket[];
   noAnswerTickets: NoAnswerTicket[];

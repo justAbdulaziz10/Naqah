@@ -56,6 +56,85 @@ describe("report-call scheduler", () => {
   });
 });
 
+describe("worker instruction and verification dialing", () => {
+  const pendingId = "22222222-2222-4222-8222-222222222222";
+
+  beforeEach(() => {
+    store.ws.pendingWorkerCalls = [{
+      id: pendingId,
+      purpose: "instruction",
+      message: "Move Wadha to the shade",
+      taskTicketId: null,
+      relayId: null,
+      attempts: [],
+      nextAttemptAt: now.toISOString(),
+      state: "pending",
+    }];
+  });
+
+  it("dials a due instruction once and does not dial it again while the claim is held", async () => {
+    const { caller, requests } = recordingCaller();
+    expect(await runReportCallScheduler({} as never, caller, options)).toMatchObject({ placed: 2, failed: 0 });
+    const worker = requests.find((request) => request.url?.includes("/api/voice/worker"));
+    expect(worker?.to).toBe("+966501234567");
+    const token = verifyCallToken(new URL(worker!.url!).searchParams.get("s"), SECRET, now.getTime());
+    expect(token).toMatchObject({ k: "worker", f: FARM, p: pendingId, n: 1 });
+    expect(store.ws.pendingWorkerCalls[0].attempts).toHaveLength(0);
+    expect(store.ws.pendingWorkerCalls[0].state).toBe("pending");
+
+    const again = recordingCaller();
+    expect(await runReportCallScheduler({} as never, again.caller, options)).toMatchObject({ placed: 0 });
+    expect(again.requests).toHaveLength(0);
+  });
+
+  it("releases the claim when Twilio refuses, so the attempt was not used", async () => {
+    const { caller } = recordingCaller(() => ({ placed: false, reason: "rejected", status: 400 }));
+    const result = await runReportCallScheduler({} as never, caller, options);
+    expect(result.failed).toBeGreaterThan(0);
+    expect(store.ws.pendingWorkerCalls[0].attempts).toHaveLength(0);
+    expect(new Date(store.ws.pendingWorkerCalls[0].nextAttemptAt!).getTime()).toBe(now.getTime());
+  });
+});
+
+describe("scheduled owner summary", () => {
+  const reportId = "33333333-3333-4333-8333-333333333333";
+
+  beforeEach(() => {
+    vi.stubEnv("NAQAH_CALL_OWNER", "1");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", `AC${"1".repeat(32)}`);
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15555550100");
+    vi.stubEnv("NAQAH_PUBLIC_BASE_URL", "https://naqah.test");
+    store.ws.reports = [{ id: reportId, at: now.toISOString(), callId: "c", answers: [], findings: [] }];
+    store.ws.lastUpdateAt = now.toISOString();
+    store.ws.settings.owner.phone = "+966550123344";
+    store.ws.settings.ownerCallSchedule = { day: 4, time: "19:00" };
+  });
+
+  it("dials a due summary as a conversation URL and does not dial it twice", async () => {
+    store.ws.ownerSummary = { reportId, notBefore: now.toISOString() };
+    const { caller, requests } = recordingCaller();
+    expect(await runReportCallScheduler({} as never, caller, options)).toEqual({ farms: 1, placed: 1, failed: 0, errors: 0 });
+    expect(requests).toHaveLength(1);
+    expect(requests[0].url).toContain("https://naqah.test/api/voice/owner?s=");
+    expect(requests[0].twiml).toBeUndefined();
+    expect(requests[0].to).toBe("+966550123344");
+    expect(store.ws.ownerSummary).toBeNull();
+
+    const again = recordingCaller();
+    expect(await runReportCallScheduler({} as never, again.caller, options)).toMatchObject({ placed: 0 });
+    expect(again.requests).toHaveLength(0);
+  });
+
+  it("waits when the owner's chosen time is still ahead", async () => {
+    store.ws.ownerSummary = { reportId, notBefore: new Date(now.getTime() + 60 * 60_000).toISOString() };
+    const { caller, requests } = recordingCaller();
+    expect(await runReportCallScheduler({} as never, caller, options)).toMatchObject({ placed: 0 });
+    expect(requests).toHaveLength(0);
+    expect(store.ws.ownerSummary?.reportId).toBe(reportId);
+  });
+});
+
 describe("owner's Call now", () => {
   it("dials the saved primary worker and refuses a second call while one is in progress", async () => {
     const { caller, requests } = recordingCaller();

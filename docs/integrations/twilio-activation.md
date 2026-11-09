@@ -89,7 +89,7 @@ schedule (`farms.call_day` / `call_time`, Asia/Riyadh): Basic once a week, Ultim
    Each unanswered attempt is a `worker_report_missed` call.
 6. **Answered then hung up before saving** (`completed` with the run still answered): the run ends
    `missed`; nothing is saved.
-7. **The worker phones in.** A No Answer ticket is delivered first. If the worker missed this
+7. **The worker phones in.** An existing open No Answer ticket is delivered first. New missed calls do not create one. If the worker missed this
    period's report call, their call takes the report. Otherwise NAQAH thanks them and says when it
    will call.
 8. **Owner update call** (optional, paid): with `NAQAH_CALL_OWNER=1`, after a saved report NAQAH calls
@@ -293,8 +293,9 @@ that farm's history.
   scheduler once one exists.
 - **Quantity units.** Stored and spoken in English even on an Arabic call: «العلف: كافٍ (12 bags)».
 - **Heat-day question.** Weather isn't stored on the server, so real calls don't ask it.
-- **Instruction and task-verification calls.** The scheduler places report calls only. Owner
-  instructions and scheduled task checks (`pending_worker_calls`) are not dialled yet.
+- **Instruction and task-verification calls.** The report-call cron also dials one due
+  `pending_worker_calls` row and one due owner summary. Answering the phone is not delivery.
+  Delivery is the conversation's confirmation. A hang-up before that is an interrupted attempt.
 - **Answering machines.** A voicemail that picks up counts as answered; the questions play to it and
   the run ends unsaved. Twilio `MachineDetection` is not enabled.
 - **Owner update call.** It reads the findings and hangs up; owner instructions by phone after a

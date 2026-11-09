@@ -40,7 +40,7 @@ export type VoiceEvent = { version: 1; eventId: string; providerCallId: string }
       deliveryMessage?: string;
     }
   | { type: "task_verification_start"; taskId: string }
-  | { type: "worker_call_attempt"; pendingCallId: string; answered: boolean }
+  | { type: "worker_call_attempt"; pendingCallId: string; answered: boolean; completed?: boolean; taskId?: string; taskDone?: boolean }
   | { type: "report_call_attempt"; reportCallId: string; attempt: number; answered: boolean }
   /** The report call ended without a saved report. `attempt` set: from Twilio's final status. */
   | { type: "report_call_ended"; reportCallId: string; attempt?: number }
@@ -210,7 +210,15 @@ export function parseVoiceEvent(value: unknown): VoiceEvent {
     case "task_verification_start":
       return { ...base, type: "task_verification_start", taskId: uuid(input.taskId, "taskId") };
     case "worker_call_attempt":
-      return { ...base, type: "worker_call_attempt", pendingCallId: uuid(input.pendingCallId, "pendingCallId"), answered: bool(input.answered, "answered") };
+      return {
+        ...base,
+        type: "worker_call_attempt",
+        pendingCallId: uuid(input.pendingCallId, "pendingCallId"),
+        answered: bool(input.answered, "answered"),
+        ...(input.completed === undefined ? {} : { completed: bool(input.completed, "completed") }),
+        ...(input.taskId === undefined ? {} : { taskId: uuid(input.taskId, "taskId") }),
+        ...(input.taskDone === undefined ? {} : { taskDone: bool(input.taskDone, "taskDone") }),
+      };
     case "report_call_attempt":
       return {
         ...base,
@@ -321,8 +329,16 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
       if (!tasksToVerify(ws, now).some((task) => task.id === event.taskId)) return { ws, result: saved };
       return { ws: startTaskVerification(ws, now, event.taskId).ws, result: saved };
     case "worker_call_attempt": {
-      const attempt = resolveWorkerCallAttempt(ws, now, event.pendingCallId, event.answered);
-      return { ws: attempt.ws, result: { status: "saved", detail: attempt.outcome } };
+      const attempt = resolveWorkerCallAttempt(
+        ws,
+        now,
+        event.pendingCallId,
+        event.answered ? (event.completed ? "delivered" : "interrupted") : "unanswered",
+      );
+      const confirmed = event.completed && event.taskId && event.taskDone !== undefined
+        ? confirmTask(attempt.ws, now, event.taskId, event.taskDone, "worker_task_verification")
+        : attempt.ws;
+      return { ws: confirmed, result: { status: "saved", detail: attempt.outcome } };
     }
     case "report_call_attempt": {
       const run = reportCallRuns(ws).find((item) => item.id === event.reportCallId);

@@ -68,6 +68,10 @@ export function diffWorkspace(
   if (before.lastUpdateAt !== after.lastUpdateAt) farm.last_update_at = after.lastUpdateAt;
   if (before.ownerAllowanceUsedAt !== after.ownerAllowanceUsedAt) farm.owner_allowance_used_at = after.ownerAllowanceUsedAt;
   if (before.missedNotificationAt !== after.missedNotificationAt) farm.missed_notification_at = after.missedNotificationAt;
+  if (!same(before.ownerSummary ?? null, after.ownerSummary ?? null)) {
+    farm.owner_summary_report_id = after.ownerSummary ? toDbIdFor(farmId, after.ownerSummary.reportId) : null;
+    farm.owner_summary_not_before = after.ownerSummary?.notBefore ?? null;
+  }
 
   const changes: FarmChanges = {
     task_tickets: changed(b.taskTickets, a.taskTickets, id),

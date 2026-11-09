@@ -1,11 +1,35 @@
-import { recordOwnerNotification, submitOwnerInstruction } from "../actions";
+import { recordOwnerNotification, submitOwnerInstructionBatch } from "../actions";
 import { dayKey, fromRiyadh, riyadhParts } from "../clock";
 import { ownerBriefing } from "../findings";
 import { taskTicketsEnabled } from "../rules";
 import type { LocalizedText, Workspace } from "../types";
 
-import { copy, reply, blank, ask, say, addNotice, commitTo, workerTurn } from './shared';
+import { copy, reply, blank, ask, say, commitTo, workerTurn } from './shared';
 import type { CallSession, EngineResult, AnswerInput } from './shared';
+
+/**
+ * The real outbound owner call. The owner already answered, so there is no "would you like to answer" step.
+ * Basic hears the findings and the call ends. Ultimate is asked for instructions and nothing is saved before confirmation.
+ * The status callback records the notification; this start does not.
+ */
+export function startLiveOwnerBriefing(ws: Workspace, now: Date, reportId: string): EngineResult {
+  const report = ws.reports.find((item) => item.id === reportId);
+  const briefing = ownerBriefing(report?.findings ?? []);
+  const session = { ...blank("owner_notification", now), data: { reportId } };
+  const told = say(session, briefing, now);
+  if (!taskTicketsEnabled(ws)) {
+    return { session: say(told, copy("That's the update. Thank you.", "هذا التحديث. شكراً لك."), now, true) };
+  }
+  return {
+    session: ask(
+      told,
+      copy("Do you have any instructions for the worker?", "هل عندك أي تعليمات تبي أقولها للعامل؟"),
+      now,
+      "instruction_yesno",
+      [reply("instruction_yes", "Yes, I do", "إيه"), reply("instruction_no", "No, thanks", "لا، شكراً")],
+    ),
+  };
+}
 
 export function startOwnerNotification(ws: Workspace, now: Date, requestedReportId?: string): EngineResult {
   const report = requestedReportId
@@ -49,10 +73,17 @@ export function handleOwnerNotification(session: CallSession, ws: Workspace, now
     const updated = recordOwnerNotification(ws, now, reportId, true);
     const report = ws.reports.find((item) => item.id === reportId);
     const briefing = ownerBriefing(report?.findings ?? []);
+    const told = say(current.session, briefing, now);
+    if (!taskTicketsEnabled(ws)) {
+      return {
+        session: say(told, copy("That's the update. Thank you.", "هذا التحديث. شكراً لك."), now, true),
+        commit: commitTo(updated),
+      };
+    }
     return {
       session: ask(
-        say(current.session, briefing, now),
-        copy("Do you have any instructions for Ahmed?", "عندك أي تعليمات لأحمد؟"),
+        told,
+        copy("Do you have any instructions for the worker?", "هل عندك أي تعليمات تبي أقولها للعامل؟"),
         now,
         "instruction_yesno",
         [reply("instruction_yes", "Yes, I do", "إيه"), reply("instruction_no", "No, thanks", "لا، شكراً")],
@@ -114,10 +145,10 @@ export function handleOwnerNotification(session: CallSession, ws: Workspace, now
         ),
       };
     }
-    return submitInstruction(next, ws, now, actionable, null);
+    return rememberInstruction(next, now, actionable, null);
   }
   if (session.step === "instruction_schedule") {
-    if (current.value === "any_time") return submitInstruction(current.session, ws, now, true, null);
+    if (current.value === "any_time") return rememberInstruction(current.session, now, true, null);
     if (current.value === "future_date") {
       return {
         session: ask(
@@ -138,7 +169,7 @@ export function handleOwnerNotification(session: CallSession, ws: Workspace, now
     return { session: askScheduleTime({ ...current.session, data: { ...current.session.data, scheduleDay: day } }, now) };
   }
   if (session.step === "instruction_date") {
-    if (current.value === "any_time") return submitInstruction(current.session, ws, now, true, null);
+    if (current.value === "any_time") return rememberInstruction(current.session, now, true, null);
     const parsed = parseScheduleInput(input.text ?? current.value, now);
     if (!parsed.ok) {
       const text = parsed.reason === "past"
@@ -150,10 +181,10 @@ export function handleOwnerNotification(session: CallSession, ws: Workspace, now
     }
     const dated = { ...current.session, data: { ...current.session.data, scheduleDay: parsed.day } };
     if (!parsed.time) return { session: askScheduleTime(dated, now) };
-    return submitInstruction(dated, ws, now, true, fromRiyadh(parsed.year, parsed.month, parsed.date, parsed.time.hours, parsed.time.minutes).toISOString());
+    return rememberInstruction(dated, now, true, fromRiyadh(parsed.year, parsed.month, parsed.date, parsed.time.hours, parsed.time.minutes).toISOString());
   }
   if (session.step === "instruction_time") {
-    if (current.value === "any_time") return submitInstruction(current.session, ws, now, true, null);
+    if (current.value === "any_time") return rememberInstruction(current.session, now, true, null);
     const value = (input.text ?? current.value).trim();
     const parts = value.split(":").map(Number);
     const valid = parts.length === 2 && Number.isInteger(parts[0]) && Number.isInteger(parts[1]) && parts[0] >= 0 && parts[0] <= 23 && parts[1] >= 0 && parts[1] <= 59;
@@ -166,7 +197,27 @@ export function handleOwnerNotification(session: CallSession, ws: Workspace, now
         : copy("That time has already passed. Choose a later time.", "هذا الوقت فات. اختر وقتاً لاحقاً.");
       return { session: askScheduleTime(current.session, now, text) };
     }
-    return submitInstruction(current.session, ws, now, true, scheduled.toISOString());
+    return rememberInstruction(current.session, now, true, scheduled.toISOString());
+  }
+  if (session.step === "instruction_more") {
+    if (current.value === "instruction_yes") {
+      return {
+        session: ask(current.session, copy("What else should the worker know or do?", "وش كمان تبي أقول للعامل أو أطلب منه؟"), now, "instruction_text", [], "text"),
+      };
+    }
+    const lines = (session.data.pendingInstructions ?? []).map((item, index) => `${index + 1}. ${item.message}`).join("\n");
+    return {
+      session: ask(
+        current.session,
+        copy(`I'll tell the worker:\n${lines}\nSave these?`, `بقول للعامل:\n${lines}\nأحفظها؟`),
+        now,
+        "instruction_confirm",
+        [reply("instruction_yes", "Yes, save them", "إيه، احفظها"), reply("instruction_no", "No, don't save", "لا، لا تحفظ")],
+      ),
+    };
+  }
+  if (session.step === "instruction_confirm") {
+    return confirmInstructions(current.session, ws, now, current.value === "instruction_yes");
   }
   return { session: current.session };
 }
@@ -255,37 +306,36 @@ function parseScheduleInput(text: string, now: Date): ParsedSchedule {
   return { ok: true, day: stamp, year: day.year, month: day.month, date: day.date, ...(time ? { time } : {}) };
 }
 
-function submitInstruction(
+function rememberInstruction(
   session: CallSession,
-  ws: Workspace,
   now: Date,
   actionable: boolean,
   scheduledFor: string | null,
 ): EngineResult {
-  const created = submitOwnerInstruction(ws, now, {
-    message: session.data.instruction ?? "",
-    actionable,
-    scheduledFor,
-  });
-  let next: CallSession = {
-    ...session,
-    data: { ...session.data, scheduledFor, actionable },
+  const message = session.data.instruction ?? "";
+  const pendingInstructions = [...(session.data.pendingInstructions ?? []), { message, actionable, scheduledFor }];
+  const next = { ...session, data: { ...session.data, pendingInstructions, instruction: undefined, actionable, scheduledFor } };
+  return {
+    session: ask(
+      next,
+      copy("Any other instruction?", "فيه تعليمات ثانية؟"),
+      now,
+      "instruction_more",
+      [reply("instruction_yes", "Yes", "إيه"), reply("instruction_no", "No, that's all", "لا، خلاص")],
+    ),
   };
-  if (created.taskId) {
-    next = addNotice(next, copy("A Task Ticket is open and waiting for Ahmed.", "فُتحت تذكرة مهمة وبانتظار أحمد."));
-    next = say(
-      next,
-      copy("The task is open. The instruction is queued for Ahmed. The call has not started.", "المهمة مفتوحة. التعليمات جاهزة لأحمد، والمكالمة لم تبدأ."),
-      now,
-      true,
-    );
-  } else {
-    next = say(
-      next,
-      copy("Your message is queued for Ahmed. The call has not started.", "رسالتك جاهزة لأحمد. المكالمة لم تبدأ."),
-      now,
-      true,
-    );
+}
+
+function confirmInstructions(session: CallSession, ws: Workspace, now: Date, confirmed: boolean): EngineResult {
+  const items = session.data.pendingInstructions ?? [];
+  if (!confirmed || !taskTicketsEnabled(ws) || !items.length) {
+    return { session: say(session, copy("Nothing was saved.", "ما انحفظ شيء."), now, true) };
   }
-  return { session: next, commit: commitTo(created.ws) };
+  const saved = submitOwnerInstructionBatch(ws, now, items, `owner-instructions:${session.data.reportId ?? "call"}`, items.map((item) => item.message).join("\n"));
+  const tasks = saved.taskIds.length;
+  const text = copy(
+    `Saved. ${tasks} task ticket${tasks === 1 ? "" : "s"}, one call for the worker. The call has not started.`,
+    `انحفظ. ${tasks} تذكرة مهمة، ومكالمة واحدة للعامل. المكالمة لم تبدأ.`,
+  );
+  return { session: say(session, text, now, true), ...(saved.created || saved.pendingCallId ? { commit: commitTo(saved.ws) } : {}) };
 }
