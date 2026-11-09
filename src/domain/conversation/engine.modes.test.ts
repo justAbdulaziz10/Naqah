@@ -37,7 +37,6 @@ function answerEverything(session: CallSession, ws: Workspace) {
     if (current.step === "report_question" && id === "herd_health") input = { value: "yes" };
     else if (current.step === "report_question" && id === "herd_count") input = { value: "unknown" };
     else if (current.step === "report_question" && id === "feed_level") input = { value: "low" };
-    else if (current.step === "quantity_input") input = { value: "quantity_skip" };
     else if (current.step === "report_question" && id === CUSTOM_ID) input = { text: "لا ما جا" };
     else if (current.inputMode === "text") input = { text: "ملاحظة" };
     else input = { value: current.replies[0].value };
@@ -68,8 +67,6 @@ describe("read-back", () => {
   it("never reads a number with an unknown level", () => {
     const { ws, session } = callOn((workspace) => planOf(workspace, ["water_level"]));
     let current = step(session, ws, { text: "200000" });
-    expect(current.step).toBe("quantity_confirm");
-    current = step(current, ws, { value: "yes" });
     while (current.step !== "report_summary") current = step(current, ws, { text: "لا", value: current.inputMode === "text" ? undefined : current.replies[0].value });
     expect(lastLine(current)).not.toContain("غير معروف");
     expect(lastLine(current)).toContain("200000 لتر");
@@ -87,8 +84,7 @@ describe("corrections", () => {
     const asked = step(pick, ws, { value: "correct:feed_level" });
     expect(asked.data.currentQuestionId).toBe("feed_level");
     expect(asked.draft.resourceUpdates.find((entry) => entry.kind === "feed")).toBeUndefined();
-    const quantity = step(asked, ws, { value: "good" });
-    const again = step(quantity, ws, { value: "quantity_skip" });
+    const again = step(asked, ws, { value: "good" });
     expect(again.step).toBe("report_summary");
     expect(again.draft.resourceUpdates.filter((entry) => entry.kind === "feed")).toHaveLength(1);
     expect(again.draft.resourceUpdates.find((entry) => entry.kind === "feed")?.level).toBe("good");
@@ -169,7 +165,6 @@ describe("owner plan", () => {
     });
     let current = step(withAnswer.session, withAnswer.ws, { value: "skip_question" });
     current = step(current, withAnswer.ws, { value: "good" });
-    current = step(current, withAnswer.ws, { value: "quantity_skip" });
     const saved = answer(current, withAnswer.ws, NOW, { value: "confirm_save" });
     expect(saved.commit!(withAnswer.ws).reports[0].coverage).toEqual([{ questionId: CUSTOM_ID, status: "not_reported" }, { questionId: "feed_level", status: "reported" }]);
   });

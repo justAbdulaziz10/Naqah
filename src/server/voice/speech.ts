@@ -400,7 +400,7 @@ function intentReply(session: CallSession, reading: Reading): string | null {
 
 /** These steps change the farm for good, so a near match is not enough: it takes a clear answer. */
 function needsClearAnswer(session: CallSession): boolean {
-  if (["report_summary", "instruction_review", "callback_task_confirmation", "outbound_task_confirmation", "outbound_receipt", "quantity_confirm", "herd_count_confirm", "health_name_confirm"].includes(session.step)) return true;
+  if (["report_summary", "instruction_review", "callback_task_confirmation", "outbound_task_confirmation", "outbound_receipt"].includes(session.step)) return true;
   return currentItem(session)?.kind === "task";
 }
 
@@ -502,7 +502,15 @@ export function mapSpeechToInput(
   if (["report_summary", "report_correct_pick"].includes(session.step) && session.replies.some((reply) => reply.value === "end_without_save") && /(?:^|\s)(?:لا\s+(?:تحفظ|تحفظه|تحفظها|تسجل|تسجله)|بدون\s+حفظ|don\s*t\s+save|do\s+not\s+save|save\s+nothing)(?:\s|$)/u.test(normalized)) return { value: "end_without_save" };
   if (session.step === "instruction_review") {
     if (/(?:^|\s)(?:الغ|الغها|الغيها|الغي|الغاء|cancel|لا\s+(?:تحفظ|تحفظها|ترسل|ترسلها)|don\s*t\s+save|do\s+not\s+save)(?:\s|$)/u.test(normalized)) return { value: "instructions_cancel" };
+    if (/(?:^|\s)(?:اضيف|اضف|زيد|ازيد|add)(?:\s|$)/u.test(normalized)) return { value: "instructions_add" };
+    if (/(?:^|\s)(?:اشيل|شيل|شيلها|احذف|احذفها|امسح|امسحها|remove|delete)(?:\s|$)/u.test(normalized)) return { value: "instructions_remove" };
     if (/(?:^|\s)(?:عدل|عدلها|غير|غيرها|تعديل|change|edit|correct\s+one)(?:\s|$)/u.test(normalized)) return { value: "instructions_correct" };
+  }
+  if (session.step === "instruction_remove_pick") {
+    if (/^(?:ارجع|رجوع|القائمه|back|back to the list)$/.test(normalized)) return { value: "back_to_review" };
+    const position = pickedPosition(normalized);
+    const picked = position === null ? undefined : session.replies.find((reply) => reply.value === `remove:${position - 1}`);
+    if (picked) return { value: picked.value };
   }
   if (session.step === "instruction_correct_pick") {
     if (/^(?:ارجع|رجوع|القائمه|back|back to the list)$/.test(normalized)) return { value: "back_to_review" };

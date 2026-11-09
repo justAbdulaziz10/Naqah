@@ -35,10 +35,12 @@ export function spokenWording(text: string, locale: Locale, literal = false): st
   return locale === "ar" && !literal ? text.replace(/المزرعة/g, "العزبة").replace(/مزرعة/g, "عزبة") : text;
 }
 
-export function agentText(session: CallSession, locale: Locale): string {
+/** The options are only read out when a worker needs them: on the keypad, or after an answer wasn't understood. */
+export function agentText(session: CallSession, locale: Locale, readOptions = true): string {
   const turn = [...session.turns].reverse().find((item) => item.speaker === "agent");
   const original = turn?.text[locale] ?? (locale === "ar" ? "تفضل، وش تبي تقول؟" : "Go ahead.");
   const question = spokenWording(original, locale, turn?.literal);
+  if (!readOptions) return question;
   if (session.inputMode === "text") return `${question} ${locale === "ar" ? "قل إجابتك بصوتك." : "Please say your answer aloud."}`;
   if (session.inputMode === "number") return `${question} ${locale === "ar" ? "قل العدد، أو اكتبه ثم اضغط #." : "Say the number, or enter it then press #."}`;
   if (session.inputMode !== "choices" || !session.replies.length) return question;
@@ -55,9 +57,9 @@ export function twimlSay(text: string, locale: Locale, hangup = false): string {
   return `<Response>${sayElement(text, locale)}${hangup ? "<Hangup/>" : ""}</Response>`;
 }
 
-export function twimlGather(session: CallSession, locale: Locale, actionUrl: string, prefix = ""): string {
+export function twimlGather(session: CallSession, locale: Locale, actionUrl: string, prefix = "", readOptions = true): string {
   const language = locale === "ar" ? "ar-SA" : "en-US";
-  const text = `${prefix}${agentText(session, locale)}`;
+  const text = `${prefix}${agentText(session, locale, readOptions)}`;
   // A quantity needs several keys, so only a choice ends at the first press.
   const digits = session.inputMode === "choices" && session.replies.length <= 9 ? ' numDigits="1"' : ' finishOnKey="#"';
   const speechTimeout = session.inputMode === "choices" ? "auto" : "2";

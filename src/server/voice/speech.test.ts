@@ -200,7 +200,7 @@ describe("recognition quality and explicit confirmations", () => {
     expect(mapSpeechToInput(session(), "no", "1", "en", "0.1")).toEqual({ value: "yes" });
     expect(mapSpeechToInput(session("number"), "20", "1234567")).toBeNull();
   });
-  it.each(["quantity_confirm", "herd_count_confirm", "health_name_confirm"])("requires clear speech at %s", (step) => {
+  it.each(["callback_task_confirmation", "outbound_task_confirmation", "outbound_receipt"])("requires clear speech at %s", (step) => {
     const confirmation = { ...session(), step };
     expect(mapSpeechToInput(confirmation, "نعم لا")).toBeNull();
     expect(mapSpeechToInput(confirmation, "yes no")).toBeNull();

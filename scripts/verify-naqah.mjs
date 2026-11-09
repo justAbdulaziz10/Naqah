@@ -422,14 +422,6 @@ const commands = {
       const after = (await readWs(page)).clockOffsetMs;
       check("clock +20 min", after - before === 20 * 60 * 1000, `${before} → ${after}`);
     });
-    // Owner inquiry: a finished call is logged.
-    await step("lab-owner-inquiry", async () => {
-      const before = (await readWs(page)).calls.length;
-      await pickScenario("Owner calls NAQAH", "المالك يتصل بناقة");
-      await driveCall(page, /^No|^لا/, transcript);
-      const after = (await readWs(page)).calls.length;
-      check("owner inquiry logs a call", after === before + 1, `${before} → ${after}`);
-    });
     // Emergency: info only, nothing saved.
     await step("lab-emergency", async () => {
       const before = JSON.stringify((await readWs(page)).calls);
@@ -469,7 +461,7 @@ if (!commands[cmd] || args.includes("--help")) {
   screens              32 screenshots (ar/en × 375/1440 × 8 pages); fails on overflow or console errors
   call-lab             worker report → owner call → task → 3 missed calls → stop, no new No Answer ticket (asserted)
   wizard               Basic onboarding, 4 steps, lands on /app with setupComplete
-  features             landing plan CTA, locale switch, settings sample load, herd add, heat day, clock, owner inquiry, emergency, reset
+  features             landing plan CTA, locale switch, settings sample load, herd add, heat day, clock, emergency, reset
   voice                complete a real report, then verify save + tamper rejection [--worker-phone E.164] [--locale ar|en] [--dry-run] [--allow-paid]
                        dry-run is the default and refuses paid summary env vars; --allow-paid permits side effects
   stop                 stop only the server this tool launched`);

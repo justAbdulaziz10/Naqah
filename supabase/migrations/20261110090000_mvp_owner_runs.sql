@@ -9,6 +9,9 @@ alter function private.apply_farm_changes(uuid, bigint, jsonb, text, jsonb) rena
 revoke all on function private.apply_farm_changes_before_owner_runs(uuid, bigint, jsonb, text, jsonb) from public, anon, authenticated;
 grant execute on function private.apply_farm_changes_before_owner_runs(uuid, bigint, jsonb, text, jsonb) to service_role;
 
+-- A later owner-requested try of an exhausted call: attempts before this number don't count toward the three.
+alter table public.pending_worker_calls add column retry_base smallint not null default 0 check (retry_base >= 0);
+
 create function public.apply_farm_changes(
   p_farm_id uuid, p_expected_revision bigint, p_changes jsonb,
   p_event_id text default null, p_outcome jsonb default null
@@ -28,6 +31,11 @@ begin
     set owner_call_run = nullif(p_changes -> 'farm' -> 'owner_call_run', 'null'::jsonb)
     where id = p_farm_id;
   end if;
+  -- The base function's explicit column list doesn't carry this one.
+  update public.pending_worker_calls call
+  set retry_base = item.retry_base
+  from jsonb_populate_recordset(null::public.pending_worker_calls, coalesce(p_changes -> 'pending_worker_calls', '[]'::jsonb)) item
+  where call.id = item.id and call.farm_id = p_farm_id and item.retry_base is not null;
   return revision;
 end $$;
 revoke all on function public.apply_farm_changes(uuid, bigint, jsonb, text, jsonb) from public, anon, authenticated;

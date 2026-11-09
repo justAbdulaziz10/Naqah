@@ -48,12 +48,6 @@ export interface ConversationData {
   askedCamelIds?: string[];
   tempCamelId?: string;
   tempHealth?: HealthStatus;
-  tempNote?: string | null;
-  tempLevel?: Level;
-  tempQuantity?: string;
-  /** The worker has been asked once about "enough" followed by "none left". */
-  quantityClarified?: boolean;
-  tempCount?: number;
   /** The NAQAH → worker report call this conversation belongs to (report_call only). */
   reportCallId?: string;
   /** Set when this session opened the run, so hanging up before the first answer can undo it. */
@@ -127,6 +121,8 @@ export interface AnswerInput {
   facts?: OpenFact[];
   /** What the owner asked for on a realtime call, already checked against their words. */
   instructions?: ProposedInstruction[];
+  /** Realtime: the owner removed this instruction, by its place in the list. */
+  instructionRemove?: number;
   /** A change to one instruction under review, already checked against the owner's words. */
   instructionCorrection?: InstructionCorrection;
 }

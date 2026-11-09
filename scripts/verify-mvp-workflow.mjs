@@ -885,7 +885,7 @@ scenario("F1", "Ultimate instructions by voice: natural speech, proposal, read-b
   check("every item is read back with its kind", heardAll(first, ["يصلح الحوض", "ينظف المظلة", "البيطري بيجي الخميس", "الخزان يبي غسيل", ...REVIEW_LABELS]), first);
   check("the time is read back", heard(first, "موعدها"), first);
   check("the any-time task is read back as any time", heard(first, "في أي وقت"), first);
-  check("the owner can save, change or cancel", heard(first, "أحفظها، ولا تبي تعدل وحدة، ولا ألغيها؟"), first);
+  check("the owner can save or change something", heard(first, "أحفظها، ولا تبي تغير شي؟"), first);
   check("nothing is saved during the proposal", count("task_tickets", ranch.farm) === before && count("pending_worker_calls", ranch.farm) === 0, { tasks: count("task_tickets", ranch.farm), calls: count("pending_worker_calls", ranch.farm) });
 
   const firstId = summaryIdOf(live.call.sid);

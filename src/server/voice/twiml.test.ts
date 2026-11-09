@@ -16,6 +16,16 @@ describe("TwiML output", () => {
     expect(agentText({ ...session, inputMode: "text" }, "en")).toContain("say your answer aloud");
   });
 
+  it("reads only the question when options are hidden, and the options otherwise", () => {
+    expect(agentText(session, "en", false)).toBe("Say & confirm");
+    expect(agentText(session, "en")).toContain("Press 1 for Yes");
+    expect(agentText({ ...session, inputMode: "number" }, "ar", false)).not.toContain("اضغط");
+    expect(agentText({ ...session, inputMode: "text" }, "en", false)).toBe("Say & confirm");
+    expect(twimlGather(session, "en", "/t", "", false)).not.toContain("Press 1");
+    expect(twimlGather(session, "en", "/t")).toContain("Press 1");
+    expect(twimlGather(session, "en", "/t", "", false)).toContain("<Gather");
+  });
+
   it("never swaps words inside literal owner-written text", () => {
     const literal = { ...session, turns: [{ ...session.turns[0], literal: true, text: { ar: "أحمد، وش وضع المزرعة؟", en: "Ahmed, how is the farm?" } }] };
     expect(agentText(literal, "ar")).toContain("أحمد، وش وضع المزرعة؟");

@@ -355,8 +355,6 @@ const Q = {
   feed: /كم باقي من العلف/,
   water: /كيف وضع الماء/,
   custom: /^(?![\s\S]*أحفظه)[\s\S]*البيطري/,
-  bags: /أكياس العلف/,
-  litres: /الماء باللتر/,
   summary: /أحفظه/,
 };
 
@@ -390,9 +388,7 @@ scenario("S1b", "Happy: camels, resources, custom question, natural speech", asy
     { ask: Q.health, input: speech("كلها بخير") },
     { ask: Q.herdCount, input: speech("عشرين ناقة") },
     { ask: Q.feed, input: speech("باقي شوي") },
-    { ask: Q.bags, input: speech("٢٥") },
     { ask: Q.water, input: speech("إيه كافي") },
-    { ask: Q.litres, input: speech("مية لتر") },
     { ask: Q.custom, input: speech("لا ما جا") },
     { ask: Q.summary, input: speech("إيه") },
   ], { fallback: speech("إيه") });
@@ -415,9 +411,7 @@ scenario("S1c", "Happy: diacritics, hamza variants and trailing words", async ()
     { ask: Q.health, input: speech("كُلُّها بِخَيْر الحمد لله") },
     { ask: Q.herdCount, input: speech("٢٠ ناقة تقريبا") },
     { ask: Q.feed, input: speech("باقي شوي يا طويل العمر") },
-    { ask: Q.bags, input: speech("ثلاثين كيس تقريبا") },
     { ask: Q.water, input: speech("ايوه الخزان كافي") },
-    { ask: Q.litres, input: speech("٢٠٠") },
     { ask: Q.custom, input: speech("لا والله ما جاء أحد") },
     { ask: Q.summary, input: speech("أيوه احفظه") },
   ], { fallback: speech("أيوه") });
@@ -436,9 +430,7 @@ scenario("S1d", "Happy: «ما أدري» and «مدري» are saved as unknown"
     { ask: Q.health, input: speech("مدري") },
     { ask: Q.herdCount, input: speech("ما أدري") },
     { ask: Q.feed, input: speech("ما ادري والله") },
-    { ask: Q.bags, input: speech("ما أدري") },
     { ask: Q.water, input: speech("مدري") },
-    { ask: Q.litres, input: speech("مدري") },
     { ask: Q.custom, input: speech("ما أدري") },
     { ask: Q.summary, input: speech("إيه") },
   ]);
@@ -478,7 +470,7 @@ scenario("S3a", "Silence once, then answered (empty SpeechResult and no fields)"
   const second = call.text;
   await call.turn(NOTHING);
   check("a Gather with no speech field also repeats the question", call.action && call.text.includes(second.slice(-30)), call.text);
-  await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.bags, input: speech("٢٥") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.litres, input: speech("مية") }, { ask: Q.custom, input: speech("لا") }]);
+  await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.custom, input: speech("لا") }]);
   await assertSaved(ranch, call, { herd: 20 });
 });
 
@@ -535,8 +527,8 @@ scenario("S3c", "Replay of call 9b929d (speech, speech, 2 silent, speech, 3 sile
   await retry.answer();
   await drive(retry, [
     { ask: Q.health, input: speech("كلها بخير") }, { ask: Q.herdCount, input: speech("عشرين ناقة") },
-    { ask: Q.feed, input: speech("باقي شوي") }, { ask: Q.bags, input: speech("٢٥") },
-    { ask: Q.water, input: speech("إيه كافي") }, { ask: Q.litres, input: speech("مية لتر") },
+    { ask: Q.feed, input: speech("باقي شوي") },
+    { ask: Q.water, input: speech("إيه كافي") },
     { ask: Q.custom, input: speech("لا ما جا") }, { ask: Q.summary, input: speech("إيه") },
   ]);
   await assertSaved(ranch, retry, {
@@ -574,7 +566,7 @@ scenario("S4b", "Nonsense speech", async () => {
   const before = call.text;
   await call.turn(speech("الجو حلو اليوم"));
   check("nonsense on a number question is asked again", call.action && call.text.includes(before.slice(-30)), call.text);
-  await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.bags, input: speech("٢٥") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.litres, input: speech("مية") }, { ask: Q.custom, input: speech("لا") }]);
+  await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.custom, input: speech("لا") }]);
   check("reached the summary", /تم حفظ/.test(call.text), call.text);
 });
 
@@ -590,8 +582,8 @@ scenario("S4e", "Off-topic words on a guided question are kept as a note and rea
   check("the question is asked again", Q.health.test(call.text) && Boolean(call.action), call.text);
   await drive(call, [
     { ask: Q.health, input: speech("كلها بخير") }, { ask: Q.herdCount, input: speech("عشرين ناقة") },
-    { ask: Q.feed, input: speech("باقي شوي") }, { ask: Q.bags, input: speech("٢٥") },
-    { ask: Q.water, input: speech("إيه كافي") }, { ask: Q.litres, input: speech("مية لتر") },
+    { ask: Q.feed, input: speech("باقي شوي") },
+    { ask: Q.water, input: speech("إيه كافي") },
     { ask: Q.custom, input: speech("لا ما جا") },
   ], { until: Q.summary });
   check("the note is not asked as a question of its own", !call.transcript.some((t) => /الملاحظة الصحيحة/.test(t.said)), call.transcript.map((t) => t.said));
@@ -623,8 +615,8 @@ scenario("S4d", "A whole call whose speech scores below 0.5", async () => {
   await call.answer();
   await drive(call, [
     { ask: Q.health, input: speech("كلها بخير", "0.42") }, { ask: Q.herdCount, input: speech("عشرين", "0.42") },
-    { ask: Q.feed, input: speech("كافي", "0.42") }, { ask: Q.bags, input: speech("٢٥", "0.42") },
-    { ask: Q.water, input: speech("كافي", "0.42") }, { ask: Q.litres, input: speech("مية", "0.42") },
+    { ask: Q.feed, input: speech("كافي", "0.42") },
+    { ask: Q.water, input: speech("كافي", "0.42") },
     { ask: Q.custom, input: speech("لا", "0.42") }, { ask: Q.summary, input: speech("إيه", "0.42") },
   ], { fallback: speech("إيه", "0.42") });
   await call.finalStatus("completed");
@@ -684,7 +676,7 @@ scenario("S6b", "Duplicate POST of the same turn (Twilio retry)", async () => {
   call.log("[turn x2 concurrent]");
   const again = await post(firstAction, input);
   check("a later duplicate replays the same reply", again.xml === one.xml, says(again.xml));
-  await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.bags, input: speech("٢٥") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.litres, input: speech("مية") }, { ask: Q.custom, input: speech("لا") }], { until: Q.summary });
+  await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.custom, input: speech("لا") }], { until: Q.summary });
   check("reached the save question", Q.summary.test(call.text), call.text);
   const saveAction = call.action;
   const saveInput = callFields(call.sid, speech("إيه"));

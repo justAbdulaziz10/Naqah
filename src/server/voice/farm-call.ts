@@ -23,7 +23,7 @@ import {
   advanceVoiceSession, createVoiceSession, deleteStaleVoiceSessions, deleteVoiceSession, readVoiceSession,
   type VoiceSessionRow,
 } from "@/server/db/voice-sessions";
-import { realtimeVoiceConfig, voiceLocale, voiceOwnerInquiryEnabled } from "@/server/env";
+import { realtimeVoiceConfig, voiceLocale } from "@/server/env";
 import { applyVoiceEvent, parseVoiceEvent, type VoiceContext, type VoiceOutcome } from "./contract";
 import { logVoiceTurn } from "./diagnostics";
 import { traceCall } from "./trace";
@@ -43,16 +43,16 @@ import { spokenWording, twimlGather, twimlGoodbye, twimlSayThenRedirect, twimlSt
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
 type Copy = Record<Locale, string>;
-export type VoiceCallSession = CallSession & { voiceSilences?: number; voiceUnmatched?: number };
+export type VoiceCallSession = CallSession & { voiceSilences?: number; voiceUnmatched?: number; voiceKeypad?: boolean };
 
 const NOT_REGISTERED: Copy = { ar: "هذا الرقم غير مسجل لدى ناقة.", en: "This number is not registered with NAQAH." };
 const NOT_READY: Copy = {
   ar: "إعداد هذي العزبة ما اكتمل. فضلاً تواصل مع صاحب العزبة.",
   en: "This farm's setup isn't finished yet. Please contact the farm owner.",
 };
-const OWNER_LINE_CLOSED: Copy = {
-  ar: "استفسار المالك بالهاتف غير متاح الآن. آخر التفاصيل موجودة في الموقع.",
-  en: "Owner calls aren't available yet. The latest details are on the website.",
+export const OWNER_LINE_CLOSED: Copy = {
+  ar: "ناقة هي اللي تتصل عليك في موعدك، وآخر التفاصيل موجودة في الموقع.",
+  en: "NAQAH calls you at the time you chose. The latest details are on the website.",
 };
 const SAVED: Copy = { ar: "تم حفظ التحديث، شكراً لك. مع السلامة.", en: "Your update is saved. Thank you. Goodbye." };
 const REFUSED: Copy = {
@@ -127,13 +127,13 @@ export function spokenLines(session: CallSession, spokenFrom: number, ws: Worksp
 }
 
 /** Everything the agent says for this step, including lines before the question. */
-export function respond(session: CallSession, spokenFrom: number, ws: Workspace, locale: Locale, seq: number, prefix = ""): string {
+export function respond(session: CallSession, spokenFrom: number, ws: Workspace, locale: Locale, seq: number, prefix = "", readOptions = (session as VoiceCallSession).voiceKeypad === true): string {
   const personalize = makePersonalizer(ws);
   const lines = spokenLines(session, spokenFrom, ws, locale);
   if (session.done) return twimlGoodbye(locale, `${prefix}${lines.join(" ")}`);
   const earlier = lines.slice(0, -1).join(" ");
   const speakable = { ...session, ...personalizeTree({ turns: session.turns.slice(-1), replies: session.replies }, personalize) };
-  return twimlGather(speakable, locale, turnUrl(seq), `${prefix}${earlier ? `${earlier} ` : ""}`);
+  return twimlGather(speakable, locale, turnUrl(seq), `${prefix}${earlier ? `${earlier} ` : ""}`, readOptions);
 }
 
 /** The contract takes a flag for the heat-day finding, and writes the finding itself. */
@@ -225,7 +225,7 @@ export async function startFarmCall(client: SupabaseClient, input: { from: strin
   const caller = await findCaller(client, from);
   const fallback = voiceLocale();
   if (caller.kind === "unknown") return twimlGoodbye(fallback, NOT_REGISTERED[fallback]);
-  if (caller.kind === "owner" && !voiceOwnerInquiryEnabled()) return twimlGoodbye(fallback, OWNER_LINE_CLOSED[fallback]);
+  if (caller.kind === "owner") return twimlGoodbye(fallback, OWNER_LINE_CLOSED[fallback]);
 
   const { workspace } = requireFarm(await loadFarm(client, { id: caller.farmId }));
   const locale = caller.kind === "worker" ? (workspace.settings.worker.language === "en" ? "en" : "ar") : fallback;
@@ -371,7 +371,7 @@ async function answerFarmCallTurn(client: SupabaseClient, input: FarmCallInput, 
   const silenceCount = hasInput ? 0 : ((row.session as VoiceCallSession).voiceSilences ?? 0) + 1;
   const offTopic = !digits && isOffTopicAnswer(row.session, evidenceWords(speech));
   // Words about another topic can't answer this question, but they aren't thrown away either.
-  const session = { ...(offTopic ? addWorkerNote(row.session, speech) : row.session), voiceSilences: 0 };
+  const session: VoiceCallSession = { ...(offTopic ? addWorkerNote(row.session, speech) : row.session), voiceSilences: 0, ...(digits ? { voiceKeypad: true } : {}) };
   const { workspace } = requireFarm(await loadFarm(client, { id: row.farm_id }));
   const mapped = mapSpeechToInput(session, speech, digits, locale, input.confidence);
   const spoken = (mapped?.value === "confirm_save" || mapped?.value === "instructions_confirm") && !digits && !isVerifiedConfirmation(speech, session, locale) ? null : mapped;
@@ -383,7 +383,7 @@ async function answerFarmCallTurn(client: SupabaseClient, input: FarmCallInput, 
   if (!spoken && !fallback) {
     if (silenceCount >= 3 || unmatched >= 6) return advance(client, row, { ...session, done: true }, row.misses, twimlGoodbye(locale, MISSED_TWICE[locale]));
     const prefix = hasInput ? (offTopic ? NOTED_BACK : session.inputMode === "text" ? TEXT_MISS : SPOKEN_MISS)[locale] : (silenceCount === 1 ? MISS_ONCE : MISS_AGAIN)[locale];
-    return advance(client, row, { ...session, voiceSilences: silenceCount, voiceUnmatched: unmatched }, Math.min(row.misses + 1, 2), respond(session, session.turns.length - 1, workspace, locale, next, prefix));
+    return advance(client, row, { ...session, voiceSilences: silenceCount, voiceUnmatched: unmatched }, Math.min(row.misses + 1, 2), respond(session, session.turns.length - 1, workspace, locale, next, prefix, true));
   }
 
   const chosen = spoken ?? { value: fallback!.value };

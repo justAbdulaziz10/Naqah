@@ -117,29 +117,28 @@ try {
   reply = await webhook(firstQuestion, { CallSid: request.sid, SpeechResult: LOCALE === "ar" ? "ايوه" : "yes", Confidence: "0.1" });
   check("low-confidence speech is accepted, with nothing saved yet", !/didn&apos;t catch|ما فهمت/.test(reply.xml) && sql(`select count(*) from reports where farm_id = ${quote(farm)}`) === "0");
   let confirmPath;
-  let quantitiesConfirmed = 0;
   for (let turn = 0; turn < 30 && action(reply.xml); turn += 1) {
     const text = said(reply.xml);
     const path = action(reply.xml);
-    if (/Confirm and save|أحفظه/.test(text)) {
+    const atSummary = /Confirm and save|Shall I save it|أحفظه/.test(text);
+    if (atSummary) {
       confirmPath = path;
       check("report stays unsaved until explicit final confirmation", sql(`select count(*) from reports where farm_id = ${quote(farm)}`) === "0");
     }
-    if (/approximate, correct|الكمية تقديرية/.test(text)) quantitiesConfirmed += 1;
+    const ar = LOCALE === "ar";
     let answer;
-    if (reply.xml.includes('finishOnKey="#"') && /Say the number|قل العدد/.test(text)) {
-      check("quantity gather explains # and does not cut off at one digit", !reply.xml.includes("numDigits=") && /then press #|ثم اضغط #/.test(text));
-      answer = { SpeechResult: /bags|أكياس/.test(text) ? (LOCALE === "ar" ? "ثلاثين كيس" : "thirty bags") : /litres|باللتر/.test(text) ? (LOCALE === "ar" ? "مية وخمسين لتر" : "one hundred and fifty litres") : (LOCALE === "ar" ? "٤٠" : "forty") };
-    } else if (/running low|قارب يخلص/.test(text) && /feed|العلف/.test(text)) {
-      answer = { SpeechResult: LOCALE === "ar" ? "قارب يخلص" : "running low" };
-    } else if (/Press 1 for|اضغط 1 لـ/.test(text)) {
-      const label = text.split(LOCALE === "ar" ? "اضغط 1 لـ " : "Press 1 for ")[1]?.split(/، اضغط 2 لـ |\. Press 2 for /)[0];
-      answer = { SpeechResult: label || (LOCALE === "ar" ? "ايوه" : "yes") };
-    } else answer = { SpeechResult: LOCALE === "ar" ? "ما أدري" : "I don't know" };
+    if (atSummary) answer = { SpeechResult: ar ? "ايوه" : "yes" };
+    else if (reply.xml.includes('finishOnKey="#"')) {
+      check("number gather does not cut off at one digit", !reply.xml.includes("numDigits="));
+      answer = { SpeechResult: ar ? "أربعين" : "forty" };
+    } else if (/feed|العلف/.test(text)) answer = { SpeechResult: ar ? "ثلاثين كيس" : "thirty bags" };
+    else if (/water|الماء/.test(text)) answer = { SpeechResult: ar ? "مية وخمسين لتر" : "one hundred and fifty litres" };
+    else if (reply.xml.includes('numDigits="1"')) answer = { Digits: "1" };
+    else answer = { SpeechResult: ar ? "ما أدري" : "I don't know" };
     reply = await webhook(path, { CallSid: request.sid, ...answer });
   }
   check("signed outbound speech turns save one report and finish its run", /Your update is saved|تم حفظ التحديث/.test(reply.xml) && sql(`select count(*) from reports where farm_id = ${quote(farm)}`) === "1" && sql(`select count(*) from report_call_runs where farm_id = ${quote(farm)} and state = 'completed'`) === "1", reply);
-  check("compound speech quantities are confirmed and saved as approximate", quantitiesConfirmed === 2 && sql(`select count(*) from resources where farm_id = ${quote(farm)} and certainty = 'approximate' and ((kind = 'feed' and quantity = '30 bags') or (kind = 'water' and quantity = '150 litres'))`) === "2");
+  check("compound speech quantities are saved as approximate", sql(`select count(*) from resources where farm_id = ${quote(farm)} and certainty = 'approximate' and ((kind = 'feed' and quantity = '30 bags') or (kind = 'water' and quantity = '150 litres'))`) === "2");
   check("spoken count stays an owner proposal, not the official herd", sql(`select herd_count_reported from reports where farm_id = ${quote(farm)}`) === "40" && sql(`select herd_count from farms where id = ${quote(farm)}`) === "1");
   assert(confirmPath);
   await webhook(confirmPath, { CallSid: request.sid, Digits: "1" });

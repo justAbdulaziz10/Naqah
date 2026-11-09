@@ -5,7 +5,7 @@ import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { scenarioMessageKey, type PickerScenario } from "./labStore";
 
-const PICKER_SCENARIOS: PickerScenario[] = ["report_call", "worker_inbound", "worker_outbound", "owner_inquiry", "emergency"];
+const PICKER_SCENARIOS: PickerScenario[] = ["report_call", "worker_inbound", "worker_outbound", "emergency"];
 
 export function LabScenarioPicker({ selected, onSelect, sessionActive, m, plan }: {
   selected: PickerScenario;

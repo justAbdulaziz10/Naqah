@@ -220,8 +220,8 @@ export async function afterRealtimeCall(client: SupabaseClient, input: { token: 
     const prefix = row.party === "owner"
       ? (row.locale === "ar" ? "بنكمل المكالمة بطريقة ثانية. " : "We'll continue the call another way. ")
       : row.locale === "ar" ? "بنكمل المكالمة بالأزرار. " : "We'll continue the call using the keypad. ";
-    const response = respond(session, Math.max(0, session.turns.length - 1), workspace, row.locale, row.seq + 1, prefix);
-    const closed = await advanceRow(client, row, withRealtime(session, { ...realtime, closed: true, fallbackPrepared: true }), row.misses, response);
+    const response = respond(session, Math.max(0, session.turns.length - 1), workspace, row.locale, row.seq + 1, prefix, true);
+    const closed = await advanceRow(client, row, withRealtime({ ...session, voiceKeypad: true }, { ...realtime, closed: true, fallbackPrepared: true }), row.misses, response);
     if (closed) return closed.last_response;
   }
   return (await readVoiceSession(client, callSid))?.last_response ?? twimlGoodbye(token.l);

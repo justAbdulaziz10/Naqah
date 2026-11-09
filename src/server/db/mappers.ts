@@ -181,6 +181,7 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
       message: p.message,
       taskTicketId: p.task_ticket_id,
       ...(p.batch_id ? { batchId: p.batch_id } : {}),
+      ...(p.retry_base ? { retryBase: p.retry_base } : {}),
       ...(p.task_links_explicit ? { coveredTaskIds: (p.pending_worker_call_tasks ?? [])
         .filter((link) => link.covered_order !== null)
         .sort((a, b) => a.covered_order! - b.covered_order!)
@@ -314,6 +315,7 @@ export function historyRows(ws: Workspace, farmId: string) {
       message: p.message,
       task_ticket_id: optional(p.taskTicketId),
       ...(p.batchId === undefined ? {} : { batch_id: p.batchId }),
+      ...(p.retryBase === undefined ? {} : { retry_base: p.retryBase }),
       ...(p.coveredTaskIds === undefined ? {} : { covered_task_ids: [...new Set(p.coveredTaskIds.map(id))] }),
       relay_id: optional(p.relayId),
       next_attempt_at: p.nextAttemptAt,

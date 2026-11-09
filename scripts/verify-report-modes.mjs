@@ -481,16 +481,11 @@ function assertReadBack(summary, farm) {
 }
 
 /** The default order: health, count, feed, water, then the custom question. */
-async function fillGuided(live, { feed = ["العلف كافي", "good"], feedQty = ["خمسة وعشرين كيس", "25"], water = ["الموية ناقصة", "low"], waterQty = ["ميه لتر", "100"], vet = "لا والله ما جا أحد" } = {}) {
+async function fillGuided(live, { feed = ["خمسة وعشرين كيس", { text: "25" }], water = ["الموية ناقصة", { value: "low" }], vet = "لا والله ما جا أحد" } = {}) {
   await live.say("كلها بخير", "answer_question", { value: "yes", topic: "herd" });
   await live.say("عشرين راس", "answer_question", { text: "20", topic: "herd" });
-  await live.say("ايه صح", "answer_question", { value: "yes", topic: "herd" });
-  await live.say(feed[0], "answer_question", { value: feed[1], topic: "feed" });
-  await live.say(feedQty[0], "answer_question", { text: feedQty[1], topic: "feed" });
-  await live.say("ايه صح", "answer_question", { value: "yes", topic: "feed" });
-  await live.say(water[0], "answer_question", { value: water[1], topic: "water" });
-  await live.say(waterQty[0], "answer_question", { text: waterQty[1], topic: "water" });
-  await live.say("ايه صح", "answer_question", { value: "yes", topic: "water" });
+  await live.say(feed[0], "answer_question", { ...feed[1], topic: "feed" });
+  await live.say(water[0], "answer_question", { ...water[1], topic: "water" });
   return live.say(vet, "answer_question", { text: vet, topic: "other" });
 }
 
@@ -536,8 +531,6 @@ scenario("A", "Guided: only enabled questions, owner's order, verbatim wording, 
   await live.say("لا والله ما جا أحد اليوم", "answer_question", { text: "لا ما جا", topic: "other" });
   check("second comes the owner's second question, word for word", live.said === TEXT.water, live.said);
   await live.say("الموية كافية", "answer_question", { value: "good", topic: "water" });
-  await live.say("حوالي ميه لتر", "answer_question", { text: "100", topic: "water" });
-  await live.say("ايه صح", "answer_question", { value: "yes", topic: "water" });
   check("third comes the owner's third question, word for word", live.said === TEXT.health, live.said);
   const reached = await live.say("كلها بخير", "answer_question", { value: "yes", topic: "herd" });
   check("the summary comes next, marked as the summary", reached?.isSummary === true, reached);
@@ -574,13 +567,9 @@ scenario("B", "Replay of real call 1: repeated tools with no speech, a bad numbe
   check("the bad number changes nothing", fingerprint(live.s) === before, live.s?.draft);
   check("the worker hears the question again", live.said.includes(TEXT.count), live.said);
   await live.say("عشرين راس", "answer_question", { text: "20", topic: "herd" });
-  await live.say("ايه صح", "answer_question", { value: "yes", topic: "herd" });
   await live.say("العلف باقي منه شوي", "answer_question", { value: "low", topic: "feed" });
-  await live.say("خمسة وعشرين كيس", "answer_question", { text: "25", topic: "feed" });
-  await live.say("ايه صح", "answer_question", { value: "yes", topic: "feed" });
   await live.say("ميتين الف لتر", "answer_question", { text: "200000", topic: "water" });
-  check("the quantity is confirmed as approximate", live.s?.step === "quantity_confirm" && live.said.includes("200000 لتر"), live.said);
-  await live.say("ايه صح", "answer_question", { value: "yes", topic: "water" });
+  check("a spoken number moves straight on, with no quantity confirmation", live.s?.step === "report_question" && live.s?.q !== "water_level", { step: live.s?.step, q: live.s?.q });
   await live.say("لا ما جا", "answer_question", { text: "لا ما جا", topic: "other" });
   const summary = live.said;
   check("the summary reads the quantity on its own", summary.includes("200000 لتر") && !summary.includes("(200000"), summary);
@@ -744,9 +733,7 @@ scenario("E", "Keypad fallback: a digit is not a custom answer, and digits still
   check("digit 1 answers herd health", state(call.sid)?.draft.answers[1]?.questionId === "herd_health" && state(call.sid)?.draft.answers[1]?.certainty === "reported", state(call.sid)?.draft.answers);
   check("the next question is water", call.text.includes(TEXT.water), call.text);
   await call.turn(keys("3"));
-  check("digit 3 picks the third level", state(call.sid)?.step === "quantity_input" && state(call.sid)?.data.tempLevel === "low", state(call.sid)?.data);
-  await call.turn(keys("7"));
-  await call.turn(keys("1"));
+  check("digit 3 picks the third level and moves on", state(call.sid)?.draft.resourceUpdates.at(-1)?.level === "low" && state(call.sid)?.draft.resourceUpdates.at(-1)?.quantity === null, state(call.sid)?.draft.resourceUpdates);
   check("the summary is read for the keypad", /أحفظه/.test(call.text), call.text);
   await call.turn(keys("1"));
   check("digit 1 saves", /تم حفظ/.test(call.text), call.text);
@@ -757,7 +744,7 @@ scenario("E", "Keypad fallback: a digit is not a custom answer, and digits still
   const report = reportOf(ranch.farm)[0];
   check("coverage marks the custom question unknown", coverageOf(report, ranch.customIds[0]) === "unknown", report.coverage);
   const water = rows.find((row) => row.question_id === "water_level");
-  check("the keypad level and quantity are stored", /7 لتر/.test(answerWords(water) ?? "") && resourceOf(ranch.farm, "water")?.level === "low", water);
+  check("the keypad level is stored, with no quantity", resourceOf(ranch.farm, "water")?.level === "low" && !resourceOf(ranch.farm, "water")?.quantity, water);
 });
 
 scenario("F", "Correction: deny, correct one item, full re-read, a stale confirmation is refused, one corrected report", async () => {
@@ -773,9 +760,7 @@ scenario("F", "Correction: deny, correct one item, full re-read, a stale confirm
   await live.say("العلف غلط", "correct_report", { item_id: "feed_level" });
   check("only that item is asked again, in its normal words", live.s?.step === "report_question" && live.s?.q === "feed_level" && live.said === TEXT.feed, { q: live.s?.q, said: live.said });
   check("only that item is forgotten", live.s?.draft.answers.length === 4 && !live.s?.draft.answers.some((answer) => answer.questionId === "feed_level"), live.s?.draft.answers);
-  await live.say("العلف باقي منه شوي", "answer_question", { value: "low", topic: "feed" });
-  await live.say("سبعة أكياس", "answer_question", { text: "7", topic: "feed" });
-  const reread = await live.say("ايه صح", "answer_question", { value: "yes", topic: "feed" });
+  const reread = await live.say("سبعة أكياس", "answer_question", { text: "7", topic: "feed" });
   const summary = live.said;
   check("the whole summary is read again", reread?.isSummary === true && live.s?.step === "report_summary", reread);
   check("the new summary has every other item and the new quantity", hasEvery(summary, ["الحلال كله بخير", "20 من الحلال", "الماء", "7 كيس", VET]), summary);
@@ -800,7 +785,7 @@ scenario("F", "Correction: deny, correct one item, full re-read, a stale confirm
   const feed = rows.filter((row) => row.question_id === "feed_level");
   check("feed is one row with only the corrected value", feed.length === 1 && answerWords(feed[0]).includes("7 كيس") && !JSON.stringify(rows).includes("25 كيس"), feed);
   const stock = resourceOf(ranch.farm, "feed");
-  check("the feed resource holds the corrected value", stock?.level === "low" && stock?.quantity === "7 كيس", stock);
+  check("the feed resource holds the corrected value, with no invented level", stock?.level === "unknown" && stock?.quantity === "7 كيس", stock);
   assertReadBack(summary, ranch.farm);
 });
 
@@ -1036,13 +1021,8 @@ scenario("K1", "Double confirm_report and repeated ids save one report", async (
   const repeat = await live.upstream.toolCall("answer_question", { value: "yes", topic: "herd" }, { callId: duplicateId, waitMs: 2000 });
   check("a repeated tool id is not applied again", repeat === null && fingerprint(live.s) === afterFirst, { repeat, q: live.s?.q });
   await live.say("عشرين راس", "answer_question", { text: "20", topic: "herd" });
-  await live.say("ايه صح", "answer_question", { value: "yes", topic: "herd" });
   await live.say("العلف كافي", "answer_question", { value: "good", topic: "feed" });
-  await live.say("عشرة أكياس", "answer_question", { text: "10", topic: "feed" });
-  await live.say("ايه صح", "answer_question", { value: "yes", topic: "feed" });
   await live.say("الموية كافية", "answer_question", { value: "good", topic: "water" });
-  await live.say("ميه لتر", "answer_question", { text: "100", topic: "water" });
-  await live.say("ايه صح", "answer_question", { value: "yes", topic: "water" });
   await live.say("لا ما جا", "answer_question", { text: "لا ما جا", topic: "other" });
   const firstId = `call_save_${randomBytes(3).toString("hex")}`;
   live.upstream.workerSays("إيه احفظه");

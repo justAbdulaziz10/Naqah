@@ -303,6 +303,8 @@ export interface PendingWorkerCall {
   /** When the next attempt is due; null when finished. */
   nextAttemptAt: string | null;
   state: "pending" | "delivered" | "no_answer_ticket";
+  /** Attempts already used when the owner asked for another try; only later attempts count toward the three. */
+  retryBase?: number;
   /** Task C's approved conversation batch/event identity; optional for legacy calls. */
   batchId?: string;
   /** Ordered Task C associations. Absent preserves legacy storage; [] means no grouped tasks. */

@@ -34,11 +34,6 @@ export function farmVoiceMissing(): string[] {
     .filter((name) => !value(name) && !(legacy[name] && value(legacy[name])));
 }
 
-/** Caller ID can be spoofed and an inquiry reads farm data aloud, so it stays off until decided. */
-export function voiceOwnerInquiryEnabled(): boolean {
-  return value("NAQAH_VOICE_OWNER_INQUIRY") === "1";
-}
-
 function bridgeUrl(): string | null {
   try {
     const url = new URL(value("NAQAH_BRIDGE_PUBLIC_URL"));

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolveWorkerCallAttempt, submitOwnerInstructionBatch } from "./actions";
+import { resolveWorkerCallAttempt, retryUndeliveredCall, submitOwnerInstructionBatch } from "./actions";
+import { undeliveredCalls } from "./alerts";
 import { fromRiyadh } from "./clock";
 import { startLiveOwnerBriefing } from "./conversation/owner-briefing";
 import { answer } from "./conversation/engine";
@@ -77,6 +78,57 @@ describe("answering is not delivery", () => {
     const saved = yes.commit?.(ws) ?? ws;
     expect(saved.taskTickets[0].status).toBe("closed");
     expect(saved.pendingWorkerCalls[0].state).toBe("delivered");
+  });
+});
+
+describe("trying an undelivered call again", () => {
+  const LATER = new Date(now.getTime() + 3 * 60 * 60_000);
+  function exhausted(): Workspace {
+    let ws = farm();
+    for (let i = 0; i < 3; i += 1) ws = resolveWorkerCallAttempt(ws, new Date(now.getTime() + i * 20 * 60_000), "pwc_1", "unanswered").ws;
+    expect(undeliveredCalls(ws)).toHaveLength(1);
+    return ws;
+  }
+
+  it("puts the same call back, with no new ticket, pending row or relay", () => {
+    const ws = exhausted();
+    const retried = retryUndeliveredCall(ws, LATER, "pwc_1");
+    expect(retried.pendingWorkerCalls).toHaveLength(1);
+    expect(retried.pendingWorkerCalls[0]).toMatchObject({ id: "pwc_1", state: "pending", retryBase: 3, nextAttemptAt: LATER.toISOString(), message: "Move Wadha to the shade", relayId: "rel_1" });
+    expect(retried.pendingWorkerCalls[0].attempts).toHaveLength(3);
+    expect(retried.noAnswerTickets).toHaveLength(0);
+    expect(retried.relays).toHaveLength(1);
+    expect(retried.taskTickets).toHaveLength(1);
+    expect(undeliveredCalls(retried)).toEqual([]);
+  });
+
+  it("changes nothing when pressed twice", () => {
+    const once = retryUndeliveredCall(exhausted(), LATER, "pwc_1");
+    expect(retryUndeliveredCall(once, new Date(LATER.getTime() + 1000), "pwc_1")).toBe(once);
+  });
+
+  it("does nothing on Basic, or for a call still in the queue or unknown", () => {
+    const basic = exhausted();
+    basic.settings.plan = "basic";
+    expect(retryUndeliveredCall(basic, LATER, "pwc_1")).toBe(basic);
+    const live = farm();
+    expect(retryUndeliveredCall(live, LATER, "pwc_1")).toBe(live);
+    const ws = exhausted();
+    expect(retryUndeliveredCall(ws, LATER, "missing")).toBe(ws);
+  });
+
+  it("counts three more attempts from the retry, then stops without a ticket", () => {
+    let ws = retryUndeliveredCall(exhausted(), LATER, "pwc_1");
+    const outcomes = [0, 1, 2].map((i) => {
+      const result = resolveWorkerCallAttempt(ws, new Date(LATER.getTime() + i * 20 * 60_000), "pwc_1", "unanswered");
+      ws = result.ws;
+      return result.outcome;
+    });
+    expect(outcomes).toEqual(["retry_scheduled", "retry_scheduled", "no_answer_ticket"]);
+    expect(ws.pendingWorkerCalls[0].attempts).toHaveLength(6);
+    expect(ws.pendingWorkerCalls[0].state).toBe("no_answer_ticket");
+    expect(ws.noAnswerTickets).toHaveLength(0);
+    expect(undeliveredCalls(ws)).toHaveLength(1);
   });
 });
 

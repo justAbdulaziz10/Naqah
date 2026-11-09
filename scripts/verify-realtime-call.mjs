@@ -506,12 +506,8 @@ function toolBurst(upstream, calls) {
 const FULL_PLAN = [
   { when: (s) => s.step === "report_question" && s.q?.startsWith("herd_health"), say: "والله كلها بخير الحمد لله يا طويل العمر", args: { value: "yes" } },
   { when: (s) => s.step === "report_question" && s.q === "herd_count", say: "عشرين راس تقريبا", args: { text: "20" } },
-  { when: (s) => s.step === "herd_count_confirm", say: "ايه صح عشرين", args: { value: "yes" } },
   { when: (s) => s.step === "report_question" && s.q === "feed_level", say: "العلف باقي منه شوي", args: { value: "low" } },
-  { when: (s) => s.step === "quantity_input" && s.q === "feed_level", say: "خمسة وعشرين كيس", args: { text: "25" } },
-  { when: (s) => s.step === "quantity_confirm", say: "ايه تمام", args: { value: "yes" } },
   { when: (s) => s.step === "report_question" && s.q === "water_level", say: "الموية كافية ما عليها", args: { value: "good" } },
-  { when: (s) => s.step === "quantity_input" && s.q === "water_level", say: "حوالي ميه لتر", args: { text: "100" } },
   { when: (s) => s.step === "report_question" && /^[0-9a-f-]{36}$/.test(s.q ?? ""), say: "لا والله ما جا أحد اليوم", args: { text: "لا ما جا" } },
 ];
 const SPOKEN_CANARIES = [...FULL_PLAN.map((step) => step.say), "إيه احفظه", "ايش تقصد بالعلف"];
@@ -588,12 +584,12 @@ function assertUnsaved(ranch, label = "no report") {
 }
 
 /** Scripted completion after a fallback: the same Gather route a call without realtime uses. */
-const Q = { health: /حال الحلال/, herdCount: /كم عدد الحلال/, feed: /كم باقي من العلف/, water: /كيف وضع الماء/, custom: /^(?![\s\S]*أحفظه)[\s\S]*البيطري/, bags: /أكياس العلف/, litres: /الماء باللتر/, summary: /أحفظه/ };
+const Q = { health: /حال الحلال/, herdCount: /كم عدد الحلال/, feed: /كم باقي من العلف/, water: /كيف وضع الماء/, custom: /^(?![\s\S]*أحفظه)[\s\S]*البيطري/, summary: /أحفظه/ };
 
 async function driveScripted(call, how) {
   const speechPlan = [
-    [Q.health, speech("كلها بخير")], [Q.herdCount, speech("عشرين ناقة")], [Q.feed, speech("باقي شوي")], [Q.bags, speech("٢٥")],
-    [Q.water, speech("إيه كافي")], [Q.litres, speech("مية لتر")], [Q.custom, speech("لا ما جا")], [Q.summary, speech("إيه")],
+    [Q.health, speech("كلها بخير")], [Q.herdCount, speech("عشرين ناقة")], [Q.feed, speech("باقي شوي")],
+    [Q.water, speech("إيه كافي")], [Q.custom, speech("لا ما جا")], [Q.summary, speech("إيه")],
   ];
   for (let index = 0; index < 40 && !call.ended; index += 1) {
     const text = call.text;
@@ -773,7 +769,7 @@ scenario("R3", "Clarification question mid-call: the server explains, no state c
   check("the server explains with the question and its choices", /المقصود/.test(upstream.spoken.at(-1) ?? "") && Q.feed.test(upstream.spoken.at(-1) ?? ""), upstream.spoken.at(-1));
   check("a clarification turn makes no state change", fingerprint(state(call.sid)) === before, state(call.sid));
   const answered = await workerTurn(stream, upstream, "العلف باقي منه شوي", "answer_question", { value: "low", topic: "feed" });
-  check("then the answer moves the call on", state(call.sid)?.step === "quantity_input", { step: state(call.sid)?.step, answered: answered?.slice(0, 200) });
+  check("then the answer moves the call on", state(call.sid)?.step === "report_question" && state(call.sid)?.q === "water_level", { step: state(call.sid)?.step, q: state(call.sid)?.q, answered: answered?.slice(0, 200) });
   stream.stop();
   stream.closeNormally();
   await call.finalStatus("completed");
@@ -849,7 +845,7 @@ scenario("R5", "A duplicate toolCallId is applied once", async () => {
   check("concurrent duplicates give the same output", one.status === 200 && two.status === 200 && one.json?.output === two.json?.output, { one: one.text.slice(0, 200), two: two.text.slice(0, 200) });
   const replayed = await internal("tool", body);
   check("a later replay gives the first output", replayed.json?.output === one.json?.output, replayed.text.slice(0, 200));
-  check("the concurrent duplicate advanced exactly one step", state(call.sid)?.step === "herd_count_confirm", state(call.sid)?.step);
+  check("the concurrent duplicate advanced exactly one step", state(call.sid)?.step === "report_question" && state(call.sid)?.q === "feed_level", { step: state(call.sid)?.step, q: state(call.sid)?.q });
 
   await answerUntil(call, stream, upstream);
   await waitFor(() => stream.sent("mark").some((event) => event.mark?.name?.startsWith("summary-")), "summary playback boundary");

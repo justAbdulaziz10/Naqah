@@ -144,6 +144,7 @@ export interface PendingWorkerCallRow {
   state: "pending" | "delivered" | "no_answer_ticket";
   batch_id?: string | null;
   task_links_explicit?: boolean;
+  retry_base?: number | null;
 }
 export interface PendingWorkerCallTaskRow {
   farm_id: string;

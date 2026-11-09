@@ -27,12 +27,11 @@ Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. P
 | Report call (NAQAH → primary worker) | **one per week**, on the weekday and exact time the owner sets (Asia/Riyadh) | **one per day**, at the exact time the owner sets |
 | Report call not completed | unanswered or interrupted (including a worker ending without saving) uses an attempt: **3 attempts total, 20 min apart**, then the run is *missed*. A saved report stops the retries. "Call now" stays one attempt; the worker may call back that period to report | same |
 | Registered workers / herd | up to **3** workers; the owner keeps the official herd count, a worker's count is a proposal | up to **10** workers; same |
-| Owner calls the AI | **one call per week** (an answered notification call consumes it) | unlimited |
-| Missed notification | owner may call back **once** (this MVP counts it as the weekly call — *open decision*) | unlimited anyway |
-| Owner summary call | weekly, at the owner's own day and time, always placed even when no verified report exists (the owner is told so). **3 attempts total, 20 min apart**; interrupted counts. Summary, then the call ends. No instructions, no tickets | daily, at the owner's own time; same retries. Summary, then spoken instructions: AI proposes task or information, the owner verifies the read-back. Tasks create tickets, information does not, one worker call |
+| Owner calls the AI | **not available**: NAQAH always places the call | same |
+| Owner summary call | weekly, at the owner's own day and time, always placed even when no verified report exists (the owner is told so). **3 attempts total, 20 min apart**; interrupted counts. Summary, then the call ends. No instructions, no tickets | daily, at the owner's own time; same retries. Summary, then spoken instructions: AI proposes task or information, and the owner can add, remove or correct items during the read-back. The complete list is read again and nothing saves without an explicit yes. Tasks create tickets, information does not, one worker call |
 | Task tickets | — | close **only** when the worker explicitly confirms; deadlines never close them; closed → History |
 | Task verification | — | scheduled time → AI calls the worker; "any time" → asked during later worker interactions |
-| Worker instruction or verification call | **3 attempts total**, 20 min apart; interrupted counts; delivered only after explicit receipt or explicit answers. No No Answer Ticket | same (Ultimate only) |
+| Worker instruction or verification call | Ultimate only | **3 attempts total**, 20 min apart; interrupted counts; delivered only after explicit receipt or explicit answers. No No Answer Ticket. After three failures the batch shows as *Not delivered* and the owner can try again; the same call is requeued, so nothing is duplicated |
 | Worker returns missed call | always answered (even outside the window); delivers missed messages; closes a **historical** No Answer Ticket if one is still open. No new ticket is created. **Not** a farm update and does not consume the report | same |
 | Emergency | worker calls the owner **directly** — never through the AI | same |
 
@@ -41,7 +40,7 @@ accepts «ما أدري» / "I don't know"; confirms quantities and camel names;
 "saved/notified/created" before the system confirms; labels facts as *reported / approximate / unknown / verified*;
 never presents old data as new; stores extracted facts only (**no recordings**).
 
-**Report modes (Nov 2026).** *Guided* asks the owner's enabled questions in order, one at a time. *Open* lets the worker say what happened; facts land in their topics and anything unmentioned is saved as **not reported**, never healthy or unchanged, and is not asked about. Due tasks are still asked after an open update, because a task closes only on an explicit yes. Both modes read back every recorded detail, allow corrections, and save one report only after an explicit yes to the summary the worker actually heard. The model listens and classifies; the server chooses every spoken word. Words about another topic are kept as a note and read back, never dropped. Task verifications due at the same time share one worker call.
+**Report modes (Nov 2026).** *Guided* asks the owner's enabled questions in order, one at a time. *Open* lets the worker say what happened; facts land in their topics and anything unmentioned is saved as **not reported**, never healthy or unchanged, and is not asked about. Due tasks are still asked after an open update, because a task closes only on an explicit yes. Both modes read back every recorded detail, allow corrections, and save one report only after an explicit yes to the summary the worker actually heard. The model listens and classifies; the server chooses every spoken word. Calls stay short: one question at a time, options read aloud only on the keypad or after an answer was not understood, and no per-item confirmations, because the final read-back confirms everything. Words about another topic are kept as a note and read back, never dropped. Task verifications due at the same time share one worker call.
 
 The old Basic From/To *reporting window* (worker calls in) is **retired** (Nov 2026): columns remain only so old rows load.
 
@@ -166,12 +165,12 @@ action plugs into a webhook.
 ## 7. Open decisions (do NOT treat as approved)
 
 Copied from the specs — the MVP picks a placeholder behavior and marks it in code with `OPEN DECISION`:
-1. Basic missed-notification callback: does it consume the weekly owner call? (MVP: yes)
+1. Basic missed-notification callback. **Settled:** owners cannot call NAQAH; NAQAH always places the call.
 2. Can Basic relay instructions without tickets? **No.** Basic does not ask for or relay instructions. (Supersedes diagram f3.)
-3. Exact response when Basic's owner allowance is used. (MVP: polite refusal + "details are on the website")
+3. Owner phoning in. **Settled:** a short closed line, on every plan.
 4. Unregistered caller handling. (MVP: Call Lab only simulates the registered worker)
 5. Ultimate second daily report attempt. (MVP: politely rejected)
-6. Whether tasks can be created during owner-initiated inquiry calls. (MVP: no)
+6. Tasks on owner-initiated calls. **Settled:** owner-initiated calls do not exist.
 7. Retry exhaustion. **Settled:** three worker attempts, 20 minutes apart, then stop. No new No Answer Ticket. Open tasks stay open. Historical tickets still close when the worker calls back.
 8. How emergency categories are used during calls. (MVP: shown to the owner; worker calls owner directly)
 9. Predefined question categories and wording. (MVP: DRAFT in `catalog.ts`)

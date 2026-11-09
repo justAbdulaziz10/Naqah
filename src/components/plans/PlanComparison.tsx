@@ -26,7 +26,6 @@ export function PlanComparison({ current, className }: { current: Plan; classNam
     },
     { key: "summary", label: p.summaryCall, value: (plan) => (PLAN_LIMITS[plan].reports === "weekly" ? p.weekly : p.daily) },
     { key: "tasks", label: p.tasks, value: (plan) => (PLAN_LIMITS[plan].taskTickets ? p.included : <><span aria-hidden>—</span><span className="sr-only">{p.notIncluded}</span></>) },
-    { key: "owner", label: p.ownerCalls, value: (plan) => (Number.isFinite(PLAN_LIMITS[plan].ownerCalls) ? p.weekly : p.anyTime) },
   ];
 
   return (

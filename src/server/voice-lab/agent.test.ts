@@ -24,6 +24,17 @@ const tool = (session: LabSession, name: string, args: unknown, spoke = true, wo
 const said = (session: LabSession, args: unknown, workerUtterance: string, workspace: Workspace = ws) =>
   runLabTool({ session, ws: workspace, locale: "ar", name: "answer_question", args: withTopic(session, "answer_question", args), spoke: true, workerUtterance, now });
 
+/** The herd count is the question that takes a spoken number. */
+function atHerdCount(): LabSession {
+  let session: LabSession = open().session;
+  for (let turn = 0; turn < 60 && session.data.currentQuestionId !== "herd_count"; turn += 1) {
+    const args = session.inputMode === "number" ? { text: "5" } : session.replies.length ? { value: session.replies[0].value } : { text: "تمام" };
+    session = tool(session, "answer_question", args).session;
+  }
+  expect(session.data.currentQuestionId).toBe("herd_count");
+  return session;
+}
+
 /** Answers every question with its first reply, or a number where one is asked for. */
 function walkToSummary(): LabSession {
   let session: LabSession = open().session;
@@ -204,27 +215,6 @@ describe("Voice Lab asks instead of guessing", () => {
     return session;
   }
 
-  it("asks again about zero after 'enough', through the real engine, and records nothing", () => {
-    const session = walkTo("quantity_input");
-    expect(["good", "medium"]).toContain(session.data.tempLevel);
-    const result = tool(session, "answer_question", { text: "لا ما فيه شي" });
-    expect(result.session.step).toBe("quantity_input");
-    expect(result.session.draft.resourceUpdates).toEqual(session.draft.resourceUpdates);
-    expect(JSON.parse(result.output).question).toContain("كم باقي");
-  });
-
-  it("accepts a real number after asking, with the level intact", () => {
-    const asked = tool(walkTo("quantity_input"), "answer_question", { text: "لا ما فيه شي" }).session;
-    const counted = tool(asked, "answer_question", { text: "عشرة" });
-    expect(counted.session.step).toBe("quantity_confirm");
-    expect(counted.session.data.tempLevel).toMatch(/good|medium/);
-  });
-
-  it("drops the earlier 'enough' when the worker repeats there is none", () => {
-    const asked = tool(walkTo("quantity_input"), "answer_question", { text: "لا ما فيه شي" }).session;
-    expect(tool(asked, "answer_question", { text: "لا ما فيه شي" }).session.data.tempLevel).toBe("unknown");
-  });
-
   it("stores the Arabic herd detail in Arabic, with an English reading", () => {
     const session = walkTo("herd_count_detail");
     const result = tool(session, "answer_question", { text: "شعلة ضايعة" });
@@ -242,13 +232,13 @@ describe("Voice Lab asks instead of guessing", () => {
   });
 
   it("asks when the number recorded is not the number said", () => {
-    const session = walkTo("quantity_input");
-    expect(said(session, { text: "12" }, "عشرة أكياس").refused).toBe("number_not_in_answer");
-    expect(said(session, { text: "10" }, "عشرة أكياس").refused).toBeNull();
+    const session = atHerdCount();
+    expect(said(session, { text: "12" }, "عشرة").refused).toBe("number_not_in_answer");
+    expect(said(session, { text: "10" }, "عشرة").refused).toBeNull();
   });
 
   it("won't take 'unknown' from the model when the worker said a number", () => {
-    expect(said(walkTo("quantity_input"), { value: "quantity_unknown" }, "عشرة أكياس").refused).toBe("answer_conflicts_with_words");
+    expect(said(atHerdCount(), { value: "unknown" }, "عشرة").refused).toBe("answer_conflicts_with_words");
   });
 
   it("ignores a parser reading the current question doesn't offer", () => {
@@ -335,17 +325,17 @@ describe("Voice Lab follows the server-spoken protocol", () => {
   });
 
   it("gives up after two refusals and records unknown, never the disputed number", () => {
-    let session = walkTo("quantity_input");
+    let session = atHerdCount();
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const result = said(session, { text: "12" }, "عشرة أكياس");
+      const result = said(session, { text: "12" }, "عشرة");
       expect(result.refused).toBe("number_not_in_answer");
       expect(result.session.draft).toEqual(session.draft);
       session = result.session;
     }
-    const third = said(session, { text: "12" }, "عشرة أكياس");
+    const third = said(session, { text: "12" }, "عشرة");
     expect(third.refused).toBeNull();
     expect(third.sayText).toContain("بنسجلها غير معروف");
-    expect(JSON.stringify(third.session.draft)).not.toContain('"quantity":12');
+    expect(third.session.draft.herdCount).not.toBe(12);
   });
 
   it("stores free text as the worker said it, not as the model worded it", () => {

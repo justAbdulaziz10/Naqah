@@ -3,6 +3,7 @@
  * The UI (Call Lab, dashboard) and — later — real telephony webhooks should go
  * through these functions so the rules live in exactly one place.
  */
+import { undeliveredCalls } from "./alerts";
 import { MAX_RETRIES, RETRY_DELAY_MS } from "./clock";
 import { coveredTasks, dueTaskVerifications, dueWorkerCalls, openCoveredTasks } from "./rules";
 import { coveredReportDraft, evaluateFindings, reportDraftIssue, type ReportDraft } from "./findings";
@@ -498,6 +499,24 @@ export function releaseWorkerCallClaim(input: Workspace, pendingCallId: string, 
   return ws;
 }
 
+/**
+ * The owner asks NAQAH to try an undelivered call again. The same call goes back in the queue, with
+ * its message and tasks, so nothing is created twice and pressing it twice changes nothing.
+ */
+export function retryUndeliveredCall(input: Workspace, now: Date, pendingCallId: string): Workspace {
+  if (!undeliveredCalls(input).some((call) => call.id === pendingCallId)) return input;
+  const ws = clone(input);
+  const call = ws.pendingWorkerCalls.find((item) => item.id === pendingCallId)!;
+  call.state = "pending";
+  call.retryBase = call.attempts.length;
+  call.nextAttemptAt = iso(now);
+  pushEvent(ws, now, "neutral", {
+    ar: `بتحاول ناقة توصل التعليمات لـ${ws.settings.worker.name} مرة ثانية`,
+    en: `NAQAH will try again to reach ${ws.settings.worker.name}`,
+  });
+  return ws;
+}
+
 export type AttemptOutcome = "delivered" | "retry_scheduled" | "no_answer_ticket";
 
 /**
@@ -572,16 +591,17 @@ export function resolveWorkerCallAttempt(
     reportId: null,
   });
 
-  if (attempt <= MAX_RETRIES) {
+  const inRound = attempt - (call.retryBase ?? 0);
+  if (inRound <= MAX_RETRIES) {
     call.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
     pushEvent(ws, now, "neutral", result === "interrupted"
       ? {
-          ar: `انقطع الاتصال — إعادة المحاولة بعد ٢٠ دقيقة (${attempt}/${MAX_RETRIES + 1})`,
-          en: `The call ended early — retrying in 20 minutes (${attempt}/${MAX_RETRIES + 1})`,
+          ar: `انقطع الاتصال — إعادة المحاولة بعد ٢٠ دقيقة (${inRound}/${MAX_RETRIES + 1})`,
+          en: `The call ended early — retrying in 20 minutes (${inRound}/${MAX_RETRIES + 1})`,
         }
       : {
-          ar: `لم يرد العامل — إعادة المحاولة بعد ٢٠ دقيقة (${attempt}/${MAX_RETRIES + 1})`,
-          en: `Worker didn't answer — retrying in 20 minutes (${attempt}/${MAX_RETRIES + 1})`,
+          ar: `لم يرد العامل — إعادة المحاولة بعد ٢٠ دقيقة (${inRound}/${MAX_RETRIES + 1})`,
+          en: `Worker didn't answer — retrying in 20 minutes (${inRound}/${MAX_RETRIES + 1})`,
         });
     return { ws, outcome: "retry_scheduled" };
   }

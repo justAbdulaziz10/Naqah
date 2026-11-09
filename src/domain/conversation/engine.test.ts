@@ -186,16 +186,8 @@ describe("Call Lab conversation engine", () => {
         input = { value: "sick" };
       } else if (session.step === "health_note") {
         input = { text: "limping" };
-      } else if (session.step === "health_name_confirm") {
-        input = { value: "yes" };
       } else if (session.step === "health_more") {
         input = { value: "no" };
-      } else if (session.step === "herd_count_confirm") {
-        input = { value: "yes" };
-      } else if (session.step === "quantity_input") {
-        input = session.data.currentQuestionId === "feed_level" ? { text: "12" } : { value: "quantity_skip" };
-      } else if (session.step === "quantity_confirm") {
-        input = { value: "yes" };
       } else {
         throw new Error("Unexpected report step: " + session.step);
       }
@@ -426,9 +418,6 @@ describe("Call Lab conversation engine", () => {
     session = answer(session, ws, NOW, { text: "lots" }).session;
     expect(session.turns.at(-1)?.text.en).toContain("for example 42");
     session = answer(session, ws, NOW, { text: "40" }).session;
-    expect(session.step).toBe("herd_count_confirm");
-    expect(session.turns.at(-1)?.text.en).toContain("You counted 40 camels");
-    session = answer(session, ws, NOW, { value: "yes" }).session;
     expect(session.step).toBe("herd_count_detail");
     expect(session.turns.at(-1)?.text.en).toContain("fewer than the 42 on record");
     session = answer(session, ws, NOW, { text: "Wadha and Shaha" }).session;
@@ -441,7 +430,7 @@ describe("Call Lab conversation engine", () => {
     for (let guard = 0; session.step !== "report_summary" && guard < 40; guard += 1) {
       const input = session.data.currentQuestionId === "herd_count" && session.step === "report_question"
         ? { text: "45" }
-        : session.inputMode === "choices" ? { value: session.replies[0].value } : session.inputMode === "number" ? { value: "quantity_skip" } : { text: "Nothing new" };
+        : session.inputMode === "choices" ? { value: session.replies[0].value } : { text: "Nothing new" };
       ({ ws, session } = applyAnswer(session, ws, NOW, input));
     }
     expect(session.turns.at(-1)?.text.en).toContain("45 camels");

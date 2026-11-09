@@ -17,7 +17,9 @@ import type { CallKind, TaskTicket, Workspace } from "@/domain";
 import { undeliveredCalls, type UndeliveredCall } from "@/domain/alerts";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
-import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
+import { useIsAccount, useNow, useWorkspace, useWorkspaceStore } from "@/store/workspace";
+import { accountSync, reportCallNow } from "@/store/account";
+import { retryUndeliveredCall } from "@/domain/actions";
 
 type TicketTab = "active" | "history";
 
@@ -120,6 +122,39 @@ function TaskStatus({ ticket, worker, now }: { ticket: TaskTicket; worker: strin
   );
 }
 
+function RetryDelivery({ id }: { id: string }) {
+  const { m } = useI18n();
+  const o = m.app.overview;
+  const account = useIsAccount();
+  const now = useNow();
+  const update = useWorkspaceStore((state) => state.update);
+  const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  // The same call goes back in the queue, so a second press changes nothing.
+  async function retry() {
+    setFailed(false);
+    if (!account) return update((ws) => retryUndeliveredCall(ws, now, id));
+    setPending(true);
+    try {
+      const result = await reportCallNow.retryUndelivered(id);
+      if (!result.ok) setFailed(true);
+      else void accountSync.refresh();
+    } catch {
+      setFailed(true);
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <>
+      <button type="button" onClick={() => void retry()} disabled={pending} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold text-brown underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brown disabled:opacity-60">
+          {pending ? o.retryingDelivery : o.retryDelivery}
+      </button>
+      {failed ? <p role="alert" className="text-sm text-danger">{o.retryDeliveryFailed}</p> : null}
+    </>
+  );
+}
+
 /** NAQAH gave up reaching the worker about this task: shown with the task, which stays open. */
 function UndeliveredNote({ call, worker }: { call: UndeliveredCall; worker: string }) {
   const { m, fmt } = useI18n();
@@ -132,6 +167,7 @@ function UndeliveredNote({ call, worker }: { call: UndeliveredCall; worker: stri
         <p className="naqah-name font-semibold leading-snug text-espresso">{o.notDeliveredTo(worker)}</p>
         <AttemptDots count={call.attempts} label={m.visual.tasks.attempts(count)} className="mt-1.5" />
         <p className="mt-1 text-sm text-muted">{call.purpose === "instruction" ? o.calledTimes(count) : o.calledToCheck(count)} {o.taskStaysOpen}</p>
+        <RetryDelivery id={call.id} />
       </div>
     </div>
   );
@@ -243,6 +279,7 @@ export default function TicketsPage() {
                     <Badge tone={relay.delivered ? "ok" : "warn"} dot>{relay.delivered ? m.app.tickets.delivered : relayUndelivered(relay.id) ? m.app.tickets.undelivered : m.app.tickets.notDelivered}</Badge>
                     <span className="text-[0.8125rem] text-muted">{m.app.tickets.relayedAt(fmt.relative(relay.at, now))}</span>
                     {!relay.delivered && relayUndelivered(relay.id) ? <span className="text-[0.8125rem] text-muted">{m.app.overview.calledTimes(fmt.number(relayUndelivered(relay.id)!.attempts))}</span> : null}
+                    {!relay.delivered && relayUndelivered(relay.id) ? <RetryDelivery id={relayUndelivered(relay.id)!.id} /> : null}
                   </div>
                 </li>
               ))}

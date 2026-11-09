@@ -14,6 +14,8 @@ import { manualCallsEnabled, outboundCallMissing, outboundConfig } from "@/serve
 import { requestReportCallNow, type CallNowResult } from "@/server/calls/scheduler";
 import { createTwilioCaller } from "@/server/calls/twilio";
 import { createServiceClient } from "@/server/db/service-client";
+import { runFarmAction } from "@/server/db/service-repository";
+import { retryUndeliveredCall } from "@/domain/actions";
 import { farmVoiceMissing, voiceMode } from "@/server/env";
 import type { Plan } from "@/domain/types";
 
@@ -122,6 +124,24 @@ export async function deleteEmergency(id: unknown) { return asOwner((r) => r.del
 /** Whether this deployment can place the owner's controlled "Call now". Names nothing secret. */
 function callNowReady(): boolean {
   return manualCallsEnabled() && voiceMode() === "farm" && !farmVoiceMissing().length && !outboundCallMissing().length;
+}
+
+/**
+ * The owner asks NAQAH to try an undelivered call again. Ownership comes from the session; the service
+ * key does the write because owners can only read calls. Nothing dials here: the scheduler still decides.
+ */
+export async function retryUndelivered(id: unknown): Promise<ActionResult<boolean>> {
+  return asOwner(async (r) => {
+    if (typeof id !== "string" || !isUuid(id)) throw new DbError("invalid_input");
+    const { farmId } = await r.load();
+    const service = createServiceClient();
+    if (!service) throw new DbError("unavailable");
+    const { result } = await runFarmAction(service, farmId, (ws) => {
+      const next = retryUndeliveredCall(ws, new Date(), id);
+      return { ws: next, result: next !== ws };
+    });
+    return result;
+  });
 }
 
 export async function callNowAvailable() {

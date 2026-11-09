@@ -500,31 +500,13 @@ function handleReportQuestion(
       // "How much is left?" answered with a number: keep it, without inventing a level.
       const count = (input.text ?? value).trim();
       if ((item.resource === "feed" || item.resource === "water") && isQuantity(count)) {
-        const quantified = { ...current.session, data: { ...current.session.data, tempLevel: "unknown" as Level } };
-        return { session: askQuantityConfirm(quantified, item.resource, count, now) };
+        return { session: nextReportItem(addResourceAnswer(current.session, item, "unknown", storedQuantity(ws, item.resource, count), "approximate"), ws, now) };
       }
       // Never carry a value that isn't a level: the save would refuse the whole report.
       return { session: askReportItem(current.session, ws, now) };
     }
     const level = value as Level;
-    const certainty: Certainty = level === "unknown" ? "unknown" : "reported";
-    if (item.resource === "feed" || item.resource === "water") {
-      const next = { ...current.session, data: { ...current.session.data, tempLevel: level } };
-      const quantityQuestion = item.resource === "feed"
-        ? copy("Roughly how many bags of feed are left?", "كم باقي تقريباً من أكياس العلف؟")
-        : copy("Roughly how many litres of water are left?", "كم باقي تقريباً من الماء باللتر؟");
-      return {
-        session: ask(
-          next,
-          quantityQuestion,
-          now,
-          "quantity_input",
-          [reply("quantity_unknown", "I don’t know", "ما أدري"), reply("quantity_skip", "Skip", "تخطي")],
-          "number",
-        ),
-      };
-    }
-    return { session: nextReportItem(addResourceAnswer(current.session, item, level, null, certainty), ws, now) };
+    return { session: nextReportItem(addResourceAnswer(current.session, item, level, null, level === "unknown" ? "unknown" : "reported"), ws, now) };
   }
 
   const unknown = isUnknown(value, input.text);
@@ -551,38 +533,9 @@ function handleHerdCount(session: CallSession, ws: Workspace, now: Date, item: R
       ),
     };
   }
-  return {
-    session: ask(
-      { ...session, data: { ...session.data, tempCount: count } },
-      copy("You counted " + count + " camels in total. Is that right?", "عدّيت " + count + " من الحلال. صحيح؟"),
-      now,
-      "herd_count_confirm",
-      [reply("yes", "Yes, that’s right", "إيه، صحيح"), reply("no", "Change it", "أبي أغيّره")],
-    ),
-  };
-}
-
-function handleHerdCountConfirm(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
-  const current = workerTurn(session, input, now);
-  const item = session.data.queue?.[session.data.reportIndex ?? 0];
-  const count = session.data.tempCount;
-  if (!item || count === undefined) return { session: current.session };
-  if (current.value !== "yes") {
-    return {
-      session: ask(
-        { ...current.session, data: { ...current.session.data, tempCount: undefined } },
-        item.question,
-        now,
-        "report_question",
-        [reply("unknown", "I don’t know", "ما أدري")],
-        "number",
-      ),
-    };
-  }
   const expected = expectedHerd(ws);
   const short = expected !== null && count < expected;
-  const draft = { ...current.session.draft, herdCount: count, herdAccountedFor: expected === null ? null : !short };
-  const counted = { ...current.session, draft };
+  const counted = { ...session, draft: { ...session.draft, herdCount: count, herdAccountedFor: expected === null ? null : !short } };
   if (short) {
     return {
       session: ask(
@@ -686,49 +639,14 @@ function handleHealthNote(session: CallSession, ws: Workspace, now: Date, input:
   const note = current.value === "skip_note" || !input.text?.trim() || addsNothing(input.text) ? null : input.text.trim();
   const camel = ws.camels.find((entry) => entry.id === session.data.tempCamelId);
   if (!camel) return { session: askCamelToCheck(current.session, ws, now, copy("Choose a camel from the herd.", "اختر ناقة من الحلال.")) };
-  const next = { ...current.session, data: { ...current.session.data, tempNote: note } };
-  return {
-    session: ask(
-      next,
-      copy("You said " + camel.name + ". Is that the right camel?", "ذكرت " + camel.name + ". هل الاسم صحيح؟"),
-      now,
-      "health_name_confirm",
-      [reply("yes", "Yes", "إيه"), reply("no", "No", "لا"), reply("unknown", "I don’t know", "ما أدري")],
-    ),
-  };
-}
-
-function handleHealthNameConfirm(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
-  const current = workerTurn(session, input, now);
-  if (current.value !== "yes") {
-    return {
-      session: askCamelToCheck(
-        { ...current.session, data: { ...current.session.data, tempCamelId: undefined, tempHealth: undefined, tempNote: undefined } },
-        ws,
-        now,
-        copy("No problem. Choose the camel again.", "ما يخالف. اختر الناقة مرة ثانية."),
-      ),
-    };
-  }
-  const camelId = session.data.tempCamelId;
-  const camel = ws.camels.find((entry) => entry.id === camelId);
+  const camelId = camel.id;
   const health = session.data.tempHealth ?? "unknown";
-  if (!camelId || !camel) return { session: current.session };
   const asked = [...new Set([...(session.data.askedCamelIds ?? []), camelId])];
-  const certainty: Certainty = health === "unknown" ? "unknown" : "reported";
-  const update = { camelId, health, note: session.data.tempNote ?? null, certainty };
-  const oldIndex = current.session.draft.camelUpdates.findIndex((entry) => entry.camelId === camelId);
-  const updates = [...current.session.draft.camelUpdates];
-  if (oldIndex >= 0) updates[oldIndex] = update;
-  else updates.push(update);
-  const saved = {
-    ...current.session,
-    draft: { ...current.session.draft, camelUpdates: updates },
-    data: { ...current.session.data, askedCamelIds: asked },
-  };
+  const update = { camelId, health, note, certainty: (health === "unknown" ? "unknown" : "reported") as Certainty };
+  const updates = current.session.draft.camelUpdates.filter((entry) => entry.camelId !== camelId);
   return {
     session: ask(
-      saved,
+      { ...current.session, draft: { ...current.session.draft, camelUpdates: [...updates, update] }, data: { ...current.session.data, askedCamelIds: asked } },
       copy("Any other camel to mention?", "فيه ناقة ثانية تبي تذكرها؟"),
       now,
       "health_more",
@@ -786,88 +704,13 @@ function addResourceAnswer(
       ],
     },
   };
-  return { ...next, data: { ...next.data, tempLevel: undefined, tempQuantity: undefined, quantityClarified: undefined } };
+  return next;
 }
 
-function handleQuantityInput(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
-  const current = workerTurn(session, input, now);
-  const item = session.data.queue?.[session.data.reportIndex ?? 0];
-  const level = session.data.tempLevel ?? "unknown";
-  if (!item || item.kind !== "predefined" || !item.resource) return { session: current.session };
-  if (current.value === "quantity_skip" || current.value === "quantity_unknown" || isUnknown(current.value, input.text)) {
-    const certainty: Certainty = level === "unknown" ? "unknown" : "reported";
-    return { session: nextReportItem(addResourceAnswer(current.session, item, level, null, certainty), ws, now) };
-  }
-  const quantity = (input.text ?? current.value).trim();
-  if (!isQuantity(quantity)) {
-    return {
-      session: ask(
-        current.session,
-        item.resource === "feed"
-          ? copy("Enter a number of bags, or choose Skip.", "أدخل عدد الأكياس، أو اختر تخطي.")
-          : copy("Enter a number of litres, or choose Skip.", "أدخل كمية باللتر، أو اختر تخطي."),
-        now,
-        "quantity_input",
-        [reply("quantity_unknown", "I don’t know", "ما أدري"), reply("quantity_skip", "Skip", "تخطي")],
-        "number",
-      ),
-    };
-  }
-  // "Enough" followed by "none left" can't both stand: ask once, then keep the zero without the level.
-  if (Number(quantity) === 0 && (level === "good" || level === "medium")) {
-    if (!session.data.quantityClarified) {
-      return {
-        session: ask(
-          { ...current.session, data: { ...current.session.data, quantityClarified: true } },
-          item.resource === "feed"
-            ? copy("You said there was enough, then that there’s none. Roughly how many bags are left?", "قلت إنه كافي، وبعدها إن ما فيه شي. كم باقي تقريباً من أكياس العلف؟")
-            : copy("You said there was enough, then that there’s none. Roughly how many litres are left?", "قلت إنه كافي، وبعدها إن ما فيه شي. كم باقي تقريباً من الماء باللتر؟"),
-          now,
-          "quantity_input",
-          [reply("quantity_unknown", "I don’t know", "ما أدري"), reply("quantity_skip", "Skip", "تخطي")],
-          "number",
-        ),
-      };
-    }
-    const unsure = { ...current.session, data: { ...current.session.data, tempLevel: "unknown" as Level } };
-    return { session: askQuantityConfirm(unsure, item.resource, quantity, now) };
-  }
-  return { session: askQuantityConfirm(current.session, item.resource, quantity, now) };
-}
-
-function askQuantityConfirm(session: CallSession, resource: ResourceKind, quantity: string, now: Date): CallSession {
+function storedQuantity(ws: Workspace, resource: ResourceKind, count: string) {
   const unit = quantityUnit(resource);
-  return ask(
-    { ...session, data: { ...session.data, tempQuantity: quantity } },
-    copy(
-      "You mentioned about " + quantity + " " + unit.en + ". The quantity is approximate, correct?",
-      "ذكرت إن باقي تقريباً " + quantity + " " + unit.ar + ". للتأكيد، الكمية تقديرية، صحيح؟",
-    ),
-    now,
-    "quantity_confirm",
-    [reply("yes", "Yes, approximate", "إيه، تقريبية"), reply("no", "Change it", "أبي أغيّرها")],
-  );
-}
-
-function handleQuantityConfirm(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
-  const current = workerTurn(session, input, now);
-  const item = session.data.queue?.[session.data.reportIndex ?? 0];
-  if (!item || item.kind !== "predefined" || !item.resource) return { session: current.session };
-  if (current.value === "no") {
-    const next = { ...current.session, data: { ...current.session.data, tempQuantity: undefined } };
-    const question = item.resource === "feed"
-      ? copy("Roughly how many bags of feed are left?", "كم باقي تقريباً من أكياس العلف؟")
-      : copy("Roughly how many litres of water are left?", "كم باقي تقريباً من الماء باللتر؟");
-    return {
-      session: ask(next, question, now, "quantity_input", [reply("quantity_unknown", "I don’t know", "ما أدري"), reply("quantity_skip", "Skip", "تخطي")], "number"),
-    };
-  }
-  const count = session.data.tempQuantity ?? "";
-  const unit = quantityUnit(item.resource);
   const text = copy(count + " " + unit.en, count + " " + unit.ar);
-  // Like the seed and every free-text answer, the stored quantity is in the worker's language.
-  const quantity = { stored: ws.settings.worker.language === "en" ? text.en : text.ar, text };
-  return { session: nextReportItem(addResourceAnswer(current.session, item, session.data.tempLevel ?? "unknown", quantity, "approximate"), ws, now) };
+  return { stored: ws.settings.worker.language === "en" ? text.en : text.ar, text };
 }
 
 /** One spoken line for each recorded item. Answers that name their own subject need no label. */
@@ -1000,11 +843,6 @@ function startCorrection(session: CallSession, ws: Workspace, now: Date, itemId:
       askedCamelIds: [],
       tempCamelId: undefined,
       tempHealth: undefined,
-      tempNote: undefined,
-      tempLevel: undefined,
-      tempQuantity: undefined,
-      tempCount: undefined,
-      quantityClarified: undefined,
     },
   }, ws, now);
 }
@@ -1225,7 +1063,6 @@ export function answerReportScenario(session: CallSession, ws: Workspace, now: D
   if (session.step === "health_pick") return handleHealthPick(session, ws, now, input);
   if (session.step === "health_status") return handleHealthStatus(session, ws, now, input);
   if (session.step === "health_note") return handleHealthNote(session, ws, now, input);
-  if (session.step === "health_name_confirm") return handleHealthNameConfirm(session, ws, now, input);
   if (session.step === "health_more") {
     const current = workerTurn(session, input, now);
     if (current.value === "yes") {
@@ -1235,10 +1072,7 @@ export function answerReportScenario(session: CallSession, ws: Workspace, now: D
     }
     return { session: finishCamelHealth(current.session, ws, now) };
   }
-  if (session.step === "herd_count_confirm") return handleHerdCountConfirm(session, ws, now, input);
   if (session.step === "herd_count_detail") return handleHerdCountDetail(session, ws, now, input);
-  if (session.step === "quantity_input") return handleQuantityInput(session, ws, now, input);
-  if (session.step === "quantity_confirm") return handleQuantityConfirm(session, ws, now, input);
   if (session.step === "report_summary") return handleSummary(session, ws, now, input);
   return { session };
 }

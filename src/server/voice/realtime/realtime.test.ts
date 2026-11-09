@@ -503,10 +503,10 @@ describe("server-owned report tool protocol", () => {
     expect(JSON.stringify(before)).not.toContain("A camel needs attention");
   });
 
-  it("rejects a declared topic that differs from a predefined quantity sub-step", async () => {
+  it("rejects a declared topic that differs from the feed question when a number is given", async () => {
     const { ticket } = await open();
     const index = row().session.data.queue!.findIndex((item) => item.id === "feed_level");
-    row().session = { ...row().session, step: "quantity_input", inputMode: "number", data: { ...row().session.data, reportIndex: index } };
+    row().session = { ...row().session, step: "report_question", data: { ...row().session.data, reportIndex: index, currentQuestionId: "feed_level" } };
     const result = await tool(ticket, "answer_question", { text: "12", topic: "herd" }, { workerUtterance: "twelve bags of feed" });
     expect(result.output.error).toBe("answer_off_topic");
     expect(result.result.sayText).toContain(result.output.question);
@@ -635,17 +635,12 @@ describe("server-owned report tool protocol", () => {
     expect(JSON.stringify(row().session.draft.answers)).toContain("A camel needs attention (unspecified)");
   });
 
-  it("never confirms a quantity the worker didn't confirm after repeated refusals", async () => {
+  it("never records a quantity under the wrong topic after repeated refusals", async () => {
     const { ticket } = await open();
     const index = row().session.data.queue!.findIndex((item) => item.id === "feed_level");
-    row().session = {
-      ...row().session, step: "quantity_confirm", inputMode: "choices",
-      replies: [{ id: "yes", value: "yes", label: { ar: "إيه", en: "Yes" } }, { id: "no", value: "no", label: { ar: "لا", en: "No" } }],
-      data: { ...row().session.data, reportIndex: index, tempLevel: "low", tempQuantity: "12" },
-    };
-    for (let turn = 0; turn < 3; turn += 1) await tool(ticket, "answer_question", { value: "yes", topic: "herd" }, { workerUtterance: "twelve bags of feed" });
-    expect(row().session.step).toBe("quantity_input");
-    expect(row().session.draft.resourceUpdates).toHaveLength(0);
+    row().session = { ...row().session, step: "report_question", data: { ...row().session.data, reportIndex: index, currentQuestionId: "feed_level" } };
+    for (let turn = 0; turn < 3; turn += 1) await tool(ticket, "answer_question", { text: "12", topic: "herd" }, { workerUtterance: "twelve bags of feed" });
+    expect(row().session.draft.resourceUpdates.filter((update) => update.quantity !== null)).toHaveLength(0);
   });
 
   it("drops a fact whose evidence changes the number the worker said", async () => {

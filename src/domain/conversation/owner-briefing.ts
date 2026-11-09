@@ -77,7 +77,7 @@ export function handleOwnerNotification(session: CallSession, ws: Workspace, now
       return {
         session: say(
           current.session,
-          copy("The call is marked missed. Abdullah can review the update on the website or call back.", "سُجلت المكالمة فائتة. يقدر عبدالله يراجع التحديث في الموقع أو يتصل بنا."),
+          copy("The call is marked missed. Abdullah can review the update on the website.", "سُجلت المكالمة فائتة. يقدر عبدالله يراجع التحديث في الموقع."),
           now,
           true,
         ),
@@ -220,9 +220,21 @@ export function handleOwnerNotification(session: CallSession, ws: Workspace, now
   }
   if (session.step === REVIEW_STEP) {
     if (input.instructionCorrection) return applyCorrection(current.session, now, input.instructionCorrection);
+    if (input.instructionRemove !== undefined) return removeInstruction(current.session, now, input.instructionRemove);
+    if (input.instructions?.length) return acceptProposals(revised(current.session), now, input.instructions);
     if (current.value === "instructions_confirm") return confirmInstructions(current.session, ws, now);
     if (current.value === "instructions_correct") return startCorrection(current.session, now);
+    if (current.value === "instructions_add") {
+      return { session: ask(revised(current.session), copy("What else should the worker know or do?", "وش تبي تضيف؟"), now, "instruction_text", [], "text") };
+    }
+    if (current.value === "instructions_remove") return startRemoval(current.session, now);
     return { session: askReview(current.session, now) };
+  }
+  if (session.step === "instruction_remove_pick") {
+    if (input.instructionRemove !== undefined) return removeInstruction(current.session, now, input.instructionRemove);
+    if (current.value === "back_to_review") return { session: askReview(current.session, now) };
+    const match = /^remove:(\d+)$/.exec(current.value);
+    return match ? removeInstruction(current.session, now, Number(match[1])) : startRemoval(current.session, now);
   }
   if (session.step === "instruction_correct_pick") {
     if (input.instructionCorrection) return applyCorrection(current.session, now, input.instructionCorrection);
@@ -335,15 +347,44 @@ function askReview(session: CallSession, now: Date): CallSession {
   return ask(
     session,
     copy(
-      `I'll tell the worker:\n${lines.map((line) => line.en).join("\n")}\nShall I save these, change one, or cancel?`,
-      `بقول للعامل:\n${lines.map((line) => line.ar).join("\n")}\nأحفظها، ولا تبي تعدل وحدة، ولا ألغيها؟`,
+      `I'll tell the worker:\n${lines.map((line) => line.en).join("\n")}\nShall I save these, or would you like to change something?`,
+      `بقول للعامل:\n${lines.map((line) => line.ar).join("\n")}\nأحفظها، ولا تبي تغير شي؟`,
     ),
     now,
     REVIEW_STEP,
-    [reply("instructions_confirm", "Yes, save them", "إيه، احفظها"), reply("instructions_correct", "Change one", "عدل وحدة"), reply("instructions_cancel", "Cancel", "ألغها")],
+    [reply("instructions_confirm", "Yes, save them", "إيه، احفظها"), reply("instructions_correct", "Change one", "عدل وحدة"), reply("instructions_add", "Add one", "أضيف وحدة"), reply("instructions_remove", "Remove one", "أشيل وحدة"), reply("instructions_cancel", "Cancel", "ألغها")],
     "choices",
     true,
   );
+}
+
+/** Every change is a new list, so a yes can only apply to the list the owner last heard. */
+const revised = (session: CallSession): CallSession => ({ ...session, data: { ...session.data, draftRevision: (session.data.draftRevision ?? 0) + 1 } });
+
+function startRemoval(session: CallSession, now: Date): EngineResult {
+  const items = session.data.pendingInstructions ?? [];
+  if (items.length <= 1) return removeInstruction(session, now, 0);
+  return {
+    session: ask(
+      session,
+      copy("Which one should I remove?", "أي وحدة أشيلها؟"),
+      now,
+      "instruction_remove_pick",
+      [...items.map((item, index) => reply(`remove:${index}`, `${index + 1}. ${item.message}`, `${index + 1}. ${item.message}`)), reply("back_to_review", "Back to the list", "ارجع للقائمة")],
+      "choices",
+      true,
+    ),
+  };
+}
+
+function removeInstruction(session: CallSession, now: Date, index: number): EngineResult {
+  const items = session.data.pendingInstructions ?? [];
+  if (index < 0 || index >= items.length) return continueInstructions(session, now);
+  const left = items.filter((_, at) => at !== index);
+  const next = revised({ ...session, data: { ...session.data, pendingInstructions: left } });
+  if (left.length) return continueInstructions(next, now);
+  // Nothing left to save: ask afresh instead of reading an empty list.
+  return { session: ask(next, copy("Nothing left on the list. Any other instructions?", "ما بقى شي في القائمة. عندك تعليمات ثانية؟"), now, "instruction_yesno", instructionReplies()) };
 }
 
 function startCorrection(session: CallSession, now: Date): EngineResult {

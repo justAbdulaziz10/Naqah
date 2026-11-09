@@ -7,7 +7,7 @@ import { traceCall, traceDirectory } from "../trace";
 
 const CALL = "CA" + "a".repeat(32);
 const OLD_CALL = "CA" + "b".repeat(32);
-const session = { step: "quantity_input", data: { reportIndex: 0, queue: [{ id: "feed_level" }] } } as CallSession;
+const session = { step: "report_question", data: { reportIndex: 0, queue: [{ id: "feed_level" }] } } as CallSession;
 const entry = { session, tool: "answer_question", args: { text: "12", topic: "feed" }, workerUtterance: "twelve bags of feed", resultStatus: "ok", spokenText: "Is that twelve bags?" };
 let root: string;
 let directory: string;
@@ -78,7 +78,7 @@ describe("local transcript trace gates", () => {
     const file = path.join(directory, CALL + ".jsonl");
     const lines = readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toMatchObject({ time: expect.any(String), step: "quantity_input", questionId: "feed_level", tool: entry.tool, args: entry.args, workerUtterance: entry.workerUtterance, resultStatus: "ok", spokenText: entry.spokenText });
+    expect(lines[0]).toMatchObject({ time: expect.any(String), step: "report_question", questionId: "feed_level", tool: entry.tool, args: entry.args, workerUtterance: entry.workerUtterance, resultStatus: "ok", spokenText: entry.spokenText });
     expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(existsSync(old)).toBe(false);
     expect(readFileSync(other, "utf8")).toBe("keep");

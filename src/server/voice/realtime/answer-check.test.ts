@@ -68,17 +68,16 @@ describe("worker words against the chosen answer", () => {
   });
 
   it("checks numbers against real words, including in Lab's shared guard", () => {
-    const quantity = { ...feed, step: "quantity_input", inputMode: "number" as const };
-    expect(refuseAnswer(quantity, { text: "12" }, "ten bags of feed", "en")).toBe("number_not_in_answer");
-    expect(refuseAnswer(quantity, { text: "12" }, "twelve bags of feed", "en")).toBeNull();
-    expect(refuseAnswer(quantity, { text: "12" }, null, "en")).toBe("number_not_in_answer");
+    const count = { ...at("herd_count"), inputMode: "number" as const };
+    expect(refuseAnswer(count, { text: "12" }, "ten camels", "en")).toBe("number_not_in_answer");
+    expect(refuseAnswer(count, { text: "12" }, "twelve camels", "en")).toBeNull();
+    expect(refuseAnswer(count, { text: "12" }, null, "en")).toBe("number_not_in_answer");
   });
 
-  it.each(["quantity_input", "quantity_confirm"])("keeps the asked feed topic through %s", (step) => {
-    const quantity = { ...feed, step, inputMode: "number" as const };
-    expect(askedTopic(quantity)).toBe("feed");
-    expect(isOffTopicAnswer(quantity, "a camel is sick")).toBe(true);
-    expect(isOffTopicAnswer(quantity, "الناقه تعرج")).toBe(true);
+  it("keeps the asked feed topic at the feed question", () => {
+    expect(askedTopic(feed)).toBe("feed");
+    expect(isOffTopicAnswer(feed, "a camel is sick")).toBe(true);
+    expect(isOffTopicAnswer(feed, "الناقه تعرج")).toBe(true);
   });
 });
 

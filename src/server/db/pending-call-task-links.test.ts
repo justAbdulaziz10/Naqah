@@ -36,6 +36,26 @@ describe('pending call relational task mapping', () => {
     ws.pendingWorkerCalls[0].coveredTaskIds = [];
     expect(historyRows(ws, farm).pendingWorkerCalls[0]).toHaveProperty('covered_task_ids', []);
   });
+  it('carries a retry base through the rows and back, and leaves it off old calls', () => {
+    const ws = createEmptyWorkspace('ultimate');
+    ws.pendingWorkerCalls.push(call({ retryBase: 3 }));
+    const row = historyRows(ws, farm).pendingWorkerCalls[0];
+    expect(row).toMatchObject({ retry_base: 3 });
+    const loaded = workspaceFromRows({ ...rows, pendingWorkerCalls: [{ ...row, id: row.id, created_at: '2026-11-08T00:00:00Z', worker_call_attempts: [], pending_worker_call_tasks: [] } as unknown as FarmRows['pendingWorkerCalls'][number]] });
+    expect(loaded.pendingWorkerCalls[0].retryBase).toBe(3);
+    const old = workspaceFromRows({ ...rows, pendingWorkerCalls: [{ ...row, retry_base: 0, created_at: '2026-11-08T00:00:00Z', worker_call_attempts: [], pending_worker_call_tasks: [] } as unknown as FarmRows['pendingWorkerCalls'][number]] });
+    expect(old.pendingWorkerCalls[0]).not.toHaveProperty('retryBase');
+  });
+  it('sees a retry as a change to the same row', () => {
+    const before = createEmptyWorkspace('ultimate');
+    before.pendingWorkerCalls.push(call({ state: 'no_answer_ticket', nextAttemptAt: null, attempts: [{ at: '2026-11-08T09:00:00Z', answered: false }] }));
+    const after = structuredClone(before);
+    Object.assign(after.pendingWorkerCalls[0], { state: 'pending', retryBase: 1, nextAttemptAt: '2026-11-08T12:00:00Z' });
+    const changes = diffWorkspace(before, after, farm);
+    expect(changes.pending_worker_calls).toHaveLength(1);
+    expect(changes.pending_worker_calls![0]).toMatchObject({ state: 'pending', retry_base: 1 });
+    expect(changes.worker_call_attempts ?? []).toEqual([]);
+  });
   it('detects a relationship-only change and an ordered-array change through the existing diff', () => {
     const before = createEmptyWorkspace('ultimate'); before.pendingWorkerCalls.push(call({ coveredTaskIds: ['tsk_a', 'tsk_b'] }));
     const after = structuredClone(before); after.pendingWorkerCalls[0].coveredTaskIds = ['tsk_b', 'tsk_a'];

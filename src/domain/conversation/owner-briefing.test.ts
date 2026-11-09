@@ -47,7 +47,7 @@ describe("owner instructions on the summary call", () => {
     expect(text).toContain("Fix the fence");
     expect(text).toContain("information only: Guests come Friday");
     expect(text).toContain("a task, any time: Fill the trough");
-    expect(proposed.session.replies.map((reply) => reply.value)).toEqual(["instructions_confirm", "instructions_correct", "instructions_cancel"]);
+    expect(proposed.session.replies.map((reply) => reply.value)).toEqual(["instructions_confirm", "instructions_correct", "instructions_add", "instructions_remove", "instructions_cancel"]);
 
     const tasksBefore = ws.taskTickets.length;
     const saved = step(proposed.session, proposed.ws, { value: "instructions_confirm" });
@@ -116,6 +116,70 @@ describe("owner instructions on the summary call", () => {
     const asked = step(first.session, first.ws, { instructionCorrection: { index: 1 } });
     expect(asked.session.step).toBe("instruction_correct_what");
     expect(review(asked.session)).toContain("Guests come Friday");
+  });
+
+  it("adds to the list at review and reads all of it again under a new revision", () => {
+    const ws = farm();
+    const first = step(open(ws), ws, { text: "said", instructions: [task("Fix the fence")] });
+    const revision = first.session.data.draftRevision ?? 0;
+    const asked = step(first.session, first.ws, { value: "instructions_add" });
+    expect(asked.session.step).toBe("instruction_text");
+    expect(asked.committed).toBe(false);
+    const added = step(asked.session, asked.ws, { text: "said", instructions: [info("Guests come Friday")] });
+    expect(added.session.step).toBe("instruction_review");
+    expect(added.session.data.draftRevision).toBe(revision + 1);
+    expect(added.session.data.pendingInstructions?.map((item) => item.message)).toEqual(["Fix the fence", "Guests come Friday"]);
+    expect(review(added.session)).toContain("Fix the fence");
+    expect(review(added.session)).toContain("Guests come Friday");
+    const direct = step(added.session, added.ws, { text: "said", instructions: [task("Fill the trough")] });
+    expect(direct.session.data.pendingInstructions).toHaveLength(3);
+    expect(direct.session.data.draftRevision).toBe(revision + 2);
+  });
+
+  it("asks which to remove, reads the rest back and saves one batch", () => {
+    const ws = farm();
+    const first = step(open(ws), ws, { text: "said", instructions: [task("Fix the fence"), task("Fill the trough")] });
+    const revision = first.session.data.draftRevision ?? 0;
+    const pick = step(first.session, first.ws, { value: "instructions_remove" });
+    expect(pick.session.step).toBe("instruction_remove_pick");
+    expect(pick.session.replies.map((reply) => reply.value)).toEqual(["remove:0", "remove:1", "back_to_review"]);
+    const back = step(pick.session, pick.ws, { value: "back_to_review" });
+    expect(back.session.step).toBe("instruction_review");
+    expect(back.session.data.draftRevision ?? 0).toBe(revision);
+
+    const removed = step(pick.session, pick.ws, { value: "remove:0" });
+    expect(removed.session.step).toBe("instruction_review");
+    expect(removed.session.data.draftRevision).toBe(revision + 1);
+    expect(review(removed.session)).not.toContain("Fix the fence");
+    expect(review(removed.session)).toContain("Fill the trough");
+
+    const tasksBefore = ws.taskTickets.length;
+    const saved = step(removed.session, removed.ws, { value: "instructions_confirm" });
+    expect(saved.committed).toBe(true);
+    expect(saved.ws.taskTickets.length - tasksBefore).toBe(1);
+    expect(saved.ws.pendingWorkerCalls.filter((call) => call.batchId === instructionBatchId(removed.session))).toHaveLength(1);
+  });
+
+  it("asks afresh after the last one is removed, and saves nothing on no", () => {
+    const ws = farm();
+    const first = step(open(ws), ws, { text: "said", instructions: [task("Fix the fence")] });
+    const emptied = step(first.session, first.ws, { value: "instructions_remove" });
+    expect(emptied.session.step).toBe("instruction_yesno");
+    expect(emptied.session.data.pendingInstructions).toEqual([]);
+    expect(emptied.committed).toBe(false);
+    const ended = step(emptied.session, emptied.ws, { value: "instruction_no" });
+    expect(ended.session.done).toBe(true);
+    expect(ended.committed).toBe(false);
+    expect(ended.ws.taskTickets).toEqual(ws.taskTickets);
+  });
+
+  it("ignores a removal outside the list", () => {
+    const ws = farm();
+    const first = step(open(ws), ws, { text: "said", instructions: [task("Fix the fence")] });
+    const same = step(first.session, first.ws, { instructionRemove: 4 });
+    expect(same.session.step).toBe("instruction_review");
+    expect(same.session.data.pendingInstructions).toHaveLength(1);
+    expect(same.session.data.draftRevision).toBe(first.session.data.draftRevision);
   });
 
   it("cancels without saving, and a bad reply never saves", () => {

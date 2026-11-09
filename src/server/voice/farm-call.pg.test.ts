@@ -136,6 +136,8 @@ class Call {
   }
   get text() { return said(this.xml); }
   get ended() { return this.xml.includes("<Hangup/>"); }
+  /** The options are only read out on request, so a choice shows in the Gather, not in the words. */
+  get choices() { return this.xml.includes('numDigits="1"'); }
   async finish(status = "completed") {
     return voiceStatus(hook("/api/voice/status", { CallSid: this.sid, CallStatus: status }));
   }
@@ -144,10 +146,8 @@ class Call {
 /** Answers a one-camel, feed-only farm up to the confirmation question. */
 async function answerToSummary(call: Call) {
   for (let turns = 0; turns < 15 && !call.text.includes("Confirm and save"); turns++) {
-    if (/how many bags/i.test(call.text)) await call.say("twelve");
-    else if (/how many camels/i.test(call.text)) await call.say("one");
-    else if (/approximate, correct/i.test(call.text)) await call.press("1");
-    else if (/Press 1 for/.test(call.text)) await call.press("1");
+    if (/how many camels/i.test(call.text)) await call.say("one");
+    else if (call.choices) await call.press("1");
     else await call.say("Nothing new to report");
   }
   expect(call.text).toContain("Confirm and save");
@@ -187,7 +187,6 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", jwt({ role: "anon" }));
     vi.stubEnv("SUPABASE_SECRET_KEY", jwt({ role: "service_role" }));
     vi.stubEnv("NAQAH_VOICE_LOCALE", "en");
-    vi.stubEnv("NAQAH_VOICE_OWNER_INQUIRY", "");
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
   afterEach(() => {
@@ -225,8 +224,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       const call = await new Call(farm.worker).start();
       const asked: string[] = [call.text];
       for (let turns = 0; turns < 15 && !call.text.includes("Confirm and save"); turns++) {
-        if (/how many litres/i.test(call.text)) await call.say("forty");
-        else if (/Press 1 for/.test(call.text)) await call.press("1");
+        if (call.choices) await call.press("1");
         else await call.say("No");
         asked.push(call.text);
       }
@@ -236,48 +234,38 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       expect(script).not.toMatch(/feed/i);
     });
 
-    it("saves a real quantity from the keypad, not its first digit", async () => {
+    it("saves a real number from the keypad, not its first digit", async () => {
       const farm = seedFarm();
       const call = await new Call(farm.worker).start();
-      for (let turns = 0; turns < 8 && !/how many bags/i.test(call.text); turns++) await call.press("1");
-      expect(call.xml).not.toContain('numDigits="1"');
+      for (let turns = 0; turns < 8 && call.choices; turns++) await call.press("1");
       expect(call.xml).toContain('finishOnKey="#"');
       expect(call.text).toContain("then press #");
       await call.press("12");
-      expect(call.text).toContain("12 bags");
+      expect((await readVoiceSession(createServiceClient()!, call.sid))!.session.draft.herdCount).toBe(12);
     });
 
     it.each([
       ["ar", "عشرين", "20"], ["ar", "ثلاثين كيس", "30"], ["ar", "مية وخمسين لتر", "150"],
       ["ar", "تقريبا عشرة", "10"], ["ar", "٤٠", "40"],
       ["en", "thirty bags", "30"], ["en", "one hundred and fifty litres", "150"],
-    ])("confirms then persists %s worker speech «%s»", async (language, speech, quantity) => {
+    ])("persists %s worker speech «%s» as an approximate quantity, with no extra question", async (language, speech, quantity) => {
       const farm = seedFarm({ language });
       const call = await new Call(farm.worker).start();
-      let quantityConfirmed = false;
+      let spoke = false;
       for (let turns = 0; turns < 25 && !call.ended; turns += 1) {
         const row = await readVoiceSession(createServiceClient()!, call.sid);
         expect(row).not.toBeNull();
         const current = row!.session;
         if (current.step === "report_summary") {
-          expect(quantityConfirmed).toBe(true);
+          expect(spoke).toBe(true);
           expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(0);
           await call.say(language === "ar" ? "تمام" : "yes");
-        } else if (current.step === "quantity_input") {
+        } else if (current.data.currentQuestionId === "feed_level") {
           await call.say(speech);
-          expect(call.text).toContain(`${quantity} `);
-          expect((await readVoiceSession(createServiceClient()!, call.sid))!.session.step).toBe("quantity_confirm");
-          expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(0);
-        } else if (current.step === "quantity_confirm") {
-          const partial = await call.post({ UnstableSpeechResult: "yes" });
-          call.xml = await partial.text();
-          call.path = nextPath(call.xml);
-          expect((await readVoiceSession(createServiceClient()!, call.sid))!.session.step).toBe("quantity_confirm");
-          const uncertain = await call.post({ SpeechResult: "yes", Confidence: "0.1" });
-          call.xml = await uncertain.text();
-          call.path = nextPath(call.xml);
-          expect((await readVoiceSession(createServiceClient()!, call.sid))!.session.step).not.toBe("quantity_confirm");
-          quantityConfirmed = true;
+          const after = (await readVoiceSession(createServiceClient()!, call.sid))!.session;
+          expect(after.data.currentQuestionId).not.toBe("feed_level");
+          expect(after.draft.resourceUpdates.at(-1)).toMatchObject({ kind: "feed", level: "unknown", certainty: "approximate" });
+          spoke = true;
         } else if (current.inputMode === "number") await call.say(language === "ar" ? "واحد" : "one");
         else await call.press("1");
       }
@@ -297,7 +285,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       const farm = seedFarm({ custom: ["Any visitors today?"] });
       const call = await answerToSummary(await new Call(farm.worker).start());
       expect(call.path).toMatch(/^\/api\/voice\/turn\?n=\d+$/);
-      expect(sql(`select session -> 'turns' from voice_call_sessions where call_sid = ${q(call.sid)}`)).not.toContain("Nothing new");
+      expect(JSON.parse(sql(`select session -> 'turns' from voice_call_sessions where call_sid = ${q(call.sid)}`))).toHaveLength(1);
       await call.press("1");
       expect((await call.finish()).status).toBe(204);
       expect(count(`voice_call_sessions where call_sid = ${q(call.sid)}`)).toBe(0);
@@ -441,7 +429,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       expect(count(`calls where farm_id = ${q(farm.id)} and kind = 'worker_report'`)).toBe(1);
       expect(count(`voice_events where farm_id = ${q(farm.id)}`)).toBe(1);
     });
-    it("places only one owner notification when confirmation webhooks arrive concurrently", async () => {
+    it("saves one report when confirmation webhooks arrive concurrently, and leaves the owner's call to the scheduler", async () => {
       const farm = seedFarm({ owner: "+15555550102" });
       sql(`update farms set owner_call_time = '00:00', owner_call_day = null where id = ${q(farm.id)}`);
       vi.stubEnv("NAQAH_CALL_OWNER", "1");
@@ -462,7 +450,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       const replies = await Promise.all([turn(hook(call.path!, fields)), turn(hook(call.path!, fields))]);
       for (const reply of replies) expect(said(await reply.text())).toContain("saved");
       expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(1);
-      expect(notifications).toHaveBeenCalledTimes(1);
+      expect(notifications).not.toHaveBeenCalled();
     });
     it("records a refused call once however often the webhook repeats", async () => {
       const farm = seedFarm();
@@ -535,7 +523,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       await call.press("2");
       await call.say("I don't know");
       await answerToSummary(call);
-      expect(call.text).toContain("Important for the owner");
+      expect(call.text).toContain("A camel needs attention (unspecified)");
       await call.press("1");
       expect(count(`findings f join reports r on r.id = f.report_id where r.farm_id = ${q(farm.id)}`)).toBe(1);
     });
@@ -550,7 +538,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
     it("saves nothing when the worker declines or hangs up", async () => {
       const farm = seedFarm();
       const declined = await answerToSummary(await new Call(farm.worker).start());
-      await declined.press("2");
+      await declined.press("3");
       expect(declined.text).toContain("not saved");
       const dropped = await answerToSummary(await new Call(farm.worker).start());
       await dropped.finish();
@@ -575,7 +563,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
     async function reportWithTask(farm: Farm, press: string) {
       const call = await new Call(farm.worker).start();
       for (let turns = 0; turns < 15 && !call.text.includes("Did you finish"); turns++) {
-        if (/how many bags/i.test(call.text)) await call.say("twelve");
+        if (/how many camels/i.test(call.text)) await call.say("one");
         else await call.press("1");
       }
       await call.press(press);
@@ -606,19 +594,19 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       task(farm, "Fix the gate");
       const call = await new Call(farm.worker).start();
       for (let turns = 0; turns < 15 && !call.text.includes("Did you finish"); turns++) {
-        if (/how many bags/i.test(call.text)) await call.say("twelve");
+        if (/how many camels/i.test(call.text)) await call.say("one");
         else await call.press("1");
       }
       await call.say("it's not done");
       await answerToSummary(call);
-      expect(call.text).toContain("task still open: Fix the gate");
+      expect(call.text).toContain("Task: Fix the gate: Not yet");
     });
     it("keeps a task open when the report isn't saved", async () => {
       const farm = seedFarm();
       const id = task(farm, "Fix the gate");
       const call = await new Call(farm.worker).start();
       for (let turns = 0; turns < 15 && !call.text.includes("Did you finish"); turns++) {
-        if (/how many bags/i.test(call.text)) await call.say("twelve");
+        if (/how many camels/i.test(call.text)) await call.say("one");
         else await call.press("1");
       }
       await call.press("1");
@@ -713,7 +701,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       expect(run(farm)).toBe(`answered 1 ${call.sid}`);
 
       await answerToSummary(call);
-      expect(call.text).toContain("camels counted: 1");
+      expect(call.text).toContain("1 camel");
       await call.press("1");
       expect(call.text).toContain("Your update is saved");
       expect(sql(`select herd_count_reported from reports where farm_id = ${q(farm.id)}`)).toBe("1");
@@ -934,25 +922,12 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
   });
 
   describe("owner line", () => {
-    it("stays closed by default and reads nothing out", async () => {
+    it("stays closed and reads nothing out", async () => {
       const farm = seedFarm();
       const call = await new Call(farm.owner).start();
       expect(call.ended).toBe(true);
-      expect(call.text).toContain("aren't available");
+      expect(call.text).toContain("NAQAH calls you at the time you chose");
       expect(count(`calls where farm_id = ${q(farm.id)}`)).toBe(0);
-    });
-    it("runs a Basic inquiry through its mid-call save, then refuses a second", async () => {
-      vi.stubEnv("NAQAH_VOICE_OWNER_INQUIRY", "1");
-      const farm = seedFarm({ plan: "basic", window: [0, "08:00", "10:00"] });
-      const call = await new Call(farm.owner).start();
-      expect(call.text).toContain("Salem");
-      await call.press("1");
-      expect(call.text).toContain("Noura");
-      expect(call.ended).toBe(false);
-      expect(count(`calls where farm_id = ${q(farm.id)} and kind = 'owner_inquiry'`)).toBe(1);
-      const second = await new Call(farm.owner).start();
-      expect(second.ended).toBe(true);
-      expect(count(`calls where farm_id = ${q(farm.id)} and kind = 'owner_inquiry_rejected'`)).toBe(1);
     });
   });
 });

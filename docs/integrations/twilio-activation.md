@@ -179,7 +179,7 @@ Decisions needed from the owner:
   environment, which would send one farm's report to the wrong person, and nothing records whether
   the owner answered. It needs an outbound call that uses `farms.owner_phone` and a status webhook
   that sends `owner_notification`.
-- **Owner inquiry.** Built and tested, off by default (`NAQAH_VOICE_OWNER_INQUIRY`). Caller ID can
+- **Owner calls.** NAQAH always places them. An owner phoning in hears a short closed line.
   be spoofed and an inquiry reads farm data aloud. Decide whether a PIN is needed first.
 - **A worker number on two farms** is refused for both. That is deliberate (open decision 4).
 
@@ -234,7 +234,7 @@ Each step is the owner's to approve.
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<sb_publishable_...>
    ```
 
-   Leave `NAQAH_CALL_OWNER`, `WHATSAPP_TOKEN` and `NAQAH_VOICE_OWNER_INQUIRY` unset.
+   Leave `NAQAH_CALL_OWNER` and `WHATSAPP_TOKEN` unset.
 5. **Check it refuses strangers.** An unsigned post must return 403:
 
    ```sh

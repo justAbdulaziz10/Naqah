@@ -23,7 +23,7 @@ const PREFIXES: Record<ClarifyReason, Record<Locale, string>> = {
   unclear: { ar: "معليش، ما فهمت عليك زين. ", en: "Sorry, I didn't quite follow that. " },
   off_topic: { ar: "خلنا نرجع للتعليمات. ", en: "Let's return to the instructions. " },
 };
-const SAVE_OR_CHANGE: Record<Locale, string> = { ar: "أحفظها، ولا تبي تعدل وحدة، ولا ألغيها؟", en: "Shall I save these, change one, or cancel?" };
+const SAVE_OR_CHANGE: Record<Locale, string> = { ar: "أحفظها، ولا تبي تغير شي؟", en: "Shall I save these, or would you like to change something?" };
 
 const positionOf = (session: CallSession) => [session.step, session.data.schedulingIndex ?? "", session.data.correctingIndex ?? "", session.data.draftRevision ?? 0].join(":");
 
@@ -94,6 +94,9 @@ export function decideOwnerTool({ session: current, counters, workspace, locale,
       if (!instructions) return refuse("instructions_not_supported");
       chosen = { text: heard, instructions };
     }
+  } else if (action.kind === "remove") {
+    if (action.index >= (current.data.pendingInstructions?.length ?? 0)) return refuse("value_not_allowed");
+    chosen = { text: heard, instructionRemove: action.index };
   } else if (action.kind === "confirm") {
     chosen = { value: action.confirmed ? "instructions_confirm" : "instructions_correct" };
   } else {

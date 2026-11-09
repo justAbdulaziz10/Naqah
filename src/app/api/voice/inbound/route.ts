@@ -1,3 +1,4 @@
+import { OWNER_LINE_CLOSED } from "@/server/voice/farm-call";
 import { shouldRefuseUnsignedVoice, voiceConfiguration, voiceMode } from "@/server/env";
 import { startFarmCall } from "@/server/voice/farm-call";
 import { farmResponse, farmWebhook } from "@/server/voice/farm-webhook";
@@ -40,12 +41,9 @@ export async function POST(request: Request): Promise<Response> {
   const worker = normalizePhone(config.workerPhone);
   const owner = normalizePhone(config.ownerPhone);
   // On the sample line the worker hears a sample of the call NAQAH places at the report time.
-  let scenario: "report_call" | "owner_inquiry";
-  if (caller && caller === worker) scenario = "report_call";
-  else if (caller && owner && caller === owner) scenario = "owner_inquiry";
-  else {
-    return twimlResponse(twimlGoodbye(config.locale, voiceMessages[config.locale].unregisteredCaller));
-  }
+  if (caller && owner && caller === owner) return twimlResponse(twimlGoodbye(config.locale, OWNER_LINE_CLOSED[config.locale]));
+  if (!caller || caller !== worker) return twimlResponse(twimlGoodbye(config.locale, voiceMessages[config.locale].unregisteredCaller));
+  const scenario = "report_call" as const;
 
   const callSid = form.has("CallSid") ? form.get("CallSid") ?? "" : undefined;
   if (callSid && callSid.length > 128) return twimlResponse(twimlGoodbye(config.locale));

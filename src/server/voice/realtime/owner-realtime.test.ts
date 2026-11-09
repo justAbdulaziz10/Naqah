@@ -162,7 +162,7 @@ afterEach(() => {
 describe("opening an owner session", () => {
   it("streams with the owner's tools, and keeps the scripted reply on the row", async () => {
     const { opened } = await open();
-    expect(opened.tools.map((entry: { name: string }) => entry.name)).toEqual(["propose_instructions", "no_instructions", "confirm_instructions", "correct_instruction", "repeat_or_clarify", "end_call"]);
+    expect(opened.tools.map((entry: { name: string }) => entry.name)).toEqual(["propose_instructions", "no_instructions", "confirm_instructions", "correct_instruction", "remove_instruction", "repeat_or_clarify", "end_call"]);
     expect(row().party).toBe("owner");
     expect(row().session.data.ownerRunId).toBe(RUN);
     expect(row().last_response).toContain("<Gather");
@@ -351,6 +351,58 @@ describe("the review", () => {
     const saved = await tool(ticket, "confirm_instructions", { confirmed: true }, "إيه", { heardSummaryId: reviewId() });
     expect(saved.output.status).toBe("saved");
     expect(events()[0].items![0].actionable).toBe(false);
+  });
+
+  it("appends at the list, re-reads all of it, refuses the old id, and saves one batch", async () => {
+    const { ticket } = await open();
+    await atReview(ticket);
+    const heardBefore = reviewId();
+    const added = await tool(ticket, "propose_instructions", { items: [proposal("الضيوف يجون الجمعة", "information", null)] }, "وقل له الضيوف يجون الجمعة");
+    expect(row().session.step).toBe("instruction_review");
+    expect(row().session.data.pendingInstructions!.map((item) => item.message)).toEqual(["يصلح السياج الشرقي", "الضيوف يجون الجمعة"]);
+    expect(added.result.summaryText).toContain("يصلح السياج الشرقي");
+    expect(added.result.summaryText).toContain("الضيوف يجون الجمعة");
+    expect(added.result.summaryId).not.toBe(heardBefore);
+    const stale = await tool(ticket, "confirm_instructions", { confirmed: true }, "إيه", { heardSummaryId: heardBefore });
+    expect(stale.output.error).toBe("summary_not_finished");
+    const saved = await tool(ticket, "confirm_instructions", { confirmed: true }, "إيه", { heardSummaryId: reviewId() });
+    expect(saved.output.status).toBe("saved");
+    const batches = events().filter((event) => event.items);
+    expect(batches).toHaveLength(1);
+    expect(batches[0].items).toHaveLength(2);
+  });
+
+  it("removes one by its index, re-reads the rest, and refuses the old id", async () => {
+    const { ticket } = await open();
+    await atReview(ticket);
+    await tool(ticket, "propose_instructions", { items: [proposal("الضيوف يجون الجمعة", "information", null)] }, "وقل له الضيوف يجون الجمعة");
+    const heardBefore = reviewId();
+    const removed = await tool(ticket, "remove_instruction", { index: 0 }, "شيل السياج");
+    expect(row().session.step).toBe("instruction_review");
+    expect(row().session.data.pendingInstructions!.map((item) => item.message)).toEqual(["الضيوف يجون الجمعة"]);
+    expect(removed.result.summaryText).not.toContain("السياج");
+    expect(removed.result.summaryId).not.toBe(heardBefore);
+    const stale = await tool(ticket, "confirm_instructions", { confirmed: true }, "إيه", { heardSummaryId: heardBefore });
+    expect(stale.output.error).toBe("summary_not_finished");
+  });
+
+  it("asks afresh when the last one is removed, and saves nothing", async () => {
+    const { ticket } = await open();
+    await atReview(ticket);
+    await tool(ticket, "remove_instruction", { index: 0 }, "شيلها");
+    expect(row().session.step).toBe("instruction_yesno");
+    expect(row().session.data.pendingInstructions).toEqual([]);
+    const none = await tool(ticket, "no_instructions", {}, "لا ما عندي شي");
+    expect(none.result.end).toBe("hangup");
+    expect(events().filter((event) => event.items)).toEqual([]);
+  });
+
+  it("refuses an index outside the list", async () => {
+    const { ticket } = await open();
+    await atReview(ticket);
+    const outside = await tool(ticket, "remove_instruction", { index: 3 }, "شيل الثالثة");
+    expect(outside.output.error).toBe("value_not_allowed");
+    expect(row().session.data.pendingInstructions).toHaveLength(1);
   });
 
   it("refuses new words the owner didn't say", async () => {

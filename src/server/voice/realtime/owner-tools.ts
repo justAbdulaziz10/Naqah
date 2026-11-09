@@ -31,6 +31,7 @@ export const OWNER_TOOLS = [
     message: { type: "string", description: "The owner's new words for this instruction." },
     due,
   }, ["index"]),
+  tool("remove_instruction", "Remove one instruction from the list, by its index, when the owner asks to drop it.", { index: { type: "integer", minimum: 0 } }, ["index"]),
   tool("repeat_or_clarify", "Ask the server to repeat or clarify the current question. Never speak yourself.", { reason: { enum: CLARIFY_REASONS } }, ["reason"]),
   tool("end_call", "owner_ended: the owner asked to stop or not to save. cannot_continue: the call cannot go on.", { reason: { enum: ["owner_ended", "cannot_continue"] } }, ["reason"]),
 ];
@@ -40,6 +41,7 @@ export type OwnerToolAction =
   | { kind: "none" }
   | { kind: "confirm"; confirmed: boolean }
   | { kind: "correct"; args: Record<string, unknown> }
+  | { kind: "remove"; index: number }
   | { kind: "repeat"; reason: ClarifyReason }
   | { kind: "end"; reason: "owner_ended" | "cannot_continue" };
 export type OwnerToolCheck = { ok: true; action: OwnerToolAction } | { ok: false; error: string };
@@ -48,7 +50,8 @@ export function ownerToolsFor(session: CallSession) {
   const allowed = new Set(["repeat_or_clarify", "end_call"]);
   if (["instruction_yesno", "instruction_text"].includes(session.step)) ["propose_instructions", "no_instructions"].forEach((name) => allowed.add(name));
   if ([...SCHEDULE_STEPS, ...CORRECT_STEPS].includes(session.step)) allowed.add("correct_instruction");
-  if (session.step === REVIEW_STEP) allowed.add("confirm_instructions");
+  if (session.step === REVIEW_STEP) ["confirm_instructions", "propose_instructions", "correct_instruction", "remove_instruction"].forEach((name) => allowed.add(name));
+  if (session.step === "instruction_remove_pick") allowed.add("remove_instruction");
   return OWNER_TOOLS.filter((entry) => allowed.has(entry.name));
 }
 
@@ -59,6 +62,7 @@ export function checkOwnerTool(name: unknown, args: unknown, spoke: boolean, ses
   if (name === "repeat_or_clarify") return onlyKeys(args, ["reason"]) && CLARIFY_REASONS.includes(args.reason as ClarifyReason) ? { ok: true, action: { kind: "repeat", reason: args.reason as ClarifyReason } } : { ok: false, error: "invalid_arguments" };
   if (name === "end_call") return onlyKeys(args, ["reason"]) && (args.reason === "owner_ended" || args.reason === "cannot_continue") ? { ok: true, action: { kind: "end", reason: args.reason } } : { ok: false, error: "invalid_arguments" };
   if (!spoke && !(name === "confirm_instructions" && args.confirmed === false)) return { ok: false, error: name === "confirm_instructions" ? "owner_has_not_confirmed" : "owner_has_not_answered" };
+  if (name === "remove_instruction") return onlyKeys(args, ["index"]) && Number.isInteger(args.index) && (args.index as number) >= 0 ? { ok: true, action: { kind: "remove", index: args.index as number } } : { ok: false, error: "invalid_arguments" };
   if (name === "propose_instructions") return onlyKeys(args, ["items"]) && Array.isArray(args.items) ? { ok: true, action: { kind: "propose", items: args.items } } : { ok: false, error: "invalid_arguments" };
   if (name === "no_instructions") return onlyKeys(args, []) ? { ok: true, action: { kind: "none" } } : { ok: false, error: "invalid_arguments" };
   if (name === "confirm_instructions") return onlyKeys(args, ["confirmed"]) && typeof args.confirmed === "boolean" ? { ok: true, action: { kind: "confirm", confirmed: args.confirmed } } : { ok: false, error: "invalid_arguments" };
