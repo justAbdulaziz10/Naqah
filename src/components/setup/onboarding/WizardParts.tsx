@@ -125,7 +125,7 @@ export function PhoneField({
             dir="ltr"
             maxLength={20}
             placeholder={w.phonePlaceholder}
-            className="ltr-nums min-w-0 flex-1 bg-transparent px-3.5 text-left text-[1.0625rem] tracking-wide text-espresso placeholder:text-muted/70 focus:outline-none"
+            className="ltr-nums min-w-0 flex-1 bg-transparent px-3.5 text-start text-[1.0625rem] tracking-wide text-espresso placeholder:text-muted/70 focus:outline-none"
             aria-describedby={describedBy}
             aria-invalid={invalid || undefined}
             value={localSaudiPart(value)}

@@ -239,6 +239,8 @@ export type CallOutcome = "completed" | "no_answer" | "rejected";
 export interface CallLog {
   id: string;
   kind: CallKind;
+  /** Structured marker for a Basic owner callback after a missed notification. */
+  reason?: "missed_notification_callback";
   direction: "inbound" | "outbound";
   party: "worker" | "owner";
   at: string;

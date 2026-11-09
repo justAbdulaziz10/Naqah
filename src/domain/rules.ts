@@ -75,6 +75,17 @@ export function ownerAllowanceUsed(ws: Workspace, now: Date): boolean {
   return !!ws.ownerAllowanceUsedAt && sameWeek(ws.ownerAllowanceUsedAt, now);
 }
 
+/** Whether a missed-notification callback was used in the current Riyadh week. */
+export function ownerMissedCallbackUsed(ws: Workspace, now: Date): boolean {
+  return ws.calls.some(
+    (call) =>
+      call.kind === "owner_inquiry" &&
+      sameWeek(call.at, now) &&
+      (call.reason === "missed_notification_callback" ||
+        (call.reason === undefined && call.summary.en === "Owner called back after a missed notification")),
+  );
+}
+
 /** Has the worker already reported in the current period (week for Basic, day for Ultimate)? */
 export function reportDoneThisPeriod(ws: Workspace, now: Date): boolean {
   const last = lastReportAt(ws);

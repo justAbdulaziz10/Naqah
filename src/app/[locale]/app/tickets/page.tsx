@@ -159,13 +159,15 @@ export default function TicketsPage() {
   const allNoAnswers = active ? openNoAnswers : ws.noAnswerTickets.filter((ticket) => ticket.status === "closed");
   const noAnswers = allNoAnswers.filter((ticket) => !(active && ticket.taskTicketId && tasks.some((task) => task.id === ticket.taskTicketId)));
   const relays = ws.relays.filter((relay) => relay.delivered !== active);
+  const showTaskColumns = active && ultimate && (openTasks.length > 0 || recentlyClosed.length > 0);
+  const hasMainItems = tasks.length + noAnswers.length + relays.length > 0;
   const hasVisibleItems = tasks.length + noAnswers.length + relays.length + (active ? recentlyClosed.length : 0) > 0;
   const hasAnything = (ultimate ? ws.taskTickets.length : 0) + ws.noAnswerTickets.length + ws.relays.length > 0;
   const waitingRelays = ws.relays.filter((relay) => !relay.delivered).length;
   const summary = m.app.tickets.summary(worker, ultimate ? openTasks.length : 0, openNoAnswers.length, waitingRelays);
 
   return (
-    <div className="max-w-3xl space-y-4 pb-8">
+    <div className="max-w-none space-y-4 pb-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-espresso sm:text-[2.5rem]">{m.app.tickets.title}</h1>
@@ -192,7 +194,9 @@ export default function TicketsPage() {
         </p>
       ) : null}
 
-      <Card className="min-w-0 divide-y divide-stone/70">
+      <Card className="min-w-0">
+        <div className={cn(showTaskColumns && "grid items-start lg:grid-cols-[minmax(0,1.8fr)_minmax(16rem,1fr)]")}>
+          <div className="min-w-0 divide-y divide-stone/70">
           {noAnswers.length ? (
             <TicketGroup id="tickets-no-answer" title={m.app.tickets.noAnswerTickets}>
               {noAnswers.map((ticket) => {
@@ -257,17 +261,6 @@ export default function TicketsPage() {
             </TicketGroup>
           ) : null}
 
-          {active && recentlyClosed.length ? (
-            <TicketGroup id="tickets-recent" title={m.app.tickets.recentlyClosed}>
-              {recentlyClosed.map((ticket) => (
-                <li key={ticket.id} className="py-4 last:pb-0">
-                  <p className="font-medium leading-relaxed text-espresso">{ticket.instruction}</p>
-                  <TaskTiming ws={ws} ticket={ticket} worker={worker} now={now} className="mt-3 max-w-xl" />
-                </li>
-              ))}
-            </TicketGroup>
-          ) : null}
-
           {relays.length ? (
             <TicketGroup id="tickets-relays" title={m.app.tickets.relays}>
               {relays.map((relay) => (
@@ -289,6 +282,32 @@ export default function TicketsPage() {
               action={active && !account ? <ButtonLink href={href("/app/lab")} variant="secondary">{m.app.overview.simulateCall}</ButtonLink> : undefined}
             />
           ) : null}
+          {showTaskColumns && recentlyClosed.length > 0 && !hasMainItems ? (
+            <div className="hidden lg:block">
+              <EmptyState title={m.app.tickets.emptyActive} body={m.app.tickets.emptyActiveBody} />
+            </div>
+          ) : null}
+          </div>
+          {showTaskColumns ? (
+            <aside className={cn("min-w-0 border-t border-stone/70 lg:border-s lg:border-t-0", !recentlyClosed.length && "hidden lg:block")} aria-labelledby="tickets-recent">
+              {recentlyClosed.length ? (
+                <TicketGroup id="tickets-recent" title={m.app.tickets.recentlyClosed}>
+                  {recentlyClosed.map((ticket) => (
+                    <li key={ticket.id} className="py-4 last:pb-0">
+                      <p className="font-medium leading-relaxed text-espresso">{ticket.instruction}</p>
+                      <TaskTiming ws={ws} ticket={ticket} worker={worker} now={now} className="mt-3" />
+                    </li>
+                  ))}
+                </TicketGroup>
+              ) : (
+                <section className="px-5 py-5 sm:px-8 sm:py-6">
+                  <h2 id="tickets-recent" className="text-lg font-semibold leading-snug text-espresso">{m.app.tickets.recentlyClosed}</h2>
+                  <p className="mt-2 text-sm leading-relaxed text-muted">{m.app.tickets.emptyHistory}</p>
+                </section>
+              )}
+            </aside>
+          ) : null}
+        </div>
         </Card>
     </div>
   );

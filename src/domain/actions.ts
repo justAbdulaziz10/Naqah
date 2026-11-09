@@ -219,6 +219,7 @@ export function recordOwnerInquiry(
   const ws = clone(input);
   pushCall(ws, {
     kind: "owner_inquiry",
+    ...(mode === "missed_callback" ? { reason: "missed_notification_callback" as const } : {}),
     direction: "inbound",
     party: "owner",
     at: iso(now),
