@@ -31,7 +31,7 @@ Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. P
 | Owner instructions during post-update call | relayed to the worker, **no ticket** | actionable → **Task Ticket** (OPEN) with a time or "any time"; information-only → no ticket |
 | Task tickets | — | close **only** when the worker explicitly confirms; deadlines never close them; closed → History |
 | Task verification | — | scheduled time → AI calls the worker; "any time" → asked during later worker interactions |
-| AI → worker no answer | retry after **20 min**, up to **3 retries**, then **No Answer Ticket** | same |
+| AI → worker no answer | **3 attempts total**, 20 min apart, then stop. No new No Answer Ticket. | same |
 | Worker returns missed call | always answered (even outside the window); delivers missed messages; closes the No Answer Ticket; **not** a farm update and does not consume the report | same |
 | Emergency | worker calls the owner **directly** — never through the AI | same |
 

@@ -116,44 +116,50 @@ describe("worker inbound calls", () => {
     expect(routeWorkerInboundCall(after, THU_1830)).toEqual({ kind: "rejected", reason: "daily_done" });
     expect(routeWorkerInboundCall(after, fromRiyadh(2026, 11, 6, 17, 0))).toEqual({ kind: "rejected", reason: "wait_for_call" });
   });
-  it("routes to callback when a No Answer Ticket is open, even outside Basic's window", () => {
-    const sub = submitOwnerInstruction(basic(), THU_1830, { message: "Fix the gate", actionable: true, scheduledFor: null });
-    let ws = sub.ws;
-    const id = sub.pendingCallId;
-    for (let i = 0; i < 4; i++) ws = resolveWorkerCallAttempt(ws, new Date(THU_1830.getTime() + i * RETRY_DELAY_MS), id, false).ws;
-    expect(ws.noAnswerTickets).toHaveLength(1);
+  it("routes to callback only for a historical No Answer Ticket", () => {
+    const ws = basic();
+    ws.noAnswerTickets.push({
+      id: "nat_hist",
+      createdAt: THU_1830.toISOString(),
+      purpose: "instruction",
+      message: "Fix the gate",
+      taskTicketId: null,
+      status: "open",
+      closedAt: null,
+    });
     expect(routeWorkerInboundCall(ws, fromRiyadh(2026, 11, 6, 9, 0)).kind).toBe("callback");
-    const reportsBefore = ws.reports.length;
-    ws = completeWorkerCallback(ws, fromRiyadh(2026, 11, 6, 9, 0));
-    expect(ws.noAnswerTickets[0].status).toBe("closed");
-    expect(ws.reports.length).toBe(reportsBefore); // callback is not a farm update
-    expect(ws.relays[0].delivered).toBe(true);
+    const closed = completeWorkerCallback(ws, fromRiyadh(2026, 11, 6, 9, 0));
+    expect(closed.noAnswerTickets[0].status).toBe("closed");
+    expect(closed.reports).toHaveLength(ws.reports.length);
   });
 });
 
 describe("AI → worker calls (Phase 7)", () => {
-  it("retries 3 times, 20 minutes apart, then opens a No Answer Ticket", () => {
+  it("tries three times, 20 minutes apart, then stops without a No Answer Ticket", () => {
     const sub = submitOwnerInstruction(ultimate(), THU_1710, { message: "Refill water", actionable: true, scheduledFor: null });
     let ws = sub.ws;
-    const id = sub.pendingCallId;
+    const id = sub.pendingCallId!;
     const outcomes: string[] = [];
     for (let i = 0; i < 4; i++) {
       const r = resolveWorkerCallAttempt(ws, new Date(THU_1710.getTime() + i * RETRY_DELAY_MS), id, false);
       ws = r.ws;
       outcomes.push(r.outcome);
     }
-    expect(outcomes).toEqual(["retry_scheduled", "retry_scheduled", "retry_scheduled", "no_answer_ticket"]);
-    expect(ws.noAnswerTickets[0].status).toBe("open");
+    expect(outcomes).toEqual(["retry_scheduled", "retry_scheduled", "no_answer_ticket", "delivered"]);
+    expect(ws.noAnswerTickets).toHaveLength(0);
+    expect(ws.pendingWorkerCalls.find((call) => call.id === id)?.state).toBe("no_answer_ticket");
     expect(ws.taskTickets.find((t) => t.instruction === "Refill water")?.status).toBe("open");
   });
 });
 
 describe("tickets (Phases 6 & 8)", () => {
-  it("Basic relays instructions without a Task Ticket", () => {
-    const { ws, taskId } = submitOwnerInstruction(basic(), THU_1710, { message: "Fix the gate", actionable: true, scheduledFor: null });
+  it("Basic does not create a relay, a delivery call, or a Task Ticket", () => {
+    const { ws, taskId, pendingCallId } = submitOwnerInstruction(basic(), THU_1710, { message: "Fix the gate", actionable: true, scheduledFor: null });
     expect(taskId).toBeNull();
+    expect(pendingCallId).toBeNull();
     expect(ws.taskTickets).toHaveLength(0);
-    expect(ws.relays).toHaveLength(1);
+    expect(ws.relays).toHaveLength(0);
+    expect(ws.pendingWorkerCalls).toHaveLength(0);
   });
   it("Ultimate actionable instruction opens a ticket; only explicit confirmation closes it", () => {
     const at = fromRiyadh(2026, 11, 5, 19, 0).toISOString();
@@ -164,7 +170,7 @@ describe("tickets (Phases 6 & 8)", () => {
     expect(ws.taskTickets.find((t) => t.id === taskId)?.status).toBe("open");
     expect(overdueScheduledTasks(ws, afterDeadline).map((t) => t.id)).toContain(taskId);
     expect(dueTaskVerifications(ws, afterDeadline).map((t) => t.id)).not.toContain(taskId);
-    ws = resolveWorkerCallAttempt(ws, THU_1710, sub.pendingCallId, true).ws;
+    ws = resolveWorkerCallAttempt(ws, THU_1710, sub.pendingCallId!, true).ws;
     expect(dueTaskVerifications(ws, afterDeadline).map((t) => t.id)).toContain(taskId);
     ws = confirmTask(ws, THU_1830, taskId, false, "worker_task_verification");
     expect(ws.taskTickets.find((t) => t.id === taskId)?.status).toBe("open");
@@ -237,7 +243,7 @@ describe("scheduled verification cycle", () => {
       actionable: true,
       scheduledFor: dueAt.toISOString(),
     });
-    const delivered = resolveWorkerCallAttempt(sub.ws, THU_1710, sub.pendingCallId, true);
+    const delivered = resolveWorkerCallAttempt(sub.ws, THU_1710, sub.pendingCallId!, true);
     return { ws: delivered.ws, taskId: sub.taskId! };
   }
 
@@ -276,7 +282,7 @@ describe("scheduled verification cycle", () => {
     expect(dueTaskVerifications(sub.ws, dueAt).map((task) => task.id)).not.toContain(sub.taskId);
     let ws = sub.ws;
     for (let i = 0; i < 4; i++) {
-      ws = resolveWorkerCallAttempt(ws, new Date(THU_1710.getTime() + i * RETRY_DELAY_MS), sub.pendingCallId, false).ws;
+      ws = resolveWorkerCallAttempt(ws, new Date(THU_1710.getTime() + i * RETRY_DELAY_MS), sub.pendingCallId!, false).ws;
     }
     expect(ws.pendingWorkerCalls.find((call) => call.id === sub.pendingCallId)?.state).toBe("no_answer_ticket");
     expect(dueTaskVerifications(ws, new Date(dueAt.getTime() + 4 * RETRY_DELAY_MS)).map((task) => task.id)).not.toContain(sub.taskId);
@@ -288,12 +294,12 @@ describe("scheduled verification cycle", () => {
     const started = startTaskVerification(ws, dueAt, taskId);
     let current = started.ws;
     const outcomes: string[] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 3; i++) {
       const at = new Date(dueAt.getTime() + i * RETRY_DELAY_MS);
       const result = resolveWorkerCallAttempt(current, at, started.pendingCallId, false);
       current = result.ws;
       outcomes.push(result.outcome);
-      if (i < 3) {
+      if (i < 2) {
         const call = current.pendingWorkerCalls.find((item) => item.id === started.pendingCallId);
         expect(call?.state).toBe("pending");
         expect(call?.nextAttemptAt).toBe(new Date(dueAt.getTime() + (i + 1) * RETRY_DELAY_MS).toISOString());
@@ -301,9 +307,9 @@ describe("scheduled verification cycle", () => {
         expect(dueTaskVerifications(current, new Date(dueAt.getTime() + (i + 1) * RETRY_DELAY_MS)).map((task) => task.id)).not.toContain(taskId);
       }
     }
-    expect(outcomes).toEqual(["retry_scheduled", "retry_scheduled", "retry_scheduled", "no_answer_ticket"]);
+    expect(outcomes).toEqual(["retry_scheduled", "retry_scheduled", "no_answer_ticket"]);
     expect(current.taskTickets.find((task) => task.id === taskId)?.status).toBe("open");
-    expect(current.noAnswerTickets.some((ticket) => ticket.taskTicketId === taskId && ticket.status === "open")).toBe(true);
+    expect(current.noAnswerTickets).toHaveLength(0);
     const again = startTaskVerification(current, new Date(dueAt.getTime() + 4 * RETRY_DELAY_MS), taskId);
     expect(again.pendingCallId).toBe(started.pendingCallId);
     expect(again.ws.pendingWorkerCalls.filter((call) => call.purpose === "task_verification" && call.taskTicketId === taskId)).toHaveLength(1);
@@ -339,7 +345,7 @@ describe("scheduled verification cycle", () => {
       actionable: true,
       scheduledFor: null,
     });
-    const delivered = resolveWorkerCallAttempt(sub.ws, THU_1710, sub.pendingCallId, true).ws;
+    const delivered = resolveWorkerCallAttempt(sub.ws, THU_1710, sub.pendingCallId!, true).ws;
     expect(dueTaskVerifications(delivered, dueAt).map((task) => task.id)).not.toContain(sub.taskId);
     expect(overdueScheduledTasks(delivered, dueAt).map((task) => task.id)).not.toContain(sub.taskId);
     expect(delivered.taskTickets.find((task) => task.id === sub.taskId)?.status).toBe("open");
@@ -371,8 +377,25 @@ describe("scheduled verification after callback delivery", () => {
     return { ws: exhaustCall(created.ws, pendingCallId, startedAt), taskIds, pendingCallId };
   }
 
+  /** A ticket that already existed before this rule. New failures do not create one. */
+  function stampHistoricalTicket(ws: Workspace, pendingCallId: string) {
+    const call = ws.pendingWorkerCalls.find((item) => item.id === pendingCallId)!;
+    ws.noAnswerTickets.push({
+      id: `nat_${pendingCallId}`,
+      createdAt: call.attempts.at(-1)!.at,
+      purpose: call.purpose,
+      message: call.message,
+      taskTicketId: call.taskTicketId,
+      status: "open",
+      closedAt: null,
+    });
+  }
+
   it.each([false, true])("releases only due callback-delivered tasks (grouped=%s)", (grouped) => {
     const missed = missedInstruction(ultimate(), grouped);
+    expect(missed.ws.noAnswerTickets).toHaveLength(0);
+    expect(dueTaskVerifications(completeWorkerCallback(missed.ws, THU_1830), dueAt)).toEqual([]);
+    stampHistoricalTicket(missed.ws, missed.pendingCallId);
     expect(dueTaskVerifications(missed.ws, dueAt)).toEqual([]);
     const delivered = completeWorkerCallback(missed.ws, THU_1830);
     expect(dueTaskVerifications(delivered, THU_1830)).toEqual([]);
@@ -385,27 +408,32 @@ describe("scheduled verification after callback delivery", () => {
 
   it("releases an already-due task when the worker finally calls back", () => {
     const missed = missedInstruction();
+    stampHistoricalTicket(missed.ws, missed.pendingCallId);
     expect(dueTaskVerifications(completeWorkerCallback(missed.ws, dueAt), dueAt).map((task) => task.id)).toEqual(missed.taskIds);
   });
 
   it.each([false, true])("does not release a repeated identical message using another call's closed ticket (grouped=%s)", (grouped) => {
     const first = missedInstruction(ultimate(), grouped);
+    stampHistoricalTicket(first.ws, first.pendingCallId);
     const delivered = completeWorkerCallback(first.ws, THU_1830);
     const secondAt = grouped ? fromRiyadh(2026, 11, 5, 19, 0) : THU_1710;
     const second = missedInstruction(delivered, grouped, secondAt);
     expect(dueTaskVerifications(second.ws, dueAt).map((task) => task.id)).toEqual(first.taskIds);
+    stampHistoricalTicket(second.ws, second.pendingCallId);
     const allDelivered = completeWorkerCallback(second.ws, dueAt);
     expect(dueTaskVerifications(allDelivered, dueAt).map((task) => task.id)).toEqual([...first.taskIds, ...second.taskIds]);
   });
 
   it("fails closed when matching tickets are ambiguous and one remains open", () => {
     const missed = missedInstruction();
+    stampHistoricalTicket(missed.ws, missed.pendingCallId);
     missed.ws.noAnswerTickets.push({ ...missed.ws.noAnswerTickets[0], id: "closed-copy", status: "closed", closedAt: THU_1830.toISOString() });
     expect(dueTaskVerifications(missed.ws, dueAt)).toEqual([]);
   });
 
   it("matches exhaustion timestamps across database timezone formats", () => {
     const missed = missedInstruction();
+    stampHistoricalTicket(missed.ws, missed.pendingCallId);
     const delivered = completeWorkerCallback(missed.ws, THU_1830);
     delivered.noAnswerTickets[0].createdAt = delivered.noAnswerTickets[0].createdAt.replace("Z", "+00:00");
     expect(dueTaskVerifications(delivered, dueAt).map((task) => task.id)).toEqual(missed.taskIds);
@@ -413,6 +441,7 @@ describe("scheduled verification after callback delivery", () => {
 
   it("replaying a completed callback changes nothing", () => {
     const missed = missedInstruction();
+    stampHistoricalTicket(missed.ws, missed.pendingCallId);
     const delivered = completeWorkerCallback(missed.ws, THU_1830);
     expect(completeWorkerCallback(delivered, dueAt)).toEqual(delivered);
     expect(dueTaskVerifications(delivered, dueAt).map((task) => task.id)).toEqual(missed.taskIds);
@@ -420,6 +449,7 @@ describe("scheduled verification after callback delivery", () => {
 
   it.each(["before_callback", "after_callback"])("never verifies a task closed %s", (when) => {
     const missed = missedInstruction(ultimate(), true);
+    stampHistoricalTicket(missed.ws, missed.pendingCallId);
     let ws = missed.ws;
     if (when === "before_callback") ws = confirmTask(ws, THU_1830, missed.taskIds[0], true, "worker_report");
     ws = completeWorkerCallback(ws, THU_1830);
@@ -429,6 +459,7 @@ describe("scheduled verification after callback delivery", () => {
 
   it.each(["pending", "delivered", "no_answer_ticket"] as const)("never repeats a callback-delivered task's %s verification cycle", (state) => {
     const missed = missedInstruction();
+    stampHistoricalTicket(missed.ws, missed.pendingCallId);
     const delivered = completeWorkerCallback(missed.ws, THU_1830);
     const started = startTaskVerification(delivered, dueAt, missed.taskIds[0]);
     let ws = started.ws;

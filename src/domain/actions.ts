@@ -281,7 +281,8 @@ export function submitOwnerInstruction(
   input: Workspace,
   now: Date,
   instr: InstructionInput,
-): { ws: Workspace; pendingCallId: string; taskId: string | null } {
+): { ws: Workspace; pendingCallId: string | null; taskId: string | null } {
+  if (input.settings.plan !== "ultimate") return { ws: clone(input), pendingCallId: null, taskId: null };
   const ws = clone(input);
   const at = iso(now);
   let taskId: string | null = null;
@@ -327,7 +328,8 @@ export function submitOwnerInstruction(
 
 /**
  * Approved instructions from one owner conversation.
- * Each Ultimate actionable item gets its own Task Ticket. Basic relays them.
+ * Each Ultimate actionable item gets its own Task Ticket. Information is relayed on the same call.
+ * Basic does not collect instructions and creates nothing.
  * All of them go out on one worker call, and a repeated batchId changes nothing.
  */
 export function submitOwnerInstructionBatch(
@@ -337,6 +339,9 @@ export function submitOwnerInstructionBatch(
   batchId: string,
   deliveryMessage?: string,
 ): { ws: Workspace; pendingCallId: string | null; taskIds: string[]; created: boolean } {
+  if (input.settings.plan !== "ultimate") {
+    return { ws: clone(input), pendingCallId: null, taskIds: [], created: false };
+  }
   const existing = input.pendingWorkerCalls.find((call) => call.batchId === batchId);
   if (existing) {
     return { ws: clone(input), pendingCallId: existing.id, taskIds: existing.coveredTaskIds ?? [], created: false };
@@ -425,8 +430,9 @@ export function startTaskVerification(input: Workspace, now: Date, taskId: strin
 export type AttemptOutcome = "delivered" | "retry_scheduled" | "no_answer_ticket";
 
 /**
- * Phase 7: record one AI → worker call attempt.
- * Unanswered → retry in 20 minutes, up to 3 retries → then OPEN No Answer Ticket.
+ * Record one AI → worker call attempt.
+ * An unsuccessful attempt waits 20 minutes. The third unsuccessful attempt stops.
+ * No new No Answer Ticket is created. Open tasks and undelivered instructions stay as they are.
  */
 export function resolveWorkerCallAttempt(
   input: Workspace,
@@ -493,18 +499,9 @@ export function resolveWorkerCallAttempt(
 
   call.state = "no_answer_ticket";
   call.nextAttemptAt = null;
-  ws.noAnswerTickets.push({
-    id: uid("nat"),
-    createdAt: at,
-    purpose: call.purpose,
-    message: call.message,
-    taskTicketId: call.taskTicketId,
-    status: "open",
-    closedAt: null,
-  });
   pushEvent(ws, now, "attention", {
-    ar: "بعد ٣ محاولات إضافية فُتحت تذكرة «عدم رد» — بانتظار اتصال العامل",
-    en: "After 3 retries a No Answer Ticket was opened — waiting for the worker to call back",
+    ar: "توقفت إعادة الاتصال بعد ٣ محاولات. التعليمات لم تصل، والمهام المفتوحة تبقى مفتوحة.",
+    en: "Automatic calls stopped after 3 attempts. Instructions were not delivered, and open tasks stay open.",
   });
   return { ws, outcome: "no_answer_ticket" };
 }

@@ -134,8 +134,8 @@ export const setup = defineMessages({
       chooseDemo: "Demo: try either plan. In a real account the NAQAH team sets it.",
       basicRhythm: "One report call a week, on your day",
       ultimateRhythm: "A report call every day",
-      basicExtras: "Up to 5 of your questions · one call to NAQAH a week",
-      ultimateExtras: "Unlimited questions · call NAQAH any time · task tickets",
+      basicExtras: "Up to 5 of your questions · a weekly summary call · no task tickets",
+      ultimateExtras: "Unlimited questions · a daily summary · phone instructions become task tickets",
       tooManyForBasic: "Basic allows 5 of your questions. Remove some first to switch.",
       initial: {
         title: "Choose your NAQAH plan",
@@ -361,8 +361,8 @@ export const setup = defineMessages({
       chooseDemo: "عرض تجريبي: جرّب أي خطة. في الحساب الحقيقي فريق ناقة يحددها.",
       basicRhythm: "مكالمة تقرير وحدة في الأسبوع، في يومك",
       ultimateRhythm: "مكالمة تقرير كل يوم",
-      basicExtras: "حتى 5 من أسئلتك · اتصال واحد على ناقة في الأسبوع",
-      ultimateExtras: "أسئلة بلا حد · اتصل على ناقة أي وقت · تذاكر المهام",
+      basicExtras: "حتى 5 من أسئلتك · ملخص أسبوعي · بدون تذاكر مهام",
+      ultimateExtras: "أسئلة بلا حد · ملخص يومي · التعليمات بالجوال تصير تذاكر مهام",
       tooManyForBasic: "الأساسية تسمح بـ 5 من أسئلتك. احذف بعضها أول عشان تحوّل.",
       initial: {
         title: "اختر باقتك في ناقة",

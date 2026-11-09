@@ -278,7 +278,7 @@ export interface NoAnswerTicket {
 
 /**
  * An AI → worker call that may need retries
- * (initial attempt + up to 3 retries, 20 minutes apart, then a No Answer Ticket).
+ * (3 attempts total, 20 minutes apart, then stop; no new No Answer Ticket).
  */
 export interface PendingWorkerCall {
   id: string;

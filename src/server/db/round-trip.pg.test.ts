@@ -184,16 +184,31 @@ describe.skipIf(!database)("domain flows through the real schema", () => {
     expect(current.calls.map((c) => c.kind)).toEqual(expect.arrayContaining(["owner_notification", "owner_inquiry"]));
   });
 
-  it("takes an instruction through every retry to a No Answer ticket and back", () => {
+  it("stops after three worker attempts and still closes a historical No Answer ticket", () => {
     const instruction = submitOwnerInstruction(current, minutes(4), { message: "Check the east fence", actionable: true, scheduledFor: null });
     save(instruction.ws, "CA-instruction");
     const pendingId = current.pendingWorkerCalls[0].id;
-    for (let attempt = 0; attempt < 4; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       save(resolveWorkerCallAttempt(current, minutes(5 + attempt * 20), pendingId, false).ws, `CA-attempt-${attempt}`);
     }
-    expect(current.pendingWorkerCalls[0].attempts).toHaveLength(4);
-    expect(current.noAnswerTickets.filter((t) => t.status === "open")).toHaveLength(1);
+    expect(current.pendingWorkerCalls[0].attempts).toHaveLength(3);
+    expect(current.pendingWorkerCalls[0].state).toBe("no_answer_ticket");
+    expect(current.noAnswerTickets).toHaveLength(0);
 
+    const call = current.pendingWorkerCalls[0];
+    const withHistory = {
+      ...current,
+      noAnswerTickets: [...current.noAnswerTickets, {
+        id: "nat_hist",
+        createdAt: call.attempts.at(-1)!.at,
+        purpose: "instruction" as const,
+        message: call.message,
+        taskTicketId: call.taskTicketId,
+        status: "open" as const,
+        closedAt: null,
+      }],
+    };
+    save(withHistory, "CA-historical");
     save(completeWorkerCallback(current, minutes(100)), "CA-callback");
     expect(current.noAnswerTickets[0].status).toBe("closed");
     const log = current.calls.find((c) => c.kind === "worker_callback");

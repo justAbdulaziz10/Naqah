@@ -89,7 +89,7 @@ schedule (`farms.call_day` / `call_time`, Asia/Riyadh): Basic once a week, Ultim
    Each unanswered attempt is a `worker_report_missed` call.
 6. **Answered then hung up before saving** (`completed` with the run still answered): the run ends
    `missed`; nothing is saved.
-7. **The worker phones in.** A No Answer ticket is delivered first. If the worker missed this
+7. **The worker phones in.** An existing open No Answer ticket is delivered first. New missed calls do not create one. If the worker missed this
    period's report call, their call takes the report. Otherwise NAQAH thanks them and says when it
    will call.
 8. **Owner update call** (optional, paid): with `NAQAH_CALL_OWNER=1`, after a saved report NAQAH calls

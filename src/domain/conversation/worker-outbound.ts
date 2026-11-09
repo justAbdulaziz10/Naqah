@@ -109,8 +109,8 @@ export function handleWorkerOutbound(session: CallSession, ws: Workspace, now: D
         const nextAttempt = (result.ws.pendingWorkerCalls.find((item) => item.id === callId)?.attempts.length ?? 1) + 1;
         const retryAt = new Date(now.getTime() + RETRY_DELAY_MS);
         const text = copy(
-          "Ahmed did not answer. Retry " + Math.max(1, nextAttempt - 1) + " of " + MAX_RETRIES + " is scheduled for " + atRiyadh(retryAt, "en", true) + " Riyadh time.",
-          "ما رد أحمد. أُعيدت المحاولة " + Math.max(1, nextAttempt - 1) + " من " + MAX_RETRIES + " في " + atRiyadh(retryAt, "ar", true) + " بتوقيت الرياض.",
+          "Ahmed did not answer. Attempt " + nextAttempt + " of " + (MAX_RETRIES + 1) + " is scheduled for " + atRiyadh(retryAt, "en", true) + " Riyadh time.",
+          "ما رد أحمد. المحاولة " + nextAttempt + " من " + (MAX_RETRIES + 1) + " في " + atRiyadh(retryAt, "ar", true) + " بتوقيت الرياض.",
         );
         const waiting = ask(
           addNotice(current.session, text),
@@ -122,8 +122,8 @@ export function handleWorkerOutbound(session: CallSession, ws: Workspace, now: D
         return { session: waiting, commit: commitTo(result.ws) };
       }
       const ticketText = copy(
-        "Ahmed did not answer after four attempts. A No Answer Ticket is open. He can call NAQAH back to receive the message.",
-        "ما رد أحمد بعد أربع محاولات. فُتحت تذكرة عدم رد، ويقدر يتصل بنا عشان توصله الرسالة.",
+        "Ahmed did not answer after three attempts. Automatic calls have stopped. The instructions were not delivered.",
+        "ما رد أحمد بعد ثلاث محاولات. توقفت المكالمات التلقائية، والتعليمات ما وصلت.",
       );
       const next = addNotice(say(current.session, ticketText, now), ticketText);
       return { session: advanceOutboundIndex(next, result.ws, now), commit: commitTo(result.ws) };

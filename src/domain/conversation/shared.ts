@@ -58,6 +58,7 @@ export interface ConversationData {
   startedReportCallId?: string;
   reportId?: string;
   instruction?: string;
+  pendingInstructions?: { message: string; actionable: boolean; scheduledFor: string | null }[];
   actionable?: boolean;
   scheduledFor?: string | null;
   /** Riyadh calendar day (YYYY-MM-DD) chosen for a scheduled task. */
