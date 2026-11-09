@@ -2,60 +2,23 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Locale } from "@/domain/types";
-import { asksToClarify, TurnLoop, type ProviderEvent, type ToolReply } from "./turnLoop";
+import { asksToClarify, TurnLoop, type ToolReply } from "./turnLoop";
 import { addResponseUsage, addTranscribeUsage, NO_USAGE, type LabPricing, type LabUsage } from "./usage";
+import { parseProviderEvent, voiceLabRequest } from "./voiceLabProtocol";
+import type { InspectorEntry, LabError, LabMode, LabPhase, LabView, ProviderEvent, TranscriptEntry } from "./voiceLabProtocol";
 
-export type LabMode = "voice" | "text";
-export type LabPhase = "idle" | "connecting" | "live" | "ended" | "failed";
-
-export interface LabFact { id: string; group: "said" | "report"; label: string; value: string; certainty: "reported" | "approximate" | "unknown" | "verified" | null }
-export type LabVerdict = { kind: "would_save" } | { kind: "would_reject"; reason: string } | { kind: "declined" } | { kind: "ended" } | { kind: "fallback" };
-export interface LabView {
-  step: string;
-  done: boolean;
-  isSummary: boolean;
-  queue: string[];
-  answered: number;
-  question: string;
-  summary: string | null;
-  facts: LabFact[];
-  findings: string[];
-  contract: { valid: true } | { valid: false; field: string };
-  verdict: LabVerdict | null;
-}
-
-export type TranscriptEntry =
-  | { id: string; role: "worker" | "agent"; text: string; pending: boolean; interrupted?: boolean }
-  | { id: string; role: "tool"; refused: string | null; name: string; clarifying: boolean; declined: boolean };
-
-export interface InspectorEntry { id: number; at: number; kind: string; detail?: string; error?: boolean }
-export interface LabError { code: string; detail?: string }
-
-export interface LabStatus {
-  model: string;
-  configured: boolean;
-  source: "farm" | "sample";
-  ranch: string;
-  worker: string;
-  queue: string[];
-}
-
-export type LabAccess = "loading" | "ready" | "signed_out" | "private" | "error";
-
-type ApiResult = { ok: true } & Record<string, unknown> | { ok: false; error: string; provider?: string };
-
-async function api(body: object, init: RequestInit = {}): Promise<{ status: number; data: ApiResult }> {
-  const response = await fetch("/api/voice-lab", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), ...init });
-  const data = (await response.json().catch(() => ({ ok: false, error: "server_error" }))) as ApiResult;
-  return { status: response.status, data };
-}
+export type { InspectorEntry, LabAccess, LabError, LabFact, LabMode, LabPhase, LabStatus, LabView, LabVerdict, TranscriptEntry } from "./voiceLabProtocol";
 
 const CONNECT_TIMEOUT_MS = 20_000;
 
+function providerErrorCode(value: unknown): string {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return "";
+  const code = Reflect.get(value, "code");
+  return typeof code === "string" ? code : "";
+}
+
 /** One browser test call: peer connection, the tool round trip, and everything needed to tear it down. */
 export function useVoiceLab(locale: Locale) {
-  const [access, setAccess] = useState<LabAccess>("loading");
-  const [status, setStatus] = useState<LabStatus | null>(null);
   const [phase, setPhase] = useState<LabPhase>("idle");
   const [mode, setMode] = useState<LabMode>("voice");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
@@ -95,7 +58,7 @@ export function useVoiceLab(locale: Locale) {
     if (run.audio) run.audio.srcObject = null;
     void run.audioContext?.close().catch(() => undefined);
     // Hang up on OpenAI's side too, so a closed tab can't leave a billed session open.
-    if (run.closeState) void api({ op: "close", state: run.closeState }, { keepalive: true }).catch(() => undefined);
+    if (run.closeState) void voiceLabRequest("close", { op: "close", state: run.closeState }, { keepalive: true }).catch(() => undefined);
     live.current = { closeState: null, loop: null, pc: null, dc: null, stream: null, audio: null, audioContext: null, raf: null, state: null, timers: [], serial: run.serial };
     setAgentActive(false);
     setCanInterrupt(false);
@@ -110,25 +73,6 @@ export function useVoiceLab(locale: Locale) {
     setPhase("failed");
     teardown();
   }, [log, teardown]);
-
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      try {
-        const { status: code, data } = await api({ op: "status", locale });
-        if (!active) return;
-        if (data.ok) {
-          setStatus(data as unknown as LabStatus);
-          setAccess("ready");
-        } else {
-          setAccess(code === 401 ? "signed_out" : code === 404 ? "private" : "error");
-        }
-      } catch {
-        if (active) setAccess("error");
-      }
-    })();
-    return () => { active = false; };
-  }, [locale]);
 
   useEffect(() => {
     window.addEventListener("pagehide", teardown);
@@ -149,27 +93,27 @@ export function useVoiceLab(locale: Locale) {
   }, []);
 
   const onProvider = useCallback((event: ProviderEvent, loop: TurnLoop, responseItems: Map<string, string>) => {
-    const item = String(event.item_id ?? "");
+    const item = typeof event.item_id === "string" ? event.item_id : "";
     switch (event.type) {
       case "input_audio_buffer.speech_started": setWorkerSpeaking(true); break;
       case "input_audio_buffer.speech_stopped": setWorkerSpeaking(false); break;
       case "input_audio_buffer.committed": upsert(item, "worker", (text) => text, true); break;
-      case "conversation.item.input_audio_transcription.delta": upsert(item, "worker", (text) => text + String(event.delta ?? ""), true); break;
+      case "conversation.item.input_audio_transcription.delta": upsert(item, "worker", (text) => text + (typeof event.delta === "string" ? event.delta : ""), true); break;
       case "conversation.item.input_audio_transcription.completed":
-        upsert(item, "worker", () => String(event.transcript ?? "").trim(), false);
+        upsert(item, "worker", () => (typeof event.transcript === "string" ? event.transcript : "").trim(), false);
         setUsage((total) => addTranscribeUsage(total, event.usage));
         break;
       case "conversation.item.input_audio_transcription.failed":
         upsert(item, "worker", (text) => text, false);
-        log("transcription_failed", String((event.error as { code?: string } | undefined)?.code ?? ""), true);
+        log("transcription_failed", providerErrorCode(event.error), true);
         break;
       case "response.output_audio_transcript.delta":
       case "response.output_text.delta":
-        responseItems.set(String(event.response_id), item);
-        upsert(item, "agent", (text) => text + String(event.delta ?? ""), true);
+        if (typeof event.response_id === "string") responseItems.set(event.response_id, item);
+        upsert(item, "agent", (text) => text + (typeof event.delta === "string" ? event.delta : ""), true);
         break;
-      case "response.output_audio_transcript.done": upsert(item, "agent", () => String(event.transcript ?? ""), false); break;
-      case "response.output_text.done": upsert(item, "agent", () => String(event.text ?? ""), false); break;
+      case "response.output_audio_transcript.done": upsert(item, "agent", () => typeof event.transcript === "string" ? event.transcript : "", false); break;
+      case "response.output_text.done": upsert(item, "agent", () => typeof event.text === "string" ? event.text : "", false); break;
     }
     loop.handle(event);
     setAgentActive(loop.busy);
@@ -233,14 +177,16 @@ export function useVoiceLab(locale: Locale) {
       await pc.setLocalDescription(await pc.createOffer());
       if (!current()) return;
       // Not aborted on cancel: the server would still create the call, and only this reply can hang it up.
-      const opened = await api({ op: "open", mode: nextMode, locale, sdp: pc.localDescription?.sdp ?? "" });
+      const opened = await voiceLabRequest("open", { op: "open", mode: nextMode, locale, sdp: pc.localDescription?.sdp ?? "" });
       if (!current()) {
-        if (opened.data.ok) void api({ op: "close", state: opened.data.closeState }, { keepalive: true }).catch(() => undefined);
+        if (opened.data?.ok && opened.data.operation === "open") void voiceLabRequest("close", { op: "close", state: opened.data.opened.closeState }, { keepalive: true }).catch(() => undefined);
         return;
       }
+      if (!opened.data) return failWith("server_error");
       if (!opened.data.ok) return failWith(opened.data.error, opened.data.provider);
+      if (opened.data.operation !== "open") return failWith("server_error");
 
-      const reply = opened.data as unknown as { answer: string; state: string; closeState: string; opening: string; view: LabView; pricing: LabPricing | null; maxSeconds: number };
+      const reply = opened.data.opened;
       run.state = reply.state;
       run.closeState = reply.closeState;
       setView(reply.view);
@@ -263,11 +209,19 @@ export function useVoiceLab(locale: Locale) {
           if (id) setTranscript((list) => list.map((entry) => entry.id === id && entry.role === "agent" ? { ...entry, interrupted: true, pending: false } : entry));
         },
         runTool: async ({ name, args, spoke, heard, workerUtterance, heardSummary }): Promise<ToolReply> => {
-          const { data, status: code } = await api({ op: "tool", state: run.state, name, args, spoke, heard, workerUtterance, heardSummary });
+          const { data, status: code } = await voiceLabRequest("tool", { op: "tool", state: run.state, name, args, spoke, heard, workerUtterance, heardSummary });
           // A reply from a call that was reset must not land in the next one.
           if (!current()) return { output: "{}", end: null, goodbye: null };
+          if (!data) {
+            failWith("server_error", code ? String(code) : undefined);
+            return { output: "{}", end: null, goodbye: null };
+          }
           if (!data.ok) throw new Error(`${data.error}${code ? ` (${code})` : ""}`);
-          const result = data as unknown as ToolReply & { state: string; refused: string | null; view: LabView };
+          if (data.operation !== "tool") {
+            failWith("server_error");
+            return { output: "{}", end: null, goodbye: null };
+          }
+          const result = data.tool;
           run.state = result.state;
           setView(result.view);
           log(result.refused ? "tool_refused" : "tool_ok", result.refused ? `${name}: ${result.refused}` : `${name} ${JSON.stringify(args)}`);
@@ -280,12 +234,15 @@ export function useVoiceLab(locale: Locale) {
 
       dc.onmessage = (message) => {
         if (!current()) return;
-        let event: ProviderEvent;
+        if (typeof message.data !== "string") return failWith("provider_invalid");
+        let raw: unknown;
         try {
-          event = JSON.parse(message.data as string) as ProviderEvent;
+          raw = JSON.parse(message.data);
         } catch {
           return failWith("provider_invalid");
         }
+        const event = parseProviderEvent(raw);
+        if (!event) return failWith("provider_invalid");
         if (event.type === "session.created") setPhase("live");
         onProvider(event, loop, responseItems);
       };
@@ -341,7 +298,7 @@ export function useVoiceLab(locale: Locale) {
     setEvents([]);
   }, [teardown]);
 
-  return { access, status, phase, mode, transcript, view, usage, pricing, events, error, secondsLeft, agentActive, canInterrupt, workerSpeaking, micLevel, start, sendText, interrupt, end, reset };
+  return { phase, mode, transcript, view, usage, pricing, events, error, secondsLeft, agentActive, canInterrupt, workerSpeaking, micLevel, start, sendText, interrupt, end, reset };
 }
 
 function startMeter(stream: MediaStream, run: { audioContext: AudioContext | null; raf: number | null }, setLevel: (value: number) => void) {

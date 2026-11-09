@@ -1,12 +1,9 @@
 /**
- * Call Lab copy and the scripted engine were written around the sample farm's
- * names (worker "Ahmed" / «أحمد», owner "Abdullah" / «عبدالله»). When someone sets up
- * their own farm, swap those names for the workspace's real ones at render time.
- *
- * Sample names are left alone so the demo reads naturally in either language.
- * TODO(production): pass names into the engine/messages explicitly instead.
+ * Call Lab messages are a plain tree. Functions are the one argument shapes used by the copy:
+ * numeric counts or a single string value, always returning display text.
  */
 import type { Workspace } from "../types";
+import type { Reply, Turn } from "./shared";
 
 export const SAMPLE_NAMES = {
   worker: ["Ahmed", "أحمد"],
@@ -14,6 +11,23 @@ export const SAMPLE_NAMES = {
 } as const;
 
 export type Personalizer = (text: string) => string;
+export type MessageTreeFunction = ((value: string) => string) | ((value: number) => string);
+export type MessageTreeNode =
+  | string
+  | number
+  | LocalizedTextNode
+  | readonly MessageTreeNode[]
+  | MessageTreeObject
+  | Turn
+  | Reply
+  | MessageTreeFunction;
+export interface LocalizedTextNode {
+  readonly ar: string;
+  readonly en: string;
+}
+export interface MessageTreeObject {
+  readonly [key: string]: MessageTreeNode;
+}
 
 export function makePersonalizer(ws: Pick<Workspace, "settings"> | null): Personalizer {
   if (!ws) return (text) => text;
@@ -29,18 +43,73 @@ export function makePersonalizer(ws: Pick<Workspace, "settings"> | null): Person
   if (!names.size) return (text) => text;
   // One pass: a worker named Abdullah must not then be renamed as the owner.
   const samples = new RegExp([...names.keys()].join("|"), "g");
-  return (text) => text.replace(samples, (sample) => names.get(sample) ?? sample);
+  return (text) => text.replace(samples, (sample, offset, original) => {
+    const replacement = names.get(sample) ?? sample;
+    // Keep a visible joining stroke between the Arabic preposition and a Latin farm name.
+    if (original[offset - 1] === "ب" && !/[\u0600-\u06ff]/u.test(replacement)) return `ـ${replacement}`;
+    return replacement;
+  });
 }
 
-/** Apply a personalizer to every string (and string-returning function) in a message tree. */
-export function personalizeTree<T>(value: T, fn: Personalizer): T {
-  if (typeof value === "string") return fn(value) as T;
+function isPlainMessageObject(value: object): value is MessageTreeObject {
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function isArrayIndex(property: string): boolean {
+  return /^(0|[1-9]\d*)$/.test(property);
+}
+
+function personalizedNode(value: MessageTreeNode, fn: Personalizer, cache: WeakMap<object, MessageTreeNode>): MessageTreeNode {
+  if (typeof value === "string" || typeof value === "number") return typeof value === "string" ? fn(value) : value;
   if (typeof value === "function") {
-    return ((...args: unknown[]) => personalizeTree((value as (...a: unknown[]) => unknown)(...args), fn)) as T;
+    const cached = cache.get(value);
+    if (cached) return cached;
+    const wrapped = new Proxy(value, {
+      apply(target, thisArg, args) {
+        const result = Reflect.apply(target, thisArg, args);
+        return typeof result === "string" ? fn(result) : result;
+      },
+    });
+    cache.set(value, wrapped);
+    return wrapped;
   }
-  if (Array.isArray(value)) return value.map((item) => personalizeTree(item, fn)) as T;
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, personalizeTree(item, fn)])) as T;
+  if (Array.isArray(value)) {
+    const cached = cache.get(value);
+    if (cached) return cached;
+    const wrapped = new Proxy(value, {
+      get(target, property, receiver) {
+        const child = Reflect.get(target, property, receiver);
+        return typeof property === "string" && isArrayIndex(property)
+          ? personalizedNode(child, fn, cache)
+          : child;
+      },
+    });
+    cache.set(value, wrapped);
+    return wrapped;
   }
-  return value;
+  if (!isPlainMessageObject(value)) throw new TypeError("Call Lab messages must use plain objects");
+  const cached = cache.get(value);
+  if (cached) return cached;
+  const wrapped = new Proxy(value, {
+    get(target, property, receiver) {
+      const child = Reflect.get(target, property, receiver);
+      return typeof property === "string" ? personalizedNode(child, fn, cache) : child;
+    },
+  });
+  cache.set(value, wrapped);
+  return wrapped;
+}
+
+/** Personalize a typed message tree lazily while preserving its exact public shape. */
+export function personalizeTree<T extends MessageTreeObject>(value: T, fn: Personalizer): T {
+  const cache = new WeakMap<object, MessageTreeNode>();
+  const wrapped = new Proxy(value, {
+    get(target, property, receiver) {
+      const child = Reflect.get(target, property, receiver);
+      return typeof property === "string" ? personalizedNode(child, fn, cache) : child;
+    },
+  });
+  cache.set(value, wrapped);
+  return wrapped;
 }

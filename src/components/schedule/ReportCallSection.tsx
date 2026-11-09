@@ -1,9 +1,7 @@
 "use client";
 
 import { WEEKDAY_LABELS } from "@/domain/catalog";
-import { sameDay, sameWeek } from "@/domain/clock";
-import { reportDoneThisPeriod } from "@/domain/rules";
-import { isCompleteCallSchedule, nextScheduledCall } from "@/domain/schedule";
+import { isCompleteCallSchedule, upcomingReportCall } from "@/domain/schedule";
 import type { CallSchedule, Weekday, Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
@@ -12,17 +10,7 @@ import { StepField, StepInput, StepSelect } from "@/components/setup/onboarding/
 import { WeekStrip } from "@/components/visuals/WeekStrip";
 import type { SetupFieldsProps } from "@/components/setup/types";
 
-/**
- * The next report call NAQAH will actually place. A period whose report is already in is not called
- * again, so its remaining slot is skipped.
- */
-export function upcomingReportCall(ws: Workspace, now: Date): Date | null {
-  const { plan, callSchedule } = ws.settings;
-  const next = nextScheduledCall(now, plan, callSchedule);
-  if (!next || !reportDoneThisPeriod(ws, now)) return next;
-  const samePeriod = plan === "basic" ? sameWeek(next, now) : sameDay(next, now);
-  return samePeriod ? nextScheduledCall(next, plan, callSchedule) : next;
-}
+export { upcomingReportCall } from "@/domain/schedule";
 
 /**
  * The scheduled report call in one plain sentence, e.g. "NAQAH will call Ahmed every Thursday at 5:00 PM."

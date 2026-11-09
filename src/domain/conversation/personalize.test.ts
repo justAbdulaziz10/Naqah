@@ -16,9 +16,25 @@ describe("Call Lab personalization", () => {
     const p = makePersonalizer(ws);
     expect(p("NAQAH is calling Abdullah after Ahmed’s update.")).toBe("NAQAH is calling Faisal after Salem’s update.");
     expect(p("عندك أي تعليمات لأحمد؟")).toBe("عندك أي تعليمات لSalem؟");
-    const tree = personalizeTree({ a: "Hi Ahmed", f: (x: string) => `Ahmed calls ${x}`, n: 3 }, p);
+    const tree = personalizeTree({
+      a: "Hi Ahmed",
+      localized: { ar: "ناقة تتصل بأحمد", en: "NAQAH calls Ahmed" },
+      items: ["Ahmed", { label: "Abdullah" }],
+      f: (x: string) => `Ahmed calls ${x}`,
+      count: (value: number) => `${value} calls for Ahmed`,
+      turn: { speaker: "agent" as const, text: { ar: "أحمد", en: "Ahmed" }, at: "2026-11-05T12:00:00.000Z" },
+      reply: { id: "confirm", value: "yes", label: { ar: "نعم يا عبدالله", en: "Yes, Abdullah" } },
+      n: 3,
+    }, p);
     expect(tree.a).toBe("Hi Salem");
+    expect(tree.localized).toEqual({ ar: "ناقة تتصل بـSalem", en: "NAQAH calls Salem" });
+    expect(tree.items[0]).toBe("Salem");
+    const item = tree.items[1];
+    if (typeof item !== "string") expect(item.label).toBe("Faisal");
     expect(tree.f("Abdullah")).toBe("Salem calls Faisal");
+    expect(tree.count(3)).toBe("3 calls for Salem");
+    expect(tree.turn.text).toEqual({ ar: "Salem", en: "Salem" });
+    expect(tree.reply.label).toEqual({ ar: "نعم يا Faisal", en: "Yes, Faisal" });
     expect(tree.n).toBe(3);
   });
 
