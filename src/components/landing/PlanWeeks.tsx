@@ -1,6 +1,5 @@
 import { CaretDown } from "@phosphor-icons/react/dist/ssr";
 import type { Locale } from "@/domain/types";
-import { PlanPrice } from "@/components/plans/PlanPrice";
 import { getMessages } from "@/i18n/messages";
 import { cn } from "@/lib/cn";
 
@@ -93,12 +92,6 @@ export function PlanWeeks({ locale }: { locale: Locale }) {
                 {copy.name}
               </h3>
               <p className={cn("mt-2 text-lg leading-8", daily ? "text-cream/85" : "text-espresso")}>{copy.summary}</p>
-              <PlanPrice
-                plan={plan}
-                copy={p.price}
-                tone={daily ? "dark" : "light"}
-                className={cn("mt-5 border-y py-4", daily ? "border-cream/20" : "border-stone")}
-              />
               <Week locale={locale} plan={plan} />
               <dl className={cn("mt-8 grid gap-4 border-t pt-6", daily ? "border-cream/20" : "border-stone")}>
                 <div className="flex items-baseline justify-between gap-6">

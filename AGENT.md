@@ -172,7 +172,7 @@ Copied from the specs — the MVP picks a placeholder behavior and marks it in c
 7. Retry scope/exhaustion beyond the No Answer Ticket. (MVP: ticket stays open until callback)
 8. How emergency categories are used during calls. (MVP: shown to the owner; worker calls owner directly)
 9. Predefined question categories and wording. (MVP: DRAFT in `catalog.ts`)
-10. AI model, voice/telephony provider and payment processing. (MVP: none — simulated; display-only plan prices are set below)
+10. AI model, voice/telephony provider, payments and prices. (MVP: none — simulated)
 
 ## 8. Production roadmap (demo → real service)
 
@@ -186,8 +186,6 @@ the same functions and swaps only the storage and the "who triggers it" layer.
   Local validation uses stand-in Supabase roles/Auth; it does not prove live activation. The existing Supabase project
   contains Auth test users; migrations 0001–0005 and both timestamped migrations are applied. The latter adds durable
   links from a pending worker call to multiple task tickets while retaining the legacy single-task field.
-  The plan-selection feature adds `20261108010000_initial_plan_selection.sql`; it is pending local and hosted
-  verification. Do not deploy that feature with account mode enabled until this migration is applied and verified.
   Status, plan and manual go-live list: `docs/integrations/supabase-backend.md`.
   One owner (`auth.users`) → one `farms` row (owner, settings, call time, herd count, primary worker) → 1–3 (Basic) or
   1–10 (Ultimate) `workers` rows; NAQAH calls the primary one. Scheduled report calls live in `report_call_runs`.
@@ -238,11 +236,9 @@ The implemented contract is `docs/integrations/voice-data-contract.md`.
 Note: Vercel Hobby cron runs at most once a day; the 20-minute retry needs Vercel Pro, Supabase `pg_cron`
 (free) calling the route, or Twilio's own scheduling.
 
-### 8.5 Payments and displayed prices
-Payment processing is out of scope for the MVP; showing prices does not charge or subscribe an owner. The public
-monthly price per ranch is Basic: SAR 299 before VAT (SAR 344 including 15% VAT), and Ultimate: SAR 999 before VAT
-(SAR 1,149 including 15% VAT). When payment processing is approved: Moyasar or Tap (Saudi) or Stripe, with the plan
-stored on `farms.plan`.
+### 8.5 Payments
+Out of scope for the MVP (no prices shown, nothing charged). When decided: Moyasar or Tap (Saudi) or Stripe, with the
+plan stored on `farms.plan`.
 
 ### 8.6 Deployment
 Vercel Hobby (free). `NEXT_PUBLIC_SITE_URL` is used for metadata/OG URLs. No other environment variables are needed

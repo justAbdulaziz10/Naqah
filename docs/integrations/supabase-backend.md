@@ -62,12 +62,6 @@ The complete sequence is **0001 → 0002 → 0003 → 0004 → 0005 → 20261107
 `pending_worker_call_tasks`. The original `task_ticket_id` remains for compatibility with older call rows and writers.
 The hosted migration history and resulting schema, RLS and grants were verified after application.
 
-The plan-selection feature adds `20261108010000_initial_plan_selection.sql`. It records an owner's first Basic or
-Ultimate choice in `farms.plan_selected_at` through `select_initial_plan`, before creating a new farm or continuing
-an incomplete legacy farm. Existing unmarked farms are left unchanged until their owner confirms. This migration is
-not yet part of the hosted migration history; do not deploy this feature with account mode enabled until it has
-passed local verification and the hosted preflight/application steps.
-
 Local proof without Docker: `supabase/local-validation/run-foundation.sh` (0002 + 0006 checks, isolation, races,
 domain round trip including a report call) and `run-stack.sh` (Postgres + PostgREST + mock Auth) with
 `src/server/farm/owner-flow.stack.test.ts` (an owner's setup saved and reloaded under RLS).
@@ -83,8 +77,7 @@ With the flag on, `AccountBoundary` wraps `/app` and `/start` and decides whose 
 | Visitor | Gets |
 |---|---|
 | Signed out | The browser demo, unchanged |
-| Signed in, plan not confirmed | The explicit Basic/Ultimate selection gate; no farm is created until Continue |
-| Signed in, plan confirmed | Their farm from Supabase; a new farm is created on confirmation |
+| Signed in | Their farm from Supabase, created on first entry |
 | Signed in, Supabase unreachable | An error with a retry, never the demo |
 
 Screens still call `update(fn)`. In account mode `src/store/accountSync.ts` diffs the document
@@ -159,8 +152,8 @@ requests or disable `NAQAH_VOICE_MODE=farm`/service jobs. Those require separate
 - [ ] Finish the OTP protections in `owner-auth.md` before enabling real login.
 
 **Needs a decision**
-- [ ] Post-setup plan changes and upgrades. Owners select Basic or Ultimate once before initial setup;
-      there is no billing, charge, or plan-change flow after confirmation.
+- [ ] How a farm gets Ultimate. Owners can't set their plan, so every farm starts on Basic until
+      billing or an admin step exists.
 - [ ] Verifying phone numbers. Nothing proves a number belongs to the farm that saved it, so
       any signed-up owner can save another farm's worker number. `findCaller` then refuses both
       farms, which blocks that worker's calls; an unclaimed number can be squatted. Fine for a

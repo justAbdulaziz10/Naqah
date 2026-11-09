@@ -55,15 +55,6 @@ afterEach(() => {
 });
 
 describe("account mode", () => {
-  it("requires explicit plan selection instead of adopting a default-Basic farm", async () => {
-    const { sync, api, useAccountState, useWorkspaceStore } = await setup(farm());
-    api.open.mockResolvedValueOnce({ ok: false, error: "plan_required" });
-    await sync.open();
-    expect(useAccountState.getState()).toMatchObject({ active: false, status: "planRequired" });
-    expect(useWorkspaceStore.getState().workspace).toBeNull();
-    expect(api.open).toHaveBeenCalledOnce();
-  });
-
   it("keeps this owner's farm on screen while a new screen checks it again", async () => {
     const { sync, api, useAccountState, useWorkspaceStore } = await setup(farm());
     await sync.open();

@@ -68,37 +68,12 @@ describe("owner actions", () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "mock-only");
     const farmId = "11111111-1111-4111-8111-111111111111";
-    const repository = {
-      initialPlanState: vi.fn().mockResolvedValue({ required: false, setupComplete: false, existingFarm: true }),
-      ensureFarm: vi.fn(),
-      load: vi.fn().mockResolvedValue({ farmId, workspace: { createdAt: "same-time" } }),
-    };
+    const repository = { ensureFarm: vi.fn(), load: vi.fn().mockResolvedValue({ farmId, workspace: { createdAt: "same-time" } }) };
     mock.repository.mockReturnValue(repository);
     for (const read of [actions.openAccount, actions.loadWorkspace]) {
       expect(await read()).toEqual({ ok: true, data: { farmId, ownerId: "owner", createdAt: "same-time" } });
     }
     expect(repository.ensureFarm).toHaveBeenCalledTimes(1);
-  });
-  it("routes new and incomplete legacy owners to explicit plan selection without creating a farm", async () => {
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "mock-only");
-    const repository = { initialPlanState: vi.fn().mockResolvedValue({ required: true, setupComplete: false, existingFarm: false }), ensureFarm: vi.fn() };
-    mock.repository.mockReturnValue(repository);
-    expect(await actions.openAccount()).toEqual({ ok: false, error: "plan_required" });
-    expect(repository.ensureFarm).not.toHaveBeenCalled();
-  });
-  it("saves only a validated initial plan for the session owner and checks the page owner as stale state", async () => {
-    const ownerId = "11111111-1111-4111-8111-111111111111";
-    mock.getOwner.mockResolvedValue({ user: { id: ownerId }, unavailable: false });
-    const repository = { selectInitialPlan: vi.fn(), ensureFarm: vi.fn() };
-    mock.repository.mockReturnValue(repository);
-    expect(await actions.selectInitialPlan("ultimate", ownerId)).toEqual({ ok: true, data: { plan: "ultimate" } });
-    expect(repository.selectInitialPlan).toHaveBeenCalledWith("ultimate");
-    expect(repository.ensureFarm).toHaveBeenCalledOnce();
-    repository.selectInitialPlan.mockClear();
-    expect(await actions.selectInitialPlan("basic", "22222222-2222-4222-8222-222222222222")).toEqual({ ok: false, error: "conflict" });
-    expect(repository.selectInitialPlan).not.toHaveBeenCalled();
-    expect(await actions.selectInitialPlan("premium", ownerId)).toEqual({ ok: false, error: "invalid_input" });
   });
   it("returns a code, never an exception or database text", async () => {
     addCamelRepo.mockRejectedValue(new DbError("limit_reached"));

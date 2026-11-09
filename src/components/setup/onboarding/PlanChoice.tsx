@@ -3,21 +3,12 @@
 import { Check } from "@phosphor-icons/react";
 import { PLAN_LIMITS } from "@/domain/catalog";
 import type { Plan, Weekday } from "@/domain/types";
-import { PlanPrice } from "@/components/plans/PlanPrice";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useIsAccount } from "@/store/workspace";
 import type { SetupFieldsProps } from "../types";
 
 const PLANS: Plan[] = ["basic", "ultimate"];
-
-type InitialPlanChoiceProps = {
-  mode: "initial";
-  selected: Plan | null;
-  onSelect: (plan: Plan) => void;
-  disabled?: boolean;
-};
-type WorkspacePlanChoiceProps = SetupFieldsProps & { mode?: "workspace" };
 
 /** A plan's week in seven dots: Basic marks its one day (once chosen), Ultimate marks them all. */
 export function PlanRhythm({ plan, day, tone = "light", className }: { plan: Plan; day: Weekday | null; tone?: "light" | "dark"; className?: string }) {
@@ -38,23 +29,17 @@ export function PlanRhythm({ plan, day, tone = "light", className }: { plan: Pla
  * The plan as a choice between two weeks. In the demo the owner can switch; in an account the plan is
  * set by the NAQAH team, so only theirs is shown, read-only.
  */
-export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoiceProps) {
+export function PlanChoice({ ws, onChange }: SetupFieldsProps) {
   const { m } = useI18n();
   const p = m.setup.plans;
   const account = useIsAccount();
-  const initial = props.mode === "initial";
-  const ws = "ws" in props ? props.ws : null;
-  const current = initial ? props.selected : ws!.settings.plan;
-  const day = ws?.settings.callSchedule?.day ?? null;
-  const tooManyForBasic = ws ? ws.settings.customQuestions.length > PLAN_LIMITS.basic.customQuestions : false;
+  const current = ws.settings.plan;
+  const day = ws.settings.callSchedule?.day ?? null;
+  const tooManyForBasic = ws.settings.customQuestions.length > PLAN_LIMITS.basic.customQuestions;
 
   function choose(plan: Plan) {
-    if (initial) {
-      if (!props.disabled) props.onSelect(plan);
-      return;
-    }
     if (account || plan === current || (plan === "basic" && tooManyForBasic)) return;
-    props.onChange((latest) => ({ ...latest, settings: { ...latest.settings, plan } }));
+    onChange((latest) => ({ ...latest, settings: { ...latest.settings, plan } }));
   }
 
   const card = (plan: Plan, selectable: boolean) => {
@@ -79,7 +64,6 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
         <PlanRhythm plan={plan} day={day} className="mt-4 h-3" />
         <span className="mt-3 block text-[1.0625rem] leading-snug">{plan === "basic" ? p.basicRhythm : p.ultimateRhythm}</span>
         <span className="mt-1 block text-[0.9375rem] leading-relaxed text-muted">{plan === "basic" ? p.basicExtras : p.ultimateExtras}</span>
-        <PlanPrice plan={plan} copy={p.price} compact className="mt-4 border-t border-stone pt-3" />
         {blocked ? <span className="mt-2 block text-[0.9375rem] text-danger">{p.tooManyForBasic}</span> : null}
       </>
     );
@@ -103,7 +87,8 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
           value={plan}
           className="sr-only"
           checked={selected}
-          disabled={blocked || (initial && props.disabled === true)}
+          disabled={blocked}
+          aria-label={p.rhythmLabel(m.common.plans[plan], plan === "basic")}
           onChange={() => choose(plan)}
         />
         {body}
@@ -114,15 +99,15 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
   return (
     <fieldset className="min-w-0">
       <legend className="mb-4 text-[1.0625rem] font-bold text-espresso">{p.choose}</legend>
-      {!initial && account ? (
+      {account ? (
         <div className="grid gap-3">
-          {card(ws!.settings.plan, false)}
+          {card(current, false)}
           <p className="text-[0.9375rem] leading-relaxed text-muted">{p.change}</p>
         </div>
       ) : (
         <div className="grid gap-3">
           <div className="grid gap-3 sm:grid-cols-2">{PLANS.map((plan) => <div key={plan} className="contents">{card(plan, true)}</div>)}</div>
-          {initial ? null : <p className="text-[0.9375rem] leading-relaxed text-muted">{p.chooseDemo}</p>}
+          <p className="text-[0.9375rem] leading-relaxed text-muted">{p.chooseDemo}</p>
         </div>
       )}
     </fieldset>

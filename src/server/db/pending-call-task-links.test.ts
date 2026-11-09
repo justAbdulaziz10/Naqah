@@ -15,7 +15,7 @@ const call = (extra: Partial<PendingWorkerCall> = {}): PendingWorkerCall => ({
 });
 const rows: FarmRows = {
   farm: {
-    id: farm, owner_id: 'o', plan: 'ultimate', plan_selected_at: null, setup_complete: true, owner_name: '', owner_phone: '', name: '', location: '',
+    id: farm, owner_id: 'o', plan: 'ultimate', setup_complete: true, owner_name: '', owner_phone: '', name: '', location: '',
     latitude: null, longitude: null, supplier_name: '', supplier_phone: '', window_day: null, window_start: null, window_end: null,
     last_update_at: null, owner_allowance_used_at: null, missed_notification_at: null, call_day: null, call_time: null,
     herd_count: null, herd_count_reviewed_at: null, primary_worker_id: null, created_at: '2026-11-08T00:00:00Z', revision: 0,

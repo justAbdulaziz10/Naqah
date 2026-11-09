@@ -126,26 +126,14 @@ async function signIn(page, locale, owner) {
   await page.locator('form button[type="submit"]').click();
 }
 
-async function chooseBasic(page, locale) {
-  await page.waitForURL(`**/${locale}/choose-plan*`, { timeout: 20_000 });
-  const radios = page.locator('input[name="plan"]');
-  check(`${locale}: plan choice is not preselected`, await radios.evaluateAll((items) => items.every((item) => !item.checked)));
-  const continueButton = page.getByRole("button", { name: locale === "ar" ? "كمّل على هذي الباقة" : "Continue with this plan", exact: true });
-  check(`${locale}: continuation waits for an explicit choice`, await continueButton.isDisabled());
-  await radios.nth(0).check();
-  await continueButton.click();
-  await page.waitForURL(`**/${locale}/start`, { timeout: 20_000 });
-  check(`${locale}: explicit Basic choice opens the first setup step`, await page.getByRole("heading", { name: locale === "ar" ? "عزبتك" : "Your ranch", exact: true }).isVisible());
-}
-
 // ── Owner A: English, desktop. New owner → setup → dashboard ──
 const ownerA = await createOwner();
 const A = await open({ width: 1440, height: 900 });
 const RANCH = `Al Nakheel ${randomBytes(2).toString("hex")}`;
 const ownerPhone = phone(), yousefPhone = phone(), ahmedPhone = phone();
 await signIn(A.page, "en", ownerA);
-await chooseBasic(A.page, "en");
-check("a new owner must choose a plan before setup", true);
+await A.page.waitForURL("**/en/start", { timeout: 20_000 });
+check("a new owner lands in setup after signing in", true);
 await settled(A.page);
 check("setup offers no sample data to a real owner", await A.page.getByText(/sample/i).count() === 0);
 check("setup has four steps", await A.page.getByRole("button", { name: /^(Ranch|Workers and herd|Report call|Ready)$/ }).count() === 4);
@@ -180,7 +168,6 @@ await settled(A.page);
 
 const farmA = sql(`select id from farms where owner_id = ${q(ownerA.id)}`);
 await waitFor(() => sql(`select setup_complete from farms where id = ${q(farmA)}`) === "t");
-check("explicit Basic choice persisted with its confirmation marker", sql(`select plan || ':' || (plan_selected_at is not null) from farms where id = ${q(farmA)}`) === "basic:true");
 const farmRow = sql(`select name || '|' || owner_name || '|' || owner_phone || '|' || coalesce(herd_count::text, '-') || '|' || coalesce(call_day::text, '-') || '|' || coalesce(to_char(call_time, 'HH24:MI'), '-') || '|' || setup_complete from farms where id = ${q(farmA)}`);
 check("ranch, owner, herd count and call time saved to Supabase", farmRow === `${RANCH}|Abdullah|${e164(ownerPhone)}|42|4|17:30|true`, farmRow);
 const workers = sql(`select string_agg(w.name || ':' || w.phone || ':' || (w.id = f.primary_worker_id), ',' order by w.name) from workers w join farms f on f.id = w.farm_id where f.id = ${q(farmA)}`);

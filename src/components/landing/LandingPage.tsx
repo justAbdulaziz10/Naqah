@@ -7,7 +7,6 @@ import { Logo } from "@/components/brand/Logo";
 import { ACCOUNT_DATA } from "@/components/entry/paths";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
 import { REPORT_CALL_RETRIES, RETRY_DELAY_MS } from "@/domain/clock";
-import { VAT_PERCENT } from "@/domain/pricing";
 import { formatTime } from "@/i18n/format";
 import { getMessages } from "@/i18n/messages";
 import { CallStory } from "./CallStory";
@@ -215,7 +214,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
               <h2 id="plans-title" data-reveal="" className={sectionTitle}>
                 {landing.plans.title}
               </h2>
-              <p data-reveal="" data-reveal-delay="60" className="text-lg text-muted">{landing.plans.pricing(VAT_PERCENT)}</p>
+              <p data-reveal="" data-reveal-delay="60" className="text-lg text-muted">{landing.plans.pricing}</p>
             </div>
             <div className="mt-10 lg:mt-14">
               <PlanWeeks locale={locale} />
