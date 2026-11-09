@@ -475,6 +475,9 @@ const WORKER_DIAL_LOCK_MS = 2 * 60 * 60 * 1000;
 export function claimDueWorkerCall(input: Workspace, now: Date): { ws: Workspace; pendingCallId: string | null; attempt: number } {
   let ws = clone(input);
   for (const task of dueTaskVerifications(ws, now)) ws = startTaskVerification(ws, now, task.id).ws;
+  // The worker's phone is one line: a second call now would ring busy and waste one of its three attempts.
+  const onTheLine = (ws.reportCalls ?? []).some((run) => run.state === "answered" || (run.state === "calling" && run.attempts.at(-1)?.result === "pending"));
+  if (onTheLine) return { ws, pendingCallId: null, attempt: 0 };
   const call = dueWorkerCalls(ws, now)[0];
   if (!call) return { ws, pendingCallId: null, attempt: 0 };
   call.nextAttemptAt = new Date(now.getTime() + WORKER_DIAL_LOCK_MS).toISOString();
@@ -485,7 +488,13 @@ export function claimDueWorkerCall(input: Workspace, now: Date): { ws: Workspace
 export function releaseWorkerCallClaim(input: Workspace, pendingCallId: string, now: Date): Workspace {
   const ws = clone(input);
   const call = ws.pendingWorkerCalls.find((item) => item.id === pendingCallId && item.state === "pending");
-  if (call) call.nextAttemptAt = iso(now);
+  if (!call) return ws;
+  // The attempt never happened, so it isn't counted, but the provider isn't asked again on the very next tick.
+  call.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
+  pushEvent(ws, now, "attention", {
+    ar: `تعذر على ناقة الاتصال بـ${ws.settings.worker.name} — تحاول مرة ثانية بعد ٢٠ دقيقة`,
+    en: `NAQAH couldn't place the call to ${ws.settings.worker.name} — it will try again in 20 minutes`,
+  });
   return ws;
 }
 

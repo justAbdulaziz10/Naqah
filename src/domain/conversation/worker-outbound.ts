@@ -139,7 +139,8 @@ export function handleWorkerOutbound(session: CallSession, ws: Workspace, now: D
       };
       return { session: askVerificationTask(verifying, ws, now, 0) };
     }
-    const spoken = say(current.session, copy("Message from Abdullah: " + call.message, "رسالة من عبدالله: " + call.message), now);
+    const owner = ws.settings.owner.name;
+    const spoken = say(current.session, copy("Message from " + owner + ": " + call.message, "رسالة من " + owner + ": " + call.message), now, false, true);
     return {
       session: ask(
         { ...spoken, data: { ...spoken.data, currentCallId: callId } },
@@ -183,6 +184,8 @@ function askVerificationTask(session: CallSession, ws: Workspace, now: Date, ind
     now,
     "outbound_task_confirmation",
     [reply("yes", "Yes, complete", "إيه، خلصت"), reply("no", "No, not yet", "لا، باقي"), reply("unknown", "I don’t know", "ما أدري")],
+    "choices",
+    true,
   );
 }
 

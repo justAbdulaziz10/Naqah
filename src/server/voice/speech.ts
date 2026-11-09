@@ -139,17 +139,17 @@ export function extractNumber(input: string): number | null {
 function formatTime(hour: number, minute: number, meridiem?: string): string | null {
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
   let normalizedHour = hour;
-  if (["pm", "مساء", "ليلا", "ليل"].includes(meridiem ?? "")) normalizedHour = hour % 12 + 12;
-  if (["am", "صباح", "صباحا", "فجرا"].includes(meridiem ?? "")) normalizedHour = hour % 12;
+  if (["pm", "مساء", "ليلا", "ليل", "العصر", "عصر", "المغرب", "مغرب", "العشاء", "العشا", "عشا", "الظهر", "ظهر"].includes(meridiem ?? "")) normalizedHour = hour % 12 + 12;
+  if (["am", "صباح", "صباحا", "الصبح", "صبح", "فجرا", "الفجر", "فجر"].includes(meridiem ?? "")) normalizedHour = hour % 12;
   return `${String(normalizedHour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 export function extractTime(input: string): string | null {
   const normalized = normalizeSpeech(input);
-  const digits = normalized.match(/(?:^|\s)(\d{1,2})(?:\s*[:٫.]\s*(\d{1,2}))?\s*(am|pm|صباحا|صباح|مساء|ليلا|ليل|فجرا)?(?=\s|$)/u);
+  const digits = normalized.match(/(?:^|\s)(\d{1,2})(?:\s*[:٫.]\s*(\d{1,2}))?\s*(am|pm|صباحا|صباح|الصبح|صبح|مساء|ليلا|ليل|فجرا|الفجر|فجر|العصر|عصر|المغرب|مغرب|العشاء|العشا|عشا|الظهر|ظهر)?(?=\s|$)/u);
   if (digits) return formatTime(Number(digits[1]), Number(digits[2] ?? 0), digits[3]);
 
-  const wordDaypart = normalized.match(/(?:الساعه\s+)?([\p{L} ]+?)\s*(am|pm|صباحا|صباح|مساء|ليلا|ليل|فجرا)$/u);
+  const wordDaypart = normalized.match(/(?:الساعه\s+)?([\p{L} ]+?)\s*(am|pm|صباحا|صباح|الصبح|صبح|مساء|ليلا|ليل|فجرا|الفجر|فجر|العصر|عصر|المغرب|مغرب|العشاء|العشا|عشا|الظهر|ظهر)$/u);
   if (wordDaypart) {
     const hour = extractNumber(wordDaypart[1]);
     const suffix = wordDaypart[2];
@@ -400,7 +400,7 @@ function intentReply(session: CallSession, reading: Reading): string | null {
 
 /** These steps change the farm for good, so a near match is not enough: it takes a clear answer. */
 function needsClearAnswer(session: CallSession): boolean {
-  if (["report_summary", "instruction_review", "callback_task_confirmation", "outbound_task_confirmation", "quantity_confirm", "herd_count_confirm", "health_name_confirm"].includes(session.step)) return true;
+  if (["report_summary", "instruction_review", "callback_task_confirmation", "outbound_task_confirmation", "outbound_receipt", "quantity_confirm", "herd_count_confirm", "health_name_confirm"].includes(session.step)) return true;
   return currentItem(session)?.kind === "task";
 }
 

@@ -313,9 +313,15 @@ type Step = { ws: Workspace; result: VoiceOutcome };
 /** The events Basic never has: instructions, task tickets and follow-up calls to the worker. */
 const ULTIMATE_ONLY: ReadonlySet<VoiceEvent["type"]> = new Set(["owner_instruction", "task_verification_start", "worker_call_attempt", "task_confirmation"]);
 
+const LATE_SAVE_MS = 15 * 60 * 1000;
+
 /** The conversation's call may have ended a moment before its save arrived, while a retry waits. */
-function runAcceptsReport(run: ReportCallRun): boolean {
-  return run.state === "answered" || (run.state === "calling" && run.attempts.at(-1)?.result === "answered");
+function runAcceptsReport(run: ReportCallRun, now: Date): boolean {
+  if (run.state === "answered") return true;
+  const last = run.attempts.at(-1);
+  if (last?.result !== "answered") return false;
+  // On the last attempt the final status can beat the confirmed save, and the save must still win.
+  return run.state === "calling" || (run.state === "missed" && now.getTime() - new Date(last.at).getTime() <= LATE_SAVE_MS);
 }
 
 /** Every decision is the domain's. This only picks the action and states the outcome. */
@@ -329,7 +335,7 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
       if (event.reportCallId) {
         // NAQAH placed this call: the run, not caller ID, says whose report it is.
         const run = reportCallRuns(ws).find((item) => item.id === event.reportCallId);
-        if (!run || !runAcceptsReport(run)) return { ws, result: { status: "rejected", reason: "call_not_active" } };
+        if (!run || !runAcceptsReport(run, now)) return { ws, result: { status: "rejected", reason: "call_not_active" } };
         if (reportDoneThisPeriod(ws, now)) {
           const reason = ws.settings.plan === "basic" ? "weekly_done" : "daily_done";
           return { ws: rejectWorkerReport(ws, now, reason), result: { status: "rejected", reason } };

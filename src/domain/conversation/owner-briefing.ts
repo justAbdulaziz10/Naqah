@@ -37,7 +37,8 @@ export function startLiveOwnerBriefing(
     ...blank("owner_notification", now),
     data: { ...(reportId ? { reportId } : {}), ...(run ? { ownerRunId: run.runId, ownerAttempt: run.attempt } : {}) },
   };
-  const told = say(session, briefing, now);
+  // Saved facts are read as written: a neighbour called أحمد must not become the worker.
+  const told = say(session, briefing, now, false, true);
   if (!taskTicketsEnabled(ws)) {
     return { session: say(told, copy("That's the update. Thank you.", "هذا التحديث. شكراً لك."), now, true) };
   }

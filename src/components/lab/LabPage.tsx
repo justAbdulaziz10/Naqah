@@ -168,7 +168,7 @@ function DemoLab() {
         </p>
       </header>
 
-      <LabScenarioPicker selected={selected} sessionActive={sessionActive || Boolean(launch)} onSelect={(value) => lab.patch({ selected: value })} m={m} />
+      <LabScenarioPicker plan={ws.settings.plan} selected={selected} sessionActive={sessionActive || Boolean(launch)} onSelect={(value) => lab.patch({ selected: value })} m={m} />
 
       <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-2.5">

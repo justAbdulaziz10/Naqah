@@ -69,7 +69,7 @@ describe("worker instruction and verification dialing", () => {
   const pendingId = "22222222-2222-4222-8222-222222222222";
 
   beforeEach(() => {
-    store.ws.settings = { ...store.ws.settings, plan: "ultimate" };
+    store.ws.settings = { ...store.ws.settings, plan: "ultimate", callSchedule: null };
     store.ws.pendingWorkerCalls = [{
       id: pendingId,
       purpose: "instruction",
@@ -84,7 +84,7 @@ describe("worker instruction and verification dialing", () => {
 
   it("dials a due instruction once and does not dial it again while the claim is held", async () => {
     const { caller, requests } = recordingCaller();
-    expect(await runReportCallScheduler({} as never, caller, options)).toMatchObject({ placed: 2, failed: 0 });
+    expect(await runReportCallScheduler({} as never, caller, options)).toMatchObject({ placed: 1, failed: 0 });
     const worker = requests.find((request) => request.url?.includes("/api/voice/worker"));
     expect(worker?.to).toBe("+966501234567");
     const token = verifyCallToken(new URL(worker!.url!).searchParams.get("s"), SECRET, now.getTime());
@@ -97,12 +97,21 @@ describe("worker instruction and verification dialing", () => {
     expect(again.requests).toHaveLength(0);
   });
 
-  it("releases the claim when Twilio refuses, so the attempt was not used", async () => {
+  it("never rings the worker twice at once: a report call being placed holds the instruction back", async () => {
+    store.ws.settings = { ...store.ws.settings, callSchedule: { day: 4, time: "17:00" } };
+    const { caller, requests } = recordingCaller();
+    await runReportCallScheduler({} as never, caller, options);
+    expect(requests.filter((request) => request.url?.includes("/api/voice/worker"))).toHaveLength(0);
+    expect(requests.filter((request) => request.url?.includes("/api/voice/outbound"))).toHaveLength(1);
+    expect(store.ws.pendingWorkerCalls[0].nextAttemptAt).toBe(now.toISOString());
+  });
+
+  it("releases the claim when Twilio refuses, so the attempt was not used, and waits before asking again", async () => {
     const { caller } = recordingCaller(() => ({ placed: false, reason: "rejected", status: 400 }));
     const result = await runReportCallScheduler({} as never, caller, options);
     expect(result.failed).toBeGreaterThan(0);
     expect(store.ws.pendingWorkerCalls[0].attempts).toHaveLength(0);
-    expect(new Date(store.ws.pendingWorkerCalls[0].nextAttemptAt!).getTime()).toBe(now.getTime());
+    expect(new Date(store.ws.pendingWorkerCalls[0].nextAttemptAt!).getTime()).toBe(now.getTime() + 20 * 60 * 1000);
   });
 });
 

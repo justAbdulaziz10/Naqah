@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEmptyWorkspace } from "@/domain/seed";
 import type { VoiceSessionRow } from "@/server/db/voice-sessions";
-import { answerFarmCall, reportCallStatus } from "./farm-call";
+import { answerFarmCall, eventFor, reportCallStatus } from "./farm-call";
 
 const mock = vi.hoisted(() => ({ read: vi.fn(), advance: vi.fn(), load: vi.fn(), save: vi.fn(), find: vi.fn(), remove: vi.fn() }));
 vi.mock("server-only", () => ({}));
@@ -137,5 +137,15 @@ describe("farm capture retries", () => {
     expect(mock.save.mock.calls.map((call) => call[3].eventId)).toEqual([
       `${callSid}:final:no-answer`, `${callSid}:final:completed`, `${callSid}:final:completed`,
     ]);
+  });
+});
+
+describe("an empty report", () => {
+  it("is ended, never sent as a saved report", () => {
+    const before = { step: "report_summary", scenario: "report_call", data: { reportCallId: "run-1" } } as never;
+    const refused = { session: { done: true }, commit: (ws: never) => ws } as never;
+    const saved = { session: { done: true, next: { scenario: "owner_notification", reportId: "r" }, draft: { answers: [] } }, commit: (ws: never) => ws } as never;
+    expect(eventFor(before, refused, { value: "confirm_save" }, callSid)).toMatchObject({ type: "report_call_ended" });
+    expect(eventFor(before, saved, { value: "confirm_save" }, callSid)).toMatchObject({ type: "worker_report" });
   });
 });

@@ -1,21 +1,23 @@
 "use client";
 
+import type { Plan } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { scenarioMessageKey, type PickerScenario } from "./labStore";
 
 const PICKER_SCENARIOS: PickerScenario[] = ["report_call", "worker_inbound", "worker_outbound", "owner_inquiry", "emergency"];
 
-export function LabScenarioPicker({ selected, onSelect, sessionActive, m }: {
+export function LabScenarioPicker({ selected, onSelect, sessionActive, m, plan }: {
   selected: PickerScenario;
   onSelect: (value: PickerScenario) => void;
   sessionActive: boolean;
+  plan: Plan;
   m: ReturnType<typeof useI18n>["m"];
 }) {
   return (
     <section aria-label={m.lab.title} className="space-y-3">
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-5 lg:gap-6 lg:border-b lg:border-stone">
-        {PICKER_SCENARIOS.map((scenario) => {
+        {PICKER_SCENARIOS.filter((scenario) => plan === "ultimate" || scenario !== "worker_outbound").map((scenario) => {
           const key = scenarioMessageKey(scenario);
           const current = selected === scenario;
           const disabled = sessionActive && !current;

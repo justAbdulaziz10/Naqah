@@ -328,3 +328,19 @@ describe("negation reads as what was meant", () => {
     },
   );
 });
+
+describe("review regressions", () => {
+  it("reads Arabic afternoon and evening words as PM, and morning words as AM", () => {
+    expect(extractTime("الساعة خمسة العصر")).toBe("17:00");
+    expect(extractTime("6 المغرب")).toBe("18:00");
+    expect(extractTime("8 العشاء")).toBe("20:00");
+    expect(extractTime("واحدة الظهر")).toBe("13:00");
+    expect(extractTime("7 الصبح")).toBe("07:00");
+  });
+
+  it("does not take a near match as proof the worker heard the instructions", () => {
+    const session = { step: "outbound_receipt", inputMode: "choices", replies: [{ id: "received", value: "received", label: { ar: "إيه، سمعتها", en: "Yes, I heard them" } }], data: {}, draft: {}, turns: [] } as never;
+    expect(mapSpeechToInput(session, "وش سمعتها", null, "ar")).toBeNull();
+    expect(mapSpeechToInput(session, "I heard them barely", null, "en")).toBeNull();
+  });
+});

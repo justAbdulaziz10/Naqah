@@ -221,3 +221,10 @@ describe("the scripted path, with no model", () => {
     expect(back.session.data.draftRevision ?? 0).toBe(list.session.data.draftRevision ?? 0);
   });
 });
+
+describe("saved words on the phone", () => {
+  it("reads the summary as written, so a neighbour named like the sample worker stays that person", () => {
+    const { session } = startLiveOwnerBriefing(farm(), NOW, null, RUN, { ar: "أحمد الجار أخذ كيسين", en: "Ahmed the neighbour took two bags" });
+    expect(session.turns[0].literal).toBe(true);
+  });
+});

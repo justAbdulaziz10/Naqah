@@ -47,9 +47,10 @@ receives facts labelled with where they came from and how certain they are.
   has unlimited questions and owner calls, and task tickets for actionable instructions.
 - **Task tickets:** close only when the worker explicitly confirms. Deadlines never close them.
   Closed tickets move to History.
-- **Missed worker calls:** three attempts total, 20 minutes apart. After the third, automatic calls
-  stop. No new No Answer Ticket is created. Older tickets stay in history and still close if the
-  worker calls back. Owner calls are not redialed.
+- **Calls that don't complete:** worker and owner calls get three attempts total, 20 minutes apart.
+  An interrupted call counts as a failed attempt. After the third, automatic calls stop. There are
+  no No Answer Tickets. If no verified report exists, the owner still gets the scheduled call and
+  is told so.
 - **Not approved, do not add:** native apps, a website chatbot, multiple farms or workers, diagnosis,
   purchasing, extra reporting updates, new channels, automated emergency dispatch.
 - **Current state:** the browser demo is still a simulation and is labelled as one. The server

@@ -259,9 +259,9 @@ export function status(
   return { ...turn(session, "system", text, now), step, replies, inputMode: replies.length ? "choices" : "none", done };
 }
 
-export function say(session: CallSession, text: LocalizedText, now: Date, done = false): CallSession {
+export function say(session: CallSession, text: LocalizedText, now: Date, done = false, literal = false): CallSession {
   return {
-    ...turn(session, "agent", text, now),
+    ...turn(session, "agent", text, now, literal),
     replies: [],
     inputMode: "none",
     done,

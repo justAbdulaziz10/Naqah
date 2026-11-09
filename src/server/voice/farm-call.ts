@@ -140,7 +140,7 @@ function wireDraft({ extraFindings, ...draft }: ReportDraft) {
 type WireEvent = Record<string, unknown> & { type: string };
 
 /** Which contract event an engine commit stands for. A commit with no event must not pass silently. */
-function eventFor(before: CallSession | null, result: EngineResult, input: AnswerInput | null, callSid: string): WireEvent | null {
+export function eventFor(before: CallSession | null, result: EngineResult, input: AnswerInput | null, callSid: string): WireEvent | null {
   if (!result.commit) return null;
   const base = { version: 1, providerCallId: callSid };
   const report = (extra: object = {}) => ({ ...base, eventId: `${callSid}:report`, type: "worker_report", draft: wireDraft(result.session.draft), ...extra });
@@ -149,7 +149,8 @@ function eventFor(before: CallSession | null, result: EngineResult, input: Answe
     if (result.session.scenario === "owner_inquiry") return { ...base, eventId: `${callSid}:inquiry`, type: "owner_inquiry" };
   } else if (before.step === "report_summary" || before.step === "report_correct_pick") {
     const reportCallId = before.scenario === "report_call" ? before.data.reportCallId : undefined;
-    if (input?.value === "confirm_save") return report(reportCallId ? { reportCallId } : {});
+    // The engine refuses to save an empty draft: `next` is only set on a real report.
+    if (input?.value === "confirm_save" && result.session.next) return report(reportCallId ? { reportCallId } : {});
     // Only a report call commits here: the worker ended it without saving.
     if (reportCallId) return { ...base, eventId: `${callSid}:ended`, type: "report_call_ended", reportCallId };
   } else if (before.step === "callback_acknowledge") {

@@ -165,7 +165,7 @@ describe("voice steps follow the domain rules", () => {
   it("refuses a report on a run that isn't in conversation", () => {
     const ws = answered();
     ws.reportCalls![0].state = "missed";
-    expect(voiceStep(ws, now, event({ type: "worker_report", reportCallId: runId, draft })).result).toEqual({ status: "rejected", reason: "call_not_active" });
+    expect(voiceStep(ws, new Date(now.getTime() + 60 * 60_000), event({ type: "worker_report", reportCallId: runId, draft })).result).toEqual({ status: "rejected", reason: "call_not_active" });
   });
   it("never turns a call refused at the start into an empty report", () => {
     const refused = event({ type: "worker_report", draft, refusedAtStart: true });
@@ -243,4 +243,17 @@ describe("report call status events", () => {
     { type: "report_call_attempt", reportCallId: runId, attempt: 0, answered: true },
     { type: "worker_report", reportCallId: "x", draft },
   ])("rejects %j", (input) => expect(() => parseVoiceEvent({ ...base, ...input })).toThrow());
+});
+
+describe("a save that arrives just after the last attempt ended", () => {
+  it("is still accepted shortly afterwards, and refused later", () => {
+    const NOW = new Date("2026-11-05T14:00:00Z");
+    const base = createEmptyWorkspace("ultimate");
+    const run = { id: "run-1", occurrence: NOW.toISOString(), trigger: "schedule" as const, attempts: [{ at: NOW.toISOString(), result: "answered" as const }], nextAttemptAt: null, state: "missed" as const, reportId: null };
+    const ws = { ...base, reports: [], reportCalls: [run] };
+    const draft = { answers: [{ questionId: "herd_health", question: { ar: "س", en: "q" }, answer: "fine", certainty: "reported" as const, followUp: false }], camelUpdates: [], resourceUpdates: [], herdAccountedFor: null, taskConfirmations: [] };
+    const event = { version: 1 as const, eventId: "e1", providerCallId: "CA1", type: "worker_report" as const, draft, reportCallId: "run-1" };
+    expect(voiceStep(ws, new Date(NOW.getTime() + 60_000), event).result.status).toBe("saved");
+    expect(voiceStep(ws, new Date(NOW.getTime() + 60 * 60_000), event).result).toEqual({ status: "rejected", reason: "call_not_active" });
+  });
 });
