@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { AuthFrame, AuthHeading } from "@/components/auth/AuthFrame";
 import { InitialPlanSelection } from "@/components/setup/onboarding/InitialPlanSelection";
@@ -22,7 +23,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: messages.setup.plans.initial.title, robots: { index: false } };
 }
 
-export default async function ChoosePlanPage({ params, searchParams }: Props) {
+export default function ChoosePlanPage(props: Props) {
+  return <Suspense fallback={null}><ChoosePlanContent {...props} /></Suspense>;
+}
+
+async function ChoosePlanContent({ params, searchParams }: Props) {
   const { locale: rawLocale } = await params;
   if (!isLocale(rawLocale)) notFound();
   const locale: Locale = rawLocale;
