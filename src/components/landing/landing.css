@@ -101,7 +101,24 @@
 }
 
 .naqah-progress {
-  transition: width 600ms cubic-bezier(0.65, 0, 0.35, 1);
+  width: 75%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 600ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+[dir="rtl"] .naqah-progress {
+  transform-origin: right center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .naqah-layer,
+  .naqah-layer:not([data-on]),
+  .naqah-progress,
+  .naqah-step,
+  .naqah-step :is(h3, p),
+  .naqah-step-mark {
+    transition: none;
+  }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -112,7 +129,7 @@
   }
   /* The saved mark lands once the facts are in. */
   [data-on] .naqah-stamp {
-    animation: naqah-stamp 520ms cubic-bezier(0.34, 1.56, 0.64, 1) 1100ms both;
+    animation: naqah-stamp 520ms cubic-bezier(0.16, 1, 0.3, 1) 1100ms both;
   }
   /* The voice level moves while the call is on stage, then rests. */
   [data-on] .naqah-voice > span {
@@ -123,14 +140,12 @@
 
 @keyframes naqah-seq {
   from {
-    opacity: 0;
     translate: 0 14px;
   }
 }
 
 @keyframes naqah-stamp {
   from {
-    opacity: 0;
     scale: 1.6;
     rotate: -8deg;
   }

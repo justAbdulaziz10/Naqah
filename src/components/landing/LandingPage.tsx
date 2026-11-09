@@ -57,7 +57,7 @@ function RetryRail({ locale }: { locale: Locale }) {
       ))}
       <span aria-hidden className="relative flex flex-col items-end">
         <span className="size-3 rounded-full bg-gold" />
-        <span className="absolute end-0 top-5 whitespace-nowrap text-[0.8125rem] font-semibold text-gold">{retry.flagged}</span>
+        <span className="absolute end-0 top-5 whitespace-nowrap text-[0.8125rem] font-semibold text-sand">{retry.flagged}</span>
       </span>
     </div>
   );
@@ -120,9 +120,9 @@ export function LandingPage({ locale }: { locale: Locale }) {
         {/* Arrival: the title in the evening sky above the herd; the evening itself laid across the photograph's edge. */}
         <section aria-labelledby="landing-title">
           <div className="relative isolate h-[min(62svh,31rem)] sm:h-[38rem] lg:h-[calc(100svh-10rem)] lg:max-h-[52rem] lg:min-h-[34rem]">
-            {/* 83vw on wide screens asks for the 1200px rendition at 1440: half the bytes of 1920 for an atmospheric photograph, and the first screen's largest paint. */}
+            {/* This photo fills the viewport at every breakpoint. */}
             <div className="absolute inset-0 -z-10">
-              <EstatePhoto id="hero" locale={locale} eager sizes="(min-width: 1024px) 83vw, (min-width: 640px) 100vw, 200vw" ground="bg-sand-soft" className="naqah-settle h-full w-full" />
+              <EstatePhoto id="hero" locale={locale} eager sizes="100vw" ground="bg-sand-soft" className="naqah-settle h-full w-full" />
             </div>
             <div className={`${frame} pt-8 sm:pt-14 lg:pt-[clamp(2.5rem,7vh,5rem)]`}>
               <h1
@@ -169,7 +169,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
             <p data-reveal="" data-reveal-delay="90" className="mt-5 max-w-[30rem] text-lg leading-8 text-espresso lg:text-xl lg:leading-9">
               {landing.story.line}
             </p>
-            <div className="mt-14 lg:mt-6">
+            <div className="mt-10 lg:mt-6">
               <CallStory />
             </div>
           </div>
@@ -189,7 +189,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
             <EstatePhoto
               id="heritage"
               locale={locale}
-              sizes="(min-width: 1024px) 40vw, 100vw"
+              sizes="(min-width: 1360px) 503px, (min-width: 1024px) calc(41.67vw - 63px), (min-width: 640px) calc(100vw - 4rem), calc(100vw - 2.5rem)"
               revealDelay={0}
               ground="bg-brown-deep"
               className="aspect-[16/10] w-full lg:col-span-5 lg:row-span-2 lg:row-start-1 lg:aspect-auto lg:min-h-[34rem]"
@@ -228,7 +228,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
           <div className="absolute inset-0 -z-10">
             <EstatePhoto id="closing" locale={locale} sizes="100vw" ground="bg-espresso" className="h-full w-full" />
           </div>
-          <div className={`${frame} flex min-h-[34rem] items-end justify-center pt-24 sm:justify-end lg:min-h-[80svh] lg:pt-32`}>
+          <div className={`${frame} flex min-h-[32rem] items-end justify-center pt-16 sm:min-h-[34rem] sm:justify-end lg:min-h-[62svh] lg:pt-20`}>
             <div
               data-reveal=""
               data-reveal-kind="slip"
@@ -256,9 +256,11 @@ export function LandingPage({ locale }: { locale: Locale }) {
           <div className="max-w-3xl space-y-3 leading-6">
             <p>{common.footer.rights}</p>
             {credits.length ? (
-              <div>
-                <p>{landing.credits}</p>
-                <ul className="mt-1 grid gap-0.5">
+              <details className="text-[0.8125rem] text-cream/60">
+                <summary className="inline-flex min-h-11 cursor-pointer items-center font-medium transition-colors hover:text-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current">
+                  {landing.credits}
+                </summary>
+                <ul className="grid gap-0.5 pb-1 leading-5">
                   {credits.map((credit) => (
                     <li key={credit.sourceUrl}>
                       <bdi>
@@ -275,7 +277,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
                     </li>
                   ))}
                 </ul>
-              </div>
+              </details>
             ) : null}
           </div>
           <LocaleSwitcher tone="light" className="min-h-11 w-fit shrink-0" />

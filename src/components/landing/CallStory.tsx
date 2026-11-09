@@ -192,21 +192,6 @@ export function CallStory() {
   const [active, setActive] = useState(0);
   const [seen, setSeen] = useState<boolean[]>(() => story.steps.map(() => false));
   const stepRefs = useRef<(HTMLLIElement | null)[]>([]);
-  const rootRef = useRef<HTMLDivElement>(null);
-  // The stage's photograph loads as the story comes near, never alongside the hero.
-  const [near, setNear] = useState(false);
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry?.isIntersecting) {
-        setNear(true);
-        observer.disconnect();
-      }
-    }, { rootMargin: "0px" });
-    observer.observe(root);
-    return () => observer.disconnect();
-  }, []);
 
   useEffect(() => {
     const steps = stepRefs.current.filter((el): el is HTMLLIElement => Boolean(el));
@@ -248,8 +233,8 @@ export function CallStory() {
   }
 
   return (
-    <div ref={rootRef} className="grid gap-y-16 lg:grid-cols-12 lg:gap-x-12">
-      <ol className="grid gap-16 lg:col-span-5 lg:gap-0">
+    <div className="grid gap-y-10 lg:grid-cols-12 lg:gap-x-12">
+      <ol className="grid gap-10 lg:col-span-5 lg:gap-0">
         {story.steps.map((step, index) => {
           const Visual = VISUALS[index];
           const summary = summaries[index];
@@ -261,7 +246,7 @@ export function CallStory() {
               }}
               data-step={index}
               aria-current={active === index ? "step" : undefined}
-              className="naqah-step lg:flex lg:min-h-[58svh] lg:flex-col lg:justify-center"
+              className="naqah-step lg:flex lg:min-h-[42svh] lg:flex-col lg:justify-center"
             >
               <p className="naqah-step-time flex items-center gap-3 text-[0.9375rem] text-muted">
                 <span
@@ -280,7 +265,7 @@ export function CallStory() {
                 data-on={seen[index] ? "" : undefined}
                 aria-hidden={summary ? true : undefined}
                 data-ui
-                className="mt-8 flex justify-center bg-sand-soft/60 px-4 py-8 sm:px-8 lg:hidden"
+                className="mt-6 flex justify-center bg-sand-soft/60 px-4 py-6 sm:px-8 lg:hidden"
               >
                 <Visual />
               </div>
@@ -294,7 +279,13 @@ export function CallStory() {
         <div data-ui className="sticky top-24 isolate flex h-[min(46rem,calc(100svh-8rem))] flex-col overflow-hidden bg-espresso">
           {/* The ranch behind the paperwork, darkened so the pieces read. */}
           <div aria-hidden className="absolute inset-0 -z-10">
-            {near ? <EstatePhoto id="evening" locale={locale} sizes="(min-width: 1024px) 56vw, 1px" ground="bg-brown-deep" className="h-full w-full" /> : <div className="h-full w-full bg-brown-deep" />}
+            <EstatePhoto
+              id="evening"
+              locale={locale}
+              sizes="(min-width: 1360px) 718px, (min-width: 1024px) calc(58.33vw - 76px), 1px"
+              ground="bg-brown-deep"
+              className="h-full w-full"
+            />
             <div className="absolute inset-0 bg-espresso/70" />
           </div>
           <nav aria-label={story.progress} className="px-8 pt-7 text-cream">
@@ -303,7 +294,7 @@ export function CallStory() {
               <span
                 aria-hidden
                 className="naqah-progress absolute start-[12.5%] top-[5px] h-0.5 bg-gold"
-                style={{ width: `${(active / (story.steps.length - 1)) * 75}%` }}
+                style={{ transform: `scaleX(${active / (story.steps.length - 1)})` }}
               />
               {story.steps.map((step, index) => (
                 <li key={step.title} className="relative flex justify-center">
