@@ -62,13 +62,33 @@ export function twimlGather(session: CallSession, locale: Locale, actionUrl: str
   const digits = session.inputMode === "choices" && session.replies.length <= 9 ? ' numDigits="1"' : ' finishOnKey="#"';
   const speechTimeout = session.inputMode === "choices" ? "auto" : "2";
   const prompt = sayElement(text, locale);
-  const summary = session.step === "report_summary";
+  const summary = session.step === "report_summary" || session.step === "instruction_review";
   return `<Response>${summary ? prompt : ""}<Gather input="speech dtmf" language="${language}" speechTimeout="${speechTimeout}" timeout="6"${digits} action="${escapeXml(actionUrl)}" method="POST" actionOnEmptyResult="true">${summary ? "" : prompt}</Gather></Response>`;
 }
 
 /** Hands the call to the bridge. When the stream closes, Twilio fetches `actionUrl`. */
 export function twimlStream(actionUrl: string, streamUrl: string, ticket: string): string {
   return `<Response><Connect action="${escapeXml(actionUrl)}"><Stream url="${escapeXml(streamUrl)}"><Parameter name="ticket" value="${escapeXml(ticket)}"/></Stream></Connect></Response>`;
+}
+
+/** Twilio caps one <Say>, so long text is split at sentence ends. */
+function sayChunks(text: string, locale: Locale, limit = 1_500): string {
+  const chunks: string[] = [];
+  let current = "";
+  for (const sentence of text.match(/[^.؟?]+[.؟?]*\s*/g) ?? [text]) {
+    if (current && current.length + sentence.length > limit) {
+      chunks.push(current);
+      current = "";
+    }
+    current += sentence;
+  }
+  if (current) chunks.push(current);
+  return chunks.map((chunk) => sayElement(chunk.trim(), locale)).join("");
+}
+
+/** The whole text is spoken before Twilio follows `url`, so a request to it means it was heard. */
+export function twimlSayThenRedirect(text: string, locale: Locale, url: string): string {
+  return `<Response>${sayChunks(text, locale)}<Redirect method="POST">${escapeXml(url)}</Redirect></Response>`;
 }
 
 export function twimlGoodbye(locale: Locale, text?: string): string {

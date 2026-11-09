@@ -100,7 +100,7 @@ describe("live owner briefing", () => {
     session = answer(session, ws, now, { text: "The vet is coming tomorrow" }).session;
     session = answer(session, ws, now, { value: "information" }).session;
     session = answer(session, ws, now, { value: "instruction_no" }).session;
-    const confirmed = answer(session, ws, now, { value: "instruction_yes" });
+    const confirmed = answer(session, ws, now, { value: "instructions_confirm" });
     const saved = confirmed.commit?.(ws) ?? ws;
     expect(saved.taskTickets).toHaveLength(0);
     expect(saved.pendingWorkerCalls).toHaveLength(1);

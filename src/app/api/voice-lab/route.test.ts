@@ -127,7 +127,7 @@ describe("POST /api/voice-lab", () => {
       const reply = await answer(words);
       expect(reply.refused).toBe(refused);
       expect(reply.silent).toBe(silent);
-      expect(reply.view.facts).toEqual([]);
+      expect(reply.view.facts).toHaveLength(silent ? 0 : 1);
     }
     expect(writes).toEqual([]);
   });

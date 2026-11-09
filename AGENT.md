@@ -25,14 +25,14 @@ Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. P
 | Predefined questions (NAQAH team) | the owner can switch any question off, reorder it or make it optional; skipped if the resource is absent. At least one enabled question or follow-up task is required | same |
 | How the report is taken | owner chooses: worker chooses, guided only, or open only. Open and worker-choice need a realtime call; a scripted call is always guided | same |
 | Report call (NAQAH → primary worker) | **one per week**, on the weekday and exact time the owner sets (Asia/Riyadh) | **one per day**, at the exact time the owner sets |
-| Report call unanswered | retry after **20 min**, up to **2 retries**, then the run is *missed*; the worker may call back that period to report | same |
+| Report call not completed | unanswered or interrupted (including a worker ending without saving) uses an attempt: **3 attempts total, 20 min apart**, then the run is *missed*. A saved report stops the retries. "Call now" stays one attempt; the worker may call back that period to report | same |
 | Registered workers / herd | up to **3** workers; the owner keeps the official herd count, a worker's count is a proposal | up to **10** workers; same |
 | Owner calls the AI | **one call per week** (an answered notification call consumes it) | unlimited |
 | Missed notification | owner may call back **once** (this MVP counts it as the weekly call — *open decision*) | unlimited anyway |
-| Owner summary call | weekly, at the owner's own day and time, after the report is saved. Summary, then the call ends. No instruction question and no task tickets | daily, at the owner's own time. Summary, then spoken instructions. Information is relayed with no ticket. An executable instruction becomes one **Task Ticket**. One grouped worker call delivers the confirmed batch |
+| Owner summary call | weekly, at the owner's own day and time, always placed even when no verified report exists (the owner is told so). **3 attempts total, 20 min apart**; interrupted counts. Summary, then the call ends. No instructions, no tickets | daily, at the owner's own time; same retries. Summary, then spoken instructions: AI proposes task or information, the owner verifies the read-back. Tasks create tickets, information does not, one worker call |
 | Task tickets | — | close **only** when the worker explicitly confirms; deadlines never close them; closed → History |
 | Task verification | — | scheduled time → AI calls the worker; "any time" → asked during later worker interactions |
-| AI → worker no answer | **3 attempts total**, 20 min apart, then stop. No new No Answer Ticket. | same |
+| Worker instruction or verification call | **3 attempts total**, 20 min apart; interrupted counts; delivered only after explicit receipt or explicit answers. No No Answer Ticket | same (Ultimate only) |
 | Worker returns missed call | always answered (even outside the window); delivers missed messages; closes a **historical** No Answer Ticket if one is still open. No new ticket is created. **Not** a farm update and does not consume the report | same |
 | Emergency | worker calls the owner **directly** — never through the AI | same |
 
@@ -41,7 +41,7 @@ accepts «ما أدري» / "I don't know"; confirms quantities and camel names;
 "saved/notified/created" before the system confirms; labels facts as *reported / approximate / unknown / verified*;
 never presents old data as new; stores extracted facts only (**no recordings**).
 
-**Report modes (Nov 2026).** *Guided* asks the owner's enabled questions in order, one at a time. *Open* lets the worker say what happened; facts land in their topics and anything unmentioned is saved as **not reported**, never healthy or unchanged, and is not asked about. Due tasks are still asked after an open update, because a task closes only on an explicit yes. Both modes read back every recorded detail, allow corrections, and save one report only after an explicit yes to the summary the worker actually heard. The model listens and classifies; the server chooses every spoken word.
+**Report modes (Nov 2026).** *Guided* asks the owner's enabled questions in order, one at a time. *Open* lets the worker say what happened; facts land in their topics and anything unmentioned is saved as **not reported**, never healthy or unchanged, and is not asked about. Due tasks are still asked after an open update, because a task closes only on an explicit yes. Both modes read back every recorded detail, allow corrections, and save one report only after an explicit yes to the summary the worker actually heard. The model listens and classifies; the server chooses every spoken word. Words about another topic are kept as a note and read back, never dropped. Task verifications due at the same time share one worker call.
 
 The old Basic From/To *reporting window* (worker calls in) is **retired** (Nov 2026): columns remain only so old rows load.
 
@@ -185,7 +185,7 @@ the same functions and swaps only the storage and the "who triggers it" layer.
 ### 8.1 Database — Supabase (free tier is enough to start)
 - Schema, applied in order: `0001_init.sql`, `0002_backend_foundation.sql`, `0003_voice_call_sessions.sql`,
   `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql`, `20261107213717_owner_flow.sql`,
-  `20261108000000_pending_worker_call_tasks.sql`, `20261109120000_test_calls.sql`, `20261109130000_report_mode_coverage.sql`, `20261109140000_report_mode_settings.sql` under `supabase/migrations/` (Postgres 15+).
+  `20261108000000_pending_worker_call_tasks.sql`, `20261109120000_test_calls.sql`, `20261109130000_report_mode_coverage.sql`, `20261109140000_report_mode_settings.sql`, `20261109182526_owner_summary_schedule.sql`, `20261110090000_mvp_owner_runs.sql` under `supabase/migrations/` (Postgres 15+).
   Local validation uses stand-in Supabase roles/Auth; it does not prove live activation. The existing Supabase project
   contains Auth test users; migrations 0001–0005 and both timestamped migrations are applied. The latter adds durable
   links from a pending worker call to multiple task tickets while retaining the legacy single-task field.
@@ -230,8 +230,8 @@ The implemented contract is `docs/integrations/voice-data-contract.md`.
 | Report call answered / ended (built) | `POST /api/voice/outbound`, `/api/voice/outbound/status` (signed token, not caller ID) | report conversation, `resolveReportCallAttempt` (20 min × 2 retries → missed), `endReportCallWithoutReport` |
 | Worker calls in | `POST /api/voice/inbound` (caller = worker) | `routeWorkerInboundCall` → callback / returned missed report call / "NAQAH will call you" |
 | Report finished | tool `save_report` | `evaluateFindings`, `completeWorkerReport` |
-| Notify owner | same cron, when `owner_summary_not_before` is due. Not inside the report webhook | `queueOwnerSummary`, `claimDueOwnerSummary`, `/api/voice/owner` |
-| Owner gives instruction | spoken on that Ultimate call, saved only after confirmation | `submitOwnerInstructionBatch` (executable → task ticket; information → no ticket; one worker call) |
+| Owner summary call | same cron, at the owner's slot, whether or not a report exists. Never inside the report webhook | `claimDueOwnerCall`, `ownerSummaryText`, `/api/voice/owner`, `resolveOwnerCallAttempt` |
+| Owner gives instruction | spoken on the Ultimate summary call; AI proposes, owner verifies the read-back | realtime `propose_instructions`, `confirm_instructions` (scripted fallback asks the owner), `submitOwnerInstructionBatch` |
 | Instruction or verification call | same cron. Answering is not delivery | `claimDueWorkerCall`, `/api/voice/worker`, `resolveWorkerCallAttempt` (`delivered` only when `completed`) |
 | Scheduled task check | the same worker call, after the instruction was delivered | `dueTaskVerifications`, `startTaskVerification`, `confirmTask` on an explicit yes |
 | Worker returns missed call | `POST /api/voice/inbound` | `completeWorkerCallback` (not a farm update) |

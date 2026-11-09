@@ -52,8 +52,8 @@ export const visual = defineMessages({
       intro: "NAQAH says it is an automated assistant calling for the ranch report",
       introDetail: "One question at a time. “I don’t know” is an accepted answer.",
       tasks: "Asks about open tasks",
-      outro: "Then NAQAH calls you with what matters",
-      outroDetail: "Only after the report is saved",
+      outro: "NAQAH calls you at your own time",
+      outroDetail: "With what matters, or to say no report came in",
     },
     calls: {
       naqah: "NAQAH",
@@ -76,6 +76,7 @@ export const visual = defineMessages({
       emptyBriefDetail: "With what matters",
       delivered: (time: string) => `Got your instruction · ${time}`,
       deliveryMissed: "Not reached yet",
+      deliveryFailed: "Not delivered",
     },
     activity: {
       title: (days: number) => (days >= 14 ? "The last two weeks" : days === 7 ? "The last week" : `The last ${days} days`),
@@ -94,7 +95,7 @@ export const visual = defineMessages({
       asksWorker: (worker: string) => `NAQAH asks ${worker}`,
       done: (duration: string) => `Confirmed after ${duration}`,
       timing: (given: string, end: string) => `Given ${given}. ${end}`,
-      attempts: (count: string) => `${count} calls, 20 minutes apart, not answered`,
+      attempts: (count: string) => `${count} calls, 20 minutes apart`,
     },
   },
   ar: {
@@ -147,8 +148,8 @@ export const visual = defineMessages({
       intro: "ناقة تعرّف بنفسها إنها مساعد آلي يتصل عشان تقرير العزبة",
       introDetail: "سؤال بعد سؤال، و«ما أدري» جواب مقبول.",
       tasks: "تسأل عن المهام المفتوحة",
-      outro: "بعدها ناقة تتصل عليك بالمهم",
-      outroDetail: "بعد ما ينحفظ التقرير",
+      outro: "ناقة تتصل عليك في وقتك",
+      outroDetail: "بالمهم، أو تقولك إن ما وصل تقرير",
     },
     calls: {
       naqah: "ناقة",
@@ -171,6 +172,7 @@ export const visual = defineMessages({
       emptyBriefDetail: "بالمهم بس",
       delivered: (time: string) => `وصلته تعليماتك · ${time}`,
       deliveryMissed: "ما وصلته للحين",
+      deliveryFailed: "ما وصلت",
     },
     activity: {
       title: (days: number) => (days >= 14 ? "آخر أسبوعين" : days === 7 ? "آخر أسبوع" : `آخر ${days} أيام`),
@@ -191,7 +193,7 @@ export const visual = defineMessages({
       asksWorker: (worker: string) => `ناقة تسأل ${worker}`,
       done: (duration: string) => `تأكدت بعد ${duration}`,
       timing: (given: string, end: string) => `أعطيتها ${given}. ${end}`,
-      attempts: (count: string) => `${count} مكالمات بين كل وحدة والثانية 20 دقيقة، بدون رد`,
+      attempts: (count: string) => `${count} مكالمات بين كل وحدة والثانية 20 دقيقة`,
     },
   },
 });

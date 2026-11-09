@@ -2,6 +2,7 @@
 
 import { PLAN_LIMITS } from "@/domain/catalog";
 import type { Plan } from "@/domain/types";
+import type { ReactNode } from "react";
 import { useI18n } from "@/i18n/client";
 import { PlanPrice } from "@/components/plans/PlanPrice";
 import { cn } from "@/lib/cn";
@@ -15,7 +16,7 @@ const PLANS: Plan[] = ["basic", "ultimate"];
 export function PlanComparison({ current, className }: { current: Plan; className?: string }) {
   const { m } = useI18n();
   const p = m.setup.plans;
-  const rows: { key: string; label: string; value: (plan: Plan) => string }[] = [
+  const rows: { key: string; label: string; value: (plan: Plan) => ReactNode }[] = [
     { key: "workers", label: p.workers, value: (plan) => p.upTo(PLAN_LIMITS[plan].workers) },
     { key: "call", label: p.reportCall, value: (plan) => (PLAN_LIMITS[plan].reports === "weekly" ? p.weekly : p.daily) },
     {
@@ -23,7 +24,8 @@ export function PlanComparison({ current, className }: { current: Plan; classNam
       label: p.questions,
       value: (plan) => (Number.isFinite(PLAN_LIMITS[plan].customQuestions) ? p.upTo(PLAN_LIMITS[plan].customQuestions) : p.noLimit),
     },
-    { key: "tasks", label: p.tasks, value: (plan) => (PLAN_LIMITS[plan].taskTickets ? p.included : p.notIncluded) },
+    { key: "summary", label: p.summaryCall, value: (plan) => (PLAN_LIMITS[plan].reports === "weekly" ? p.weekly : p.daily) },
+    { key: "tasks", label: p.tasks, value: (plan) => (PLAN_LIMITS[plan].taskTickets ? p.included : <><span aria-hidden>—</span><span className="sr-only">{p.notIncluded}</span></>) },
     { key: "owner", label: p.ownerCalls, value: (plan) => (Number.isFinite(PLAN_LIMITS[plan].ownerCalls) ? p.weekly : p.anyTime) },
   ];
 

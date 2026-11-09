@@ -8,11 +8,12 @@
 import { completeWorkerCallback, completeWorkerReport, confirmTask, recordOwnerInquiry, recordOwnerNotification, rejectOwnerInquiry, rejectWorkerReport, resolveWorkerCallAttempt, startTaskVerification, submitOwnerInstruction, submitOwnerInstructionBatch, type AttemptOutcome, type InstructionInput, type RejectReason } from "@/domain/actions";
 import { reportDraftIssue, type ReportDraft } from "@/domain/findings";
 import { isHerdCount } from "@/domain/herd";
+import { resolveOwnerCallAttempt } from "@/domain/ownerCalls";
 import { endReportCallWithoutReport, reportCallRuns, resolveReportCallAttempt, type ReportCallOutcome } from "@/domain/reportCalls";
-import { dueTaskVerifications, reportDoneThisPeriod, routeOwnerInboundCall, routeWorkerInboundCall } from "@/domain/rules";
+import { coveredTasks, dueTaskVerifications, reportDoneThisPeriod, routeOwnerInboundCall, routeWorkerInboundCall, taskTicketsEnabled, workerDeliveryResult } from "@/domain/rules";
 import { uid } from "@/domain/id";
 import { heatWaterFinding } from "@/domain/weather";
-import type { CallKind, Certainty, Level, ReportAnswer, ResourceKind, Workspace } from "@/domain/types";
+import type { CallKind, Certainty, Level, ReportAnswer, ReportCallRun, ResourceKind, Workspace } from "@/domain/types";
 import { RESOURCE_KINDS } from "@/domain/catalog";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DbError } from "@/server/db/errors";
@@ -29,6 +30,8 @@ export type VoiceEvent = { version: 1; eventId: string; providerCallId: string }
   | { type: "worker_callback" }
   | { type: "owner_notification"; reportId: string; answered: boolean }
   | { type: "owner_inquiry" }
+  /** How one attempt of the owner's scheduled call ended. One per call: the first to arrive wins. */
+  | { type: "owner_call_attempt"; runId: string; attempt: number; result: (typeof OWNER_ATTEMPT_RESULTS)[number] }
   | {
       type: "owner_instruction";
       message: string;
@@ -40,7 +43,11 @@ export type VoiceEvent = { version: 1; eventId: string; providerCallId: string }
       deliveryMessage?: string;
     }
   | { type: "task_verification_start"; taskId: string }
-  | { type: "worker_call_attempt"; pendingCallId: string; answered: boolean; completed?: boolean; taskId?: string; taskDone?: boolean }
+  /**
+   * `attempt` set: from Twilio's final status, so a late one cannot resolve a later attempt.
+   * `answeredTaskIds`: the tasks that got an explicit yes or no on this attempt, before `taskId`.
+   */
+  | { type: "worker_call_attempt"; pendingCallId: string; answered: boolean; completed?: boolean; taskId?: string; taskDone?: boolean; attempt?: number; answeredTaskIds?: string[] }
   | { type: "report_call_attempt"; reportCallId: string; attempt: number; answered: boolean }
   /** The report call ended without a saved report. `attempt` set: from Twilio's final status. */
   | { type: "report_call_ended"; reportCallId: string; attempt?: number }
@@ -60,6 +67,7 @@ export type VoiceOutcome =
   | { status: "saved" | "unchanged"; detail?: AttemptOutcome | ReportCallOutcome }
   | { status: "rejected"; reason: RejectReason | "allowance_used" | "callback_required" | "not_allowed" | "call_not_active" };
 
+const OWNER_ATTEMPT_RESULTS = ["unanswered", "interrupted", "completed"] as const;
 const LEVELS: readonly Level[] = ["good", "medium", "low", "critical", "unknown"];
 const CERTAINTIES: readonly Certainty[] = ["reported", "approximate", "unknown", "verified"];
 const HEALTH = ["healthy", "watch", "sick", "unknown"] as const;
@@ -202,6 +210,14 @@ export function parseVoiceEvent(value: unknown): VoiceEvent {
       return { ...base, type: "owner_notification", reportId: uuid(input.reportId, "reportId"), answered: bool(input.answered, "answered") };
     case "owner_inquiry":
       return { ...base, type: "owner_inquiry" };
+    case "owner_call_attempt":
+      return {
+        ...base,
+        type: "owner_call_attempt",
+        runId: uuid(input.runId, "runId"),
+        attempt: attemptNumber(input.attempt, "attempt"),
+        result: oneOf(input.result, OWNER_ATTEMPT_RESULTS, "result"),
+      };
     case "owner_instruction": {
       const scheduledFor = input.scheduledFor ?? null;
       if (scheduledFor !== null && (typeof scheduledFor !== "string" || Number.isNaN(Date.parse(scheduledFor)))) throw invalid("scheduledFor");
@@ -227,6 +243,8 @@ export function parseVoiceEvent(value: unknown): VoiceEvent {
         ...(input.completed === undefined ? {} : { completed: bool(input.completed, "completed") }),
         ...(input.taskId === undefined ? {} : { taskId: uuid(input.taskId, "taskId") }),
         ...(input.taskDone === undefined ? {} : { taskDone: bool(input.taskDone, "taskDone") }),
+        ...(input.attempt === undefined ? {} : { attempt: attemptNumber(input.attempt, "attempt") }),
+        ...(input.answeredTaskIds === undefined ? {} : { answeredTaskIds: list(input.answeredTaskIds, "answeredTaskIds").map((id) => uuid(id, "answeredTaskIds")) }),
       };
     case "report_call_attempt":
       return {
@@ -282,6 +300,7 @@ export function eventAllowed(context: VoiceContext, event: VoiceEvent): boolean 
       // The worker ends the call unsaved; Twilio's final status ends it too.
       return context.party === "worker" || context.party === "system";
     case "owner_notification":
+    case "owner_call_attempt":
     case "task_verification_start":
     case "worker_call_attempt":
     case "report_call_attempt":
@@ -291,9 +310,18 @@ export function eventAllowed(context: VoiceContext, event: VoiceEvent): boolean 
 
 type Step = { ws: Workspace; result: VoiceOutcome };
 
+/** The events Basic never has: instructions, task tickets and follow-up calls to the worker. */
+const ULTIMATE_ONLY: ReadonlySet<VoiceEvent["type"]> = new Set(["owner_instruction", "task_verification_start", "worker_call_attempt", "task_confirmation"]);
+
+/** The conversation's call may have ended a moment before its save arrived, while a retry waits. */
+function runAcceptsReport(run: ReportCallRun): boolean {
+  return run.state === "answered" || (run.state === "calling" && run.attempts.at(-1)?.result === "answered");
+}
+
 /** Every decision is the domain's. This only picks the action and states the outcome. */
 export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
   const saved: VoiceOutcome = { status: "saved" };
+  if (ULTIMATE_ONLY.has(event.type) && !taskTicketsEnabled(ws)) return { ws, result: { status: "rejected", reason: "not_allowed" } };
   switch (event.type) {
     case "worker_report": {
       const issue = reportDraftIssue(event.draft);
@@ -301,7 +329,7 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
       if (event.reportCallId) {
         // NAQAH placed this call: the run, not caller ID, says whose report it is.
         const run = reportCallRuns(ws).find((item) => item.id === event.reportCallId);
-        if (!run || run.state !== "answered") return { ws, result: { status: "rejected", reason: "call_not_active" } };
+        if (!run || !runAcceptsReport(run)) return { ws, result: { status: "rejected", reason: "call_not_active" } };
         if (reportDoneThisPeriod(ws, now)) {
           const reason = ws.settings.plan === "basic" ? "weekly_done" : "daily_done";
           return { ws: rejectWorkerReport(ws, now, reason), result: { status: "rejected", reason } };
@@ -322,6 +350,8 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
       return { ws: completeWorkerCallback(ws, now), result: saved };
     case "owner_notification":
       return { ws: recordOwnerNotification(ws, now, event.reportId, event.answered), result: saved };
+    case "owner_call_attempt":
+      return { ws: resolveOwnerCallAttempt(ws, now, event.runId, event.attempt, event.result), result: saved };
     case "owner_inquiry": {
       const route = routeOwnerInboundCall(ws, now);
       if (route.kind === "rejected") {
@@ -340,15 +370,15 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
       if (!tasksToVerify(ws, now).some((task) => task.id === event.taskId)) return { ws, result: saved };
       return { ws: startTaskVerification(ws, now, event.taskId).ws, result: saved };
     case "worker_call_attempt": {
-      const attempt = resolveWorkerCallAttempt(
-        ws,
-        now,
-        event.pendingCallId,
-        event.answered ? (event.completed ? "delivered" : "interrupted") : "unanswered",
-      );
-      const confirmed = event.completed && event.taskId && event.taskDone !== undefined
-        ? confirmTask(attempt.ws, now, event.taskId, event.taskDone, "worker_task_verification")
-        : attempt.ws;
+      const call = ws.pendingWorkerCalls.find((item) => item.id === event.pendingCallId && item.state === "pending");
+      // A late callback for an earlier attempt must not resolve the one ringing now.
+      if (call && event.attempt !== undefined && call.attempts.length + 1 !== event.attempt) return { ws, result: { status: "saved", detail: "ignored" } };
+      const answers = [...(event.answeredTaskIds ?? []), ...(event.taskId ? [event.taskId] : [])];
+      const result = !event.answered ? "unanswered" as const : call && event.completed ? workerDeliveryResult(ws, call, answers) : "interrupted" as const;
+      const attempt = resolveWorkerCallAttempt(ws, now, event.pendingCallId, result);
+      // The last answer travels with the attempt, even when an earlier task is still unanswered.
+      const answered = call && event.answered && event.taskId && event.taskDone !== undefined && coveredTasks(call).includes(event.taskId);
+      const confirmed = answered ? confirmTask(attempt.ws, now, event.taskId!, event.taskDone!, "worker_task_verification") : attempt.ws;
       return { ws: confirmed, result: { status: "saved", detail: attempt.outcome } };
     }
     case "report_call_attempt": {
@@ -361,7 +391,11 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
     case "report_call_ended": {
       const run = reportCallRuns(ws).find((item) => item.id === event.reportCallId);
       if (!run) return { ws, result: saved };
-      if (run.state === "answered") return { ws: endReportCallWithoutReport(ws, now, run.id), result: saved };
+      if (run.state === "answered") {
+        // A late callback for an earlier attempt must not end the one in conversation now.
+        if (event.attempt !== undefined && run.attempts.length !== event.attempt) return { ws, result: { status: "saved", detail: "ignored" } };
+        return { ws: endReportCallWithoutReport(ws, now, run.id), result: saved };
+      }
       // Twilio says the call is over but nobody reached the questions: it counts as unanswered.
       if (event.attempt !== undefined && run.attempts.length === event.attempt && run.attempts.at(-1)?.result === "pending") {
         const attempt = resolveReportCallAttempt(ws, now, run.id, false);

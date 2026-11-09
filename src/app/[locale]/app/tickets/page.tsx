@@ -2,8 +2,9 @@
 
 import { ArrowRight, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
-import { EmptyState, noAnswerAttemptInfo } from "@/components/dashboard/DashboardPrimitives";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
+import { EmptyState } from "@/components/dashboard/DashboardPrimitives";
 import { useHashTarget } from "@/components/dashboard/useHashTarget";
 import { TaskCalendarLink } from "@/components/integrations/TaskCalendarLink";
 import { upcomingReportCall } from "@/components/schedule/ReportCallSection";
@@ -11,8 +12,9 @@ import { AttemptDots } from "@/components/visuals/AttemptDots";
 import { formatDuration } from "@/components/visuals/duration";
 import { TimeRail } from "@/components/visuals/TimeRail";
 import { Badge, ButtonLink, Card, Segmented } from "@/components/ui";
-import { openNoAnswerTickets, openTaskTickets } from "@/domain";
-import type { CallKind, NoAnswerTicket, TaskTicket, Workspace } from "@/domain";
+import { openTaskTickets } from "@/domain";
+import type { CallKind, TaskTicket, Workspace } from "@/domain";
+import { undeliveredCalls, type UndeliveredCall } from "@/domain/alerts";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
@@ -53,7 +55,7 @@ function TicketGroup({ id, title, footer, children }: { id: string; title: strin
  * When a task was given and where it stands against its time: the check call ahead (or passed), the
  * next report call for "any time" tasks, or how long the worker took to confirm a closed one.
  */
-function TaskTiming({ ws, ticket, worker, now, className }: { ws: Workspace; ticket: TaskTicket; worker: string; now: Date; className?: string }) {
+function TaskTiming({ ws, ticket, worker, now, className, undelivered = false }: { ws: Workspace; ticket: TaskTicket; worker: string; now: Date; className?: string; undelivered?: boolean }) {
   const { m, fmt, locale } = useI18n();
   const v = m.visual.tasks;
   const stamp = (iso: string) => <time className="ltr-nums" dateTime={iso}>{fmt.dateTime(iso, dayTime)}</time>;
@@ -70,6 +72,8 @@ function TaskTiming({ ws, ticket, worker, now, className }: { ws: Workspace; tic
       />
     );
   }
+  // The worker never got this instruction, so no check or later question is on its way.
+  if (undelivered) return <p className={cn("text-sm text-muted", className)}>{m.app.tickets.created(fmt.relative(ticket.createdAt, now))}</p>;
   if (ticket.scheduledFor) {
     const passed = now.getTime() > Date.parse(ticket.scheduledFor);
     const when = fmt.dateTime(ticket.scheduledFor, dateTime);
@@ -116,20 +120,18 @@ function TaskStatus({ ticket, worker, now }: { ticket: TaskTicket; worker: strin
   );
 }
 
-/** NAQAH called to check this task and got no answer: shown with the task, not as a separate list. */
-function UnansweredCheck({ ws, ticket, worker }: { ws: Workspace; ticket: NoAnswerTicket; worker: string }) {
+/** NAQAH gave up reaching the worker about this task: shown with the task, which stays open. */
+function UndeliveredNote({ call, worker }: { call: UndeliveredCall; worker: string }) {
   const { m, fmt } = useI18n();
-  const info = noAnswerAttemptInfo(ws, ticket);
+  const o = m.app.overview;
+  const count = fmt.number(call.attempts);
   return (
     <div className="mt-4 flex items-start gap-3 rounded-2xl bg-danger-soft/50 px-4 py-3">
       <WarningCircle size={19} weight="fill" className="mt-0.5 shrink-0 text-danger" aria-hidden />
       <div className="min-w-0">
-        <p className="font-semibold leading-snug text-espresso">{m.app.tickets.checkUnanswered(worker, fmt.number(info.count))}</p>
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-          <AttemptDots count={info.count} label={m.visual.tasks.attempts(fmt.number(info.count))} />
-          <span>{m.app.tickets.lastAttempt} <time className="ltr-nums" dateTime={info.lastAttemptAt}>{fmt.dateTime(info.lastAttemptAt, { hour: "numeric", minute: "2-digit", hour12: true })}</time></span>
-        </div>
-        <p className="mt-1 text-sm text-muted">{m.app.tickets.callbackRule}</p>
+        <p className="naqah-name font-semibold leading-snug text-espresso">{o.notDeliveredTo(worker)}</p>
+        <AttemptDots count={call.attempts} label={m.visual.tasks.attempts(count)} className="mt-1.5" />
+        <p className="mt-1 text-sm text-muted">{call.purpose === "instruction" ? o.calledTimes(count) : o.calledToCheck(count)} {o.taskStaysOpen}</p>
       </div>
     </div>
   );
@@ -142,29 +144,33 @@ export default function TicketsPage() {
   const now = useNow();
   const [tab, setTab] = useState<TicketTab>("active");
   const linkedTaskId = useHashTarget("task-", Boolean(ws));
-  if (!ws) return null;
+  const router = useRouter();
+  const basic = ws?.settings.plan === "basic";
+  // Basic has no tasks, so this page has nothing to show it.
+  useEffect(() => {
+    if (basic) router.replace(href("/app"));
+  }, [basic, router, href]);
+  if (!ws || basic) return null;
 
-  const ultimate = ws.settings.plan === "ultimate";
   const active = tab === "active";
   const worker = ws.settings.worker.name.trim() || m.app.overview.unnamedWorker;
   const closedTasks = ws.taskTickets.filter((ticket) => ticket.status === "closed");
   const openTasks = openTaskTickets(ws);
-  const openNoAnswers = openNoAnswerTickets(ws);
-  const recentlyClosed = ultimate ? [...closedTasks].sort((a, b) => Date.parse(b.closedAt ?? "") - Date.parse(a.closedAt ?? "")).slice(0, 3) : [];
+  const undelivered = undeliveredCalls(ws);
+  const recentlyClosed = [...closedTasks].sort((a, b) => Date.parse(b.closedAt ?? "") - Date.parse(a.closedAt ?? "")).slice(0, 3);
   // Most urgent first: a check time that has passed, then the nearest check, then "any time".
   const urgency = (ticket: TaskTicket) => (ticket.scheduledFor ? Date.parse(ticket.scheduledFor) : Infinity);
-  const tasks = ultimate ? (active ? [...openTasks].sort((a, b) => urgency(a) - urgency(b)) : closedTasks) : [];
-  // An unanswered check belongs with its task; only the rest stand on their own.
-  const linkedNoAnswer = (ticket: TaskTicket) => (active ? openNoAnswers.find((item) => item.taskTicketId === ticket.id) ?? null : null);
-  const allNoAnswers = active ? openNoAnswers : ws.noAnswerTickets.filter((ticket) => ticket.status === "closed");
-  const noAnswers = allNoAnswers.filter((ticket) => !(active && ticket.taskTicketId && tasks.some((task) => task.id === ticket.taskTicketId)));
+  const tasks = active ? [...openTasks].sort((a, b) => urgency(a) - urgency(b)) : closedTasks;
+  // A call that didn't get through is shown with its task or message.
+  const taskUndelivered = (ticket: TaskTicket) => (active ? undelivered.find((item) => item.taskIds.includes(ticket.id)) ?? null : null);
+  const relayUndelivered = (relayId: string) => undelivered.find((item) => item.relayId === relayId) ?? null;
   const relays = ws.relays.filter((relay) => relay.delivered !== active);
-  const showTaskColumns = active && ultimate && (openTasks.length > 0 || recentlyClosed.length > 0);
-  const hasMainItems = tasks.length + noAnswers.length + relays.length > 0;
-  const hasVisibleItems = tasks.length + noAnswers.length + relays.length + (active ? recentlyClosed.length : 0) > 0;
-  const hasAnything = (ultimate ? ws.taskTickets.length : 0) + ws.noAnswerTickets.length + ws.relays.length > 0;
-  const waitingRelays = ws.relays.filter((relay) => !relay.delivered).length;
-  const summary = m.app.tickets.summary(worker, ultimate ? openTasks.length : 0, openNoAnswers.length, waitingRelays);
+  const showTaskColumns = active && (openTasks.length > 0 || recentlyClosed.length > 0);
+  const hasMainItems = tasks.length + relays.length > 0;
+  const hasVisibleItems = tasks.length + relays.length + (active ? recentlyClosed.length : 0) > 0;
+  const hasAnything = ws.taskTickets.length + ws.relays.length > 0;
+  const waitingRelays = ws.relays.filter((relay) => !relay.delivered && !relayUndelivered(relay.id)).length;
+  const summary = m.app.tickets.summary(openTasks.length, undelivered.length, waitingRelays);
 
   return (
     <div className="max-w-none space-y-4 pb-8">
@@ -185,46 +191,9 @@ export default function TicketsPage() {
         /> : null}
       </header>
 
-      {!ultimate ? (
-        <p className="text-sm leading-relaxed text-muted">
-          {m.app.tickets.basicNote}{" "}
-          <Link href={`${href("/app/settings")}#settings-plan`} className="inline-flex min-h-11 items-center font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
-            {m.app.tickets.planLink}
-          </Link>
-        </p>
-      ) : null}
-
       <Card className="min-w-0">
         <div className={cn(showTaskColumns && "grid items-start lg:grid-cols-[minmax(0,1.8fr)_minmax(16rem,1fr)]")}>
           <div className="min-w-0 divide-y divide-stone/70">
-          {noAnswers.length ? (
-            <TicketGroup id="tickets-no-answer" title={m.app.tickets.noAnswerTickets}>
-              {noAnswers.map((ticket) => {
-                const info = noAnswerAttemptInfo(ws, ticket);
-                return (
-                  <li key={ticket.id} className="flex items-start gap-3 py-4 last:pb-0">
-                    {active ? <WarningCircle size={19} weight="fill" className="mt-1 shrink-0 text-danger" aria-hidden /> : null}
-                    <div className="min-w-0">
-                      <p className="text-lg font-semibold leading-relaxed text-espresso">{ticket.message}</p>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <AttemptDots count={info.count} label={m.visual.tasks.attempts(fmt.number(info.count))} />
-                        <span className={cn("text-sm font-semibold", active ? "text-danger" : "text-muted")}>{m.app.tickets.attempts(fmt.number(info.count))}</span>
-                        {active ? <span className="text-sm text-muted">{m.app.tickets.lastAttempt} <time className="ltr-nums" dateTime={info.lastAttemptAt}>{fmt.dateTime(info.lastAttemptAt, { hour: "numeric", minute: "2-digit", hour12: true })}</time></span> : null}
-                      </div>
-                      <p className="mt-1 text-sm text-muted">
-                        {active
-                          ? m.app.tickets.callbackRule
-                          : ticket.closedAt
-                            ? <>{m.app.tickets.closedAt} <time className="ltr-nums" dateTime={ticket.closedAt}>{fmt.dateTime(ticket.closedAt, dateTime)}</time></>
-                            : m.app.tickets.closedByCallback}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
-            </TicketGroup>
-          ) : null}
-
           {tasks.length ? (
             <TicketGroup
               id="tickets-tasks"
@@ -241,7 +210,10 @@ export default function TicketsPage() {
                 </div>
               ) : undefined}
             >
-              {tasks.map((ticket) => (
+              {tasks.map((ticket) => {
+                const stopped = taskUndelivered(ticket);
+                const neverDelivered = stopped?.purpose === "instruction";
+                return (
                 <li
                   key={ticket.id}
                   data-hash-target={`task-${ticket.id}`}
@@ -249,15 +221,16 @@ export default function TicketsPage() {
                   className={cn("py-4 last:pb-0 focus:outline-none", linkedTaskId === ticket.id && "border-s-2 border-s-brown ps-3")}
                 >
                   <p className="text-lg font-semibold leading-relaxed text-espresso">{ticket.instruction}</p>
-                  {active ? <TaskStatus ticket={ticket} worker={worker} now={now} /> : null}
-                  <TaskTiming ws={ws} ticket={ticket} worker={worker} now={now} className="mt-4 max-w-xl" />
-                  {linkedNoAnswer(ticket) ? <UnansweredCheck ws={ws} ticket={linkedNoAnswer(ticket)!} worker={worker} /> : null}
+                  {active && !neverDelivered ? <TaskStatus ticket={ticket} worker={worker} now={now} /> : null}
+                  <TaskTiming ws={ws} ticket={ticket} worker={worker} now={now} undelivered={neverDelivered} className="mt-4 max-w-xl" />
+                  {stopped ? <UndeliveredNote call={stopped} worker={worker} /> : null}
                   {active && ticket.status === "open" && ticket.scheduledFor ? <TaskCalendarLink ticket={ticket} /> : null}
                   {!active && ticket.closedVia ? (
                     <p className="mt-2 text-[0.8125rem] text-muted">{m.app.tickets.closedVia(callKindLabel(ticket.closedVia, m))}</p>
                   ) : null}
                 </li>
-              ))}
+                );
+              })}
             </TicketGroup>
           ) : null}
 
@@ -267,8 +240,9 @@ export default function TicketsPage() {
                 <li key={relay.id} className="py-4 last:pb-0">
                   <p className="text-lg font-semibold leading-relaxed text-espresso">{relay.message}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <Badge tone={relay.delivered ? "ok" : "warn"} dot>{relay.delivered ? m.app.tickets.delivered : m.app.tickets.notDelivered}</Badge>
+                    <Badge tone={relay.delivered ? "ok" : "warn"} dot>{relay.delivered ? m.app.tickets.delivered : relayUndelivered(relay.id) ? m.app.tickets.undelivered : m.app.tickets.notDelivered}</Badge>
                     <span className="text-[0.8125rem] text-muted">{m.app.tickets.relayedAt(fmt.relative(relay.at, now))}</span>
+                    {!relay.delivered && relayUndelivered(relay.id) ? <span className="text-[0.8125rem] text-muted">{m.app.overview.calledTimes(fmt.number(relayUndelivered(relay.id)!.attempts))}</span> : null}
                   </div>
                 </li>
               ))}
@@ -278,7 +252,7 @@ export default function TicketsPage() {
           {!hasVisibleItems ? (
             <EmptyState
               title={active ? m.app.tickets.emptyActive : m.app.tickets.emptyHistory}
-              body={active && ultimate ? m.app.tickets.emptyActiveBody : undefined}
+              body={active ? m.app.tickets.emptyActiveBody : undefined}
               action={active && !account ? <ButtonLink href={href("/app/lab")} variant="secondary">{m.app.overview.simulateCall}</ButtonLink> : undefined}
             />
           ) : null}

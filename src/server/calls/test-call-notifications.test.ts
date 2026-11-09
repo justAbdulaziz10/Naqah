@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as turn } from "@/app/api/voice/turn/route";
-import { callOwnerAfterReport } from "./owner-call";
+import { dialDueOwnerCall } from "./owner-call";
 import { recordingCaller } from "./twilio";
 
 const mocks = vi.hoisted(() => ({ marker: vi.fn(), answer: vi.fn(), summary: vi.fn(), webhook: vi.fn() }));
@@ -27,13 +27,13 @@ afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 describe("test ranch notification isolation", () => {
   it("suppresses owner calls before considering provider configuration", async () => {
     const { caller, requests } = recordingCaller();
-    expect(await callOwnerAfterReport({} as never, { farmId: "marked", reportCallId: "run", now: new Date() }, caller)).toBeNull();
+    expect(await dialDueOwnerCall({} as never, { farmId: "marked", now: new Date() }, caller)).toBeNull();
     expect(mocks.marker).toHaveBeenCalledWith({}, "marked");
     expect(requests).toHaveLength(0);
   });
   it("does not query new tables when off", async () => {
     vi.stubEnv("NAQAH_TEST_CALLS", "");
-    expect(await callOwnerAfterReport({} as never, { farmId: "ordinary", reportCallId: null, now: new Date() })).toMatchObject({ placed: false, reason: "not_configured" });
+    expect(await dialDueOwnerCall({} as never, { farmId: "ordinary", now: new Date() })).toMatchObject({ placed: false, reason: "not_configured" });
     expect(mocks.marker).not.toHaveBeenCalled();
   });
   it("never enters the sample WhatsApp summary path for a farm report", async () => {

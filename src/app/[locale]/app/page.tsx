@@ -1,33 +1,30 @@
 "use client";
 
-import { ArrowRight } from "@phosphor-icons/react";
-import Link from "next/link";
 import { EmergencyStrip } from "@/components/dashboard/EmergencyStrip";
+import { EstateCalls } from "@/components/dashboard/EstateCalls";
 import { EstateHeader, type EstateTone } from "@/components/dashboard/EstateHeader";
 import { EstateMatters } from "@/components/dashboard/EstateMatters";
 import { FirstReport } from "@/components/dashboard/FirstReport";
 import { HerdField } from "@/components/dashboard/HerdField";
 import { ReportCallNow } from "@/components/dashboard/ReportCallNow";
 import { ReportLedger } from "@/components/dashboard/ReportLedger";
+import { latestReportIsOld, noVerifiedReport, workerCallStatus } from "@/components/dashboard/callStatus";
 import { estateMatters } from "@/components/dashboard/matters";
 import { useCallSentence } from "@/components/schedule/ReportCallSection";
 import { CallSetupStatus, getCallSetupGaps } from "@/components/setup";
 import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { RhythmStrip } from "@/components/visuals/RhythmStrip";
-import { HEALTH_LABELS, lastReportAt, openNoAnswerTickets, ownerAllowanceUsed, ownerMissedCallbackUsed, routeOwnerInboundCall } from "@/domain";
+import { HEALTH_LABELS, lastReportAt, ownerAllowanceUsed, ownerMissedCallbackUsed, routeOwnerInboundCall } from "@/domain";
+import { undeliveredCalls } from "@/domain/alerts";
 import { reportRhythm } from "@/domain/rhythm";
 import { useI18n } from "@/i18n/client";
 import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
 
-// formatDateTime fills in every field it is not told to leave out.
-const dayTime = { weekday: "long", day: undefined, month: undefined } as const;
 const dateTime = { weekday: "short" } as const;
-const dayMonth = { weekday: undefined, hour: undefined, minute: undefined } as const;
 
 export default function OverviewPage() {
-  const { m, t, fmt, href, locale } = useI18n();
+  const { m, t, fmt, locale } = useI18n();
   const o = m.app.overview;
-  const d = m.setup.dashboard;
   const ws = useWorkspace();
   const now = useNow();
   const call = useCallSentence(ws);
@@ -45,65 +42,57 @@ export default function OverviewPage() {
   const gaps = getCallSetupGaps(ws);
   const next = call?.next ?? null;
 
-  const unanswered = openNoAnswerTickets(ws);
+  const workerStatus = workerCallStatus(ws, now);
+  // Attempts ended with nothing saved: the latest report, if any, is not this call's.
+  const noVerified = noVerifiedReport(workerStatus);
+  const undelivered = undeliveredCalls(ws);
   const matters = estateMatters(ws, latestReport);
-  // An unanswered check on a task is said with that task, so it counts once.
-  const taskIds = new Set(matters.flatMap((matter) => matter.instructions.filter((item) => item.kind === "task").map((item) => item.id)));
-  const standalone = unanswered.filter((ticket) => !ticket.taskTicketId || !taskIds.has(ticket.taskTicketId));
+  // A call that didn't get through is said with its task or message, so it counts once.
+  const folded = new Set(matters.flatMap((matter) => matter.instructions.map((item) => item.id)));
+  const standalone = undelivered.filter((item) => !item.taskIds.some((id) => folded.has(id)) && !(item.relayId && folded.has(item.relayId)));
   const concerns = standalone.length + matters.length;
-  const tone: EstateTone = !hasReport ? "quiet" : unanswered.length || matters[0]?.camel?.health === "sick" ? "unanswered" : concerns ? "attention" : "calm";
+  const tone: EstateTone = noVerified ? "unanswered" : !hasReport ? "quiet" : undelivered.length || matters[0]?.camel?.health === "sick" ? "unanswered" : concerns ? "attention" : "calm";
 
   // The answer names the first thing that needs the owner; the rest wait below.
   const top = matters[0] ?? null;
   const healthWord = (health: keyof typeof HEALTH_LABELS) => (locale === "en" ? t(HEALTH_LABELS[health]).toLowerCase() : t(HEALTH_LABELS[health]));
-  const answer = !hasReport
-    ? o.noUpdate
-    : standalone.length
-      ? o.answerMissed(worker)
-      : top?.camel && (top.camel.health === "sick" || top.camel.health === "watch")
-        ? o.answerCamel(top.camel.name, healthWord(top.camel.health))
-        : top?.camel
-          ? o.answerAbout(top.camel.name)
-          : top?.findings.length
-            ? o.answerFinding(worker)
-            : top
-              ? o.answerWaiting(worker)
-              : o.answerCalm(worker);
+  const answer = noVerified
+    ? o.answerNoVerified(worker)
+    : !hasReport
+      ? o.noUpdate
+      : undelivered.length
+        ? undelivered.some((item) => item.purpose === "instruction") ? o.answerUndelivered(worker) : o.answerCheckUndelivered(worker)
+        : top?.camel && (top.camel.health === "sick" || top.camel.health === "watch")
+          ? o.answerCamel(top.camel.name, healthWord(top.camel.health))
+          : top?.camel
+            ? o.answerAbout(top.camel.name)
+            : top?.findings.length
+              ? o.answerFinding(worker)
+              : top
+                ? o.answerWaiting(worker)
+                : latestReportIsOld(ws, now, reportAt)
+                  ? o.answerCalmOld(worker)
+                  : o.answerCalm(worker);
   const more = concerns > 1 ? o.moreBelow(concerns - 1) : null;
   const provenance = reportAt ? (
     <>
-      {o.fromReport(worker)} · <time className="ltr-nums" dateTime={reportAt}>{fmt.dateTime(reportAt, dateTime)}</time> · {fmt.relative(reportAt, now)}
+      {noVerified ? o.lastVerified : o.fromReport(worker)} · <time className="ltr-nums" dateTime={reportAt}>{fmt.dateTime(reportAt, dateTime)}</time> · {fmt.relative(reportAt, now)}
       {more ? <> · <span className="font-semibold text-cream">{more}</span></> : null}
     </>
   ) : next ? o.firstReportSub : o.noScheduleSub;
 
-  const callNow = <ReportCallNow ws={ws} worker={worker} now={now} />;
   // Three honest states: no call time yet; a time saved but calling not switched on; a call ahead.
   const nextBlock = (
-    <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
-      <div className="min-w-0">
-        <p className="text-sm text-cream/70">{!next ? d.nextCall : scheduledOff ? d.plannedCall : hasReport ? o.callsWorker(worker) : o.firstCallsWorker(worker)}</p>
-        {next ? (
-          <p className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-            <span className="text-[1.5rem] font-semibold leading-tight sm:text-[1.75rem]">
-              <time className="ltr-nums" dateTime={next.toISOString()}>{fmt.dateTime(next, dayTime)}</time>
-            </span>
-            <span className="text-[0.9375rem] text-cream/75">
-              {scheduledOff ? o.callingInactive : <>{fmt.dateTime(next, dayMonth)} · <span className="font-semibold text-cream">{fmt.relative(next, now)}</span></>}
-            </span>
-          </p>
-        ) : (
-          <p className="mt-1 text-[1.5rem] font-semibold leading-tight">{o.noCallTimeYet}</p>
-        )}
-      </div>
-      {!next ? (
-        <Link href={`${href("/app/settings")}#settings-report-call`} className="naqah-nudge inline-flex min-h-11 items-center gap-1.5 rounded-full border border-cream/35 px-5 text-sm font-semibold text-cream transition hover:bg-cream/10 active:scale-[0.98]">
-          {o.setCallTime}
-          <ArrowRight size={15} className="naqah-nudge-icon rtl:-scale-x-100" aria-hidden />
-        </Link>
-      ) : null}
-      {callNow}
-    </div>
+    <EstateCalls
+      ws={ws}
+      now={now}
+      worker={worker}
+      hasReport={hasReport}
+      scheduledOff={scheduledOff}
+      nextWorker={next}
+      workerStatus={workerStatus}
+      callNow={<ReportCallNow ws={ws} worker={worker} now={now} />}
+    />
   );
 
   const slots = reportRhythm(ws, now, ws.settings.plan === "basic" ? 6 : 7, 3);
@@ -136,7 +125,7 @@ export default function OverviewPage() {
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-5">
           {hasReport ? (
-            <EstateMatters ws={ws} matters={matters} unanswered={unanswered} reportAt={reportAt} worker={worker} now={now} />
+            <EstateMatters ws={ws} matters={matters} undelivered={undelivered} reportAt={reportAt} worker={worker} now={now} />
           ) : gaps.length ? null : (
             <FirstReport ws={ws} worker={worker} />
           )}

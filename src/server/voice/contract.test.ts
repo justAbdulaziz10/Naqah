@@ -233,7 +233,8 @@ describe("report call status events", () => {
   });
   it("ends an answered call unsaved, and counts a completed call that never reached the questions as unanswered", () => {
     const ended = voiceStep(answered(), now, event({ type: "report_call_ended", reportCallId: runId, attempt: 1 }));
-    expect(ended.ws.reportCalls?.[0].state).toBe("missed");
+    expect(ended.ws.reportCalls?.[0]).toMatchObject({ state: "calling", attempts: [{ result: "answered" }] });
+    expect(ended.ws.reportCalls?.[0].nextAttemptAt).not.toBeNull();
     const never = voiceStep(ringing(), now, event({ type: "report_call_ended", reportCallId: runId, attempt: 1 }));
     expect(never.result).toEqual({ status: "saved", detail: "retry_scheduled" });
   });

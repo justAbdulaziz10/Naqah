@@ -15,6 +15,9 @@ import { callWorkspace, forgetCallWorkspace, rememberCallWorkspace } from "./cal
 import { traceCall } from "../trace";
 import { decideTool, fallbackResult, promptResult } from "./decide";
 import { buildInstructions } from "./instructions";
+import { decideOwnerTool, ownerPromptResult } from "./owner-decide";
+import { buildOwnerInstructions } from "./owner-instructions";
+import { OWNER_TOOLS, ownerPromptFor } from "./owner-tools";
 import { claimRealtime, realtimeOf, recordRealtimeResult, rememberResult, withRealtime, type RealtimeState, type ToolResponse } from "./state";
 import { REALTIME_MAX_SECONDS, TICKET_CALL_MS, TICKET_CLAIM_MS, verifyRealtimeTicket, type RealtimeTicket } from "./ticket";
 import { promptFor, REALTIME_TOOLS } from "./tools";
@@ -29,6 +32,7 @@ const ENDED: Record<Locale, string> = {
   en: "The update wasn't saved. Thank you. Goodbye.",
 };
 
+const OWNER_ENDED: Record<Locale, string> = { ar: "ما انحفظ شيء. يعطيك العافية. مع السلامة.", en: "Nothing was saved. Thank you. Goodbye." };
 const stringify = (value: object) => JSON.stringify(value);
 
 function logTool(callSid: string, name: unknown, result: string, tookMs: number): void {
@@ -41,9 +45,9 @@ const finished = (status: string, goodbye: string): ToolResponse =>
 
 /** The ticket must name this exact call, on the row that issued it. */
 function ticketMatches(ticket: RealtimeTicket, row: VoiceSessionRow, realtime: RealtimeState | null): realtime is RealtimeState {
-  if (!realtime || realtime.jti !== ticket.j || row.farm_id !== ticket.f || row.locale !== ticket.l || row.party !== "worker") return false;
+  if (!realtime || realtime.jti !== ticket.j || row.farm_id !== ticket.f || row.locale !== ticket.l || row.party !== (ticket.p ?? "worker")) return false;
   // A finished row has had its data cleared; it can only replay a stored result.
-  return row.session.done || row.session.data.reportCallId === ticket.r;
+  return row.session.done || (ticket.p === "owner" ? row.session.data.ownerRunId : row.session.data.reportCallId) === ticket.r;
 }
 
 async function farmOf(client: SupabaseClient, row: VoiceSessionRow, now: Date): Promise<Workspace> {
@@ -56,7 +60,7 @@ async function farmOf(client: SupabaseClient, row: VoiceSessionRow, now: Date): 
 
 export type OpenedSession = {
   instructions: string;
-  tools: typeof REALTIME_TOOLS;
+  tools: typeof REALTIME_TOOLS | typeof OWNER_TOOLS;
   opening: string;
   repromptText: string;
   locale: Locale;
@@ -73,16 +77,19 @@ export async function openRealtimeSession(client: SupabaseClient, body: Record<s
   if (!ticketMatches(ticket, row, realtime) || realtime.claimedAt || realtime.closed) return null;
   const workspace = await farmOf(client, row, now);
   const spoken = spokenLines(row.session, Math.max(0, row.session.turns.length - 1), workspace, row.locale);
+  const owner = row.party === "owner";
   let instructions = row.seq === 0 ? realtime.instructions : undefined;
   if (!instructions) {
-    const firstStep = promptFor(row.session, spoken, workspace, row.locale);
-    instructions = buildInstructions(row.locale, { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name }, firstStep);
+    const names = { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name };
+    instructions = owner
+      ? buildOwnerInstructions(row.locale, names, now, ownerPromptFor(row.session, spoken, workspace, row.locale))
+      : buildInstructions(row.locale, names, promptFor(row.session, spoken, workspace, row.locale));
   }
   if (!(await claimRealtime(client, row, realtime, now))) return null;
   console.info(`[NAQAH] realtime session call=${ticket.sid.slice(-6)} opened`);
   return {
     instructions,
-    tools: REALTIME_TOOLS,
+    tools: owner ? OWNER_TOOLS : REALTIME_TOOLS,
     opening: realtime.opening,
     repromptText: spoken.join(" ") || realtime.opening,
     locale: row.locale,
@@ -111,17 +118,17 @@ function scriptedFrom(session: CallSession, workspace: Workspace, now: Date): Ca
   return current.step.startsWith("open_") ? resumeOpenAsGuided(current, workspace, now) : current;
 }
 
-function resultOf(plan: TurnPlan, session: VoiceCallSession, workspace: Workspace, locale: Locale, prefix = ""): ToolResponse {
+function resultOf(plan: TurnPlan, session: VoiceCallSession, workspace: Workspace, locale: Locale, prefix = "", owner = false): ToolResponse {
   if (plan.outcome === "retry_save") return fallbackResult();
   if (plan.outcome === "saved") return finished("saved", plan.goodbye!);
   if (plan.outcome === "refused") return finished("not_saved", plan.goodbye!);
   if (plan.outcome === "save_failed") return finished("save_failed", plan.goodbye!);
-  if (plan.session.done) return finished("ended_without_saving", plan.goodbye ?? ENDED[locale]);
-  return promptResult(plan.session, workspace, locale, "ok", undefined, prefix, undefined, false, spokenLines(plan.session, session.turns.length, workspace, locale));
+  if (plan.session.done) return finished("ended_without_saving", plan.goodbye ?? (owner ? OWNER_ENDED : ENDED)[locale]);
+  return (owner ? ownerPromptResult : promptResult)(plan.session, workspace, locale, "ok", undefined, prefix, undefined, false, spokenLines(plan.session, session.turns.length, workspace, locale));
 }
 
 function endedPlan(row: VoiceSessionRow, session: VoiceCallSession): TurnPlan {
-  const goodbye = ENDED[row.locale];
+  const goodbye = (row.party === "owner" ? OWNER_ENDED : ENDED)[row.locale];
   return { session: { ...session, done: true }, misses: row.misses, response: twimlGoodbye(row.locale, goodbye), outcome: "continue", goodbye };
 }
 
@@ -138,16 +145,19 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
   if (!ticket || body.callSid !== ticket.sid) return null;
   try {
     const row = await readVoiceSession(client, ticket.sid);
-    if (!row) return finished("call_ended", ENDED[ticket.l]);
+    const endedWords = ticket.p === "owner" ? OWNER_ENDED : ENDED;
+    if (!row) return finished("call_ended", endedWords[ticket.l]);
     const realtime = realtimeOf(row.session);
     if (!ticketMatches(ticket, row, realtime) || !realtime.claimedAt) return null;
     context.session = row.session;
     const repeated = realtime.recent.find((entry) => entry.id === body.toolCallId);
     if (repeated) return repeated.result;
-    if (row.session.done) return realtime.recent.at(-1)?.result ?? finished("call_ended", ENDED[row.locale]);
+    if (row.session.done) return realtime.recent.at(-1)?.result ?? finished("call_ended", endedWords[row.locale]);
     if (realtime.closed) return fallbackResult();
     const workspace = await farmOf(client, row, now);
-    const decision = decideTool({ session: row.session, counters: realtime, workspace, locale: row.locale, name: body.name, args: body.args, spoke: body.userSpokeSinceLastTool, heard: body.workerUtterance ?? "", heardSummaryId: body.heardSummaryId , now });
+    const owner = ticket.p === "owner";
+    const toolTurn = { session: row.session, counters: realtime, workspace, locale: row.locale, name: body.name, args: body.args, spoke: body.userSpokeSinceLastTool, heard: body.workerUtterance ?? "", heardSummaryId: body.heardSummaryId , now };
+    const decision = owner ? decideOwnerTool(toolTurn) : decideTool(toolTurn);
     const nextRealtime = { ...realtime, ...decision.counters };
     const keep = async (result: ToolResponse) => {
       const saved = await recordRealtimeResult(client, row, rememberResult(nextRealtime, body.toolCallId, result, false));
@@ -159,7 +169,7 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
     if (decision.kind === "reply") return keep(decision.result);
     const session = decision.session;
     let plan: TurnPlan;
-    if (decision.kind === "urgent") {
+    if (decision.kind === "stay") {
       plan = { session, misses: row.misses, response: row.last_response, outcome: "continue", goodbye: null };
     } else if (decision.kind === "apply") {
       const current = await readVoiceSession(client, ticket.sid);
@@ -168,7 +178,7 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
     } else {
       plan = endedPlan(row, session);
     }
-    const result = decision.kind === "urgent" ? decision.result : resultOf(plan, session, workspace, row.locale, decision.kind === "apply" ? decision.prefix : "");
+    const result = decision.kind === "stay" ? decision.result : resultOf(plan, session, workspace, row.locale, decision.kind === "apply" ? decision.prefix : "", owner);
     const stored = withRealtime(plan.session, rememberResult(nextRealtime, body.toolCallId, result, plan.session.done));
     const saved = await advanceRow(client, row, stored, plan.misses, plan.response, plan.onAdvanced, true);
     if (plan.session.done) forgetCallWorkspace(ticket.sid);
@@ -179,10 +189,10 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
     const latest = await readVoiceSession(client, ticket.sid);
     const replay = latest && realtimeOf(latest.session)?.recent.find((entry) => entry.id === body.toolCallId);
     if (replay) return replay.result;
-    if (!latest) return finished("call_ended", ENDED[ticket.l]);
+    if (!latest) return finished("call_ended", endedWords[ticket.l]);
     if (realtimeOf(latest.session)?.closed) return fallbackResult();
-    if (latest.session.done) return realtimeOf(latest.session)?.recent.at(-1)?.result ?? finished("call_ended", ENDED[latest.locale]);
-    return promptResult(latest.session, workspace, latest.locale, "invalid", "state_changed");
+    if (latest.session.done) return realtimeOf(latest.session)?.recent.at(-1)?.result ?? finished("call_ended", endedWords[latest.locale]);
+    return (owner ? ownerPromptResult : promptResult)(latest.session, workspace, latest.locale, "invalid", "state_changed");
   } catch (error) {
     console.error("[NAQAH] realtime tool failed (" + (error instanceof Error ? error.name : "unknown") + ")");
     return fallbackResult();
@@ -192,9 +202,9 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
 const AFTER_ATTEMPTS = 3;
 
 /** The stream closed. A finished call hangs up; anything else carries on by script from where it was. */
-export async function afterRealtimeCall(client: SupabaseClient, input: { token: Extract<CallToken, { k: "report" }>; callSid: string }): Promise<string> {
+export async function afterRealtimeCall(client: SupabaseClient, input: { token: Extract<CallToken, { k: "report" | "owner" }>; callSid: string }): Promise<string> {
   const { token, callSid } = input;
-  if (await boundElsewhere(client, token, callSid)) return twimlGoodbye(token.l);
+  if (token.k === "report" && await boundElsewhere(client, token, callSid)) return twimlGoodbye(token.l);
   for (let attempt = 0; attempt < AFTER_ATTEMPTS; attempt += 1) {
     const row = await readVoiceSession(client, callSid);
     if (!row || row.farm_id !== token.f) return twimlGoodbye(token.l);
@@ -202,12 +212,14 @@ export async function afterRealtimeCall(client: SupabaseClient, input: { token: 
     // The bridge has already spoken this call's goodbye, so it isn't said twice.
     if (row.session.done && realtime) {
       const last = realtime.recent.at(-1)?.result;
-      return last && JSON.parse(last.output).status === "saved" ? "<Response><Hangup/></Response>" : row.last_response;
+      return row.party === "owner" || (last && JSON.parse(last.output).status === "saved") ? "<Response><Hangup/></Response>" : row.last_response;
     }
     if (row.session.done || !realtime || realtime.fallbackPrepared) return row.last_response;
     const workspace = await farmOf(client, row, new Date());
     const session = scriptedFrom(row.session, workspace, new Date());
-    const prefix = row.locale === "ar" ? "بنكمل المكالمة بالأزرار. " : "We'll continue the call using the keypad. ";
+    const prefix = row.party === "owner"
+      ? (row.locale === "ar" ? "بنكمل المكالمة بطريقة ثانية. " : "We'll continue the call another way. ")
+      : row.locale === "ar" ? "بنكمل المكالمة بالأزرار. " : "We'll continue the call using the keypad. ";
     const response = respond(session, Math.max(0, session.turns.length - 1), workspace, row.locale, row.seq + 1, prefix);
     const closed = await advanceRow(client, row, withRealtime(session, { ...realtime, closed: true, fallbackPrepared: true }), row.misses, response);
     if (closed) return closed.last_response;

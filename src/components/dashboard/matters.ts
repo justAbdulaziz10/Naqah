@@ -37,9 +37,10 @@ export function estateMatters(ws: Workspace, report: FarmReport | null): EstateM
   const tasks: MatterInstruction[] = ws.settings.plan === "ultimate"
     ? ws.taskTickets.filter((t) => t.status === "open").map((ticket) => ({ kind: "task", id: ticket.id, text: ticket.instruction, at: ticket.createdAt, ticket }))
     : [];
-  const relays: MatterInstruction[] = ws.relays
-    .filter((relay: Relay) => !relay.delivered)
-    .map((relay) => ({ kind: "relay", id: relay.id, text: relay.message, at: relay.at }));
+  // Basic has no instructions, so a relay left in old rows stays out of sight.
+  const relays: MatterInstruction[] = ws.settings.plan === "ultimate"
+    ? ws.relays.filter((relay: Relay) => !relay.delivered).map((relay) => ({ kind: "relay", id: relay.id, text: relay.message, at: relay.at }))
+    : [];
   const instructions = [...tasks, ...relays];
   const findings = report?.findings ?? [];
   const used = new Set<string>();

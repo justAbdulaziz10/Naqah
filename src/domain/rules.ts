@@ -64,9 +64,7 @@ export function plannedQuestions(ws: Workspace): PlannedQuestion[] {
 
 /** At least one enabled question, or a follow-up task the worker can confirm on this call. */
 export function reportPlanHasContent(ws: Workspace, now: Date): boolean {
-  if (plannedQuestions(ws).length) return true;
-  if (!taskTicketsEnabled(ws)) return false;
-  return openTaskTickets(ws).some((task) => task.scheduledFor === null || new Date(task.scheduledFor).getTime() <= now.getTime());
+  return plannedQuestions(ws).length > 0 || confirmableTasks(ws, now).length > 0;
 }
 
 export const planEntriesFromRows = (rows: QuestionPlanRow[]): QuestionPlanEntry[] =>
@@ -194,28 +192,70 @@ function instructionDelivered(ws: Workspace, call: PendingWorkerCall): boolean {
   return tickets.length > 0 && tickets.every((ticket) => ticket.status === "closed");
 }
 
+/** The tasks a worker call is about. Older rows only have the single link. */
+export function coveredTasks(call: PendingWorkerCall): string[] {
+  return call.coveredTaskIds?.length ? call.coveredTaskIds : call.taskTicketId ? [call.taskTicketId] : [];
+}
+
+/** Covered tasks still open: what this call has left to ask. */
+export function openCoveredTasks(ws: Workspace, call: PendingWorkerCall): string[] {
+  const open = new Set(openTaskTickets(ws).map((task) => task.id));
+  return coveredTasks(call).filter((id) => open.has(id));
+}
+
+/**
+ * Picking up is not delivery. A verification attempt is delivered only when every covered open
+ * task got an explicit yes or no on it; an instruction call only needs its receipt.
+ */
+export function workerDeliveryResult(ws: Workspace, call: PendingWorkerCall, answeredTaskIds: string[]): "delivered" | "interrupted" {
+  if (call.purpose !== "task_verification") return "delivered";
+  const answered = new Set(answeredTaskIds);
+  return openCoveredTasks(ws, call).every((id) => answered.has(id)) ? "delivered" : "interrupted";
+}
+
+/** Tasks whose instruction call has not reached the worker yet. */
+function tasksAwaitingInstruction(ws: Workspace): Set<string> {
+  return new Set(
+    ws.pendingWorkerCalls
+      .filter((call) => call.purpose === "instruction" && !instructionDelivered(ws, call))
+      .flatMap(coveredTasks),
+  );
+}
+
+/**
+ * Ultimate open tasks a worker can be asked about on another call: Any Time, plus scheduled tasks
+ * whose time has come. Not before the worker has heard the instruction, and not while a
+ * verification call is still asking about the same task.
+ */
+export function confirmableTasks(ws: Workspace, now: Date) {
+  if (!taskTicketsEnabled(ws)) return [];
+  const awaiting = tasksAwaitingInstruction(ws);
+  const verifying = new Set(
+    ws.pendingWorkerCalls.filter((call) => call.purpose === "task_verification" && call.state === "pending").flatMap(coveredTasks),
+  );
+  return openTaskTickets(ws).filter(
+    (task) =>
+      (task.scheduledFor === null || new Date(task.scheduledFor).getTime() <= now.getTime()) &&
+      !awaiting.has(task.id) &&
+      !verifying.has(task.id),
+  );
+}
+
 /**
  * One verification cycle per scheduled task, once its time has come and its
  * instruction has been delivered. Any existing verification call — pending,
  * delivered, or exhausted — blocks another cycle. Retries stay on that call.
  */
 export function dueTaskVerifications(ws: Workspace, now: Date) {
-  const verificationTaskIds = new Set<string>();
-  const instructionAwaitingDelivery = new Set<string>();
-  for (const call of ws.pendingWorkerCalls) {
-    if (call.purpose === "task_verification" && call.taskTicketId) verificationTaskIds.add(call.taskTicketId);
-    if (call.purpose === "instruction" && !instructionDelivered(ws, call)) {
-      if (call.taskTicketId) instructionAwaitingDelivery.add(call.taskTicketId);
-      for (const id of call.coveredTaskIds ?? []) instructionAwaitingDelivery.add(id);
-    }
-  }
-  return overdueScheduledTasks(ws, now).filter(
-    (task) => !verificationTaskIds.has(task.id) && !instructionAwaitingDelivery.has(task.id),
-  );
+  if (!taskTicketsEnabled(ws)) return [];
+  const started = new Set(ws.pendingWorkerCalls.filter((call) => call.purpose === "task_verification").flatMap(coveredTasks));
+  const awaiting = tasksAwaitingInstruction(ws);
+  return overdueScheduledTasks(ws, now).filter((task) => !started.has(task.id) && !awaiting.has(task.id));
 }
 
-/** Worker calls with a retry due at or before `now`. */
+/** Worker calls with a retry due at or before `now`. Basic has none, even from an older plan. */
 export function dueWorkerCalls(ws: Workspace, now: Date) {
+  if (!taskTicketsEnabled(ws)) return [];
   return ws.pendingWorkerCalls.filter(
     (c) => c.state === "pending" && c.nextAttemptAt && new Date(c.nextAttemptAt).getTime() <= now.getTime(),
   );

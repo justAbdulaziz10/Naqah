@@ -294,7 +294,7 @@ export default function SettingsPage() {
                 {showPlanComparison ? <PlanComparison current={ws.settings.plan} className="mt-3" /> : null}
               </details>
             </div>
-            <ReportCallFields {...fields("call")} />
+            <ReportCallFields {...fields("call")} showSummary={false} />
           </div>
           {account ? <CallingStateNote ws={ws} className="mt-4" /> : <p className="mt-4 text-sm leading-relaxed text-muted">{m.setup.ready.demoCalls}</p>}
         </SettingsCard>

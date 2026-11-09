@@ -583,8 +583,9 @@ describe("server-owned report tool protocol", () => {
     const { ticket } = await open();
     expect(row().session.step).toBe("open_listen");
     const bad = await tool(ticket, "record_facts", { facts: [{ type: "resource", resource: "feed", level: "low", quantity: null, evidence: "a camel is sick" }] }, { workerUtterance: "a camel is sick" });
-    expect(bad.output.error).toBe("facts_not_supported");
     expect(row().session.draft.resourceUpdates).toHaveLength(0);
+    expect(row().session.draft.answers.map((entry: { answer: string }) => entry.answer)).toContain("a camel is sick");
+    expect(bad.result.sayText).toContain("ملاحظة");
     const result = await tool(ticket, "record_facts", { facts: [{ type: "resource", resource: "feed", level: "low", quantity: 12, evidence: "feed twelve bags low" }, { type: "resource", resource: "water", level: "good", quantity: null, evidence: "feed twelve bags low" }] }, { workerUtterance: "feed twelve bags low" });
     expect(result.output.status).toBe("ok");
     expect(row().session.draft.resourceUpdates).toEqual([expect.objectContaining({ kind: "feed", level: "low" })]);
@@ -654,25 +655,9 @@ describe("server-owned report tool protocol", () => {
     const { ticket } = await open();
     const heard = "we have twenty camels in the herd today";
     const result = await tool(ticket, "record_facts", { facts: [{ type: "herd_count", count: 30, evidence: "we have thirty camels in the herd today" }] }, { workerUtterance: heard });
-    expect(result.output.error).toBe("facts_not_supported");
     expect(row().session.draft.herdCount).toBeUndefined();
-  });
-
-  it("counts only refused updates in a row, so a long open update isn't cut short", async () => {
-    const workspace = answeredFarm();
-    workspace.settings.reportMode = "open";
-    mock.load.mockResolvedValue({ workspace });
-    const { ticket } = await open();
-    const unsupported = (at: number) => tool(ticket, "record_facts", { facts: [{ type: "herd_count", count: 30 + at, evidence: "thirty camels" }] }, { workerUtterance: "the weather is hot today" });
-    const good = () => tool(ticket, "record_facts", { facts: [{ type: "other", note: "the truck came", evidence: "the truck came" }] }, { workerUtterance: "the truck came" });
-    await good();
-    expect(row().session.step).toBe("open_more");
-    await unsupported(1);
-    await unsupported(2);
-    await good();
-    await unsupported(3);
-    await unsupported(4);
-    expect(row().session.step).toBe("open_more");
+    expect(result.output.status).toBe("ok");
+    expect(row().session.draft.answers.map((entry: { answer: string }) => entry.answer)).toEqual([heard]);
   });
 
   it("reprompts the opening with the farm's own names, not the engine's sample names", async () => {
@@ -781,12 +766,13 @@ describe("tool calls on a live call", () => {
     ["الجو حار اليوم", "answer_unclear"],
   ])("does not let %s answer the herd-health question", async (workerUtterance, error) => {
     const { ticket } = await open();
-    const seq = row().seq;
+    const step = row().session.step;
     const result = await tool(ticket, "answer_question", { value: "yes" }, { workerUtterance });
     expect(result.result.awaitingConfirmation).toBe(false);
     expect(result.output).toMatchObject({ status: "invalid", error });
-    expect(row().seq).toBe(seq);
+    expect(row().session.step).toBe(step);
     expect(row().session.draft.camelUpdates).toHaveLength(0);
+    if (error === "answer_off_topic") expect(row().session.draft.answers.map((entry: { answer: string }) => entry.answer)).toEqual([workerUtterance]);
   });
 
   it("refuses rather than flipping a model's no when the worker said none is sick", async () => {
@@ -842,7 +828,7 @@ describe("tool calls on a live call", () => {
     expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
   });
 
-  it("saves one correctly mapped report, tells the owner once, and claims saved only then", async () => {
+  it("saves one correctly mapped report, leaves the owner call to the scheduler, and claims saved only then", async () => {
     const { ticket, opened } = await open();
     await reachSummary(ticket, firstPrompt(opened));
     const done = await tool(ticket, "confirm_report", { confirmed: true });
@@ -858,8 +844,7 @@ describe("tool calls on a live call", () => {
     expect(event).toMatchObject({ eventId: `${CALL}:report`, providerCallId: CALL, reportCallId: RUN });
     expect(event.draft.answers.length).toBeGreaterThan(0);
     expect(event.draft.camelUpdates.length).toBeGreaterThan(0);
-    expect(mock.owner).toHaveBeenCalledTimes(1);
-    expect(mock.owner).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ farmId: FARM, reportCallId: RUN }));
+    expect(mock.owner).not.toHaveBeenCalled();
 
     // A finished call keeps no facts: only the closing result and goodbye.
     expect(row().session.done).toBe(true);

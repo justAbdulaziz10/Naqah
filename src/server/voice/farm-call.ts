@@ -5,16 +5,18 @@
  * applyVoiceEvent runs the rules again on fresh state. See docs/integrations/twilio-activation.md.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { answer, start, type AnswerInput, type CallSession, type EngineResult } from "@/domain/conversation/engine";
-import { startLiveOwnerBriefing } from "@/domain/conversation/owner-briefing";
+import { addWorkerNote, answer, start, type AnswerInput, type CallSession, type EngineResult } from "@/domain/conversation/engine";
+import { instructionBatchId, startLiveOwnerBriefing } from "@/domain/conversation/owner-briefing";
 import { startLiveWorkerDelivery } from "@/domain/conversation/worker-outbound";
 import { makePersonalizer, personalizeTree } from "@/domain/conversation/personalize";
 import type { ReportDraft } from "@/domain/findings";
+import { markOwnerCallAnswered } from "@/domain/ownerCalls";
+import { ownerSummaryText } from "@/domain/ownerSummary";
+import { taskTicketsEnabled } from "@/domain/rules";
 import type { Locale, Workspace } from "@/domain/types";
 import { DbError } from "@/server/db/errors";
 import { loadFarm, requireFarm } from "@/server/db/queries";
-import { findCaller, findReportCallRun, recordedOutcome } from "@/server/db/service-repository";
-import { callOwnerAfterReport } from "@/server/calls/owner-call";
+import { findCaller, findReportCallRun, recordedOutcome, runFarmAction } from "@/server/db/service-repository";
 import { afterResponse } from "@/server/calls/after";
 import { signCallToken, type CallToken } from "@/server/calls/token";
 import {
@@ -27,12 +29,16 @@ import { logVoiceTurn } from "./diagnostics";
 import { traceCall } from "./trace";
 import { mapSpeechToInput, unknownReply } from "./speech";
 import { newRealtimeState, realtimeOf } from "./realtime/state";
+import { isOffTopicAnswer } from "@/domain/conversation/answer-topic";
+import { evidenceWords } from "./realtime/answer-check";
 import { isVerifiedConfirmation } from "./realtime/confirmation";
 import { rememberCallWorkspace } from "./realtime/call-workspace";
 import { buildInstructions } from "./realtime/instructions";
+import { buildOwnerInstructions } from "./realtime/owner-instructions";
+import { ownerPromptFor } from "./realtime/owner-tools";
 import { promptFor } from "./realtime/tools";
 import { signRealtimeTicket } from "./realtime/ticket";
-import { spokenWording, twimlGather, twimlGoodbye, twimlStream } from "./twiml";
+import { spokenWording, twimlGather, twimlGoodbye, twimlSayThenRedirect, twimlStream } from "./twiml";
 
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
@@ -69,6 +75,10 @@ const SAVE_RETRY: Copy = {
 export const SAVE_FAILED: Copy = {
   ar: "صار خلل وما قدرت أتأكد من حفظ شيء. فضلاً اتصل مرة ثانية.",
   en: "Something went wrong and I couldn't confirm that anything was saved. Please call again.",
+};
+const INSTRUCTIONS_ALREADY_SAVED: Copy = {
+  ar: "هذي التعليمات انحفظت قبل، وما تغير شيء. يعطيك العافية.",
+  en: "These instructions were already saved, so nothing changed. Thank you.",
 };
 const MISS_ONCE: Copy = { ar: "معليش، ما فهمت عليك. ", en: "Sorry, I didn't catch that. " };
 const MISS_AGAIN: Copy = {
@@ -147,12 +157,12 @@ function eventFor(before: CallSession | null, result: EngineResult, input: Answe
   } else if (before.step === "callback_task_confirmation") {
     const taskId = before.data.callbackTaskIds?.[before.data.callbackTaskIndex ?? 0];
     return { ...base, eventId: `${callSid}:task:${taskId}`, type: "task_confirmation", taskId, done: input?.value === "yes", via: "worker_callback" };
-  } else if (before.scenario === "owner_notification" && before.step === "instruction_confirm") {
-    const items = before.data.pendingInstructions ?? [];
+  } else if (before.scenario === "owner_notification" && before.step === "instruction_review") {
+    const items = (before.data.pendingInstructions ?? []).map(({ message, actionable, scheduledFor }) => ({ message, actionable, scheduledFor }));
     const message = items.map((item) => item.message).join("\n");
     return {
       ...base,
-      eventId: `owner-instructions:${before.data.reportId ?? callSid}`,
+      eventId: instructionBatchId(before, callSid),
       type: "owner_instruction",
       message,
       actionable: items.some((item) => item.actionable),
@@ -166,22 +176,31 @@ function eventFor(before: CallSession | null, result: EngineResult, input: Answe
     if (before.step === "outbound_answer") {
       return { ...base, eventId, type: "worker_call_attempt", pendingCallId, answered: false };
     }
-    if (before.step === "outbound_receipt" || before.step === "outbound_task_confirmation") {
+    if (before.step === "outbound_receipt") return { ...base, eventId, type: "worker_call_attempt", pendingCallId, answered: true, completed: true };
+    if (before.step === "outbound_task_confirmation") {
+      const taskId = before.data.currentTaskId;
+      const done = input?.value === "yes";
+      // Each explicit answer is saved as given, so a hang-up can't lose what the worker already said.
+      if (!result.session.data.attemptResolved) return { ...base, eventId: `${eventId}:task:${taskId}`, type: "task_confirmation", taskId, done, via: "worker_task_verification" };
       return {
         ...base,
         eventId,
         type: "worker_call_attempt",
         pendingCallId,
         answered: true,
-        completed: true,
-        ...(before.step === "outbound_task_confirmation" && before.data.currentTaskId
-          ? { taskId: before.data.currentTaskId, taskDone: input?.value === "yes" }
-          : {}),
+        completed: result.session.data.deliveryCompleted === true,
+        answeredTaskIds: (result.session.data.answeredTaskIds ?? []).filter((id) => id !== taskId),
+        ...(taskId && (done || input?.value === "no") ? { taskId, taskDone: done } : {}),
       };
     }
   }
   throw new DbError("invalid_input", "call outcome has no voice event");
 }
+
+/** One event id per call, so whichever of the conversation or Twilio's status lands first decides. */
+const ownerAttemptEvent = (callSid: string, runId: string, attempt: number, result: "unanswered" | "interrupted" | "completed") => ({
+  version: 1, eventId: `${callSid}:owner-attempt`, providerCallId: callSid, type: "owner_call_attempt", runId, attempt, result,
+});
 
 const contextFor = (party: VoiceSessionRow["party"]): VoiceContext =>
   party === "worker" ? { party: "worker" } : { party: "owner", call: "inquiry" };
@@ -190,14 +209,6 @@ function save(client: SupabaseClient, farmId: string, party: VoiceSessionRow["pa
   const context = typeof party === "string" ? contextFor(party) : party;
   const parsed = parseVoiceEvent(event);
   return onAppliedWorkspace ? applyVoiceEvent(client, farmId, context, parsed, now, onAppliedWorkspace) : applyVoiceEvent(client, farmId, context, parsed, now);
-}
-
-/** After a saved report: the farm owner's update call, when that paid channel is switched on. */
-function notifyOwner(client: SupabaseClient, farmId: string, reportCallId: string | null, now: Date): Promise<void> {
-  return afterResponse(async () => {
-    const placed = await callOwnerAfterReport(client, { farmId, reportCallId, now });
-    if (placed && !placed.placed) console.info(`[NAQAH] owner update call not placed (${placed.reason})`);
-  });
 }
 
 export async function startFarmCall(client: SupabaseClient, input: { from: string; callSid: string; now: Date }): Promise<string> {
@@ -249,6 +260,17 @@ async function advance(client: SupabaseClient, row: VoiceSessionRow, session: Vo
   return (await readVoiceSession(client, row.call_sid))?.last_response ?? response;
 }
 
+/** The conversation reached its end without a failed save. Twilio's final status is then a replay. */
+async function completeOwnerRun(client: SupabaseClient, farmId: string, session: CallSession, callSid: string, now: Date): Promise<void> {
+  const { ownerRunId, ownerAttempt } = session.data;
+  if (!ownerRunId || !ownerAttempt) return;
+  try {
+    await save(client, farmId, { party: "system" }, ownerAttemptEvent(callSid, ownerRunId, ownerAttempt, "completed"), now);
+  } catch (error) {
+    console.error(`[NAQAH] owner call completion failed (${error instanceof DbError ? error.code : "unknown"})`);
+  }
+}
+
 export type TurnOutcome = "continue" | "saved" | "refused" | "retry_save" | "save_failed";
 
 /** One engine step, worked out and saved through the contract, but not yet stored on the call. */
@@ -276,7 +298,7 @@ export async function planTurn(
   const event = eventFor(session, result, chosen, callSid);
   const saveParty = session.scenario === "owner_notification"
     ? { party: "owner" as const, call: "notification" as const }
-    : session.scenario === "worker_outbound"
+    : session.scenario === "worker_outbound" && event?.type !== "task_confirmation"
       ? { party: "system" as const }
       : row.party;
   let outcome: VoiceOutcome | null = null;
@@ -294,9 +316,7 @@ export async function planTurn(
   if (session.step === "report_summary" && event?.type === "worker_report") {
     const reason = outcome?.status === "rejected" ? outcome.reason : null;
     const text = outcome?.status === "saved" ? SAVED : reason === "callback_required" ? CALLBACK_FIRST : reason === "call_not_active" ? CALL_NOT_ACTIVE : REFUSED;
-    return closing(result.session, 0, text[locale], outcome?.status === "saved" ? "saved" : "refused", outcome?.status === "saved"
-      ? () => notifyOwner(client, row.farm_id, (event.reportCallId as string | undefined) ?? null, now)
-      : undefined);
+    return closing(result.session, 0, text[locale], outcome?.status === "saved" ? "saved" : "refused");
   }
   // After a failed save the first attempt may still have landed, so "not saved" needs checking.
   if (session.step === "report_summary" && row.misses > 0) {
@@ -304,6 +324,13 @@ export async function planTurn(
     if (landed?.status === "saved") return closing(result.session, 0, SAVED[locale], "saved");
   }
   if (outcome?.status === "rejected") return closing({ ...session, done: true }, 0, SAVE_FAILED[locale], "save_failed");
+  if (event?.type === "owner_instruction") {
+    await completeOwnerRun(client, row.farm_id, session, callSid, now);
+    // Only what the contract wrote is claimed: a replay of this run's batch saved nothing new.
+    const text = outcome?.status === "unchanged" ? INSTRUCTIONS_ALREADY_SAVED[locale] : `${prefix}${spokenLines(result.session, session.turns.length, workspace, locale).join(" ")}`;
+    return closing(result.session, 0, text, "saved");
+  }
+  if (result.session.done) await completeOwnerRun(client, row.farm_id, session, callSid, now);
   const goodbye = result.session.done ? `${prefix}${spokenLines(result.session, session.turns.length, workspace, locale).join(" ")}` : null;
   return { session: result.session, misses: 0, response: respond(result.session, session.turns.length, workspace, locale, next, prefix), outcome: "continue", goodbye };
 }
@@ -337,10 +364,12 @@ async function answerFarmCallTurn(client: SupabaseClient, input: FarmCallInput, 
   const { locale } = row;
   const hasInput = Boolean(speech.trim() || digits);
   const silenceCount = hasInput ? 0 : ((row.session as VoiceCallSession).voiceSilences ?? 0) + 1;
-  const session = { ...row.session, voiceSilences: 0 };
+  const offTopic = !digits && isOffTopicAnswer(row.session, evidenceWords(speech));
+  // Words about another topic can't answer this question, but they aren't thrown away either.
+  const session = { ...(offTopic ? addWorkerNote(row.session, speech) : row.session), voiceSilences: 0 };
   const { workspace } = requireFarm(await loadFarm(client, { id: row.farm_id }));
   const mapped = mapSpeechToInput(session, speech, digits, locale, input.confidence);
-  const spoken = mapped?.value === "confirm_save" && !digits && !isVerifiedConfirmation(speech, session, locale) ? null : mapped;
+  const spoken = (mapped?.value === "confirm_save" || mapped?.value === "instructions_confirm") && !digits && !isVerifiedConfirmation(speech, session, locale) ? null : mapped;
   const unmatched = !spoken && hasInput ? ((row.session as VoiceCallSession).voiceUnmatched ?? 0) + 1 : 0;
   logVoiceTurn(input, spoken);
   const next = row.seq + 1;
@@ -467,7 +496,13 @@ async function openLiveCall(
   return row?.last_response ?? response;
 }
 
-/** The owner answered the summary call. Basic ends after the findings. Ultimate collects instructions. */
+const OWNER_CLOSING: Copy = { ar: "هذا اللي عندي. يعطيك العافية.", en: "That's all I have. Thank you." };
+
+/**
+ * The owner picked up the scheduled call. The run comes from the signed URL, never caller ID.
+ * Picking up is not completion: Basic must hear the summary to the end, Ultimate must finish the
+ * instructions step.
+ */
 export async function answerOwnerCall(
   client: SupabaseClient,
   input: { token: Extract<CallToken, { k: "owner" }>; callSid: string; now: Date },
@@ -475,17 +510,55 @@ export async function answerOwnerCall(
   const { token, callSid, now } = input;
   const repeated = await readVoiceSession(client, callSid);
   if (repeated) return repeated.farm_id === token.f ? repeated.last_response : twimlGoodbye(token.l);
-  const { workspace } = requireFarm(await loadFarm(client, { id: token.f }));
-  const report = workspace.reports.find((item) => item.id === token.r);
-  if (!report) return twimlGoodbye(token.l);
-  return openLiveCall(client, {
-    farmId: token.f,
-    callSid,
-    locale: token.l,
-    now,
-    party: "owner",
-    result: startLiveOwnerBriefing(workspace, now, report.id),
+  const { result: workspace } = await runFarmAction(client, token.f, (ws) => {
+    const marked = markOwnerCallAnswered(ws, now, token.o);
+    return { ws: marked, result: marked };
   });
+  const run = workspace.ownerCallRun;
+  if (run?.id !== token.o || run.state !== "answered" || run.attempts.length !== token.n) return twimlGoodbye(token.l);
+  const report = token.r ? workspace.reports.find((item) => item.id === token.r) ?? null : null;
+  if (token.r && !report) return twimlGoodbye(token.l);
+
+  const summary = ownerSummaryText(workspace, report, now);
+  if (workspace.settings.plan === "basic") {
+    const text = `${spokenWording(summary[token.l], token.l)} ${OWNER_CLOSING[token.l]}`;
+    return twimlSayThenRedirect(text, token.l, `/api/voice/owner/heard?s=${encodeURIComponent(signCallToken(token))}`);
+  }
+  const result = startLiveOwnerBriefing(workspace, now, report?.id ?? null, { runId: run.id, attempt: token.n }, summary);
+  const realtime = realtimeVoiceConfig();
+  if (!realtime || result.session.done) return openLiveCall(client, { farmId: token.f, callSid, locale: token.l, now, party: "owner", result });
+
+  const locale = token.l;
+  const response = respond(result.session, 0, workspace, locale, 0);
+  const state = newRealtimeState(spokenLines(result.session, 0, workspace, locale).join(" "));
+  const firstStep = ownerPromptFor(result.session, spokenLines(result.session, result.session.turns.length - 1, workspace, locale), workspace, locale);
+  state.instructions = buildOwnerInstructions(locale, { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name }, now, firstStep);
+  rememberCallWorkspace(callSid, workspace, now);
+  const stored = await createVoiceSession(client, {
+    call_sid: callSid,
+    farm_id: token.f,
+    party: "owner",
+    locale,
+    session: { ...withoutTranscript(result.session), realtime: state } as CallSession,
+    last_response: response,
+    created_at: now.toISOString(),
+  });
+  // Only the request whose row got in may open the stream: a repeat plays the scripted question.
+  if (stored && realtimeOf(stored.session)?.jti === state.jti) {
+    const ticket = signRealtimeTicket({ sid: callSid, f: token.f, r: token.o, l: locale, j: state.jti, t: now.getTime(), p: "owner" }, realtime.secret);
+    return twimlStream(`${realtime.baseUrl}/api/voice/realtime/after?s=${encodeURIComponent(signCallToken(token, realtime.secret))}`, realtime.bridgeUrl, ticket);
+  }
+  return stored?.last_response ?? response;
+}
+
+/** Twilio reached the end of the Basic summary: the only proof the owner heard all of it. */
+export async function ownerCallHeard(
+  client: SupabaseClient,
+  input: { token: Extract<CallToken, { k: "owner" }>; callSid: string; now: Date },
+): Promise<string> {
+  const { token, callSid, now } = input;
+  await save(client, token.f, { party: "system" }, ownerAttemptEvent(callSid, token.o, token.n, "completed"), now);
+  return "<Response><Hangup/></Response>";
 }
 
 /** The worker answered an instruction or verification call reserved by the scheduler. */
@@ -498,7 +571,7 @@ export async function answerWorkerCall(
   if (repeated) return repeated.farm_id === token.f ? repeated.last_response : twimlGoodbye(token.l);
   const { workspace } = requireFarm(await loadFarm(client, { id: token.f }));
   const call = workspace.pendingWorkerCalls.find((item) => item.id === token.p && item.state === "pending");
-  if (!call || call.attempts.length + 1 !== token.n) return twimlGoodbye(token.l);
+  if (!call || call.attempts.length + 1 !== token.n || !taskTicketsEnabled(workspace)) return twimlGoodbye(token.l);
   return openLiveCall(client, {
     farmId: token.f,
     callSid,
@@ -528,18 +601,23 @@ export async function workerCallStatus(
     pendingCallId: token.p,
     answered: status === "completed",
     completed: false,
+    attempt: token.n,
   };
   await save(client, token.f, { party: "system" }, event, now);
   await deleteVoiceSession(client, callSid);
 }
 
-/** The owner's update call ended: answered or missed, as the domain records it. */
+/**
+ * Twilio's final status for the owner's call. The phone never connected → unanswered. It connected
+ * but no completion was recorded → interrupted. A recorded completion wins: same event id, so this is a replay.
+ */
 export async function ownerCallStatus(
   client: SupabaseClient,
   input: { token: Extract<CallToken, { k: "owner" }>; callSid: string; status: string; now: Date },
 ): Promise<void> {
   const { token, callSid, status, now } = input;
   if (!FINAL_STATUSES.has(status)) return;
-  const event = { version: 1, eventId: `${callSid}:owner`, providerCallId: callSid, type: "owner_notification", reportId: token.r, answered: status === "completed" };
-  await save(client, token.f, { party: "system" }, event, now);
+  const result = status === "completed" ? "interrupted" : "unanswered";
+  await save(client, token.f, { party: "system" }, ownerAttemptEvent(callSid, token.o, token.n, result), now);
+  await deleteVoiceSession(client, callSid);
 }

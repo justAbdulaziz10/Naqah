@@ -98,7 +98,7 @@ describe('pending call relational task mapping', () => {
 
     const basicBefore = createEmptyWorkspace('basic');
     const basic = voiceStep(basicBefore, now, event('local-group:basic'));
-    expect(basic.result).toEqual({ status: 'unchanged' });
+    expect(basic.result).toEqual({ status: 'rejected', reason: 'not_allowed' });
     expect(basic.ws.taskTickets).toHaveLength(0);
     expect(basic.ws.relays).toHaveLength(0);
     expect(basic.ws.pendingWorkerCalls).toHaveLength(0);

@@ -8,14 +8,19 @@ import { recordingCaller } from "./twilio";
 vi.mock("server-only", () => ({}));
 
 /** One farm held in memory; runFarmAction applies the pure action to it like the database would. */
-const store = vi.hoisted(() => ({ ws: null as unknown as Workspace, saves: 0 }));
+const store = vi.hoisted(() => ({ ws: null as unknown as Workspace, saves: 0, farmIds: [] as string[], fails: new Set<string>() }));
 vi.mock("@/server/db/service-repository", () => ({
-  listScheduledFarmIds: async () => [FARM],
-  runFarmAction: async (_client: unknown, _farm: string, action: (ws: Workspace) => { ws: Workspace; result: unknown }) => {
+  listScheduledFarmIds: async () => store.farmIds,
+  runFarmAction: async (_client: unknown, farm: string, action: (ws: Workspace) => { ws: Workspace; result: unknown }) => {
+    if (store.fails.has(farm)) throw new Error("farm unavailable");
     const { ws, result } = action(structuredClone(store.ws));
     if (JSON.stringify(ws) !== JSON.stringify(store.ws)) store.saves += 1;
     // Ids as the database would return them: domain ids become stable UUIDs.
-    store.ws = { ...ws, reportCalls: ws.reportCalls?.map((run) => ({ ...run, id: toDbId(FARM, run.id) })) };
+    store.ws = {
+      ...ws,
+      reportCalls: ws.reportCalls?.map((run) => ({ ...run, id: toDbId(FARM, run.id) })),
+      ...(ws.ownerCallRun ? { ownerCallRun: { ...ws.ownerCallRun, id: toDbId(FARM, ws.ownerCallRun.id) } } : {}),
+    };
     return { status: "saved", result };
   },
 }));
@@ -31,6 +36,8 @@ beforeEach(() => {
   const ws = createDemoWorkspace("en", "basic");
   store.ws = { ...ws, reports: [], calls: [], lastUpdateAt: null, reportCalls: [], clockOffsetMs: 0, settings: { ...ws.settings, worker: { ...ws.settings.worker, phone: "+966501234567" }, callSchedule: { day: 4, time: "17:00" } } };
   store.saves = 0;
+  store.farmIds = [FARM];
+  store.fails = new Set();
 });
 
 describe("report-call scheduler", () => {
@@ -62,6 +69,7 @@ describe("worker instruction and verification dialing", () => {
   const pendingId = "22222222-2222-4222-8222-222222222222";
 
   beforeEach(() => {
+    store.ws.settings = { ...store.ws.settings, plan: "ultimate" };
     store.ws.pendingWorkerCalls = [{
       id: pendingId,
       purpose: "instruction",
@@ -98,8 +106,11 @@ describe("worker instruction and verification dialing", () => {
   });
 });
 
-describe("scheduled owner summary", () => {
+describe("scheduled owner call", () => {
   const reportId = "33333333-3333-4333-8333-333333333333";
+  const attempts = () => store.ws.ownerCallRun!.attempts;
+  const later = (minutes: number) => ({ ...options, now: new Date(now.getTime() + minutes * 60_000) });
+  const tokenOf = (url?: string) => verifyCallToken(new URL(url!).searchParams.get("s"), SECRET, later(40).now.getTime());
 
   beforeEach(() => {
     vi.stubEnv("NAQAH_CALL_OWNER", "1");
@@ -110,30 +121,105 @@ describe("scheduled owner summary", () => {
     store.ws.reports = [{ id: reportId, at: now.toISOString(), callId: "c", answers: [], findings: [] }];
     store.ws.lastUpdateAt = now.toISOString();
     store.ws.settings.owner.phone = "+966550123344";
-    store.ws.settings.ownerCallSchedule = { day: 4, time: "19:00" };
+    store.ws.settings.ownerCallSchedule = { day: 4, time: "17:00" };
+    store.ws.ownerCallRun = null;
   });
 
-  it("dials a due summary as a conversation URL and does not dial it twice", async () => {
-    store.ws.ownerSummary = { reportId, notBefore: now.toISOString() };
-    const { caller, requests } = recordingCaller();
+  it("dials a due slot as a conversation URL, saved before dialling, and not twice", async () => {
+    const { caller, requests } = recordingCaller((request) => {
+      if (request.to === "+966550123344") expect(store.ws.ownerCallRun?.attempts).toHaveLength(1);
+      return { placed: true, sid: `CA${"2".repeat(32)}` };
+    });
     expect(await runReportCallScheduler({} as never, caller, options)).toEqual({ farms: 1, placed: 1, failed: 0, errors: 0 });
-    expect(requests).toHaveLength(1);
     expect(requests[0].url).toContain("https://naqah.test/api/voice/owner?s=");
     expect(requests[0].twiml).toBeUndefined();
     expect(requests[0].to).toBe("+966550123344");
-    expect(store.ws.ownerSummary).toBeNull();
+    expect(tokenOf(requests[0].url)).toMatchObject({ k: "owner", f: FARM, o: store.ws.ownerCallRun!.id, r: reportId, n: 1 });
 
     const again = recordingCaller();
     expect(await runReportCallScheduler({} as never, again.caller, options)).toMatchObject({ placed: 0 });
     expect(again.requests).toHaveLength(0);
   });
 
-  it("waits when the owner's chosen time is still ahead", async () => {
-    store.ws.ownerSummary = { reportId, notBefore: new Date(now.getTime() + 60 * 60_000).toISOString() };
+  it("waits for the worker's call before opening the owner's slot", async () => {
+    store.ws.reports = [];
+    store.ws.lastUpdateAt = null;
     const { caller, requests } = recordingCaller();
-    expect(await runReportCallScheduler({} as never, caller, options)).toMatchObject({ placed: 0 });
-    expect(requests).toHaveLength(0);
-    expect(store.ws.ownerSummary?.reportId).toBe(reportId);
+    await runReportCallScheduler({} as never, caller, options);
+    expect(requests.map((request) => request.to)).toEqual(["+966501234567"]);
+    expect(store.ws.ownerCallRun).toBeNull();
+  });
+
+  it("still calls when there is no report, with an empty report in the token", async () => {
+    store.ws.reports = [];
+    store.ws.lastUpdateAt = null;
+    store.ws.settings.callSchedule = null;
+    const { caller, requests } = recordingCaller();
+    expect(await runReportCallScheduler({} as never, caller, options)).toMatchObject({ placed: 1 });
+    expect(tokenOf(requests.at(-1)!.url)).toMatchObject({ k: "owner", r: "", n: 1 });
+  });
+
+  it("does nothing with the switch off, and leaves no run", async () => {
+    vi.stubEnv("NAQAH_CALL_OWNER", "");
+    const { caller, requests } = recordingCaller();
+    await runReportCallScheduler({} as never, caller, options);
+    expect(requests.filter((request) => request.to === "+966550123344")).toHaveLength(0);
+    expect(store.ws.ownerCallRun).toBeNull();
+  });
+
+  it("never dials before the column exists, because the claim couldn't be saved", async () => {
+    store.ws.ownerCallRun = undefined;
+    const { caller, requests } = recordingCaller();
+    await runReportCallScheduler({} as never, caller, options);
+    expect(requests.filter((request) => request.to === "+966550123344")).toHaveLength(0);
+  });
+
+  it("does not count a call the provider refused, and retries it 20 minutes later", async () => {
+    const refuse = recordingCaller(() => ({ placed: false, reason: "rejected", status: 400 }));
+    expect(await runReportCallScheduler({} as never, refuse.caller, options)).toMatchObject({ placed: 0, failed: 1 });
+    expect(attempts()).toEqual([]);
+    expect(store.ws.ownerCallRun).toMatchObject({ state: "calling", nextAttemptAt: new Date(now.getTime() + 20 * 60_000).toISOString() });
+
+    const { caller, requests } = recordingCaller();
+    expect(await runReportCallScheduler({} as never, caller, later(19))).toMatchObject({ placed: 0 });
+    expect(await runReportCallScheduler({} as never, caller, later(20))).toMatchObject({ placed: 1 });
+    expect(tokenOf(requests[0].url)).toMatchObject({ k: "owner", n: 1 });
+  });
+
+  it("undoes the claim when the caller throws, and still counts it as not placed", async () => {
+    const thrower = { place: vi.fn(async () => { throw new Error("offline"); }) };
+    expect(await runReportCallScheduler({} as never, thrower, options)).toMatchObject({ failed: 1, errors: 0 });
+    expect(attempts()).toEqual([]);
+  });
+
+  it("frees an attempt whose webhook never arrives, then dials the retry", async () => {
+    const { caller, requests } = recordingCaller();
+    await runReportCallScheduler({} as never, caller, options);
+    await runReportCallScheduler({} as never, caller, later(15));
+    expect(attempts()[0].result).toBe("unanswered");
+    await runReportCallScheduler({} as never, caller, later(35));
+    expect(requests).toHaveLength(2);
+    expect(tokenOf(requests[1].url)).toMatchObject({ k: "owner", n: 2 });
+  });
+
+  it("uses a newer report on the retry", async () => {
+    const { caller, requests } = recordingCaller();
+    await runReportCallScheduler({} as never, caller, options);
+    await runReportCallScheduler({} as never, caller, later(15));
+    const newer = "44444444-4444-4444-8444-444444444444";
+    store.ws.reports.push({ id: newer, at: later(30).now.toISOString(), callId: "c2", answers: [], findings: [] });
+    await runReportCallScheduler({} as never, caller, later(35));
+    expect(tokenOf(requests[1].url)).toMatchObject({ r: newer, n: 2 });
+  });
+});
+
+describe("one farm's failure", () => {
+  it("never stops the farms after it", async () => {
+    const { caller, requests } = recordingCaller();
+    store.farmIds = ["bad", FARM];
+    store.fails = new Set(["bad"]);
+    expect(await runReportCallScheduler({} as never, caller, options)).toMatchObject({ farms: 2, placed: 1, errors: 3 });
+    expect(requests).toHaveLength(1);
   });
 });
 

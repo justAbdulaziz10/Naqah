@@ -3,7 +3,7 @@
  * Scenario transitions live in focused family modules; callers keep this API.
  */
 import { startReportCallScenario, startWorkerInbound, answerReportScenario, hangUpReportCall } from "./report-call";
-export { addUrgentNote, reportSummaryId, resumeOpenAsGuided } from "./report-call";
+export { addUrgentNote, addWorkerNote, reportSummaryId, resumeOpenAsGuided } from "./report-call";
 import { startOwnerNotification, handleOwnerNotification } from "./owner-briefing";
 import { startWorkerCallback, handleWorkerCallback } from "./worker-callback";
 import { startWorkerOutbound, handleWorkerOutbound, hangUpWorkerOutbound } from "./worker-outbound";
@@ -22,6 +22,9 @@ export type {
   EngineResult,
   AnswerInput,
   OpenFact,
+  ProposedInstruction,
+  InstructionCorrection,
+  PendingInstruction,
   ReportCallAvailability,
   ScenarioAvailability,
 } from "./shared";

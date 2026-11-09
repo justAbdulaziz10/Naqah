@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CallSession } from "@/domain/conversation/engine";
-import { agentText, escapeXml, sayElement, twimlGather, twimlGoodbye } from "./twiml";
+import { agentText, escapeXml, sayElement, twimlGather, twimlGoodbye, twimlSayThenRedirect } from "./twiml";
 
 const session: CallSession = {
   scenario: "report_call", step: "confirm",
@@ -61,6 +61,21 @@ describe("TwiML output", () => {
     expect(xml).toContain('numDigits="1"');
     expect(xml).toContain('action="https://naqah.test/api/voice/turn?s=a.b&amp;x=1"');
     expect(xml).toContain("Press 1 for Yes");
+  });
+
+  it("speaks everything before a POST redirect, and never hangs up first", () => {
+    const xml = twimlSayThenRedirect("One. Two.", "en", "/api/voice/owner/heard?s=a.b&x=1");
+    expect(xml).toMatch(/<\/Say><Redirect method="POST">\/api\/voice\/owner\/heard\?s=a\.b&amp;x=1<\/Redirect><\/Response>$/);
+    expect(xml).not.toContain("<Hangup/>");
+  });
+
+  it("splits long text across Say elements at sentence ends, losing nothing", () => {
+    const text = Array.from({ length: 60 }, (_, i) => `Detail number ${i} was recorded on the ranch today.`).join(" ");
+    const xml = twimlSayThenRedirect(text, "en", "/x");
+    const says = [...xml.matchAll(/<Say[^>]*>([\s\S]*?)<\/Say>/g)].map((m) => m[1]);
+    expect(says.length).toBeGreaterThan(1);
+    expect(says.every((chunk) => chunk.length <= 1_500)).toBe(true);
+    expect(says.join(" ")).toBe(text);
   });
 
   it("ends politely with Hangup", () => {

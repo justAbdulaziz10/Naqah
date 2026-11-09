@@ -14,6 +14,8 @@ export interface RealtimeTicket {
   /** Matches the id stored on the session row. */
   j: string;
   t: number;
+  /** "owner": an owner's summary call, `r` being the owner run. Absent: a worker's report call. */
+  p?: "owner";
 }
 
 const PURPOSE = "naqah-realtime-ticket:";
@@ -46,6 +48,7 @@ export function verifyRealtimeTicket(value: unknown, secret: string, now: number
     const ticket = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Partial<RealtimeTicket>;
     if (typeof ticket.sid !== "string" || !CALL_SID.test(ticket.sid)) return null;
     if (typeof ticket.f !== "string" || !ID.test(ticket.f) || typeof ticket.r !== "string" || !ID.test(ticket.r)) return null;
+    if (ticket.p !== undefined && ticket.p !== "owner") return null;
     if ((ticket.l !== "ar" && ticket.l !== "en") || typeof ticket.j !== "string" || !ID.test(ticket.j)) return null;
     if (!Number.isSafeInteger(ticket.t) || now - ticket.t! > maxAgeMs || ticket.t! > now + 60_000) return null;
     return ticket as RealtimeTicket;

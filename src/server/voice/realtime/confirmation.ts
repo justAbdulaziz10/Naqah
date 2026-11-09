@@ -13,7 +13,7 @@ const CLEAR_CONFIRMATIONS = new Set([
   "yes", "yeah", "yep", "yup", "sure", "correct", "right", "ok", "okay", "confirm",
   "save", "save it", "save the report", "save the update", "yes save it", "yes correct",
   "that is correct", "that s correct", "that is right", "that s right", "yes that is correct",
-  "go ahead and save it", "confirm and save",
+  "go ahead and save it", "confirm and save", "save them", "yes save them",
   "تاكيد وحفظ", "تاكيد", "اكد", "اكد واحفظ", "ايه اكد", "ايه تاكيد",
 ]);
 
@@ -26,5 +26,6 @@ export function isVerifiedConfirmation(utterance: string, session: CallSession, 
   if (!utterance || utterance.length > MAX_UTTERANCE || /[?؟]/u.test(utterance)) return false;
   const words = normalizeSpeech(utterance).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   if (!CLEAR_CONFIRMATIONS.has(words) && !isClearArabic(words)) return false;
-  return session.step === SUMMARY_STEP && mapSpeechToInput(session, utterance, null, locale)?.value === "confirm_save";
+  const expected = session.step === SUMMARY_STEP ? "confirm_save" : session.step === "instruction_review" ? "instructions_confirm" : null;
+  return expected !== null && mapSpeechToInput(session, utterance, null, locale)?.value === expected;
 }

@@ -755,14 +755,14 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(1);
     });
 
-    it("ends an answered call unsaved when the worker hangs up mid-report", async () => {
+    it("retries a scheduled call the worker hung up on mid-report", async () => {
       const farm = seedFarm({ missedReportCall: false, callTime: "09:00" });
       const scheduler = schedule();
       await scheduler.pass();
       const call = new Call(farm.worker);
       await outbound(hook(pathOf(scheduler.requests[0].url!), { CallSid: call.sid }));
       await status(scheduler.requests[0].statusCallback, call.sid, "completed");
-      expect(run(farm)).toBe(`missed 1 ${call.sid}`);
+      expect(run(farm)).toBe(`calling 1 ${call.sid}`);
       expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(0);
     });
 

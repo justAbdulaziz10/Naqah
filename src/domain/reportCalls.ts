@@ -1,7 +1,7 @@
 /**
  * Scheduled report calls: NAQAH calls the primary worker, the worker does not call NAQAH to report.
- * Basic: one slot a week. Ultimate: one slot a day. Unanswered: retry after 20 minutes, up to 2 retries,
- * then the run is "missed" and the owner is told. Pure functions; the scheduler, the Twilio status
+ * Basic: one slot a week. Ultimate: one slot a day. Unanswered or cut off: retry after 20 minutes, up to
+ * 2 retries, then the run is "missed" and the owner is told. Pure functions; the scheduler, the Twilio status
  * callback and the Call Lab all go through them.
  */
 import { pushCall, pushEvent } from "./actions";
@@ -180,18 +180,31 @@ export function resolveReportCallAttempt(
 }
 
 /**
- * The worker picked up but the conversation ended before a report was saved (hung up, line dropped).
- * The slot is not retried automatically: calling again is the owner's choice ("Call now").
+ * The worker picked up but the conversation ended before a report was saved (hung up, line dropped,
+ * chose not to save). That used up the attempt. A scheduled run tries again after 20 minutes, up to
+ * its three attempts; "Call now" authorized one call, so it ends here.
  */
 export function endReportCallWithoutReport(input: Workspace, now: Date, runId: string): Workspace {
   const current = reportCallRuns(input).find((r) => r.id === runId);
   if (!current || current.state !== "answered") return input;
   const ws = structuredClone(input);
   const run = reportCallRuns(ws).find((r) => r.id === runId)!;
+  const attempt = run.attempts.length;
+  const name = ws.settings.worker.name;
+  if (run.trigger === "schedule" && attempt <= REPORT_CALL_RETRIES) {
+    run.state = "calling";
+    run.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
+    pushEvent(ws, now, "neutral", {
+      ar: `انتهت مكالمة التقرير مع ${name} قبل حفظ التقرير — ناقة تعيد الاتصال بعد ٢٠ دقيقة (${attempt}/${REPORT_CALL_RETRIES + 1})`,
+      en: `The report call with ${name} ended before the report was saved — NAQAH will try again in 20 minutes (${attempt}/${REPORT_CALL_RETRIES + 1})`,
+    });
+    return ws;
+  }
   run.state = "missed";
+  run.nextAttemptAt = null;
   pushEvent(ws, now, "attention", {
-    ar: `انتهت مكالمة التقرير مع ${ws.settings.worker.name} قبل حفظ التقرير`,
-    en: `The report call with ${ws.settings.worker.name} ended before the report was saved`,
+    ar: `انتهت مكالمة التقرير مع ${name} قبل حفظ التقرير. لا يوجد تقرير لهذه الفترة بعد.`,
+    en: `The report call with ${name} ended before the report was saved. There is no report for this period yet.`,
   });
   return ws;
 }

@@ -1,5 +1,5 @@
 import { RESOURCE_KINDS } from "@/domain/catalog";
-import type { CallSchedule, Integrations, QuestionPlanEntry, ReportCallRun, ReportMode, ReportingWindow, Weekday, Worker, Workspace } from "@/domain/types";
+import type { CallSchedule, Integrations, OwnerCallRun, QuestionPlanEntry, ReportCallRun, ReportMode, ReportingWindow, Weekday, Worker, Workspace } from "@/domain/types";
 import { toDbId } from "./ids";
 import type {
   CallRow, FarmRows, FindingRow, ReportAnswerRow, ReportCallRunRow, ReportRow, WorkerCallAttemptRow, WorkerRow,
@@ -51,6 +51,21 @@ function questionPlanFrom(value: unknown): QuestionPlanEntry[] {
     if (typeof entry?.id !== "string" || typeof entry.enabled !== "boolean" || typeof entry.required !== "boolean") return [];
     return [{ id: entry.id, enabled: entry.enabled, required: entry.required }];
   });
+}
+
+/** Stored JSON, so anything malformed reads as no run. `undefined` stays: the column isn't there yet. */
+function ownerCallRunFrom(value: unknown): OwnerCallRun | null | undefined {
+  if (value === undefined) return undefined;
+  const run = value as Partial<OwnerCallRun> | null;
+  if (typeof run?.id !== "string" || typeof run.occurrence !== "string" || Number.isNaN(Date.parse(run.occurrence)) || !Array.isArray(run.attempts) || !run.state) return null;
+  return {
+    id: run.id,
+    occurrence: new Date(run.occurrence).toISOString(),
+    reportId: run.reportId ?? null,
+    attempts: run.attempts.map((a) => ({ at: a.at, result: a.result })),
+    nextAttemptAt: run.nextAttemptAt ?? null,
+    state: run.state,
+  };
 }
 
 /** Rows → the document every domain function works on. */
@@ -106,9 +121,7 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
         updatedAt: r.updated_at,
       })),
     lastUpdateAt: farm.last_update_at,
-    ownerSummary: farm.owner_summary_report_id && farm.owner_summary_not_before
-      ? { reportId: farm.owner_summary_report_id, notBefore: new Date(farm.owner_summary_not_before).toISOString() }
-      : null,
+    ...(farm.owner_call_run === undefined ? {} : { ownerCallRun: ownerCallRunFrom(farm.owner_call_run) }),
     reports: byTime(rows.reports, (r) => r.at).map((r) => ({
       id: r.id,
       at: r.at,

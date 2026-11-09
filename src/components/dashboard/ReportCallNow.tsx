@@ -4,21 +4,17 @@ import { useEffect, useRef, useState } from "react";
 import { formatSaudiMobile } from "@/components/setup/phone";
 import { ConfirmDialog } from "@/components/ui";
 import { dialableWorkerPhone, latestReportCall, reportCallIsLive } from "@/domain/reportCalls";
-import { REPORT_CALL_RETRIES } from "@/domain/clock";
 import type { Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { accountSync, reportCallNow } from "@/store/account";
 import { useIsAccount } from "@/store/workspace";
 
-const RECENT_MS = 24 * 60 * 60 * 1000;
-const time = { hour: "numeric", minute: "2-digit" } as const;
-
 /**
- * The latest report call, as it really stands, and, where this deployment allows it, the owner's
- * "Call now" for one controlled call. Real accounts only: the demo's calls live in the Call Lab.
+ * Where this deployment allows it, the owner's "Call now" for one controlled call. Real accounts
+ * only: the demo's calls live in the Call Lab. How the latest call stands is in the estate header.
  */
 export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: string; now: Date }) {
-  const { m, fmt } = useI18n();
+  const { m } = useI18n();
   const d = m.setup.dashboard;
   const account = useIsAccount();
   const [available, setAvailable] = useState(false);
@@ -50,15 +46,6 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
 
   if (!account) return null;
 
-  let status: string | null = null;
-  if (run && now.getTime() - new Date(run.occurrence).getTime() < RECENT_MS) {
-    const last = run.attempts.at(-1);
-    if (run.state === "answered") status = d.run.answered(worker);
-    else if (run.state === "calling" && last?.result === "pending") status = d.run.ringing(worker);
-    else if (run.state === "calling" && run.nextAttemptAt) status = d.run.retry(fmt.dateTime(run.nextAttemptAt, time), run.attempts.length + 1, REPORT_CALL_RETRIES + 1);
-    else if (run.state === "missed") status = last?.result === "answered" ? d.run.unsaved(worker) : d.run.missed(worker);
-  }
-
   async function call() {
     if (sending.current) return;
     sending.current = true;
@@ -82,10 +69,9 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
 
   const placedNotice = placedAfter && (active || (run?.id ?? null) === placedAfter.runId) ? d.callNowResult.placed(worker) : null;
   const message = notice ?? placedNotice;
-  if (!status && !available && !message) return null;
+  if (!available && !message) return null;
   return (
-    <div className="mt-3 space-y-2">
-      {status ? <p className="text-sm font-medium text-cream" role="status">{status}</p> : null}
+    <div className="space-y-2">
       {available && !active && phone ? (
         <button
           type="button"

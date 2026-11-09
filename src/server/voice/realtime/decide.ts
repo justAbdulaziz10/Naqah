@@ -2,7 +2,8 @@
  * What one tool call means, worked out with no storage involved. A real call keeps the outcome on
  * its row and the Voice Lab carries it in a signed token, so a Lab run tests the rules a phone call follows.
  */
-import { addUrgentNote, reportSummaryId, type AnswerInput, type CallSession } from "@/domain/conversation/engine";
+import { askedTopic, topicsInWords } from "@/domain/conversation/answer-topic";
+import { addUrgentNote, addWorkerNote, reportSummaryId, type AnswerInput, type CallSession, type OpenFact } from "@/domain/conversation/engine";
 import { makePersonalizer } from "@/domain/conversation/personalize";
 import type { Locale, Workspace } from "@/domain/types";
 import type { VoiceCallSession } from "../farm-call";
@@ -41,7 +42,8 @@ const UNKNOWN: Record<Locale, string> = {
   ar: "ما قدرت أحدد الإجابة، بنسجلها غير معروف ونكمل. ",
   en: "I couldn't determine the answer. I'll mark it unknown and continue. ",
 };
-const MOVING_ON: Record<Locale, string> = { ar: "ما قدرت أفهم التفاصيل، خلنا نراجع اللي عندي. ", en: "I couldn't follow the details, so let's review what I have. " };
+const NOTED: Record<Locale, string> = { ar: "سجلت كلامك كملاحظة. ", en: "I've kept that as a note. " };
+const NOTED_BACK: Record<Locale, string> = { ar: "سجلتها ملاحظة، وخلنا نرجع للسؤال. ", en: "I've kept that as a note. Back to the question. " };
 const positionOf = (session: CallSession) => [session.step, session.data.reportIndex ?? 0, session.data.tempCamelId ?? "", session.data.draftRevision ?? 0].join(":");
 
 /** The agent's lines from a turn onwards, with the farm's real names. Here and not imported, because farm-call brings in the write paths. */
@@ -91,7 +93,8 @@ export type ToolTurn = {
 export type ToolDecision = { counters: ToolCounters; checkError: string | null } & (
   /** Nothing moved: this result goes back as it is. */
   | { kind: "reply"; result: ToolResponse; refused: string | null }
-  | { kind: "urgent"; session: VoiceCallSession; result: ToolResponse }
+  /** The question stays, but the session changed: an urgent concern or a kept note. */
+  | { kind: "stay"; session: VoiceCallSession; result: ToolResponse; refused?: string }
   /** An answer the engine should take. */
   | { kind: "apply"; session: VoiceCallSession; chosen: AnswerInput; prefix: string }
   | { kind: "end"; session: VoiceCallSession }
@@ -140,29 +143,31 @@ export function decideTool({ session: current, counters, workspace, locale, name
   let droppedFacts = false;
   if (action.kind === "facts") {
     const checked = validateFacts(action.facts, heard, session, workspace, locale);
-    if (checked.facts.length) {
-      chosen = { facts: checked.facts };
-      droppedFacts = checked.dropped;
-      // Only refusals in a row count: a good update in between means the worker is being understood.
-      next = { ...next, refusals: 0 };
-    } else {
-      const refusals = counters.refusalAt === position ? (counters.refusals ?? 0) + 1 : 1;
-      next = { ...next, refusalAt: position, refusals };
-      if (refusals < 3) return refuse("facts_not_supported");
-      chosen = { value: "open_done" };
-      prefix = MOVING_ON[locale];
-    }
+    // Whatever couldn't be sorted into a topic is kept in the worker's own words, never guessed at and never lost.
+    const asNote: OpenFact = { type: "other", note: heard.trim().slice(0, 300), evidence: heard };
+    chosen = { facts: checked.dropped ? [...checked.facts, asNote] : checked.facts };
+    droppedFacts = checked.dropped;
   }
   // Free text is kept as the worker said it, not as the model worded it.
   if (action.kind === "answer" && action.input.text !== undefined && session.inputMode === "text" && heard.trim()) {
     chosen = mapSpeechToInput(session, heard, null, locale) ?? chosen;
+  }
+  // An answer that also mentions another topic: the answer stands and the rest is kept with it.
+  if (action.kind === "answer" && name === "answer_question" && gaveUp === null && session.inputMode !== "text") {
+    const asked = askedTopic(session);
+    if (asked !== "other" && asked !== "task" && [...topicsInWords(evidenceWords(heard))].some((topic) => topic !== asked)) session = addWorkerNote(session, heard);
   }
   if (action.kind === "answer" && name === "answer_question" && gaveUp === null) {
     const refused = refuseAnswer(session, action.input, heard, locale, workspace.camels.map((camel) => camel.name));
     if (refused) {
       const refusals = counters.refusalAt === position ? (counters.refusals ?? 0) + 1 : 1;
       next = { ...next, refusalAt: position, refusals };
-      if (refusals < 3) return refuse(refused, PREFIXES[refused === "answer_off_topic" ? "off_topic" : "unclear"][locale]);
+      if (refused === "answer_off_topic") {
+        const noted = addWorkerNote(session, heard);
+        if (refusals < 3) return { kind: "stay", session: noted, result: promptResult(noted, workspace, locale, "invalid", refused, NOTED_BACK[locale]), refused, counters: next, checkError };
+        session = noted;
+      }
+      if (refusals < 3) return refuse(refused, PREFIXES.unclear[locale]);
       ({ input: chosen, prefix } = afterRefusals(session, locale));
     }
   }
@@ -170,8 +175,8 @@ export function decideTool({ session: current, counters, workspace, locale, name
     // The model heard the audio and the note may word it differently, so what is kept is what was transcribed.
     const note = heard.trim().slice(0, 300);
     if (note) session = addUrgentNote(session, workspace, now, note);
-    return { kind: "urgent", session, result: promptResult(session, workspace, locale, "ok", undefined, URGENT[locale]), counters: next, checkError };
+    return { kind: "stay", session, result: promptResult(session, workspace, locale, "ok", undefined, URGENT[locale]), counters: next, checkError };
   }
   if (!chosen) return { kind: "end", session, counters: next, checkError };
-  return { kind: "apply", session, chosen, prefix: droppedFacts ? PREFIXES.unclear[locale] : prefix, counters: next, checkError };
+  return { kind: "apply", session, chosen, prefix: droppedFacts ? NOTED[locale] : prefix, counters: next, checkError };
 }

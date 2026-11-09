@@ -24,6 +24,7 @@ export function ReportModeField({ ws, onChange }: SetupFieldsProps) {
         className="mt-3 w-full [&>button]:flex-auto [&>button]:px-1.5 max-sm:[&>button]:text-[0.8125rem] sm:[&>button]:px-4"
       />
       <p className="mt-3 text-[0.9375rem] leading-relaxed text-muted">{c.detail[mode]}</p>
+      {mode === "guided" ? null : <p className="mt-1 text-sm leading-relaxed text-muted">{c.realtimeNote}</p>}
     </div>
   );
 }

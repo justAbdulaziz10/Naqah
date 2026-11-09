@@ -96,6 +96,8 @@ delete from custom_questions where farm_id = current_setting('t.farm_b')::uuid a
 update farms set plan = 'basic' where id = current_setting('t.farm_b')::uuid;
 select t.check('downgrade allowed at 5 questions', (select plan = 'basic' from farms where id = current_setting('t.farm_b')::uuid));
 
+-- Tasks and relays are Ultimate only; these cross-farm checks need rows on both farms.
+update farms set plan = 'ultimate';
 insert into task_tickets (farm_id, instruction) values (current_setting('t.farm_b')::uuid, 'B task');
 insert into relays (farm_id, message) values (current_setting('t.farm_b')::uuid, 'B relay');
 insert into criteria (farm_id, kind) values (current_setting('t.farm_b')::uuid, 'low_feed');

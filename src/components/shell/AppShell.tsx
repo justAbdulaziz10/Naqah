@@ -25,7 +25,7 @@ import { EventNotifier } from "@/components/pwa/EventNotifier";
 import { Logo } from "@/components/brand/Logo";
 import { hasOwnSetupData } from "@/components/setup/draft";
 import { Button, ButtonLink, ConfirmDialog, Toaster } from "@/components/ui";
-import { openNoAnswerTickets, openTaskTickets } from "@/domain";
+import { openTaskTickets } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useIsAccount, useNow, useWorkspaceStore } from "@/store/workspace";
@@ -64,7 +64,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   // The Voice Lab needs a signed-in owner, so demo visitors are not shown a door they can't open.
   const voiceLab = VOICE_LAB && account;
   const testCall = TEST_CALL && account;
-  const nav = NAV;
+  // Tasks are an Ultimate feature, so Basic has no such place.
+  const nav = NAV.filter((item) => item.key !== "tickets" || ws?.settings.plan === "ultimate");
   const [confirmingDemo, setConfirmingDemo] = useState(false);
 
   const isActive = (path: string) => {
@@ -114,7 +115,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const openTasks = (ws.settings.plan === "ultimate" ? openTaskTickets(ws).length : 0) + openNoAnswerTickets(ws).length;
+  const openTasks = ws.settings.plan === "ultimate" ? openTaskTickets(ws).length : 0;
 
   return (
     <div className="naqah-app min-h-dvh lg:grid lg:grid-cols-[260px_1fr]">
@@ -257,7 +258,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-label={m.common.nav.main}
         className="fixed inset-x-0 bottom-0 z-40 border-t border-stone/70 bg-cream pb-[env(safe-area-inset-bottom)] lg:hidden"
       >
-        <div className="mx-auto grid max-w-lg grid-cols-4">
+        <div className={cn("mx-auto grid max-w-lg", nav.length > 4 ? "grid-cols-4" : "grid-cols-3")}>
           {nav.filter((n) => n.key !== "settings").map((item) => {
             const active = isActive(item.path);
             return (

@@ -14,7 +14,7 @@ import type { Locale } from "@/domain/types";
 import { DbError } from "@/server/db/errors";
 import { toDbId } from "@/server/db/ids";
 import { listScheduledFarmIds, runFarmAction } from "@/server/db/service-repository";
-import { callOwnerAfterReport } from "./owner-call";
+import { dialDueOwnerCall } from "./owner-call";
 import { signCallToken } from "./token";
 import type { OutboundCaller, OutboundCallResult } from "./twilio";
 
@@ -52,7 +52,7 @@ export async function runReportCallScheduler(
       console.error(`[NAQAH] report call scheduler failed for a farm (${error instanceof DbError ? error.code : error instanceof Error ? error.name : "unknown"})`);
     }
     await dialDueWorkerCall(client, caller, farmId, summary, { baseUrl, now });
-    await dialDueOwnerSummary(client, caller, farmId, summary, now);
+    await dialOwner(client, caller, farmId, summary, now);
   }
   return summary;
 }
@@ -98,8 +98,8 @@ async function dialDueWorkerCall(
   }
 }
 
-/** A saved report whose owner call time has arrived. No call when nothing is queued. */
-async function dialDueOwnerSummary(
+/** The owner's due slot or due retry. A slot with no new report still calls, and says so. */
+async function dialOwner(
   client: SupabaseClient,
   caller: OutboundCaller,
   farmId: string,
@@ -107,13 +107,13 @@ async function dialDueOwnerSummary(
   now: Date,
 ) {
   try {
-    const placed = await callOwnerAfterReport(client, { farmId, reportCallId: null, now }, caller);
+    const placed = await dialDueOwnerCall(client, { farmId, now }, caller);
     if (!placed) return;
     if (placed.placed) summary.placed += 1;
     else summary.failed += 1;
   } catch (error) {
     summary.errors += 1;
-    console.error(`[NAQAH] owner summary scheduler failed for a farm (${error instanceof DbError ? error.code : error instanceof Error ? error.name : "unknown"})`);
+    console.error(`[NAQAH] owner call scheduler failed for a farm (${error instanceof DbError ? error.code : error instanceof Error ? error.name : "unknown"})`);
   }
 }
 

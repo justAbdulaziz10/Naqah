@@ -1101,6 +1101,13 @@ function addNote(session: CallSession, note: string | LocalizedText): CallSessio
   return reportAnswer(made.session, made.item!, note, "reported");
 }
 
+/** Something the worker said that fits no current question. It is kept and read back, never silently dropped. */
+export function addWorkerNote(session: CallSession, note: string): CallSession {
+  const said = note.trim().slice(0, 300);
+  if (!said || session.draft.answers.some((answer) => answer.questionId.startsWith(OPEN_NOTE) && answer.answer === said)) return session;
+  return addNote(session, said);
+}
+
 function recordCamel(session: CallSession, ws: Workspace, update: CallSession["draft"]["camelUpdates"][number]): CallSession {
   const { session: withItem, item } = predefinedItem(session, "herd_health");
   if (!item) return session;

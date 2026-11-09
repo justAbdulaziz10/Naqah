@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadFarm } from "@/server/db/queries";
 import { dueReportCallAttempts, reportCallBlock } from "@/domain/reportCalls";
 import { applyVoiceEvent, parseVoiceEvent } from "@/server/voice/contract";
-import { callOwnerAfterReport } from "./owner-call";
+import { dialDueOwnerCall } from "./owner-call";
 import { requestReportCallNow } from "./scheduler";
 import { recordingCaller, type OutboundCallResult } from "./twilio";
 import { latestTestCall, startTestCall, testCallReadiness } from "./test-call";
@@ -335,12 +335,12 @@ describe.skipIf(!local)("test calls on disposable PostgreSQL + PostgREST", () =>
     await recordTestCallProgress(client, runId, farm.farmId, "completed", now);
     expect(sql(`select state from report_call_runs where id = ${quote(runId)}`)).toBe("calling");
     const { caller, requests } = recordingCaller();
-    expect(await callOwnerAfterReport(client, { farmId: farm.farmId, reportCallId: runId, now }, caller)).toBeNull();
+    expect(await dialDueOwnerCall(client, { farmId: farm.farmId, now }, caller)).toBeNull();
     expect(requests).toHaveLength(0);
     vi.stubEnv("NAQAH_TEST_CALLS", "");
-    const reportId = sql(`insert into reports (farm_id) values (${quote(farm.farmId)}) returning id`);
-    sql(`update report_call_runs set report_id = ${quote(reportId)} where id = ${quote(runId)}`);
-    expect(await callOwnerAfterReport(client, { farmId: farm.farmId, reportCallId: runId, now }, caller)).toMatchObject({ placed: true });
+    sql(`update report_call_runs set state = 'completed' where id = ${quote(runId)}`);
+    sql(`update farms set owner_call_day = null, owner_call_time = to_char(${quote(now.toISOString())}::timestamptz at time zone 'Asia/Riyadh', 'HH24:MI')::time, plan = 'ultimate' where id = ${quote(farm.farmId)}`);
+    expect(await dialDueOwnerCall(client, { farmId: farm.farmId, now }, caller)).toMatchObject({ placed: true });
     expect(requests).toHaveLength(1);
   });
 

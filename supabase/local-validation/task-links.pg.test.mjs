@@ -42,10 +42,13 @@ describe('task links on real disposable PostgreSQL', () => {
     expect(links()).toEqual(tasks);
     expect(sql(`select batch_id from pending_worker_calls where id=${q(call)}`)).toBe('local:batch');
   });
-  it('keeps calls without tasks and Basic relays valid', () => {
-    sql(`update farms set plan='basic' where id=${q(A)}`);
+  it('keeps calls without tasks valid, and refuses new relays on Basic', () => {
     const relay = randomUUID();
-    sql(rpc({ relays: [{ id: relay, at, message: 'LOCAL TEST Basic relay', delivered: false }], pending_worker_calls: [pending({ relay_id: relay, batch_id: 'basic', covered_task_ids: [] })] }));
+    const save = () => sql(rpc({ relays: [{ id: relay, at, message: 'LOCAL TEST relay', delivered: false }], pending_worker_calls: [pending({ relay_id: relay, batch_id: 'relay', covered_task_ids: [] })] }));
+    sql(`update farms set plan='basic' where id=${q(A)}`);
+    expect(save).toThrow(/23514/);
+    sql(`update farms set plan='ultimate' where id=${q(A)}`);
+    save();
     expect(count(`task_tickets where farm_id=${q(A)}`)).toBe(0);
     expect(links()).toEqual([]);
   });

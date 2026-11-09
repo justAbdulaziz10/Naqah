@@ -51,6 +51,13 @@ describe("workspace rows", () => {
     const coverage = [{ questionId: "feed_level", status: "not_reported" as const }];
     expect(workspaceFromRows({ ...empty, reports: [{ ...legacy, mode: "open", coverage }] }).reports[0]).toMatchObject({ mode: "open", coverage });
   });
+  it("tells an absent owner-run column from an empty one, and drops a malformed run", () => {
+    expect(workspaceFromRows(empty)).not.toHaveProperty("ownerCallRun");
+    expect(workspaceFromRows({ ...empty, farm: { ...farm, owner_call_run: null } }).ownerCallRun).toBeNull();
+    expect(workspaceFromRows({ ...empty, farm: { ...farm, owner_call_run: { id: 1 } } }).ownerCallRun).toBeNull();
+    const run = { id: "r", occurrence: "2026-11-08T09:00:00+00:00", reportId: null, attempts: [{ at: "2026-11-08T09:00:00.000Z", result: "pending" }], nextAttemptAt: null, state: "calling" };
+    expect(workspaceFromRows({ ...empty, farm: { ...farm, owner_call_run: run } }).ownerCallRun).toEqual({ ...run, occurrence: "2026-11-08T09:00:00.000Z" });
+  });
   it("defaults the report mode and plan before the columns exist, and drops a malformed plan", () => {
     expect(workspaceFromRows(empty).settings).toMatchObject({ reportMode: "guided", questionPlan: [] });
     const entry = { id: "herd_health", enabled: false, required: true };
@@ -128,12 +135,15 @@ describe("change sets", () => {
     const changes = diffWorkspace(ws, saved.ws, farmId, { providerCallId: "CA1" });
     expect(changes.reports).toHaveLength(1);
     expect(changes.calls).toEqual([expect.objectContaining({ kind: "worker_report", provider_call_id: "CA1" })]);
-    expect(changes.farm).toEqual({
-      last_update_at: now.toISOString(),
-      owner_summary_report_id: toDbId(farmId, saved.report.id),
-      owner_summary_not_before: "2026-11-08T16:00:00.000Z",
-    });
+    expect(changes.farm).toEqual({ last_update_at: now.toISOString() });
     expect(changes.events?.length).toBeGreaterThan(0);
+  });
+  it("writes an owner run with database ids, and nothing when it didn't change", () => {
+    const ws = { ...stored(createDemoWorkspace("en", "ultimate")), ownerCallRun: null };
+    const reportId = toDbId(farmId, "rep_0123456789");
+    const run = { id: "ocr_0123456789", occurrence: now.toISOString(), reportId, attempts: [{ at: now.toISOString(), result: "pending" as const }], nextAttemptAt: null, state: "calling" as const };
+    expect(diffWorkspace(ws, { ...ws, ownerCallRun: run }, farmId).farm).toEqual({ owner_call_run: { ...run, id: toDbId(farmId, run.id), reportId } });
+    expect(hasChanges(diffWorkspace({ ...ws, ownerCallRun: run }, { ...ws, ownerCallRun: run }, farmId))).toBe(false);
   });
   it("sends only new attempts", () => {
     const ws = stored(createEmptyWorkspace("ultimate"));

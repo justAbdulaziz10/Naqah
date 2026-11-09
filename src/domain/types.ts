@@ -330,6 +330,25 @@ export interface ReportCallRun {
   reportId: string | null;
 }
 
+/** Result of one placed owner-call attempt. "pending" while the phone rings or the call runs. */
+export type OwnerAttemptResult = "pending" | "unanswered" | "interrupted" | "completed";
+
+/**
+ * One scheduled NAQAH → owner call: 3 attempts, 20 minutes apart, then "missed".
+ * Only the current or latest run is kept; the call log is the history.
+ */
+export interface OwnerCallRun {
+  id: string;
+  /** ISO time of the owner's scheduled slot. */
+  occurrence: string;
+  /** The report summarized on this run. null: the owner is told no verified report has arrived. */
+  reportId: string | null;
+  attempts: { at: string; result: OwnerAttemptResult }[];
+  /** When the next attempt should be placed; null while ringing or when finished. */
+  nextAttemptAt: string | null;
+  state: "calling" | "answered" | "completed" | "missed";
+}
+
 /** A message relayed to the worker (Basic relays without a ticket). */
 export interface Relay {
   id: string;
@@ -387,8 +406,8 @@ export interface Workspace {
   /** Time of the latest successful farm update. */
   lastUpdateAt: string | null;
   reports: FarmReport[];
-  /** One queued owner summary. A newer saved report replaces it. Absent on older workspaces. */
-  ownerSummary?: { reportId: string; notBefore: string } | null;
+  /** The current or latest scheduled owner call. Undefined until a farm's store can hold it. */
+  ownerCallRun?: OwnerCallRun | null;
   calls: CallLog[];
   taskTickets: TaskTicket[];
   noAnswerTickets: NoAnswerTicket[];

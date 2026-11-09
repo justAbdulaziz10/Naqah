@@ -145,6 +145,14 @@ describe("signed call tokens", () => {
     expect(verifyCallToken(signed, SECRET, now + CALL_TOKEN_MAX_AGE_MS + 1)).toBeNull();
     expect(verifyCallToken(signCallToken({ ...token, r: "rcl_1" }, SECRET), SECRET, now)).toBeNull();
   });
+  it("binds an owner call to its run and attempt, and allows a call with no report", () => {
+    const owner = { k: "owner" as const, f: FARM, o: RUN, r: "", n: 3, l: "ar" as const, t: now };
+    expect(verifyCallToken(signCallToken(owner, SECRET), SECRET, now)).toEqual(owner);
+    expect(verifyCallToken(signCallToken({ ...owner, r: RUN }, SECRET), SECRET, now)).toEqual({ ...owner, r: RUN });
+    expect(verifyCallToken(signCallToken({ ...owner, r: "rep_1" }, SECRET), SECRET, now)).toBeNull();
+    expect(verifyCallToken(signCallToken({ ...owner, o: "ocr_1" }, SECRET), SECRET, now)).toBeNull();
+    expect(verifyCallToken(signCallToken({ ...owner, n: 4 }, SECRET), SECRET, now)).toBeNull();
+  });
 });
 
 describe("report-call scheduler route", () => {
@@ -230,7 +238,7 @@ describe("outbound answer and status webhooks", () => {
   });
   it("refuses an owner-call token or a missing token on the report-call webhook", async () => {
     farmEnv();
-    const owner = encodeURIComponent(signCallToken({ k: "owner", f: FARM, r: RUN, l: "en", t: Date.now() }, SECRET));
+    const owner = encodeURIComponent(signCallToken({ k: "owner", f: FARM, o: RUN, r: "", n: 1, l: "en", t: Date.now() }, SECRET));
     expect((await outbound(hook(`/api/voice/outbound?s=${owner}`, { CallSid: CALL }))).status).toBe(403);
     expect((await outbound(hook("/api/voice/outbound", { CallSid: CALL }))).status).toBe(403);
     expect(mock.answer).not.toHaveBeenCalled();

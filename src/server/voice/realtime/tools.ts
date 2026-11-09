@@ -11,8 +11,8 @@ const string = { type: "string" };
 const evidence = { type: "string", description: "Exact words from the worker's utterance supporting this fact." };
 const nullableNumber = { type: ["number", "null"], minimum: 0 };
 const nullableString = { type: ["string", "null"] };
-const object = (properties: object, required: string[]) => ({ type: "object", properties, required, additionalProperties: false });
-const tool = (name: string, description: string, properties: object, required: string[]) => ({ type: "function", name, description, parameters: object(properties, required) });
+export const object = (properties: object, required: string[]) => ({ type: "object", properties, required, additionalProperties: false });
+export const tool = (name: string, description: string, properties: object, required: string[]) => ({ type: "function", name, description, parameters: object(properties, required) });
 
 export const REALTIME_TOOLS = [
   tool("answer_question", "Classify the current guided answer. Pass exactly one of value or text, and the asked topic.", { value: string, text: string, topic: { type: "string", enum: TOPICS } }, ["topic"]),
@@ -44,9 +44,9 @@ export type ToolAction =
 export type ToolCheck = { ok: true; action: ToolAction } | { ok: false; error: string };
 export const SUMMARY_STEP = "report_summary";
 const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
-const isPlainObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-const onlyKeys = (args: Record<string, unknown>, allowed: string[]) => Object.keys(args).every((key) => allowed.includes(key));
-const cleanString = (value: unknown, max = 300): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= max && !CONTROL.test(value);
+export const isPlainObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+export const onlyKeys = (args: Record<string, unknown>, allowed: string[]) => Object.keys(args).every((key) => allowed.includes(key));
+export const cleanString = (value: unknown, max = 300): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= max && !CONTROL.test(value);
 const isGuided = (session: CallSession) => session.inputMode !== "none" && ![SUMMARY_STEP, "report_correct_pick", "report_mode_choice", "open_listen", "open_more"].includes(session.step);
 
 export function toolsFor(session: CallSession) {

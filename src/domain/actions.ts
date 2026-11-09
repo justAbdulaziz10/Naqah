@@ -4,8 +4,7 @@
  * through these functions so the rules live in exactly one place.
  */
 import { MAX_RETRIES, RETRY_DELAY_MS } from "./clock";
-import { dueTaskVerifications, dueWorkerCalls } from "./rules";
-import { ownerSummaryDueAt } from "./schedule";
+import { coveredTasks, dueTaskVerifications, dueWorkerCalls, openCoveredTasks } from "./rules";
 import { coveredReportDraft, evaluateFindings, reportDraftIssue, type ReportDraft } from "./findings";
 import { uid } from "./id";
 import type {
@@ -102,7 +101,9 @@ export function completeWorkerReport(
     Object.assign(r, { level: u.level, quantity: u.quantity, note: u.note, certainty: u.certainty, updatedAt: at });
   }
 
-  for (const t of draft.taskConfirmations) {
+  // Basic has no tasks to confirm, whatever a draft carries.
+  const confirmations = ws.settings.plan === "ultimate" ? draft.taskConfirmations : [];
+  for (const t of confirmations) {
     const ticket = ws.taskTickets.find((x) => x.id === t.taskId && x.status === "open");
     if (ticket && t.done) {
       Object.assign(ticket, { status: "closed", closedAt: at, closedVia: "worker_report" as CallKind });
@@ -141,7 +142,7 @@ export function completeWorkerReport(
     ar: `حُفظ تحديث العزبة من ${ws.settings.worker.name} (${draft.answers.length} إجابة)`,
     en: `Farm update saved from ${ws.settings.worker.name} (${draft.answers.length} answers)`,
   });
-  const closed = draft.taskConfirmations.filter((t) => t.done).length;
+  const closed = confirmations.filter((t) => t.done).length;
   if (closed)
     pushEvent(ws, now, "success", {
       ar: `أُغلقت ${closed} مهمة بعد تأكيد العامل`,
@@ -152,35 +153,7 @@ export function completeWorkerReport(
       ar: `رُصدت ${findings.length} ملاحظة تطابق معايير المالك`,
       en: `${findings.length} ${findings.length === 1 ? "finding matches" : "findings match"} the owner's criteria`,
     });
-  return { ws: queueOwnerSummary(ws, now, report.id), report };
-}
-
-/** Queue the saved report for the owner's chosen call time. A newer report replaces an older queued summary. */
-export function queueOwnerSummary(input: Workspace, now: Date, reportId: string): Workspace {
-  if (!input.reports.some((report) => report.id === reportId)) return input;
-  const due = ownerSummaryDueAt(now, input.settings.plan, input.settings.ownerCallSchedule);
-  if (!due) return input;
-  const ws = clone(input);
-  ws.ownerSummary = { reportId, notBefore: due.toISOString() };
-  return ws;
-}
-
-/** Take the queued summary when it is due. A second caller sees nothing left to dial. */
-export function claimDueOwnerSummary(input: Workspace, now: Date): { ws: Workspace; reportId: string | null; notBefore: string | null } {
-  const queued = input.ownerSummary;
-  if (!queued || Date.parse(queued.notBefore) > now.getTime()) return { ws: clone(input), reportId: null, notBefore: null };
-  const ws = clone(input);
-  ws.ownerSummary = null;
-  if (!input.reports.some((report) => report.id === queued.reportId)) return { ws, reportId: null, notBefore: null };
-  return { ws, reportId: queued.reportId, notBefore: queued.notBefore };
-}
-
-/** Put a summary back when the telephone provider refused the call. A newer queue wins. */
-export function restoreOwnerSummary(input: Workspace, reportId: string, notBefore: string): Workspace {
-  if (input.ownerSummary) return input;
-  const ws = clone(input);
-  ws.ownerSummary = { reportId, notBefore };
-  return ws;
+  return { ws, report };
 }
 
 /**
@@ -218,7 +191,8 @@ export function rejectWorkerReport(input: Workspace, now: Date, reason: RejectRe
 
 // ───────────────────────── Owner calls (Phases 4–5) ─────────────────────────
 
-export function recordOwnerNotification(input: Workspace, now: Date, reportId: string, answered: boolean): Workspace {
+/** `reportId` null: the call told the owner that no verified report has arrived. */
+export function recordOwnerNotification(input: Workspace, now: Date, reportId: string | null, answered: boolean): Workspace {
   const ws = clone(input);
   pushCall(ws, {
     kind: "owner_notification",
@@ -228,14 +202,20 @@ export function recordOwnerNotification(input: Workspace, now: Date, reportId: s
     outcome: answered ? "completed" : "no_answer",
     attempt: null,
     summary: answered
-      ? { ar: "أُبلغ المالك بالتحديث", en: "Owner briefed on the update" }
-      : { ar: "مكالمة فائتة — تشير إلى وصول تحديث", en: "Missed call — signals that an update arrived" },
+      ? reportId
+        ? { ar: "أُبلغ المالك بالتحديث", en: "Owner briefed on the update" }
+        : { ar: "أُبلغ المالك أنه ما وصل تقرير مؤكد", en: "Owner told that no verified report has arrived" }
+      : reportId
+        ? { ar: "مكالمة فائتة — تشير إلى وصول تحديث", en: "Missed call — signals that an update arrived" }
+        : { ar: "مكالمة فائتة — ما وصل تقرير مؤكد", en: "Missed call — no verified report has arrived" },
     ticketId: null,
     reportId,
   });
   if (answered) {
     if (ws.settings.plan === "basic") ws.ownerAllowanceUsedAt = iso(now);
-    pushEvent(ws, now, "success", { ar: "اتصلت ناقة بالمالك وأبلغته بالتحديث", en: "NAQAH called the owner with the update" });
+    pushEvent(ws, now, "success", reportId
+      ? { ar: "اتصلت ناقة بالمالك وأبلغته بالتحديث", en: "NAQAH called the owner with the update" }
+      : { ar: "اتصلت ناقة بالمالك وأبلغته أنه ما وصل تقرير مؤكد", en: "NAQAH called the owner to say no verified report has arrived" });
   } else {
     ws.missedNotificationAt = iso(now);
     pushEvent(ws, now, "neutral", {
@@ -439,15 +419,38 @@ export function submitOwnerInstructionBatch(
 
 /**
  * Phase 7/8: at a task's scheduled time the AI calls the worker to verify completion.
- * One call record per task. A repeated call returns that record and does not add another.
+ * Tasks due at the same moment share one call. A task joins only before that call is first
+ * dialled; one whose instruction arrived later gets its own call, with its own three attempts.
+ * A repeated start returns the task's call and does not add another. Basic has no verification.
  */
-export function startTaskVerification(input: Workspace, now: Date, taskId: string): { ws: Workspace; pendingCallId: string } {
+export function startTaskVerification(input: Workspace, now: Date, taskId: string): { ws: Workspace; pendingCallId: string | null } {
+  if (input.settings.plan !== "ultimate") return { ws: clone(input), pendingCallId: null };
   const existing = input.pendingWorkerCalls.find(
-    (call) => call.purpose === "task_verification" && call.taskTicketId === taskId,
+    (call) => call.purpose === "task_verification" && coveredTasks(call).includes(taskId),
   );
   if (existing) return { ws: clone(input), pendingCallId: existing.id };
   const ws = clone(input);
   const task = ws.taskTickets.find((t) => t.id === taskId);
+  const dueAt = (id: string) => {
+    const scheduledFor = ws.taskTickets.find((t) => t.id === id)?.scheduledFor;
+    return scheduledFor ? Date.parse(scheduledFor) : null;
+  };
+  const group = ws.pendingWorkerCalls.find(
+    (call) =>
+      call.purpose === "task_verification" &&
+      call.state === "pending" &&
+      call.attempts.length === 0 &&
+      call.nextAttemptAt !== null &&
+      Date.parse(call.nextAttemptAt) <= now.getTime() &&
+      dueAt(taskId) !== null &&
+      coveredTasks(call).some((id) => dueAt(id) === dueAt(taskId)),
+  );
+  if (group) {
+    group.coveredTaskIds = [...coveredTasks(group), taskId];
+    group.taskTicketId = null;
+    group.message = `${group.message}\n${task?.instruction ?? ""}`;
+    return { ws, pendingCallId: group.id };
+  }
   const pending: PendingWorkerCall = {
     id: uid("pwc"),
     purpose: "task_verification",
@@ -457,6 +460,7 @@ export function startTaskVerification(input: Workspace, now: Date, taskId: strin
     attempts: [],
     nextAttemptAt: iso(now),
     state: "pending",
+    coveredTaskIds: [taskId],
   };
   ws.pendingWorkerCalls.push(pending);
   return { ws, pendingCallId: pending.id };
@@ -582,12 +586,11 @@ export function resolveWorkerCallAttempt(
   return { ws, outcome: "no_answer_ticket" };
 }
 
-/** A closed task has nothing left to verify, so its retries stop and no No Answer Ticket follows. */
+/** A call with no open task left has nothing to verify, so its retries stop. */
 function stopVerificationRetries(ws: Workspace, taskId: string) {
   for (const call of ws.pendingWorkerCalls) {
-    if (call.purpose === "task_verification" && call.taskTicketId === taskId && call.state === "pending") {
-      Object.assign(call, { state: "delivered", nextAttemptAt: null });
-    }
+    if (call.purpose !== "task_verification" || call.state !== "pending" || !coveredTasks(call).includes(taskId)) continue;
+    if (openCoveredTasks(ws, call).length === 0) Object.assign(call, { state: "delivered", nextAttemptAt: null });
   }
 }
 
@@ -595,7 +598,7 @@ function stopVerificationRetries(ws: Workspace, taskId: string) {
 export function confirmTask(input: Workspace, now: Date, taskId: string, done: boolean, via: CallKind): Workspace {
   const ws = clone(input);
   const t = ws.taskTickets.find((x) => x.id === taskId);
-  if (!t || t.status !== "open") return ws;
+  if (!t || t.status !== "open" || ws.settings.plan !== "ultimate") return ws;
   if (done) {
     Object.assign(t, { status: "closed", closedAt: iso(now), closedVia: via });
     stopVerificationRetries(ws, t.id);

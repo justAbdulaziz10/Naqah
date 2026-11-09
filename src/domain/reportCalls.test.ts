@@ -7,6 +7,7 @@ import {
   activeReportCall,
   claimDueReportCall,
   dueReportCallAttempts,
+  REPORT_CALL_GIVE_UP_MS,
   dueScheduledReportCall,
   endReportCallWithoutReport,
   placeReportCallAttempt,
@@ -129,16 +130,57 @@ describe("scheduled report calls", () => {
     expect(startReportCall(saved, fromRiyadh(2026, 11, 5, 19, 0), "manual").blocked).toBe("already_reported");
   });
 
-  it("an answered call that ends without a report is not retried automatically", () => {
-    const started = startReportCall(farm("ultimate"), THU_1700, "schedule");
-    const run = started.run;
-    let ws = started.ws;
-    ws = placeReportCallAttempt(ws, THU_1700, run!.id).ws;
-    ws = resolveReportCallAttempt(ws, THU_1700, run!.id, true).ws;
-    ws = endReportCallWithoutReport(ws, fromRiyadh(2026, 11, 5, 17, 3), run!.id);
-    expect(ws.reportCalls?.[0].state).toBe("missed");
-    expect(dueReportCallAttempts(ws, fromRiyadh(2026, 11, 5, 18, 0))).toHaveLength(0);
+  function interrupted(trigger: "schedule" | "manual") {
+    const started = startReportCall(farm("ultimate"), THU_1700, trigger);
+    let ws = placeReportCallAttempt(started.ws, THU_1700, started.run!.id).ws;
+    ws = resolveReportCallAttempt(ws, THU_1700, started.run!.id, true).ws;
+    return { ws: endReportCallWithoutReport(ws, fromRiyadh(2026, 11, 5, 17, 3), started.run!.id), runId: started.run!.id };
+  }
+
+  it("retries a scheduled call that ended unsaved, consuming the attempt", () => {
+    const { ws } = interrupted("schedule");
+    expect(ws.reportCalls?.[0]).toMatchObject({ state: "calling", nextAttemptAt: fromRiyadh(2026, 11, 5, 17, 23).toISOString() });
+    expect(ws.reportCalls?.[0].attempts).toHaveLength(1);
+    expect(dueReportCallAttempts(ws, fromRiyadh(2026, 11, 5, 17, 22))).toHaveLength(0);
+    expect(dueReportCallAttempts(ws, fromRiyadh(2026, 11, 5, 17, 23))).toHaveLength(1);
+    expect(startReportCall(ws, fromRiyadh(2026, 11, 5, 17, 5), "manual").blocked).toBe("in_progress");
+  });
+
+  it("stops after the third interrupted attempt and is missed", () => {
+    const { runId, ws: first } = interrupted("schedule");
+    let ws = first;
+    for (const minute of [23, 43]) {
+      const at = fromRiyadh(2026, 11, 5, 17, minute);
+      ws = placeReportCallAttempt(ws, at, runId).ws;
+      ws = resolveReportCallAttempt(ws, at, runId, true).ws;
+      ws = endReportCallWithoutReport(ws, new Date(at.getTime() + MINUTE), runId);
+    }
+    expect(ws.reportCalls?.[0]).toMatchObject({ state: "missed", nextAttemptAt: null });
+    expect(ws.reportCalls?.[0].attempts).toHaveLength(3);
+    expect(ws.events.at(-1)?.text.en).toContain("no report for this period");
+  });
+
+  it("does not retry a manual call that ended unsaved", () => {
+    const { ws } = interrupted("manual");
+    expect(ws.reportCalls?.[0]).toMatchObject({ state: "missed", nextAttemptAt: null });
     expect(startReportCall(ws, fromRiyadh(2026, 11, 5, 18, 0), "manual").blocked).toBeNull();
+  });
+
+  it("gives up a retry that is left too long after its slot", () => {
+    const { ws } = interrupted("schedule");
+    const result = claimDueReportCall(ws, new Date(THU_1700.getTime() + REPORT_CALL_GIVE_UP_MS + MINUTE));
+    expect(result.claim).toBeNull();
+    expect(result.ws.reportCalls?.[0]).toMatchObject({ state: "missed", nextAttemptAt: null });
+  });
+
+  it("leaves a saved report alone when the call's end arrives afterwards", () => {
+    const started = startReportCall(farm("ultimate"), THU_1700, "schedule");
+    let ws = placeReportCallAttempt(started.ws, THU_1700, started.run!.id).ws;
+    ws = resolveReportCallAttempt(ws, THU_1700, started.run!.id, true).ws;
+    ws = completeWorkerReport(ws, fromRiyadh(2026, 11, 5, 17, 6), { ...draft, herdCount: 40 }, started.run!.id).ws;
+    const late = endReportCallWithoutReport(ws, fromRiyadh(2026, 11, 5, 17, 7), started.run!.id);
+    expect(late).toBe(ws);
+    expect(late.reportCalls?.[0].state).toBe("completed");
   });
 });
 

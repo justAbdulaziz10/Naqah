@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { CamelMark } from "@/components/brand/CamelMark";
-import { CERTAINTY_LABELS, HEALTH_LABELS, MAX_RETRIES, RESOURCE_LABELS, levelLabel } from "@/domain";
-import type { CallOutcome, Certainty, HealthStatus, Level, ResourceKind, Workspace, NoAnswerTicket } from "@/domain";
+import { CERTAINTY_LABELS, HEALTH_LABELS, RESOURCE_LABELS, levelLabel } from "@/domain";
+import type { CallOutcome, Certainty, HealthStatus, Level, ResourceKind } from "@/domain";
 import { useI18n } from "@/i18n/client";
 
 const healthText: Record<HealthStatus, string> = {
@@ -121,35 +121,4 @@ export function EmptyState({
       {action ? <div className="mt-2">{action}</div> : null}
     </div>
   );
-}
-
-export function noAnswerAttemptInfo(ws: Workspace, ticket: NoAnswerTicket) {
-  const matching = ws.pendingWorkerCalls
-    .filter(
-      (call) =>
-        call.state === "no_answer_ticket" &&
-        call.purpose === ticket.purpose &&
-        call.taskTicketId === ticket.taskTicketId &&
-        call.message === ticket.message,
-    )
-    .sort((a, b) => {
-      const aAt = a.attempts.at(-1)?.at ?? "";
-      const bAt = b.attempts.at(-1)?.at ?? "";
-      return Math.abs(Date.parse(aAt) - Date.parse(ticket.createdAt)) - Math.abs(Date.parse(bAt) - Date.parse(ticket.createdAt));
-    })[0];
-
-  if (matching?.attempts.length) {
-    const lastAttempt = matching.attempts.at(-1)?.at;
-    return { count: matching.attempts.length, lastAttemptAt: lastAttempt ?? ticket.createdAt };
-  }
-
-  const kind = ticket.purpose === "instruction" ? "worker_instruction" : "worker_task_verification";
-  const attempts = ws.calls.filter(
-    (call) =>
-      call.kind === kind &&
-      call.outcome === "no_answer" &&
-      call.ticketId === ticket.taskTicketId &&
-      Date.parse(call.at) <= Date.parse(ticket.createdAt),
-  );
-  return { count: attempts.length || MAX_RETRIES + 1, lastAttemptAt: attempts.at(-1)?.at ?? ticket.createdAt };
 }

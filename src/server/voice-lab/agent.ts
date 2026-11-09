@@ -202,7 +202,7 @@ export function runLabTool(input: { session: LabSession; ws: Workspace; locale: 
     const fallback = decision.result.end === "fallback";
     return reply(decision.result, counted(fallback ? { ...session, done: true } : session), decision.refused, fallback ? { kind: "fallback" } : null);
   }
-  if (decision.kind === "urgent") return reply(decision.result, counted(decision.session), null);
+  if (decision.kind === "stay") return reply(decision.result, counted(decision.session), decision.refused ?? null);
   if (decision.kind === "end") return closing(counted({ ...decision.session, done: true }), "ended_without_saving", ENDED[locale], { kind: inReview ? "declined" : "ended" });
 
   // `commit` is deliberately ignored, as on a real call: it only signals which event applies.

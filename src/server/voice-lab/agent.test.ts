@@ -276,8 +276,9 @@ describe("Voice Lab asks instead of guessing", () => {
       expect(result.refused).toBe(refused);
       expect(result.session.draft.camelUpdates).toEqual([]);
       expect(result.session.step).toBe(session.step);
-      expect(result.view.facts).toEqual([]);
+      expect(result.session.draft.resourceUpdates).toEqual([]);
     }
+    expect(said(session, { value: "yes" }, "العلف زين").session.draft.answers.map((entry) => entry.answer)).toEqual(["العلف زين"]);
     expect(said(session, { value: "yes" }, "كلها بخير").refused).toBeNull();
   });
 
@@ -417,25 +418,23 @@ describe("Voice Lab follows the server-spoken protocol", () => {
     expect(saved.session.draft.coverage?.some((entry) => entry.status === "not_reported")).toBe(true);
   });
 
-  it("moves on after repeated unsupported facts, recording none of them", () => {
+  it("keeps unsupported facts as the worker's words, recording no topic from them", () => {
     const workspace = withMode("open");
     const { session } = openFor(workspace);
     const facts = { facts: [{ type: "resource", resource: "water", level: "good", quantity: null, evidence: "الماء زين" }] };
     const attempt = (current: LabSession) => runLabTool({ session: current, ws: workspace, locale: "ar", name: "record_facts", args: facts, spoke: true, workerUtterance: "العلف قليل", now });
-    let result = attempt(session);
-    result = attempt(result.session);
-    expect(result.refused).toBe("facts_not_supported");
-    result = attempt(result.session);
+    const result = attempt(session);
     expect(result.refused).toBeNull();
     expect(result.session.draft.resourceUpdates).toEqual([]);
-    expect(result.summaryText ?? result.sayText).toContain("خلنا نراجع");
+    expect(result.session.draft.answers).toHaveLength(1);
+    expect(result.session.step).toBe("open_more");
+    expect(result.sayText).toContain("ملاحظة");
   });
 
-  it("refuses facts the worker's words don't support", () => {
+  it("never turns unsupported facts into a topic update", () => {
     const workspace = withMode("open");
     const { session } = openFor(workspace);
     const result = runLabTool({ session, ws: workspace, locale: "ar", name: "record_facts", args: { facts: [{ type: "resource", resource: "water", level: "good", quantity: null, evidence: "الماء زين" }] }, spoke: true, workerUtterance: "العلف قليل", now });
-    expect(result.refused).toBe("facts_not_supported");
     expect(result.sayText).toBeTruthy();
     expect(result.session.draft.resourceUpdates).toEqual([]);
   });

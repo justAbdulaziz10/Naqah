@@ -44,7 +44,7 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
   const c = m.app.calls;
   const story = callEntries(ws).find((entry) => entry.type === "report" && entry.report?.id === report.id);
   const briefing = story?.type === "report" ? story.briefings.find((call) => call.outcome === "completed") ?? story.briefings.at(-1) ?? null : null;
-  const delivery = story?.type === "report" ? story.deliveries.at(-1)?.find((call) => call.outcome === "completed") ?? null : null;
+  const delivery = story?.type === "report" && ws.settings.plan === "ultimate" ? story.deliveries.at(-1)?.find((call) => call.outcome === "completed") ?? null : null;
   const custom = new Set(ws.settings.customQuestions.map((question) => question.id));
   const answers = report.answers.filter((answer) => custom.has(answer.questionId) && !answer.followUp && report.coverage?.find((entry) => entry.questionId === answer.questionId)?.status !== "not_reported");
   const supplies = reportResources(ws, report);
@@ -65,6 +65,7 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
           </div>
           <p className="text-sm font-medium text-espresso">
             <time className="ltr-nums" dateTime={report.at}>{fmt.dateTime(report.at, { weekday: "long", day: "numeric", month: "short", hour: undefined, minute: undefined })}</time>
+            {report.mode ? <span className="font-normal text-muted"> · {o.reportMode[report.mode]}</span> : null}
           </p>
         </figcaption>
         <ReportCoverage ws={ws} report={report} />

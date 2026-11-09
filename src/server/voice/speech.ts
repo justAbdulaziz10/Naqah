@@ -371,6 +371,12 @@ function intentReply(session: CallSession, reading: Reading): string | null {
     const well = reading.wellbeing || has(reading, "healthy") || has(reading, "sick", true) || has(reading, "thing", true);
     return oneSide(well, sick, "healthy", "sick");
   }
+  if (values.has("instructions_confirm") && values.has("instructions_cancel")) {
+    if (!has(reading, "save") && !has(reading, "save", true) && (reading.said.size > 0 || reading.negated.size > 0)) return null;
+    if (has(reading, "save", true)) return "instructions_cancel";
+    if (reading.deny || negatedSomething) return "instructions_correct";
+    return reading.affirm || has(reading, "save") ? "instructions_confirm" : null;
+  }
   if (values.has("confirm_save") && values.has("end_without_save")) {
     if (!has(reading, "save") && !has(reading, "save", true) &&
       (reading.said.size > 0 || reading.negated.size > 0)) return null;
@@ -378,7 +384,7 @@ function intentReply(session: CallSession, reading: Reading): string | null {
     if (reading.deny || negatedSomething) return values.has("correct") ? "correct" : "end_without_save";
     return reading.affirm || has(reading, "save") ? "confirm_save" : null;
   }
-  const isTask = item?.kind === "task" || session.step === "callback_task_confirmation";
+  const isTask = item?.kind === "task" || session.step === "callback_task_confirmation" || session.step === "outbound_task_confirmation";
   if (isTask && values.has("yes") && values.has("no")) {
     const done = reading.affirm || has(reading, "finished");
     const notDone = reading.deny || has(reading, "finished", true) || has(reading, "pending") || reading.bareNegation;
@@ -394,7 +400,7 @@ function intentReply(session: CallSession, reading: Reading): string | null {
 
 /** These steps change the farm for good, so a near match is not enough: it takes a clear answer. */
 function needsClearAnswer(session: CallSession): boolean {
-  if (["report_summary", "callback_task_confirmation", "quantity_confirm", "herd_count_confirm", "health_name_confirm"].includes(session.step)) return true;
+  if (["report_summary", "instruction_review", "callback_task_confirmation", "outbound_task_confirmation", "quantity_confirm", "herd_count_confirm", "health_name_confirm"].includes(session.step)) return true;
   return currentItem(session)?.kind === "task";
 }
 
@@ -421,6 +427,14 @@ function overlapReply(replies: Reply[], transcript: string, locale: Locale): Rep
   return best && best.score >= 0.32 ? best.reply : undefined;
 }
 
+const ORDINALS: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, "الاولي": 1, "الاول": 1, "الثانيه": 2, "الثاني": 2, "الثالثه": 3, "الثالث": 3, "الرابعه": 4, "الرابع": 4, "الخامسه": 5, "الخامس": 5 };
+
+/** "The second one": a position in the list being read, or null. */
+function pickedPosition(normalized: string): number | null {
+  for (const word of normalized.split(" ")) if (Object.hasOwn(ORDINALS, word)) return ORDINALS[word];
+  return extractNumber(normalized);
+}
+
 function choiceInput(session: CallSession, transcript: string, locale: Locale): AnswerInput | null {
   const normalized = compact(transcript);
   const exact = session.replies.find((item) => [item.value, item.label.ar, item.label.en].some((text) => compact(text) === normalized));
@@ -438,7 +452,7 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   const intended = intentReply(session, reading);
   if (intended) return { value: intended };
   if (reading.unknown) return null;
-  if (session.step === "report_summary") return null;
+  if (session.step === "report_summary" || session.step === "instruction_review") return null;
   if (session.replies.some((reply) => reply.value === "good") && session.replies.some((reply) => reply.value === "critical")) return null;
 
   const words = normalized.replaceAll(" ", "_");
@@ -486,6 +500,21 @@ export function mapSpeechToInput(
   const raw = transcript.trim().slice(0, 300);
   const normalized = compact(raw);
   if (["report_summary", "report_correct_pick"].includes(session.step) && session.replies.some((reply) => reply.value === "end_without_save") && /(?:^|\s)(?:لا\s+(?:تحفظ|تحفظه|تحفظها|تسجل|تسجله)|بدون\s+حفظ|don\s*t\s+save|do\s+not\s+save|save\s+nothing)(?:\s|$)/u.test(normalized)) return { value: "end_without_save" };
+  if (session.step === "instruction_review") {
+    if (/(?:^|\s)(?:الغ|الغها|الغيها|الغي|الغاء|cancel|لا\s+(?:تحفظ|تحفظها|ترسل|ترسلها)|don\s*t\s+save|do\s+not\s+save)(?:\s|$)/u.test(normalized)) return { value: "instructions_cancel" };
+    if (/(?:^|\s)(?:عدل|عدلها|غير|غيرها|تعديل|change|edit|correct\s+one)(?:\s|$)/u.test(normalized)) return { value: "instructions_correct" };
+  }
+  if (session.step === "instruction_correct_pick") {
+    if (/^(?:ارجع|رجوع|القائمه|back|back to the list)$/.test(normalized)) return { value: "back_to_review" };
+    const position = pickedPosition(normalized);
+    const picked = position === null ? undefined : session.replies.find((reply) => reply.value === `correct:${position - 1}`);
+    if (picked) return { value: picked.value };
+  }
+  if (session.step === "instruction_date") {
+    if (/(?:^|\s)(?:اي وقت|any ?time)(?:\s|$)/u.test(normalized)) return { value: "any_time" };
+    const days = /(?:^|\s)(?:يوم|ايام|يوما|days?)(?:\s|$)/u.test(normalized) ? extractNumber(raw.replace(/(?:^|\s)(?:يوم|أيام|ايام|يوماً|يوما|days?)(?:\s|$)/gu, " ")) : null;
+    if (days !== null) return { text: `in ${days} days` };
+  }
   if (session.step === "open_more" && /^(?:لا|لاء|لا والله|بس|خلاص|ما عندي شي|ما عندي شيء|ما فيه شي|مافيه شي|no|nothing|nothing else|that s all|done)$/.test(normalized)) return { value: "open_done" };
   if (session.step === "report_mode_choice") {
     if (/(?:^|\s)(?:مفتوح|مفتوحه|open|freely)(?:\s|$)/u.test(normalized)) return { value: "mode_open" };

@@ -34,8 +34,8 @@ export interface FarmRow {
   /** Owner summary schedule. Optional so rows loaded before that migration still type-check. */
   owner_call_day?: number | null;
   owner_call_time?: string | null;
-  owner_summary_report_id?: string | null;
-  owner_summary_not_before?: string | null;
+  /** The current or latest owner call (20261110090000). Undefined until that migration runs. */
+  owner_call_run?: unknown;
   herd_count: number | null;
   herd_count_reviewed_at: string | null;
   primary_worker_id: string | null;

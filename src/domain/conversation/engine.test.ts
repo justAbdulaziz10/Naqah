@@ -62,7 +62,7 @@ function ownerInstruction(ws: Workspace, now = NOW) {
   }
   if (ws.settings.plan !== "ultimate") return result;
   result = applyAnswer(session, result.ws, now, { value: "instruction_no" });
-  return applyAnswer(result.session, result.ws, now, { value: "instruction_yes" });
+  return applyAnswer(result.session, result.ws, now, { value: "instructions_confirm" });
 }
 
 function noAnswerFourTimes(ws: Workspace, startAt = NOW) {
@@ -128,7 +128,7 @@ describe("callback-delivered instruction verification", () => {
     expect(scenarioAvailability(delivered, dueAt).dueTaskVerificationCount).toBe(missed.taskIds.length);
     const started = start(delivered, dueAt, "worker_outbound");
     const once = started.commit?.(delivered) ?? delivered;
-    expect(once.pendingWorkerCalls.filter((call) => call.purpose === "task_verification").map((call) => call.taskTicketId)).toEqual(missed.taskIds);
+    expect(once.pendingWorkerCalls.filter((call) => call.purpose === "task_verification").map((call) => call.coveredTaskIds)).toEqual([missed.taskIds]);
     expect(scenarioAvailability(once, dueAt).dueTaskVerificationCount).toBe(0);
     const repeated = start(once, dueAt, "worker_outbound");
     expect((repeated.commit?.(once) ?? once).pendingWorkerCalls).toEqual(once.pendingWorkerCalls);
@@ -144,7 +144,7 @@ describe("callback-delivered instruction verification", () => {
     expect(scenarioAvailability(missed.ws, dueAt).dueTaskVerificationCount).toBe(first.taskIds.length);
     const started = start(missed.ws, dueAt, "worker_outbound");
     const onlyFirst = started.commit?.(missed.ws) ?? missed.ws;
-    expect(onlyFirst.pendingWorkerCalls.filter((call) => call.purpose === "task_verification").map((call) => call.taskTicketId)).toEqual(first.taskIds);
+    expect(onlyFirst.pendingWorkerCalls.filter((call) => call.purpose === "task_verification").map((call) => call.coveredTaskIds)).toEqual([first.taskIds]);
 
     stampHistoricalTicket(missed.ws);
     const allDelivered = deliverCallback(missed.ws, fromRiyadh(2026, 11, 5, 20, 30));
@@ -336,7 +336,8 @@ describe("Call Lab conversation engine", () => {
 
     expect(ended.session.done).toBe(true);
     expect(after.reports).toHaveLength(1);
-    expect(after.reportCalls?.at(-1)?.state).toBe("missed");
+    expect(after.reportCalls?.at(-1)?.state).toBe("calling");
+    expect(after.reportCalls?.at(-1)?.nextAttemptAt).not.toBeNull();
   });
 
   it("undoes a report call hung up on its first ring", () => {
@@ -806,7 +807,7 @@ describe("Call Lab conversation engine", () => {
 
     const confirm = (session: CallSession, ws: Workspace) => {
       const readBack = applyAnswer(session, ws, NOW, { value: "instruction_no" });
-      return applyAnswer(readBack.session, readBack.ws, NOW, { value: "instruction_yes" });
+      return applyAnswer(readBack.session, readBack.ws, NOW, { value: "instructions_confirm" });
     };
     const later = openSchedule();
     let result = applyAnswer(later.session, later.ws, NOW, { value: "later_today" });
@@ -902,7 +903,8 @@ describe("Call Lab conversation engine", () => {
     result = applyAnswer(result.session, result.ws, dueAt, { value: "unknown" });
     expect(result.ws.taskTickets.find((item) => item.id === task.id)?.status).toBe("open");
     expect(result.ws.events.some((event) => event.text.en.toLowerCase().includes("not done"))).toBe(false);
-    expect(result.session.turns.some((turn) => turn.text.en.includes("could not confirm"))).toBe(true);
+    expect(result.session.turns.some((turn) => turn.text.en.includes("stays open"))).toBe(true);
+    expect(result.ws.pendingWorkerCalls[0]).toMatchObject({ state: "pending", attempts: [expect.objectContaining({ answered: true })] });
   });
 
   it("asks applicable questions, skips absent resources, and keeps plan limits and emergency handling", () => {
@@ -944,7 +946,7 @@ describe("Call Lab conversation engine", () => {
     session = result.session;
     result = applyAnswer(session, ownerWs, NOW, { value: "information" });
     result = applyAnswer(result.session, result.ws, NOW, { value: "instruction_no" });
-    result = applyAnswer(result.session, result.ws, NOW, { value: "instruction_yes" });
+    result = applyAnswer(result.session, result.ws, NOW, { value: "instructions_confirm" });
     expect(result.ws.taskTickets.some((task) => task.instruction === "Guests arrive Friday")).toBe(false);
     expect(result.ws.relays.some((relay) => relay.message === "Guests arrive Friday")).toBe(true);
     expect(result.session.turns.at(-1)?.text.en).toContain("has not started");

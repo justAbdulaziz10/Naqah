@@ -2,7 +2,7 @@ import { REPORT_CALL_RETRIES } from "../clock";
 import type { ReportDraft } from "../findings";
 import type { ReportCallBlock } from "../reportCalls";
 import { heatLevel, weatherForToday } from "../weather";
-import { openTaskTickets, overdueScheduledTasks, routeOwnerInboundCall, routeWorkerInboundCall, taskTicketsEnabled } from "../rules";
+import { confirmableTasks, routeOwnerInboundCall, routeWorkerInboundCall } from "../rules";
 import type { HealthStatus, Level, LocalizedText, PredefinedQuestion, ReportCallRun, ResourceKind, Workspace } from "../types";
 
 /**
@@ -60,7 +60,14 @@ export interface ConversationData {
   startedReportCallId?: string;
   reportId?: string;
   instruction?: string;
-  pendingInstructions?: { message: string; actionable: boolean; scheduledFor: string | null }[];
+  pendingInstructions?: PendingInstruction[];
+  /** The owner run this summary call belongs to, so the call can report that it completed. */
+  ownerRunId?: string;
+  ownerAttempt?: number;
+  /** The instruction whose time is being asked. Absent while the scripted path captures one at a time. */
+  schedulingIndex?: number;
+  /** The instruction being re-classified or said again. */
+  correctingIndex?: number;
   actionable?: boolean;
   scheduledFor?: string | null;
   /** Riyadh calendar day (YYYY-MM-DD) chosen for a scheduled task. */
@@ -71,6 +78,12 @@ export interface ConversationData {
   currentCallId?: string;
   /** The task a live verification call is asking about. */
   currentTaskId?: string;
+  /** Open tasks this verification attempt asks about, in order. */
+  verificationTaskIds?: string[];
+  /** Tasks that got an explicit yes or no on this attempt. */
+  answeredTaskIds?: string[];
+  /** This turn recorded the attempt's result, so a later status callback cannot record it again. */
+  attemptResolved?: boolean;
   /** Set once this telephone call confirmed delivery, so a later status callback cannot record it again. */
   deliveryCompleted?: boolean;
   inquiryTopics?: string[];
@@ -112,6 +125,37 @@ export interface AnswerInput {
   text?: string;
   /** Open mode: what the worker reported, already checked against their words. */
   facts?: OpenFact[];
+  /** What the owner asked for on a realtime call, already checked against their words. */
+  instructions?: ProposedInstruction[];
+  /** A change to one instruction under review, already checked against the owner's words. */
+  instructionCorrection?: InstructionCorrection;
+}
+
+/** `due`: "any_time", an ISO instant, a YYYY-MM-DD day, or null when the owner gave no time. `evidence` is checked, then never stored. */
+export interface ProposedInstruction {
+  message: string;
+  kind: "task" | "information";
+  due: "any_time" | string | null;
+  evidence: string;
+}
+
+export interface InstructionCorrection {
+  index: number;
+  kind?: "task" | "information";
+  message?: string;
+  due?: "any_time" | string | null;
+}
+
+export interface PendingInstruction {
+  message: string;
+  actionable: boolean;
+  scheduledFor: string | null;
+  /** Who said what kind this is. Read back, so the owner knows what they are verifying. */
+  kindBy?: "owner" | "proposed";
+  /** A task with no time yet: NAQAH asks when before the review. */
+  needsSchedule?: boolean;
+  /** The day the owner gave, when only the time is missing. */
+  scheduleDay?: string;
 }
 
 /** One thing the worker said in open mode. `evidence` is their words; it is checked, then never stored. */
@@ -276,17 +320,9 @@ export function atRiyadh(date: Date, locale: "ar" | "en", includeDate = false): 
   }).format(date);
 }
 
-/** Ultimate open tasks a worker can confirm now: Any Time, plus scheduled tasks whose time has come. */
+/** What the report queue and a callback may ask about: the rule lives in `confirmableTasks`. */
 export function tasksToConfirm(ws: Workspace, now: Date) {
-  if (!taskTicketsEnabled(ws)) return [];
-  const overdueIds = new Set(overdueScheduledTasks(ws, now).map((task) => task.id));
-  const seen = new Set<string>();
-  return openTaskTickets(ws).filter((task) => {
-    if (seen.has(task.id)) return false;
-    if (task.scheduledFor !== null && !overdueIds.has(task.id)) return false;
-    seen.add(task.id);
-    return true;
-  });
+  return confirmableTasks(ws, now);
 }
 
 export function heatDayReportItem(ws: Workspace, now: Date): ReportItem | null {

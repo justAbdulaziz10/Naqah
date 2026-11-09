@@ -5,13 +5,13 @@ import { DETERMINED, extractNumber, mapSpeechToInput } from "../speech";
 import { evidenceWords } from "./answer-check";
 
 const contains = (source: string, part: string) => Boolean(part) && (` ${source} `).includes(` ${part} `);
-const token = (word: string) => word.replace(/[ءؤئ]/gu, "").replace(/^و(?=.{2})/u, "").replace(/^ال(?=.{3})/u, "");
+export const token = (word: string) => word.replace(/[ءؤئ]/gu, "").replace(/^و(?=.{2})/u, "").replace(/^ال(?=.{3})/u, "");
 const tokens = (words: string) => words.split(" ").filter(Boolean).map(token);
 /**
  * The model hears the audio and the transcript is a separate reading of it, so a long phrase may differ by a word.
  * A short one must match, and a topic named in the phrase must be in what was transcribed.
  */
-const supports = (source: string, part: string) => {
+export const supports = (source: string, part: string) => {
   const heard = new Set(tokens(source));
   const said = tokens(part);
   if (!said.length || said.filter((word) => heard.has(word)).length / said.length < 0.8) return false;

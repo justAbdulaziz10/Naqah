@@ -58,7 +58,7 @@ may dial it. No summary is dialed when no report is queued.
 - Compute the due time with `nextScheduledCall` from `src/domain/schedule.ts`. It is pure and uses
   Riyadh time; pass the server clock, never a client value.
 - Place one call per occurrence. Record the occurrence so a re-run of the scheduler can't call twice.
-- No answer: 3 attempts total, 20 minutes apart, then stop. No new No Answer Ticket. Owner calls are not redialed.
+- Not completed (unanswered or interrupted): 3 attempts total, 20 minutes apart, for worker and owner calls alike, then stop. No No Answer Ticket. See `owner-call-runs.md`.
   (`RETRY_DELAY_MS`, `MAX_RETRIES` in `src/domain/clock.ts`, `resolveWorkerCallAttempt`).
 - Vercel Hobby cron runs at most once a day, which can't hit an exact time or the 20-minute retry.
   Use Vercel Pro, Supabase `pg_cron` calling the route, or Twilio scheduling (AGENT.md §8.4).

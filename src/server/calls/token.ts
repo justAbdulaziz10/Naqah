@@ -8,8 +8,8 @@ import type { Locale } from "@/domain/types";
 export type CallToken =
   /** A report call to the worker: farm, run (DB id), attempt number. */
   | { k: "report"; f: string; r: string; n: number; l: Locale; t: number }
-  /** The owner's update call about a saved report. */
-  | { k: "owner"; f: string; r: string; l: Locale; t: number }
+  /** The owner's scheduled call: run `o`, attempt `n`. `r` is the report summarized, "" when none. */
+  | { k: "owner"; f: string; o: string; r: string; n: number; l: Locale; t: number }
   /** An instruction or verification call to the worker. `p` is the pending call id. */
   | { k: "worker"; f: string; p: string; n: number; l: Locale; t: number };
 
@@ -47,6 +47,11 @@ export function verifyCallToken(
     if (token.k === "worker") {
       const pending = (token as { p?: unknown }).p;
       if (typeof pending !== "string" || !UUID.test(pending)) return null;
+      if (typeof token.n !== "number" || !Number.isInteger(token.n) || token.n < 1 || token.n > 3) return null;
+    } else if (token.k === "owner") {
+      const { o: run, r: report } = token as { o?: unknown; r?: unknown };
+      if (typeof run !== "string" || !UUID.test(run)) return null;
+      if (report !== "" && (typeof report !== "string" || !UUID.test(report))) return null;
       if (typeof token.n !== "number" || !Number.isInteger(token.n) || token.n < 1 || token.n > 3) return null;
     } else {
       const run = (token as { r?: unknown }).r;

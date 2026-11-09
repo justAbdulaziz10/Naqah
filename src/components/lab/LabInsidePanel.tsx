@@ -128,8 +128,6 @@ export function InsidePanel({
   const [expanded, setExpanded] = useState(false);
   const events = ws.events.filter((event) => !baseline.includes(event.id)).slice().reverse();
   const callouts = session?.notices ?? [];
-  const openTickets = ws.noAnswerTickets.filter((ticket) => ticket.status === "open");
-  const closedTickets = ws.noAnswerTickets.filter((ticket) => ticket.status === "closed");
 
   return (
     <section className="min-w-0">
@@ -181,19 +179,6 @@ export function InsidePanel({
               <p className="text-sm text-muted">{m.lab.panel.noRules}</p>
             ) : null}
           </div>
-          {openTickets.length || closedTickets.length ? (
-            <div className="mt-6 border-t border-stone/70 pt-4">
-              <h3 className="mb-3 text-sm font-bold">{m.lab.panel.ticket}</h3>
-              <ul className="space-y-2">
-                {[...openTickets, ...closedTickets].slice(0, 4).map((ticket) => (
-                  <li key={ticket.id} className="flex items-start justify-between gap-3 rounded-xl bg-ivory px-3.5 py-3 text-sm">
-                    <span className="min-w-0 break-words">{ticket.message}</span>
-                    <Badge tone={ticket.status === "open" ? "warn" : "ok"}>{ticket.status === "open" ? m.lab.panel.ticketOpen : m.lab.panel.ticketClosed}</Badge>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
           {session?.scenario === "emergency" ? (
             <div className="mt-6 border-t border-stone/70 pt-4">
               <h3 className="mb-3 text-sm font-bold">{m.lab.panel.emergency}</h3>
