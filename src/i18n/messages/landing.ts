@@ -3,6 +3,17 @@ import { defineMessages } from "../types";
 /** Strings owned by the public landing page. Keep both locales in lockstep. Say each fact once. */
 export const landing = defineMessages({
   en: {
+    metadata: {
+      title: "NAQAH | Peace of mind, without the busyness",
+      description:
+        "An AI voice agent for private camel ranches. NAQAH calls your worker at your set time, asks and records, and you get the essentials in a call.",
+      appTitle: "Ranch overview",
+      appDescription: "Your ranch reports, herd and open tasks.",
+      startTitle: "Set up your ranch",
+      startDescription: "Set up NAQAH for your ranch.",
+      welcomeTitle: "Welcome to NAQAH",
+      welcomeDescription: "Private ranch operations, with peace of mind.",
+    },
     nav: {
       how: "How it works",
       principles: "Principles",
@@ -156,9 +167,19 @@ export const landing = defineMessages({
       title: "See a quieter day",
       body: "Set up your ranch in a few minutes, or look around the sample ranch first.",
     },
-    credits: "Photography",
+    credits: "Photo credits",
   },
   ar: {
+    metadata: {
+      title: "ناقة | اطمئنان، دون انشغال",
+      description: "مساعد صوتي لإدارة عزب الإبل: ناقة تتصل على العامل في وقتك، تسأل وتحفظ، وتصلك الخلاصة باتصال.",
+      appTitle: "نظرة عامة على العزبة",
+      appDescription: "تقارير العزبة وحلالها والمهام المفتوحة.",
+      startTitle: "جهّز عزبتك",
+      startDescription: "جهّز ناقة لعزبتك.",
+      welcomeTitle: "حيّاك في ناقة",
+      welcomeDescription: "إدارة العزبة براحة بال.",
+    },
     nav: {
       how: "كيف تعمل",
       principles: "التزاماتنا",
@@ -305,6 +326,6 @@ export const landing = defineMessages({
       title: "خلّ يومك أهدأ",
       body: "جهّز عزبتك في دقائق، أو تجوّل في العزبة التجريبية أول.",
     },
-    credits: "التصوير",
+    credits: "مصادر الصور",
   },
 });

@@ -41,7 +41,7 @@ IMG-04 in the handoff is not matched exactly; this is the closest licensed alter
 | proof | Commons metadata: "CC BY-SA 4.0"; credit: "Arabian Camel in Kuwait" by Manojkiri photography, CC BY-SA 4.0, via Wikimedia Commons |
 | model/property release | Not needed: animals only, no people. A small piece of litter sits in the left foreground. |
 | original_filename | Arabian_Camel_in_Kuwait.jpg (2696 × 1796) |
-| optimized_filename | public/images/landing/evening.jpg (JPEG q78, ~413 KB) |
+| optimized_filename | public/images/landing/evening.jpg (progressive JPEG q78, 232 KB) |
 | pixel size | 1600 × 1066 |
 | notes | Kuwait, not Saudi. A 3:4 portrait crop is tight around the mother and calf (focus 50% 55%). |
 | status | Candidate, pending owner approval |
@@ -75,7 +75,7 @@ IMG-04 in the handoff is not matched exactly; this is the closest licensed alter
 | proof | Commons metadata: "CC BY-SA 3.0"; description: "Rub al-Khali desert in Saudi Arabia — sunset"; credit: "Rub al khali sunset Nov 2007" by Javierblas, CC BY-SA 3.0, via Wikimedia Commons |
 | model/property release | Not needed: landscape, no people, no buildings |
 | original_filename | Rub_al_khali_sunset_Nov_2007.jpg (4000 × 3000) |
-| optimized_filename | public/images/landing/closing.jpg (JPEG q66, ~566 KB) |
+| optimized_filename | public/images/landing/closing.jpg (progressive JPEG q78, 400 KB) |
 | pixel size | 2400 × 1800 |
 | notes | Saudi Arabia. Sun sits upper right; dunes fill the middle band, suits a 16:9 crop. |
 | status | Candidate, pending owner approval |
@@ -139,7 +139,7 @@ and IMG-02-alt (`herd`) above; fills IMG-03 (`heritage`), which "Still needed" l
 | proof | Commons metadata: LicenseShortName "CC BY-SA 4.0"; UsageTerms "Creative Commons Attribution-Share Alike 4.0"; description: "A herder leading his camel in a calm desert atmosphere in Saudi Arabia (Published 2024)." Categories include "Deserts of Saudi Arabia", "Featured pictures of Saudi Arabia". Credit: "راع يقود جمله" by Saudi Press Agency (SPA), CC BY-SA 4.0, via Wikimedia Commons |
 | model/property release | One mid-distance herder; face covered by his shemagh and hand, not identifiable. No branding. A few small litter specks on the sand near the horizon. |
 | original_filename | راع_يقود_جمله.jpg (5392 × 3592) |
-| optimized_filename | public/images/landing/hero-herder.jpg (JPEG q72, ~373 KB) |
+| optimized_filename | public/images/landing/hero-herder.jpg (progressive JPEG q78, 214 KB) |
 | pixel size | 2400 × 1598 |
 | notes | Saudi Arabia, 2023-12-09. Flat desert in a dust haze, not dunes. One camel, centred; the upper half is plain haze that can hold a headline. Focus 50% 55%. |
 | status | Candidate, pending owner approval |
@@ -156,7 +156,7 @@ and IMG-02-alt (`herd`) above; fills IMG-03 (`heritage`), which "Still needed" l
 | proof | Commons metadata: LicenseShortName "CC BY-SA 4.0"; UsageTerms "Creative Commons Attribution-Share Alike 4.0"; description: "Dromedary in the Wahibah Sands, Oman". Credit: "Dromedary Wahiba Sands 2019 (08)" by Ekrem Canli, CC BY-SA 4.0, via Wikimedia Commons |
 | model/property release | Not needed: one animal, no people, no vehicles, no branding |
 | original_filename | Dromedary_Wahiba_Sands_2019_(08).jpg (2544 × 1696) |
-| optimized_filename | public/images/landing/herd-profile.jpg (JPEG q75, ~257 KB) |
+| optimized_filename | public/images/landing/herd-profile.jpg (progressive JPEG q78, 134 KB) |
 | pixel size | 1600 × 1066 |
 | notes | Oman (Gulf), not Saudi. Calm left-facing side profile, soft blurred sand background. The head sits in the left half: a 4:5 crop needs focus near the left edge (4% 45%) to keep the muzzle. |
 | status | Candidate, pending owner approval |
@@ -173,7 +173,7 @@ and IMG-02-alt (`herd`) above; fills IMG-03 (`heritage`), which "Still needed" l
 | proof | Commons metadata: title and description "السدو 2" (Al Sadu); LicenseShortName "CC BY-SA 4.0"; UsageTerms "Creative Commons Attribution-Share Alike 4.0"; categories "Textiles of Kuwait", "Images from Wiki Loves Folklore 2026 in Kuwait". Credit: "السدو 2" by Di7ane, CC BY-SA 4.0, via Wikimedia Commons |
 | model/property release | Not needed: textile only, no people, no labels or branding in the crop |
 | original_filename | السدو_2.jpg (8064 × 4536; downloaded at 3840 × 2160) |
-| optimized_filename | public/images/landing/heritage.jpg (crop 3072 × 1920 at offset 96,96 to remove a window edge at top and a dark object at bottom right; JPEG q50, ~382 KB) |
+| optimized_filename | public/images/landing/heritage.jpg (crop 3072 × 1920 at offset 96,96 to remove a window edge at top and a dark object at bottom right; progressive JPEG q78, 386 KB) |
 | pixel size | 1600 × 1000 (16:10) |
 | notes | Kuwaiti Sadu, not Saudi. Cream and dark-brown bands with deep red patterned borders; red is an accent rather than the ground. A small pale stain sits on the central dark band. Crop only, no recolour (share-alike). |
 | status | Candidate, pending owner approval |
@@ -216,3 +216,22 @@ requires attribution. Neither is presented as a NAQAH estate, herd, worker or cl
 `hero-herder.jpg` (SPA, CC BY-SA 4.0) moves from the landing hero to the onboarding panel, where it shows the
 kind of worker NAQAH calls. `evening.jpg`, `closing.jpg` and `herd-profile.jpg` stay in the repository but are no
 longer shown on the landing; only shown photographs are credited there.
+
+## Landing JPEG delivery (2026-11-09)
+
+All seven JPEGs in `public/images/landing/` were re-encoded in place as progressive JPEGs at quality 78, with a
+2560 px maximum width. Every source was already at or below that width, so filenames, pixel dimensions and aspect
+ratios are unchanged.
+
+| File | Before (bytes) | After (bytes) |
+|---|---:|---:|
+| `call-hisma-sunset.jpg` | 347,149 | 201,368 |
+| `closing.jpg` | 579,825 | 399,578 |
+| `evening.jpg` | 423,301 | 232,369 |
+| `herd-profile.jpg` | 263,143 | 133,504 |
+| `heritage.jpg` | 391,339 | 385,551 |
+| `hero-herd-dusk.jpg` | 667,643 | 364,944 |
+| `hero-herder.jpg` | 381,729 | 213,907 |
+| **Total** | **3,054,129** | **1,931,221** |
+
+The total decreased by 1,122,908 bytes (36.8%).
