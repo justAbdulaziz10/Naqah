@@ -410,7 +410,7 @@ describe("Call Lab conversation engine", () => {
         : session.inputMode === "choices" ? { value: session.replies[0].value } : session.inputMode === "number" ? { value: "quantity_skip" } : { text: "Nothing new" };
       ({ ws, session } = applyAnswer(session, ws, NOW, input));
     }
-    expect(session.turns.at(-1)?.text.en).toContain("camels counted: 45");
+    expect(session.turns.at(-1)?.text.en).toContain("45 camels");
     ({ ws, session } = applyAnswer(session, ws, NOW, { value: "confirm_save" }));
     expect(ws.reports.at(-1)?.herdCountReported).toBe(45);
     expect(ws.settings.herdCount).toBe(42);
@@ -618,7 +618,7 @@ describe("Call Lab conversation engine", () => {
 
     session = answer(session, heated, NOW, { value: "unknown" }).session;
     expect(session.step).toBe("report_summary");
-    expect(session.turns.at(-1)?.text.en).toContain("water or shade may not be enough");
+    expect(session.turns.at(-1)?.text.en).toContain("Do the camels have enough water and shade? Not enough");
     const saved = answer(session, heated, NOW, { value: "confirm_save" });
     const committed = saved.commit?.(heated) ?? heated;
     const finding = committed.reports.at(-1)?.findings.find((item) => item.criterionId === "weather_heat_day");

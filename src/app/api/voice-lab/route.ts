@@ -14,7 +14,6 @@ import type { VoiceLabErrorCode, VoiceLabFailureResponse, VoiceLabSuccessBody, V
 
 const NO_STORE = { "Cache-Control": "no-store" };
 const MAX_SDP = 64 * 1024;
-const MAX_HEARD = 600;
 const FARM_TIMEOUT_MS = 8_000;
 const fail = (error: VoiceLabErrorCode, status: number, extra: { provider?: string } = {}): Response => {
   const response = { ok: false, error, ...extra } satisfies VoiceLabFailureResponse;
@@ -93,6 +92,7 @@ export async function POST(request: Request): Promise<Response> {
         state: signLabState(state, secret),
         closeState: signLabState({ ...state, session: null }, secret),
         opening: agent.opening,
+        repromptText: agent.repromptText,
         view: agent.view,
         source: loaded.source,
         model: LAB_MODEL,
@@ -114,12 +114,10 @@ export async function POST(request: Request): Promise<Response> {
       if (!state.session) return fail("session_expired", 410);
       const loaded = await workspaceFor(user.id, state.src, state.l, now);
       if (!loaded) return fail("farm_unavailable", 503);
-      // Empty stays empty: speech recognition failed, so "all healthy" has no words behind it.
-      const heard = typeof body.heard === "string" ? body.heard.trim().slice(0, MAX_HEARD) : null;
-      const { workerUtterance, heardSummary } = body;
+      const { workerUtterance, heardSummaryId } = body;
       if (workerUtterance !== undefined && (typeof workerUtterance !== "string" || workerUtterance.length > 1000 || /[\u0000-\u001f\u007f]/u.test(workerUtterance))) return fail("invalid_input", 400);
-      if (heardSummary !== undefined && typeof heardSummary !== "boolean") return fail("invalid_input", 400);
-      const result = runLabTool({ session: state.session, ws: loaded.ws, locale: state.l, name: body.name, args: body.args, spoke: body.spoke, heard, workerUtterance, heardSummary, now });
+      if (heardSummaryId !== undefined && (typeof heardSummaryId !== "string" || heardSummaryId.length > 200)) return fail("invalid_input", 400);
+      const result = runLabTool({ session: state.session, ws: loaded.ws, locale: state.l, name: body.name, args: body.args, spoke: body.spoke, workerUtterance, heardSummaryId, now });
       const { session, ...reply } = result;
       return done({ ...reply, state: signLabState({ ...state, session }, secret) });
     }

@@ -22,6 +22,7 @@ import {
 import { realtimeVoiceConfig, voiceLocale, voiceOwnerInquiryEnabled } from "@/server/env";
 import { applyVoiceEvent, parseVoiceEvent, type VoiceContext, type VoiceOutcome } from "./contract";
 import { logVoiceTurn } from "./diagnostics";
+import { traceCall } from "./trace";
 import { mapSpeechToInput, unknownReply } from "./speech";
 import { newRealtimeState, realtimeOf } from "./realtime/state";
 import { isVerifiedConfirmation } from "./realtime/confirmation";
@@ -76,6 +77,10 @@ const SPOKEN_MISS: Copy = {
   ar: "سمعتك، بس ما فهمت إجابتك على السؤال. تقدر تجاوب أو تستخدم الأزرار. ",
   en: "I heard you, but could not match your answer to this question. Please answer or use the keypad. ",
 };
+const TEXT_MISS: Copy = {
+  ar: "هالسؤال يحتاج إجابة بصوتك. ",
+  en: "Please say your answer aloud; keypad digits cannot answer this question. ",
+};
 const UNKNOWN_FALLBACK: Copy = {
   ar: "ما قدرت أحدد الإجابة، بسجل هالسؤال غير معروف ونكمل. ",
   en: "I could not determine that answer. I will mark this question unknown and continue. ",
@@ -102,11 +107,11 @@ const namesReady = (ws: Workspace) => Boolean(ws.settings.worker.name.trim() && 
 /** The agent's lines from a turn onwards, with the farm's real names. */
 export function spokenLines(session: CallSession, spokenFrom: number, ws: Workspace, locale: Locale): string[] {
   const personalize = makePersonalizer(ws);
-  return session.turns.slice(spokenFrom).filter((turn) => turn.speaker === "agent").map((turn) => personalize(turn.text[locale]));
+  return session.turns.slice(spokenFrom).filter((turn) => turn.speaker === "agent").map((turn) => spokenWording(turn.literal ? turn.text[locale] : personalize(turn.text[locale]), locale, turn.literal));
 }
 
 /** Everything the agent says for this step, including lines before the question. */
-function respond(session: CallSession, spokenFrom: number, ws: Workspace, locale: Locale, seq: number, prefix = ""): string {
+export function respond(session: CallSession, spokenFrom: number, ws: Workspace, locale: Locale, seq: number, prefix = ""): string {
   const personalize = makePersonalizer(ws);
   const lines = spokenLines(session, spokenFrom, ws, locale);
   if (session.done) return twimlGoodbye(locale, `${prefix}${lines.join(" ")}`);
@@ -130,7 +135,7 @@ function eventFor(before: CallSession | null, result: EngineResult, input: Answe
   if (!before) {
     if (result.session.scenario === "worker_inbound") return report({ refusedAtStart: true });
     if (result.session.scenario === "owner_inquiry") return { ...base, eventId: `${callSid}:inquiry`, type: "owner_inquiry" };
-  } else if (before.step === "report_summary") {
+  } else if (before.step === "report_summary" || before.step === "report_correct_pick") {
     const reportCallId = before.scenario === "report_call" ? before.data.reportCallId : undefined;
     if (input?.value === "confirm_save") return report(reportCallId ? { reportCallId } : {});
     // Only a report call commits here: the worker ended it without saving.
@@ -264,16 +269,23 @@ export async function planTurn(
   return { session: result.session, misses: 0, response: respond(result.session, session.turns.length, workspace, locale, next, prefix), outcome: "continue", goodbye };
 }
 
-export async function answerFarmCall(
-  client: SupabaseClient,
-  input: { callSid: string; seq: number; speech: string; digits: string | null; confidence?: string | null; now: Date },
-): Promise<string> {
+type FarmCallInput = { callSid: string; seq: number; speech: string; digits: string | null; confidence?: string | null; now: Date };
+
+export async function answerFarmCall(client: SupabaseClient, input: FarmCallInput): Promise<string> {
+  const context: { session?: CallSession; status?: string } = {};
+  const response = await answerFarmCallTurn(client, input, context);
+  if (context.session) traceCall(input.callSid, { session: context.session, tool: "scripted_answer", args: { digits: input.digits }, workerUtterance: input.speech, resultStatus: context.status ?? "ignored", spokenText: [...response.matchAll(/<Say\b[^>]*>([\s\S]*?)<\/Say>/g)].map((match) => match[1].replaceAll("&apos;", "'").replaceAll("&quot;", '"').replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&")).join(" ") });
+  return response;
+}
+
+async function answerFarmCallTurn(client: SupabaseClient, input: FarmCallInput, context: { session?: CallSession; status?: string }): Promise<string> {
   const { callSid, seq, speech, digits, now } = input;
   const row = await readVoiceSession(client, callSid);
   if (!row) {
     logVoiceTurn(input, "missing_session");
     return twimlGoodbye(voiceLocale());
   }
+  context.session = row.session;
   if (seq === row.seq - 1) {
     logVoiceTurn(input, "duplicate");
     return row.last_response;
@@ -294,9 +306,10 @@ export async function answerFarmCall(
   logVoiceTurn(input, spoken);
   const next = row.seq + 1;
   const fallback = !spoken && hasInput && row.misses >= 1 ? unknownReply(session.replies) : undefined;
+  context.status = spoken ? "answered" : fallback ? "unknown" : "not_understood";
   if (!spoken && !fallback) {
     if (silenceCount >= 3 || unmatched >= 6) return advance(client, row, { ...session, done: true }, row.misses, twimlGoodbye(locale, MISSED_TWICE[locale]));
-    const prefix = hasInput ? SPOKEN_MISS[locale] : (silenceCount === 1 ? MISS_ONCE : MISS_AGAIN)[locale];
+    const prefix = hasInput ? (session.inputMode === "text" ? TEXT_MISS : SPOKEN_MISS)[locale] : (silenceCount === 1 ? MISS_ONCE : MISS_AGAIN)[locale];
     return advance(client, row, { ...session, voiceSilences: silenceCount, voiceUnmatched: unmatched }, Math.min(row.misses + 1, 2), respond(session, session.turns.length - 1, workspace, locale, next, prefix));
   }
 
@@ -348,15 +361,15 @@ export async function answerReportCall(client: SupabaseClient, input: { token: R
     return twimlGoodbye(locale, NOT_READY[locale]);
   }
 
-  const result = start(workspace, now, "report_call", { reportCallId: run.id });
+  const result = start(workspace, now, "report_call", { reportCallId: run.id, modesAvailable: Boolean(realtime) });
   // The run was answered above, so the engine has nothing left to commit at the start.
   if (result.commit) throw new DbError("invalid_input", "report call start has no voice event");
   const response = respond(result.session, 0, workspace, locale, 0);
   if (result.session.done) return response;
-  const state = realtime ? newRealtimeState(spokenWording(spokenLines(result.session, 0, workspace, locale).join(" "), locale)) : null;
+  const state = realtime ? newRealtimeState(spokenLines(result.session, 0, workspace, locale).join(" ")) : null;
   if (state) {
-    const current = promptFor(result.session, spokenLines(result.session, result.session.turns.length - 1, workspace, locale), workspace, locale);
-    state.instructions = buildInstructions(locale, { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name }, current);
+    const firstStep = promptFor(result.session, spokenLines(result.session, result.session.turns.length - 1, workspace, locale), workspace, locale);
+    state.instructions = buildInstructions(locale, { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name }, firstStep);
     rememberCallWorkspace(callSid, workspace, now);
   }
   const stored = withoutTranscript(result.session);

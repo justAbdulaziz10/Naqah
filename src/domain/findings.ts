@@ -2,11 +2,14 @@
  * Important findings (owner-configured criteria) and the owner briefing the AI
  * speaks after a successful update (Phase 4).
  */
-import { CRITERION_LABELS, RESOURCE_LABELS, levelLabel } from "./catalog";
+import { CRITERION_LABELS, PREDEFINED_QUESTIONS, RESOURCE_LABELS, levelLabel } from "./catalog";
 import { uid } from "./id";
 import type { Camel, Finding, LocalizedText, ReportAnswer, Resource, ResourceKind, Workspace } from "./types";
 
 export interface ReportDraft {
+  mode?: "guided" | "open";
+  coverage?: { questionId: string; status: "reported" | "unknown" | "not_reported" }[];
+  urgentNote?: string | null;
   answers: ReportAnswer[];
   camelUpdates: { camelId: string; health: Camel["health"]; note: string | null; certainty: Camel["certainty"] }[];
   resourceUpdates: {
@@ -28,8 +31,32 @@ export interface ReportDraft {
 
 const LOW = new Set(["low", "critical"]);
 
+export function reportDraftIssue(draft: ReportDraft): string | null {
+  const questions = (draft.coverage ?? []).map((entry) => entry.questionId);
+  if (new Set(questions).size !== questions.length) return "coverage";
+  const resources = draft.resourceUpdates.map((update) => update.kind);
+  if (new Set(resources).size !== resources.length) return "resourceUpdates";
+  return null;
+}
+
+export function coveredReportDraft(draft: ReportDraft): ReportDraft {
+  const mentioned = (questionId: string) => draft.coverage?.find((entry) => entry.questionId === questionId)?.status !== "not_reported";
+  return {
+    ...draft,
+    answers: draft.answers.filter((answer) => mentioned(answer.questionId)),
+    camelUpdates: mentioned("herd_health") ? draft.camelUpdates : [],
+    resourceUpdates: draft.resourceUpdates.filter((update) => {
+      const question = PREDEFINED_QUESTIONS.find((item) => item.requires === update.kind);
+      return !question || mentioned(question.id);
+    }),
+    herdAccountedFor: mentioned("herd_count") ? draft.herdAccountedFor : null,
+    herdCount: mentioned("herd_count") ? draft.herdCount : null,
+  };
+}
+
 /** Evaluate a report draft against the owner's enabled criteria. */
 export function evaluateFindings(ws: Workspace, draft: ReportDraft): Finding[] {
+  draft = coveredReportDraft(draft);
   const out: Finding[] = [];
   const camel = (id: string) => ws.camels.find((c) => c.id === id);
   const res = (kind: ResourceKind) => draft.resourceUpdates.find((r) => r.kind === kind);
@@ -99,7 +126,15 @@ export function evaluateFindings(ws: Workspace, draft: ReportDraft): Finding[] {
       }
     }
   }
-  if (draft.extraFindings) out.push(...draft.extraFindings);
+  if (draft.extraFindings) out.push(...draft.extraFindings.filter((finding) => finding.criterionId !== "worker_urgent"));
+  if (draft.urgentNote?.trim()) out.push({
+    id: uid("fnd"),
+    criterionId: "worker_urgent",
+    text: {
+      ar: `ملاحظة عاجلة بحسب إفادة العامل: ${draft.urgentNote.trim()}`,
+      en: `Urgent concern reported by the worker: ${draft.urgentNote.trim()}`,
+    },
+  });
   return out;
 }
 

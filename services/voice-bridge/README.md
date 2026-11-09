@@ -55,9 +55,9 @@ Verified against the official documentation on November 8, 2026:
   carries outbound audio. `response.function_call_arguments.done` supplies the
   tool's `call_id`, `name`, and JSON arguments. The bridge posts these unchanged
   to Next, creates a `function_call_output` conversation item with the same
-  `call_id` and returned output string, then requests another response after
-  both the current response and pending tools finish. No tool schema or domain
-  decision is embedded in the bridge.
+  `call_id` and returned output string, then follows the server's speech or
+  silence result after both the current response and pending tools finish.
+  No tool schema or domain decision is embedded in the bridge.
 - [Twilio Media Streams messages](https://www.twilio.com/docs/voice/media-streams/websocket-messages):
   validates `start`, the call/stream IDs, ticket and mono 8 kHz mu-law format.
   Sends raw base64 `media`, then an individual `mark` for at most 200 ms of
@@ -81,10 +81,20 @@ Realtime events. Both implement the same application-side bridge contract.
 
 The bridge waits for `session.updated`, requests the supplied opening verbatim
 (tools disabled for that turn), and drops input audio received before the session was ready.
+The session requires classification tools (`tool_choice: "required"`); every
+verbatim opening, question, summary, reprompt and goodbye overrides that with
+`tool_choice: "none"`. Non-ending results must carry exactly one usable
+`summaryText`, `sayText`, or `silent: true`. Questions and summaries are spoken
+verbatim. Silent results request no model response, except to re-speak a
+prompt cut off by barge-in. Missing, conflicting or incorrectly typed result
+fields close through `tool_failed` rather than allowing a free-form reply.
 Only `input_audio_buffer.committed` grants `userSpokeSinceLastTool`; speech-start
 events or transcripts do not. Every returned tool result resets the flag,
 including `awaitingConfirmation: true`. Duplicate provider tool events are
 ignored; Next remains the source of truth for tool-call idempotency.
+Every tool except `end_call` waits for the current worker transcript and sends
+`workerUtterance`, bounded by the existing transcription timeout and stale-turn
+checks. Ending a call never waits for or sends that transcript.
 
 Summary playback counts only when every emitted audio item's final output
 transcript matches the server's summary (ignoring case, whitespace and common
@@ -95,6 +105,12 @@ The mark also captures the forwarded input-audio position. Confirmation needs
 a VAD speech-start timestamp at or after that position, not merely a VAD event
 that arrived later. Missing start evidence or delayed detection of overlapping
 speech fails closed. Provider prefix padding makes this deliberately conservative.
+The summary's `summaryId` is retained on its playback. Tool bodies include
+`heardSummaryId` only when that summary was fully heard before the worker turn
+began, under the same evidence gate as `heardSummary`. A new summary replaces
+the old playback; cancelled playback and stale marks never authorize its id.
+Reprompts and re-speaking an already-heard prompt preserve that evidence and
+do not create worker input or grant `userSpokeSinceLastTool`.
 Next accepts only complete, allowlisted affirmative phrases at confirmation;
 conditional approvals, quoted affirmations and questions require clarification
 or the existing keypad fallback instead of a keyword-based save.
@@ -110,6 +126,15 @@ the next mark has not returned yet. Marks returned because of `clear` are
 discarded and never miscounted as played. Late deltas from a cancelled response
 are ignored. Already-completed but still-buffered audio is truncated too,
 without an invalid cancel against a completed response.
+
+Silence starts only after a final `prompt-*` Twilio mark acknowledges the whole
+prompt, and pauses while speech, a tool, or a response is pending. The opening
+uses optional `session.repromptText` (or its opening text for older sessions).
+Questions use result `repromptText`, defaulting to `sayText`; summaries use
+result `repromptText`. Each re-prompt is verbatim and must finish playback
+before the next silence interval starts. Any worker speech resets the count.
+Without usable reprompt text, the next silence interval falls back without
+inventing a prompt.
 
 On `end: "hangup"` or `"fallback"`, a nonempty goodbye is requested verbatim
 with tools disabled. The bridge waits for response completion and an additional
@@ -128,8 +153,9 @@ Production bounds (test code can inject shorter durations):
 - No valid start: 10 s; internal API: 5 s; provider upgrade: 5 s;
   provider session acknowledgement: another 5 s.
 - Model response: 45 s; goodbye including playback: 15 s.
-- Silence: 45 s without VAD speech/commit, output audio, or playback mark.
-  Continuous Twilio silence frames do not keep the watchdog alive.
+- Silence: `repromptMs: 10_000`, `maxReprompts: 2`. After two fully played
+  reprompts, one more 10 s interval closes with `silence_timeout`, allowing
+  the scripted fallback. Continuous Twilio silence frames do not reset it.
 - Total session: Next's `maxSeconds`, validated as positive and at most 3600 s.
 - Incoming Twilio message: 64 KiB; provider message/internal JSON: 256 KiB;
   one inbound audio chunk: 16 KiB decoded; pre-ready audio: 80 KiB decoded.

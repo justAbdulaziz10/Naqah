@@ -14,6 +14,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect as tcpConnect } from "node:net";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -60,7 +61,7 @@ export class UsageError extends Error {}
 /* ─────────────────── arguments and environment (pure, unit tested) ─────────────────── */
 
 export function parseArgs(argv) {
-  const options = { mode: null, secrets: null, publicUrl: null, allow: [], bridgePort: null, dryRun: false, skipBuild: false, reportPath: false };
+  const options = { mode: null, secrets: null, publicUrl: null, allow: [], bridgePort: null, dryRun: false, skipBuild: false, reportPath: false, traceTranscripts: false };
   const takeValue = (index, name) => {
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("--")) throw new UsageError(`${name} needs a value`);
@@ -75,6 +76,7 @@ export function parseArgs(argv) {
     } else if (name === "--dry-run") options.dryRun = true;
     else if (name === "--skip-build") options.skipBuild = true;
     else if (name === "--report-path") options.reportPath = true;
+    else if (name === "--trace-transcripts") options.traceTranscripts = true;
     else if (name === "--secrets") { options.secrets = takeValue(index, name); index += 1; }
     else if (name === "--public-url") { options.publicUrl = takeValue(index, name); index += 1; }
     else if (name === "--allow") { options.allow.push(...takeValue(index, name).split(",").map((item) => item.trim())); index += 1; }
@@ -176,6 +178,7 @@ export function buildEnvironments(options, stack, secrets = null) {
     NAQAH_VOICE_MODE: "farm", NAQAH_VOICE_LOCALE: "ar", NAQAH_VOICE_ENGINE: "realtime",
     NAQAH_BRIDGE_PUBLIC_URL: bridgePublic, NAQAH_PUBLIC_BASE_URL: publicBase,
   };
+  if (options.traceTranscripts) next.NAQAH_CALL_TRACE_DIR = join(tmpdir(), "naqah-call-transcripts");
   const bridge = {
     NODE_ENV: "production", PORT: String(ports.bridge),
     NAQAH_BRIDGE_PUBLIC_URL: bridgePublic, NAQAH_BRIDGE_UPSTREAM: upstream,
@@ -323,6 +326,7 @@ function dryRun(options) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  if (options.traceTranscripts) console.log("Local transcript tracing is enabled. Files older than 24 hours are cleaned on first write. All call participants must consent. Directory: " + join(tmpdir(), "naqah-call-transcripts"));
   if (options.dryRun) return dryRun(options);
 
   const stray = strayEnvFiles();

@@ -43,6 +43,22 @@ describe("workspace rows", () => {
     taskTickets: [], noAnswerTickets: [], pendingWorkerCalls: [], reportCallRuns: [], relays: [], events: [],
   };
   const worker = (id: string, name: string, at: string) => ({ id, farm_id: farmId, name, phone: "", language: "ar" as const, created_at: at });
+  it("loads reports before the metadata columns exist and preserves them once present", () => {
+    const legacy = { id: "report", farm_id: farmId, call_id: null, at: now.toISOString(), herd_count_reported: null, report_answers: [], findings: [] };
+    const oldReport = workspaceFromRows({ ...empty, reports: [legacy] }).reports[0];
+    expect(oldReport).not.toHaveProperty("mode");
+    expect(oldReport).not.toHaveProperty("coverage");
+    const coverage = [{ questionId: "feed_level", status: "not_reported" as const }];
+    expect(workspaceFromRows({ ...empty, reports: [{ ...legacy, mode: "open", coverage }] }).reports[0]).toMatchObject({ mode: "open", coverage });
+  });
+  it("defaults the report mode and plan before the columns exist, and drops a malformed plan", () => {
+    expect(workspaceFromRows(empty).settings).toMatchObject({ reportMode: "guided", questionPlan: [] });
+    const entry = { id: "herd_health", enabled: false, required: true };
+    expect(workspaceFromRows({ ...empty, farm: { ...farm, report_mode: "open", question_plan: [entry, { id: 1 }, null] } }).settings)
+      .toMatchObject({ reportMode: "open", questionPlan: [entry] });
+    expect(workspaceFromRows({ ...empty, farm: { ...farm, report_mode: "x" as never, question_plan: "x" } }).settings)
+      .toMatchObject({ reportMode: "guided", questionPlan: [] });
+  });
   it("reads the call schedule, herd count and the chosen primary worker", () => {
     const ws = workspaceFromRows({
       ...empty,
@@ -93,6 +109,15 @@ describe("workspace rows", () => {
 });
 
 describe("change sets", () => {
+  it("includes report metadata only when supplied, so old writes and rows stay valid", () => {
+    const ws = stored(createDemoWorkspace("en", "ultimate"));
+    const oldReport = completeWorkerReport(ws, now, draft).ws;
+    expect(diffWorkspace(ws, oldReport, farmId).reports![0]).not.toHaveProperty("mode");
+    expect(diffWorkspace(ws, oldReport, farmId).reports![0]).not.toHaveProperty("coverage");
+    const coverage = [{ questionId: "feed_level", status: "not_reported" as const }];
+    const next = completeWorkerReport(ws, now, { ...draft, mode: "open", coverage }).ws;
+    expect(diffWorkspace(ws, next, farmId).reports![0]).toMatchObject({ mode: "open", coverage });
+  });
   it("is empty when nothing changed", () => {
     const ws = stored(createDemoWorkspace("en", "ultimate"));
     expect(hasChanges(diffWorkspace(ws, ws, farmId))).toBe(false);

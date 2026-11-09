@@ -72,6 +72,11 @@ describe("negated speech never reads as yes", () => {
 });
 
 describe("what a real caller says or presses", () => {
+  it("never saves keypad digits as an owner-written text answer", () => {
+    const custom = { ...session("text"), step: "report_question", data: { reportIndex: 0, queue: [{ kind: "custom" as const, id: "custom-1", question: { ar: "وش الجديد؟", en: "What is new?" } }] } };
+    expect(mapSpeechToInput(custom, "", "1")).toBeNull();
+    expect(mapSpeechToInput(custom, "", "12")).toBeNull();
+  });
   it("records I don't know as unknown in free text and quantities, however it is spelled", () => {
     for (const spelling of ["ما ادري", "ما أدري", "مدري", "i don't know"]) {
       expect(mapSpeechToInput(session("text"), spelling)).toEqual({ value: "unknown" });
@@ -83,6 +88,29 @@ describe("what a real caller says or presses", () => {
   });
   it("takes a whole quantity from the keypad", () => {
     expect(mapSpeechToInput(session("number"), "", "120")).toEqual({ text: "120" });
+  });
+});
+
+describe("report mode and correction speech", () => {
+  const options = (values: string[]) => values.map((value) => ({ id: value, value, label: { ar: value, en: value } }));
+  const summary = { ...session("choices", options(["confirm_save", "correct", "end_without_save"])), step: "report_summary" };
+  it.each(["لا", "لا والله", "no", "مو صحيح"])("offers correction for a summary denial: %s", (speech) => {
+    expect(mapSpeechToInput(summary, speech)).toEqual({ value: "correct" });
+  });
+  it.each(["لا تحفظ", "لا تحفظه", "don't save", "do not save"])("ends without saving only on an explicit request: %s", (speech) => {
+    expect(mapSpeechToInput(summary, speech)).toEqual({ value: "end_without_save" });
+  });
+  it.each(["لا", "بس", "ما عندي شي"])("finishes the open update on %s", (speech) => {
+    expect(mapSpeechToInput({ ...session("text"), step: "open_more" }, speech)).toEqual({ value: "open_done" });
+  });
+  it.each([["أسئلة", "mode_guided"], ["guided", "mode_guided"], ["مفتوح", "mode_open"], ["open", "mode_open"]])("chooses the report mode from %s", (speech, value) => {
+    expect(mapSpeechToInput({ ...session("choices", options(["mode_guided", "mode_open"])), step: "report_mode_choice" }, speech)).toEqual({ value });
+  });
+  it("picks an offered correction or returns to the full summary", () => {
+    const pick = { ...session("choices", [{ id: "feed", value: "correct:feed_level", label: { ar: "العلف", en: "Feed" } }, ...options(["back_to_summary", "end_without_save"])]), step: "report_correct_pick" };
+    expect(mapSpeechToInput(pick, "العلف")).toEqual({ value: "correct:feed_level" });
+    expect(mapSpeechToInput(pick, "ارجع")).toEqual({ value: "back_to_summary" });
+    expect(mapSpeechToInput(pick, "", "1")).toEqual({ value: "correct:feed_level" });
   });
 });
 

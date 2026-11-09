@@ -45,6 +45,7 @@ function availabilityCopy(
         : { text: m.lab.availability.reportRinging, tone: "info", jump: false, enabled: true };
     }
     if (block === "no_worker_phone") return { text: m.lab.availability.noWorkerPhone, tone: "warn", jump: false, enabled: false };
+    if (block === "no_questions") return { text: m.lab.availability.noQuestions, tone: "warn", jump: false, enabled: false };
     if (block === "already_reported") {
       return {
         text: ws.settings.plan === "basic" ? m.lab.availability.weekComplete : m.lab.availability.dayComplete,

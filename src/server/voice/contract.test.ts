@@ -63,6 +63,45 @@ describe("events are bound to who is on the call", () => {
 });
 
 describe("report details", () => {
+  it("parses and saves optional mode, coverage and an urgent note", () => {
+    const details = { mode: "open", coverage: [
+      { questionId: "feed_level", status: "not_reported" },
+      { questionId: "water_level", status: "unknown" },
+      { questionId: "herd_count", status: "reported" },
+    ], urgentNote: "Check the gate" };
+    const event = parseVoiceEvent({ ...base, type: "worker_report", reportCallId: runId, draft: { ...draft, ...details } });
+    expect(event).toMatchObject({ draft: details });
+    const report = voiceStep(answered(), now, event).ws.reports[0];
+    expect(report).toMatchObject({ mode: "open", coverage: details.coverage });
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0].text.en).toBe("Urgent concern reported by the worker: Check the gate");
+  });
+  it.each([
+    { mode: "worker_choice" }, { mode: null }, { coverage: null }, { coverage: {} },
+    { coverage: [{ questionId: "feed_level", status: "healthy" }] },
+    { coverage: [{ questionId: "", status: "reported" }] },
+    { coverage: [{ questionId: "x".repeat(101), status: "reported" }] },
+    { coverage: Array.from({ length: 201 }, () => ({ questionId: "feed_level", status: "reported" })) },
+    { urgentNote: "x".repeat(501) }, { urgentNote: 5 }, { urgentNote: " " },
+  ])("strictly rejects invalid report metadata %j", (metadata) => {
+    expect(() => parseVoiceEvent({ ...base, type: "worker_report", draft: { ...draft, ...metadata } })).toThrow();
+  });
+  it("accepts a null urgent note and a guided report", () => {
+    expect(parseVoiceEvent({ ...base, type: "worker_report", draft: { ...draft, mode: "guided", urgentNote: null } })).toMatchObject({ draft: { mode: "guided", urgentNote: null } });
+  });
+  it("rejects duplicate coverage at save time, including trusted typed events", () => {
+    const event: VoiceEvent = { ...base, version: 1, type: "worker_report", reportCallId: runId, draft: { ...draft, coverage: [
+      { questionId: "feed_level", status: "reported" }, { questionId: "feed_level", status: "unknown" },
+    ] } };
+    expect(() => voiceStep(answered(), now, event)).toThrow("coverage");
+  });
+  it("rejects contradictory duplicate resource updates at save time", () => {
+    const event = parseVoiceEvent({ ...base, type: "worker_report", reportCallId: runId, draft: { ...draft, resourceUpdates: [
+      { kind: "feed", level: "critical", certainty: "reported" },
+      { kind: "feed", level: "good", certainty: "reported" },
+    ] } });
+    expect(() => voiceStep(answered(), now, event)).toThrow("resourceUpdates");
+  });
   it("accepts a herd larger than one call's answers", () => {
     const camelUpdates = Array.from({ length: 1_000 }, () => ({ camelId: uuid, health: "healthy", certainty: "reported" }));
     expect(parseVoiceEvent({ ...base, type: "worker_report", draft: { ...draft, camelUpdates } }).type).toBe("worker_report");

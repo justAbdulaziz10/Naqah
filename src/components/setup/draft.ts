@@ -32,7 +32,7 @@ export function createOnboardingSample(locale: Locale, plan: Plan): Workspace {
 
 /** The parts of a workspace an owner sets up, in a form that compares across fresh copies. */
 function setupFingerprint(ws: Workspace): string {
-  const { owner, farm, worker, otherWorkers, herdCount, callSchedule, customQuestions, criteria, emergencies, integrations } = ws.settings;
+  const { owner, farm, worker, otherWorkers, herdCount, callSchedule, customQuestions, reportMode, questionPlan, criteria, emergencies, integrations } = ws.settings;
   return JSON.stringify({
     owner,
     farm: { name: farm.name, location: farm.location, coords: farm.coords ?? null },
@@ -41,6 +41,8 @@ function setupFingerprint(ws: Workspace): string {
     herdCount: herdCount ?? null,
     callSchedule: callSchedule ?? null,
     questions: customQuestions.map((question) => question.text),
+    reportMode: reportMode ?? "guided",
+    questionPlan: questionPlan ?? [],
     criteria: criteria.map(({ kind, label, enabled }) => ({ kind, label, enabled })),
     emergencies: emergencies.map(({ kind, label }) => ({ kind, label })),
     camels: ws.camels.map(({ name, sex, ageYears, health, healthNote }) => ({ name, sex, ageYears, health, healthNote })),

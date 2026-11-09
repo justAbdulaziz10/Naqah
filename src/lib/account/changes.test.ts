@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { PREDEFINED_QUESTIONS } from "@/domain/catalog";
 import { createDemoWorkspace, createEmptyWorkspace } from "@/domain/seed";
-import type { Workspace } from "@/domain/types";
-import { ownerChanges, unsentDrafts, withServerIds } from "./changes";
+import type { QuestionPlanEntry, Workspace } from "@/domain/types";
+import { mergeEdits, ownerChanges, unsentDrafts, withServerIds } from "./changes";
 
 const base = (): Workspace => {
   const ws = createDemoWorkspace("en", "ultimate");
@@ -134,5 +135,46 @@ describe("owner flow changes", () => {
     expect(unsentDrafts(ws, typing)).toEqual([`worker:${ws.settings.worker.id}`, "callSchedule", "herdCount"]);
     const done: Workspace = { ...ws, settings: { ...ws.settings, worker: { ...ws.settings.worker, phone: "0501234567" }, callSchedule: { day: 4, time: "17:40" }, herdCount: 45 } };
     expect(unsentDrafts(ws, done)).toEqual([]);
+  });
+
+  describe("report mode and question plan", () => {
+    const entry = (id: string, enabled = true, required = true) => ({ id, enabled, required });
+    const silent = PREDEFINED_QUESTIONS.map((question) => entry(question.id, false));
+    const noTasks = (): Workspace => {
+      const ws = base();
+      return { ...ws, taskTickets: [], settings: { ...ws.settings, customQuestions: [] } };
+    };
+    const planned = (ws: Workspace, questionPlan: QuestionPlanEntry[], reportMode = ws.settings.reportMode): Workspace => ({ ...ws, settings: { ...ws.settings, questionPlan, reportMode } });
+
+    it("sends the mode and the plan as one change, after the questions it depends on", () => {
+      const ws = noTasks();
+      const next = planned({ ...ws, settings: { ...ws.settings, customQuestions: [{ id: "cq_new", text: "Vet?", createdAt: ws.createdAt }] } }, [entry("cq_new"), entry("herd_health", true, false)], "open");
+      const changes = ownerChanges(ws, next);
+      expect(changes.map((change) => change.kind)).toEqual(["question", "profile"]);
+      expect(changes[1]).toEqual({ kind: "profile", input: { reportMode: "open", questionPlan: next.settings.questionPlan } });
+    });
+    it("keeps a plan with nothing to ask on the screen, flagged, and sends the rest", () => {
+      const ws = noTasks();
+      const next = planned(ws, silent, "open");
+      expect(ownerChanges(ws, next)).toEqual([{ kind: "profile", input: { reportMode: "open" } }]);
+      expect(unsentDrafts(ws, next)).toEqual(["questionPlan"]);
+    });
+    it("flags a question removal that empties the call, but not a farm already saved that way", () => {
+      const ws = planned(noTasks(), [...silent, entry("cq_only")]);
+      const withQuestion = { ...ws, settings: { ...ws.settings, customQuestions: [{ id: "cq_only", text: "Vet?", createdAt: ws.createdAt }] } };
+      expect(unsentDrafts(withQuestion, ws)).toEqual(["questionPlan"]);
+      expect(unsentDrafts(ws, ws)).toEqual([]);
+    });
+    it("swaps a screen id in the plan for the stored id", () => {
+      const ws = planned(noTasks(), [entry("cq_new")]);
+      expect(withServerIds(ws, { cq_new: "stored" }).settings.questionPlan).toEqual([entry("stored")]);
+    });
+    it("keeps edits still on their way when newer server data arrives, and takes the server's otherwise", () => {
+      const ws = noTasks();
+      const fresh = planned(ws, [entry("water_level")], "worker_choice");
+      expect(mergeEdits(ws, ws, fresh).settings).toMatchObject({ reportMode: "worker_choice", questionPlan: [entry("water_level")] });
+      const local = planned(ws, [entry("herd_health", false)], "open");
+      expect(mergeEdits(ws, local, fresh).settings).toMatchObject({ reportMode: "open", questionPlan: [entry("herd_health", false)] });
+    });
   });
 });

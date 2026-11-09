@@ -76,6 +76,12 @@ describe("test-call environments", () => {
   const live = () => buildEnvironments(parseArgs(liveArgs), stack, parseSecrets(secretsText));
   const mock = (args = []) => buildEnvironments(parseArgs(args), stack);
 
+  it("keeps transcript tracing off unless it is asked for", () => {
+    expect(mock().next).not.toHaveProperty("NAQAH_CALL_TRACE_DIR");
+    expect(mock().bridge).not.toHaveProperty("NAQAH_CALL_TRACE_DIR");
+    expect(mock(["--trace-transcripts"]).next.NAQAH_CALL_TRACE_DIR).toMatch(/naqah-call-transcripts$/);
+  });
+
   it("never enables scheduled, manual or owner calls in live mode", () => {
     const { next, bridge, build } = live();
     for (const name of FORBIDDEN_LIVE) {

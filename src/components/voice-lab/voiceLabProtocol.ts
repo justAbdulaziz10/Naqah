@@ -22,11 +22,13 @@ export interface LabView {
   step: string;
   done: boolean;
   isSummary: boolean;
+  mode: "guided" | "open" | null;
   queue: string[];
   answered: number;
   question: string;
   summary: string | null;
   facts: LabFact[];
+  notReported: string[];
   findings: string[];
   contract: { valid: true } | { valid: false; field: string };
   verdict: LabVerdict | null;
@@ -55,6 +57,7 @@ export interface LabOpenResponse {
   state: string;
   closeState: string;
   opening: string;
+  repromptText: string;
   view: LabView;
   pricing: LabPricing | null;
   maxSeconds: number;
@@ -65,6 +68,10 @@ export interface LabToolResponse {
   end: null | "hangup" | "fallback";
   goodbye: string | null;
   summaryText?: string;
+  summaryId?: string;
+  sayText?: string;
+  silent?: true;
+  repromptText?: string;
   state: string;
   refused: string | null;
   view: LabView;
@@ -153,7 +160,7 @@ function labVerdict(value: unknown): LabVerdict | null | undefined {
 
 function labView(value: unknown): LabView | null {
   const data = record(value);
-  if (!data || typeof data.step !== "string" || typeof data.done !== "boolean" || typeof data.isSummary !== "boolean" || !stringArray(data.queue) || !Number.isSafeInteger(data.answered) || typeof data.answered !== "number" || data.answered < 0 || typeof data.question !== "string" || (data.summary !== null && typeof data.summary !== "string") || !Array.isArray(data.facts) || !stringArray(data.findings)) return null;
+  if (!data || typeof data.step !== "string" || typeof data.done !== "boolean" || typeof data.isSummary !== "boolean" || !stringArray(data.queue) || !Number.isSafeInteger(data.answered) || typeof data.answered !== "number" || data.answered < 0 || typeof data.question !== "string" || (data.summary !== null && typeof data.summary !== "string") || !Array.isArray(data.facts) || !stringArray(data.findings) || (data.mode !== null && data.mode !== "guided" && data.mode !== "open") || !stringArray(data.notReported)) return null;
   const facts = data.facts.map(labFact);
   if (facts.some((fact) => fact === null)) return null;
   const contractData = record(data.contract);
@@ -167,11 +174,13 @@ function labView(value: unknown): LabView | null {
     step: data.step,
     done: data.done,
     isSummary: data.isSummary,
+    mode: data.mode,
     queue: data.queue,
     answered: data.answered,
     question: data.question,
     summary: data.summary,
     facts: facts.filter((fact): fact is LabFact => fact !== null),
+    notReported: data.notReported,
     findings: data.findings,
     contract,
     verdict,
@@ -198,13 +207,13 @@ export function parseVoiceLabResponse(operation: VoiceLabOperation, value: unkno
   if (operation === "open") {
     const view = labView(data.view);
     const parsedPricing = data.pricing === null ? null : pricing(data.pricing);
-    if (typeof data.answer !== "string" || typeof data.state !== "string" || typeof data.closeState !== "string" || typeof data.opening !== "string" || !view || (data.pricing !== null && !parsedPricing) || typeof data.maxSeconds !== "number" || !Number.isFinite(data.maxSeconds) || data.maxSeconds <= 0) return null;
-    return { ok: true, operation, opened: { answer: data.answer, state: data.state, closeState: data.closeState, opening: data.opening, view, pricing: parsedPricing, maxSeconds: data.maxSeconds } };
+    if (typeof data.answer !== "string" || typeof data.state !== "string" || typeof data.closeState !== "string" || typeof data.opening !== "string" || typeof data.repromptText !== "string" || !view || (data.pricing !== null && !parsedPricing) || typeof data.maxSeconds !== "number" || !Number.isFinite(data.maxSeconds) || data.maxSeconds <= 0) return null;
+    return { ok: true, operation, opened: { answer: data.answer, state: data.state, closeState: data.closeState, opening: data.opening, repromptText: data.repromptText, view, pricing: parsedPricing, maxSeconds: data.maxSeconds } };
   }
   if (operation === "tool") {
     const view = labView(data.view);
-    if (typeof data.output !== "string" || (data.end !== null && data.end !== "hangup" && data.end !== "fallback") || (data.goodbye !== null && typeof data.goodbye !== "string") || (data.summaryText !== undefined && typeof data.summaryText !== "string") || typeof data.state !== "string" || (data.refused !== null && typeof data.refused !== "string") || !view) return null;
-    return { ok: true, operation, tool: { output: data.output, end: data.end, goodbye: data.goodbye, ...(typeof data.summaryText === "string" ? { summaryText: data.summaryText } : {}), state: data.state, refused: data.refused, view } };
+    if (typeof data.output !== "string" || (data.end !== null && data.end !== "hangup" && data.end !== "fallback") || (data.goodbye !== null && typeof data.goodbye !== "string") || ["summaryText", "summaryId", "sayText", "repromptText"].some((field) => data[field] !== undefined && typeof data[field] !== "string") || (data.silent !== undefined && data.silent !== true) || typeof data.state !== "string" || (data.refused !== null && typeof data.refused !== "string") || !view) return null;
+    return { ok: true, operation, tool: { output: data.output, end: data.end, goodbye: data.goodbye, ...(typeof data.summaryText === "string" ? { summaryText: data.summaryText } : {}), ...(typeof data.summaryId === "string" ? { summaryId: data.summaryId } : {}), ...(typeof data.sayText === "string" ? { sayText: data.sayText } : {}), ...(data.silent === true ? { silent: true as const } : {}), ...(typeof data.repromptText === "string" ? { repromptText: data.repromptText } : {}), state: data.state, refused: data.refused, view } };
   }
   return { ok: true, operation: "close" };
 }
@@ -299,11 +308,11 @@ export function parseProviderEvent(value: unknown): ProviderEvent | null {
       return typeof data.delta === "string" && typeof data.item_id === "string" ? { type, item_id: data.item_id, delta: data.delta } : null;
     case "response.output_audio_transcript.done":
       return typeof data.transcript === "string" && typeof data.item_id === "string"
-        ? { type, transcript: data.transcript, item_id: data.item_id }
+        ? { type, transcript: data.transcript, item_id: data.item_id, ...(typeof data.response_id === "string" ? { response_id: data.response_id } : {}) }
         : null;
     case "response.output_text.done":
       return typeof data.text === "string" && typeof data.item_id === "string"
-        ? { type, text: data.text, item_id: data.item_id }
+        ? { type, text: data.text, item_id: data.item_id, ...(typeof data.response_id === "string" ? { response_id: data.response_id } : {}) }
         : null;
     case "input_audio_buffer.committed":
       return data.item_id === undefined || typeof data.item_id === "string"

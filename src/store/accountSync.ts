@@ -3,6 +3,8 @@
  * keep calling `update(fn)` and this sends the difference through owner actions, then takes the
  * server's copy. Local storage stays the demo's: nothing here reads it or writes to it.
  */
+import { nowFor } from "@/domain/clock";
+import { reportPlanHasContent } from "@/domain/rules";
 import type { Workspace } from "@/domain/types";
 import { isAccountWorkspace, type AccountWorkspace } from "@/lib/account/types";
 import { create } from "zustand";
@@ -72,6 +74,7 @@ function adopt(fresh: Workspace) {
       owner: local.settings.owner, farm: local.settings.farm, worker: local.settings.worker,
       otherWorkers: local.settings.otherWorkers, herdCount: local.settings.herdCount,
       window: local.settings.window, callSchedule: local.settings.callSchedule, integrations: local.settings.integrations,
+      reportMode: local.settings.reportMode, questionPlan: local.settings.questionPlan,
       customQuestions: fresh.settings.customQuestions.map((question) => ({
         ...question, text: local.settings.customQuestions.find((item) => item.id === question.id)?.text ?? question.text,
       })),
@@ -84,6 +87,7 @@ function adopt(fresh: Workspace) {
       const mine = local.settings.otherWorkers?.find((item) => item.id === worker.id);
       return mine && halfTyped(mine.phone) ? { ...worker, phone: mine.phone } : worker;
     });
+    if (!reportPlanHasContent(local, nowFor(local))) settings.questionPlan = local.settings.questionPlan; // Flagged on screen, not sent.
   }
   setWorkspace({ ...fresh, settings, weather });
 }

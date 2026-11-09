@@ -1,6 +1,6 @@
 import type {
   CallKind, CallOutcome, Camel, Certainty, CriterionKind, EmergencyKind, EventTone, HealthStatus, Level,
-  Plan, ResourceKind, WorkerLanguage,
+  Plan, ReportMode, ResourceKind, WorkerLanguage,
 } from "@/domain/types";
 
 /**
@@ -34,6 +34,9 @@ export interface FarmRow {
   herd_count: number | null;
   herd_count_reviewed_at: string | null;
   primary_worker_id: string | null;
+  /** Report mode and question plan (20261109140000). Absent until that migration runs. */
+  report_mode?: ReportMode;
+  question_plan?: unknown;
   created_at: string;
   revision: number;
 }
@@ -83,7 +86,11 @@ export interface FindingRow {
   text_ar: string;
   text_en: string;
 }
-export interface ReportRow { id: string; farm_id: string; call_id: string | null; at: string; herd_count_reported: number | null }
+export interface ReportRow {
+  id: string; farm_id: string; call_id: string | null; at: string; herd_count_reported: number | null;
+  mode?: "guided" | "open" | null;
+  coverage?: { questionId: string; status: "reported" | "unknown" | "not_reported" }[];
+}
 export interface ReportWithFacts extends ReportRow { report_answers: ReportAnswerRow[]; findings: FindingRow[] }
 export interface CallRow {
   id: string;

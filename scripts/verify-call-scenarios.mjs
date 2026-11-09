@@ -6,6 +6,7 @@
  * Nothing here can reach Twilio or Supabase: the app only ever gets fake credentials and loopback URLs.
  *
  *   node scripts/verify-call-scenarios.mjs [--label final] [--only S1,S3] [--ref HEAD] [--cleanup]
+ *     [--root /tmp/naqah-s3] [--pg-port 54660] [--rest-port 54661] [--gateway-port 54662] [--app-port 3801]
  *   Without --ref it tests the working tree; with --ref it tests that commit (a clean baseline).
  *
  * Results and full call transcripts: /tmp/naqah-s3/logs/<label>/ (result.json, transcripts.txt, server logs).
@@ -24,7 +25,7 @@ const arg = (name, fallback) => {
 const flag = (name) => process.argv.includes(`--${name}`);
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const ROOT = "/tmp/naqah-s3";
+const ROOT = arg("root", "/tmp/naqah-s3");
 const SRC = join(ROOT, "src");
 // When /tmp/naqah-s3/ram holds a mounted scratch volume (ram.dev), Postgres and .next live there to spare the disk.
 const SCRATCH = existsSync(join(ROOT, "ram.dev")) ? join(ROOT, "ram") : ROOT;
@@ -35,10 +36,10 @@ const LOGS = join(ROOT, "logs", LABEL);
 const ONLY = arg("only", "")?.split(",").filter(Boolean);
 const REF = arg("ref", "");
 const PG_BIN = "/opt/homebrew/opt/postgresql@17/bin";
-const PG_PORT = "54660";
-const REST_PORT = "54661";
-const GATEWAY_PORT = "54662";
-const APP_PORT = "3801";
+const PG_PORT = arg("pg-port", "54660");
+const REST_PORT = arg("rest-port", "54661");
+const GATEWAY_PORT = arg("gateway-port", "54662");
+const APP_PORT = arg("app-port", "3801");
 const DB = "naqah_s3";
 const GATEWAY = `http://127.0.0.1:${GATEWAY_PORT}`;
 const APP = `http://localhost:${APP_PORT}`;
@@ -251,6 +252,7 @@ async function makeOwner() {
 /** Basic ranch, one primary worker. Default: no camels, no herd count, no resources. */
 async function makeFarm({ camels = [], herd = null, resources = [], custom = [] } = {}) {
   const { user, account } = await makeOwner();
+  sql(`insert into farms (owner_id, plan, plan_selected_at) values (${q(user.id)}, 'basic', now()) on conflict (owner_id) do update set plan_selected_at = now()`);
   const opened = await account({ op: "open" });
   if (!opened.ok) throw new Error(`open failed: ${JSON.stringify(opened)}`);
   const farm = opened.data.farmId;
@@ -341,11 +343,12 @@ function assertNotSaved(ranch, call, label = "no report") {
 /* ─────────────────── questions ─────────────────── */
 
 const Q = {
-  health: /حال الحلال/,
+  // The full read-back repeats questions, so the question patterns must not match the summary.
+  health: /^(?![\s\S]*أحفظه)[\s\S]*حال الحلال/,
   herdCount: /كم عدد الحلال/,
   feed: /كم باقي من العلف/,
   water: /كيف وضع الماء/,
-  custom: /البيطري/,
+  custom: /^(?![\s\S]*أحفظه)[\s\S]*البيطري/,
   bags: /أكياس العلف/,
   litres: /الماء باللتر/,
   summary: /أحفظه/,

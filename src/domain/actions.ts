@@ -4,7 +4,7 @@
  * through these functions so the rules live in exactly one place.
  */
 import { MAX_RETRIES, RETRY_DELAY_MS } from "./clock";
-import { evaluateFindings, type ReportDraft } from "./findings";
+import { coveredReportDraft, evaluateFindings, reportDraftIssue, type ReportDraft } from "./findings";
 import { uid } from "./id";
 import type {
   CallKind,
@@ -79,6 +79,9 @@ export function completeWorkerReport(
   /** The NAQAH → worker report call this conversation belongs to. Omit for a worker returning a missed call. */
   reportCallId?: string | null,
 ): { ws: Workspace; report: FarmReport } {
+  const issue = reportDraftIssue(draft);
+  if (issue) throw new Error(`Invalid report draft: ${issue}`);
+  draft = coveredReportDraft(draft);
   const ws = clone(input);
   const at = iso(now);
   const run = reportCallId ? ws.reportCalls?.find((r) => r.id === reportCallId) : undefined;
@@ -120,6 +123,8 @@ export function completeWorkerReport(
     reportId: null,
   });
   const report: FarmReport = { id: uid("rep"), at, callId: call.id, answers: draft.answers, findings };
+  if (draft.mode !== undefined) report.mode = draft.mode;
+  if (draft.coverage !== undefined) report.coverage = structuredClone(draft.coverage);
   if (draft.herdCount !== undefined && draft.herdCount !== null) report.herdCountReported = draft.herdCount;
   call.reportId = report.id;
   // The report is in, whichever way it arrived: no open report call should ring again.

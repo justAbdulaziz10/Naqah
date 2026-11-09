@@ -16,6 +16,10 @@ export interface ToolResponse {
   goodbye: string | null;
   /** The summary for the bridge to speak word for word: the worker must hear exactly this before confirming. */
   summaryText?: string;
+  summaryId?: string;
+  sayText?: string;
+  silent?: true;
+  repromptText?: string;
 }
 
 export interface RealtimeState {
@@ -27,6 +31,12 @@ export interface RealtimeState {
   /** Set once the call fell back to the script. A late tool call must not write after that. */
   closed: boolean;
   confirmationFailures?: number;
+  refusalAt?: string;
+  refusals?: number;
+  noiseAt?: string;
+  noiseCount?: number;
+  progressVersion?: number;
+  fallbackPrepared?: boolean;
   recent: { id: string; result: ToolResponse }[];
 }
 
@@ -45,7 +55,7 @@ export function newRealtimeState(opening: string): RealtimeState {
 
 /** A finished call keeps no facts, so only its closing result stays. */
 export function rememberResult(realtime: RealtimeState, id: string, result: ToolResponse, done: boolean): RealtimeState {
-  return { ...realtime, recent: done ? [{ id, result }] : [...realtime.recent, { id, result }].slice(-RECENT_TOOL_CALLS) };
+  return { ...realtime, progressVersion: (realtime.progressVersion ?? 0) + 1, recent: done ? [{ id, result }] : [...realtime.recent, { id, result }].slice(-RECENT_TOOL_CALLS) };
 }
 
 async function writeRealtime(client: SupabaseClient, row: VoiceSessionRow, realtime: RealtimeState, unclaimedOnly: boolean, confirmationOnly = false): Promise<VoiceSessionRow | null> {
@@ -56,6 +66,8 @@ async function writeRealtime(client: SupabaseClient, row: VoiceSessionRow, realt
     .eq("seq", row.seq)
     .eq("session->realtime->closed", false);
   if (unclaimedOnly) query = query.eq("session->realtime->>jti", realtime.jti).is("session->realtime->>claimedAt", null);
+  const version = realtimeOf(row.session)?.progressVersion;
+  query = version === undefined ? query.is("session->realtime->progressVersion", null) : query.eq("session->realtime->progressVersion", version);
   if (confirmationOnly) {
     const failures = realtimeOf(row.session)?.confirmationFailures;
     query = failures === undefined
@@ -69,6 +81,10 @@ async function writeRealtime(client: SupabaseClient, row: VoiceSessionRow, realt
 
 export function recordConfirmationFailure(client: SupabaseClient, row: VoiceSessionRow, realtime: RealtimeState): Promise<VoiceSessionRow | null> {
   return writeRealtime(client, row, realtime, false, true);
+}
+
+export function recordRealtimeResult(client: SupabaseClient, row: VoiceSessionRow, realtime: RealtimeState): Promise<VoiceSessionRow | null> {
+  return writeRealtime(client, row, realtime, false);
 }
 
 /** Null means someone else claimed it first, which is what makes the ticket single use. */

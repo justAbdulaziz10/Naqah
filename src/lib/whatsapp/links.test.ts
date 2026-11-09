@@ -13,6 +13,8 @@ function workspace(): Workspace {
       farm: { name: "عزبة النخيل", location: "" },
       worker: { name: "سالم", phone: "٠٥١٢٣٤٥٦٧٨", language: "ar" },
       customQuestions: [],
+      reportMode: "guided",
+      questionPlan: [],
       criteria: [],
       emergencies: [],
       window: null,

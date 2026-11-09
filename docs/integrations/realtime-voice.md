@@ -59,6 +59,17 @@ context, a log field, or stored session/report data. Missing evidence is a refus
   failures close realtime writes and return `end: "fallback"` for scripted Gather with keypad confirmation.
 - `end_call { reason: "worker_ended" | "cannot_continue" }`: ends without saving.
 
+## Server-spoken protocol (November 2026)
+
+The model only listens and classifies: `tool_choice` is `required`, and the server picks every word. Each non-ending tool
+result carries exactly one of `sayText` (spoken verbatim), `summaryText` + `summaryId`, or `silent`. A confirmation saves
+only when the bridge reports the same `heardSummaryId` as the current summary, so a correction invalidates an earlier yes.
+The prompt carries `firstStep` for the first reply only; every later question arrives in a tool result, including refusals.
+Answers need supporting words in the worker's transcript. After three refusals at one position the answer is recorded as
+unknown, never switched to another value. Free text and urgent notes are stored from the transcript, not the model's wording.
+Open-mode facts must be supported by the transcript (`realtime/facts.ts`); a fact with the right topic but unclear value is
+kept as a note instead of guessed. Two 10-second reprompts follow silence, then the call continues by script.
+
 ## Bridge behaviour
 
 Track `userSpokeSinceLastTool`: consume it when a tool result returns, set when the provider commits user speech.

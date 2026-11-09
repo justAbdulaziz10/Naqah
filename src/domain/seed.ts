@@ -51,6 +51,8 @@ export function createEmptyWorkspace(plan: Plan = "basic"): Workspace {
       herdCount: null,
       herdCountReviewedAt: null,
       customQuestions: [],
+      reportMode: "guided",
+      questionPlan: [],
       criteria: defaultCriteria(),
       emergencies: defaultEmergencies(),
       window: null,

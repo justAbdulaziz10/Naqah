@@ -38,6 +38,19 @@ describe("owner input", () => {
     expect(() => parseCriterion({ kind: "custom", enabled: true })).toThrow();
     expect(parseCriterion({ kind: "low_feed", enabled: false })).toEqual({ kind: "low_feed", label: null, enabled: false });
   });
+  it("takes a report mode and a question plan, and nothing else in their place", () => {
+    const entry = { id: "herd_health", enabled: true, required: false };
+    expect(parseFarmProfile({ reportMode: "open", questionPlan: [{ ...entry, extra: "x" }] })).toEqual({ report_mode: "open", question_plan: [entry] });
+    expect(() => parseFarmProfile({ reportMode: "speech" })).toThrow();
+    expect(() => parseFarmProfile({ questionPlan: "all" })).toThrow();
+  });
+  it("refuses a malformed, repeated or oversized question plan", () => {
+    const entry = { id: "herd_health", enabled: true, required: true };
+    expect(() => parseFarmProfile({ questionPlan: [entry, entry] })).toThrow();
+    expect(() => parseFarmProfile({ questionPlan: [{ ...entry, id: "" }] })).toThrow();
+    expect(() => parseFarmProfile({ questionPlan: [{ ...entry, enabled: "yes" }] })).toThrow();
+    expect(() => parseFarmProfile({ questionPlan: Array.from({ length: 501 }, (_, i) => ({ ...entry, id: `q${i}` })) })).toThrow();
+  });
   it("rejects non-object input", () => {
     expect(() => parseFarmProfile(null)).toThrow();
     expect(() => parseFarmProfile([])).toThrow();

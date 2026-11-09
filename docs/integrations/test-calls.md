@@ -71,3 +71,10 @@ All validation uses fake providers and loopback PostgreSQL/PostgREST. The focuse
 requires `NAQAH_TEST_DB=naqah_testcall`, `PGHOST=127.0.0.1`, `PGPORT=54910` and
 `NAQAH_TEST_POSTGREST=http://127.0.0.1:54911`, with the local stack gateway on 54912. Run database
 files with `--no-file-parallelism`. No live provider or hosted database is needed.
+
+## Local transcript trace
+
+`node scripts/test-call-local.mjs --live --trace-transcripts …` writes one JSONL file per call to a temp directory: step,
+question, tool, arguments, the worker's words and what was spoken. Everyone on the call must consent first. It is refused
+when `VERCEL` is set, the Supabase URL isn't loopback, or the directory is outside the OS temp directory. Files are removed
+after 24 hours.

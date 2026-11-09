@@ -15,6 +15,9 @@ export type MessageTreeFunction = ((value: string) => string) | ((value: number)
 export type MessageTreeNode =
   | string
   | number
+  | boolean
+  | undefined
+  | null
   | LocalizedTextNode
   | readonly MessageTreeNode[]
   | MessageTreeObject
@@ -61,7 +64,8 @@ function isArrayIndex(property: string): boolean {
 }
 
 function personalizedNode(value: MessageTreeNode, fn: Personalizer, cache: WeakMap<object, MessageTreeNode>): MessageTreeNode {
-  if (typeof value === "string" || typeof value === "number") return typeof value === "string" ? fn(value) : value;
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return typeof value === "string" ? fn(value) : value;
   if (typeof value === "function") {
     const cached = cache.get(value);
     if (cached) return cached;
@@ -94,6 +98,7 @@ function personalizedNode(value: MessageTreeNode, fn: Personalizer, cache: WeakM
   const wrapped = new Proxy(value, {
     get(target, property, receiver) {
       const child = Reflect.get(target, property, receiver);
+      if ("literal" in target && target.literal === true) return child;
       return typeof property === "string" ? personalizedNode(child, fn, cache) : child;
     },
   });

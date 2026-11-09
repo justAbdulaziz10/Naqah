@@ -116,7 +116,7 @@ export type QuestionCategory =
 /** How the agent interprets the answer to a predefined question. */
 export type AnswerKind = "level" | "yesno" | "herd-health" | "text";
 
-/** Prepared by the NAQAH team. Mandatory when applicable. Wording is a DRAFT. */
+/** Prepared by the NAQAH team. Asked when applicable, unless the owner switches it off. Wording is a DRAFT. */
 export interface PredefinedQuestion {
   id: string;
   category: QuestionCategory;
@@ -131,6 +131,17 @@ export interface CustomQuestion {
   id: string;
   text: string;
   createdAt: string;
+}
+
+/** How the worker gives the report. "worker_choice" lets them pick guided or open on each call. */
+export type ReportMode = "worker_choice" | "guided" | "open";
+
+/** One question in the owner's plan. `id` is a predefined id or a custom question id; array order is ask order. */
+export interface QuestionPlanEntry {
+  id: string;
+  enabled: boolean;
+  /** Required: answered, or marked unknown. Optional: the worker can skip it. */
+  required: boolean;
 }
 
 export type CriterionKind =
@@ -214,6 +225,8 @@ export interface FarmReport {
   id: string;
   at: string;
   callId: string;
+  mode?: "guided" | "open";
+  coverage?: { questionId: string; status: "reported" | "unknown" | "not_reported" }[];
   answers: ReportAnswer[];
   findings: Finding[];
   /**
@@ -348,6 +361,10 @@ export interface Settings {
   /** Reports at or before this time have had their reported count reviewed by the owner. */
   herdCountReviewedAt?: string | null;
   customQuestions: CustomQuestion[];
+  /** Older stored demo workspaces lack it: read as "guided". */
+  reportMode: ReportMode;
+  /** What the call asks and in what order. Empty, or missing on older stored demo workspaces: everything on and required, in today's order. */
+  questionPlan: QuestionPlanEntry[];
   criteria: Criterion[];
   emergencies: EmergencyCategory[];
   /** RETIRED worker-calls-in window. Never read by rules or screens; kept for stored data. */

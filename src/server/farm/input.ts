@@ -1,5 +1,5 @@
 import { RESOURCE_KINDS } from "@/domain/catalog";
-import type { Camel, Certainty, CriterionKind, EmergencyKind, HealthStatus, Level, ResourceKind, WorkerLanguage } from "@/domain/types";
+import type { Camel, Certainty, CriterionKind, EmergencyKind, HealthStatus, Level, QuestionPlanEntry, ReportMode, ResourceKind, WorkerLanguage } from "@/domain/types";
 import { normalizeSaudiPhone } from "@/lib/supabase/auth-input";
 import { DbError } from "@/server/db/errors";
 
@@ -13,6 +13,9 @@ const HEALTH: readonly HealthStatus[] = ["healthy", "watch", "sick", "unknown"];
 const LANGUAGES: readonly WorkerLanguage[] = ["ar", "en", "ur", "hi", "bn", "fil"];
 const CRITERIA: readonly CriterionKind[] = ["sick_camel", "low_feed", "low_water", "fence_damage", "missing_camel", "medicine_low", "custom"];
 const EMERGENCIES: readonly EmergencyKind[] = ["injury", "missing_camel", "fire", "predator", "theft", "death", "custom"];
+const REPORT_MODES: readonly ReportMode[] = ["worker_choice", "guided", "open"];
+/** Well past any ranch's list, and the same bound as the farms.question_plan check. */
+const MAX_QUESTION_PLAN = 500;
 
 export function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid("body");
@@ -107,6 +110,19 @@ function bool(value: unknown, field: string): boolean {
   return value;
 }
 
+/** Shape only. Whether the ranch's call would still have something to ask needs the farm: see the owner repository. */
+function questionPlan(value: unknown): QuestionPlanEntry[] {
+  if (!Array.isArray(value) || value.length > MAX_QUESTION_PLAN) throw invalid("questionPlan");
+  const seen = new Set<string>();
+  return value.map((item) => {
+    const entry = record(item);
+    const id = text(entry.id, "questionPlan.id", 128);
+    if (!id || seen.has(id)) throw invalid("questionPlan.id");
+    seen.add(id);
+    return { id, enabled: bool(entry.enabled, "questionPlan.enabled"), required: bool(entry.required, "questionPlan.required") };
+  });
+}
+
 /**
  * Every farm column an owner may write (see the column grants in 0001 and 0006). Plan is not one
  * of them. The primary worker is chosen through the owner repository, which maps its id.
@@ -129,6 +145,8 @@ export function parseFarmProfile(value: unknown) {
     ...(given(input, "callSchedule") && callSchedule(input.callSchedule)),
     ...(given(input, "herdCount") && { herd_count: herdCount(input.herdCount) }),
     ...(given(input, "herdCountReviewedAt") && { herd_count_reviewed_at: timestamp(input.herdCountReviewedAt, "herdCountReviewedAt") }),
+    ...(given(input, "reportMode") && { report_mode: oneOf(input.reportMode, REPORT_MODES, "reportMode") }),
+    ...(given(input, "questionPlan") && { question_plan: questionPlan(input.questionPlan) }),
     ...(given(input, "setupComplete") && { setup_complete: bool(input.setupComplete, "setupComplete") }),
   };
 }

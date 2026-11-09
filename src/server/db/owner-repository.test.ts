@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { PREDEFINED_QUESTIONS } from "@/domain/catalog";
+import { toDbId } from "./ids";
 import { createOwnerRepository } from "./owner-repository";
 
 const farmId = "11111111-1111-4111-8111-111111111111";
@@ -20,7 +22,7 @@ function fakeClient(replies: Record<string, Reply>) {
       const chain: Record<string, unknown> = {
         then: (done: (value: Reply) => unknown) => Promise.resolve(reply).then(done),
       };
-      for (const op of ["select", "insert", "update", "delete", "upsert", "eq", "is", "limit", "single", "maybeSingle"]) {
+      for (const op of ["select", "insert", "update", "delete", "upsert", "eq", "is", "limit", "single", "maybeSingle", "order", "range", "in"]) {
         chain[op] = (...args: unknown[]) => { calls.push({ table, op, args }); return chain; };
       }
       return chain;
@@ -128,5 +130,26 @@ describe("owner repository", () => {
     await repository.setPrimaryWorker("wkr_new").catch(() => undefined);
     expect(calls.find((c) => c.table === "farms" && c.op === "update")?.args[0]).toEqual({ primary_worker_id: id });
     expect(calls.find((c) => c.table === "workers" && c.op === "upsert")?.args[0]).toMatchObject({ phone: "+966501234567" });
+  });
+
+  describe("saving the question plan", () => {
+    const none = { data: [], error: null };
+    const lists = Object.fromEntries(["workers", "camels", "resources", "custom_questions", "criteria", "emergency_categories", "reports", "calls", "task_tickets",
+      "no_answer_tickets", "pending_worker_calls", "report_call_runs", "relays", "events"].map((table) => [table, none]));
+    const silent = PREDEFINED_QUESTIONS.map((question) => ({ id: question.id, enabled: false, required: true }));
+    const updates = (calls: { table: string; op: string; args: unknown[] }[]) => calls.filter((c) => c.table === "farms" && c.op === "update");
+
+    it("refuses a plan that leaves the call with nothing to ask", async () => {
+      const { client, calls } = fakeClient({ farms, ...lists });
+      await expect(createOwnerRepository(client, "owner").saveFarmProfile({ questionPlan: silent })).rejects.toMatchObject({ code: "invalid_input" });
+      expect(updates(calls)).toEqual([]);
+    });
+    it("stores a custom question under its row id", async () => {
+      const { client, calls } = fakeClient({ farms, ...lists });
+      const questionPlan = [{ id: "cq_new", enabled: false, required: true }, { id: "herd_health", enabled: true, required: false }];
+      // The fake answers every farms query with one object, so the written-row check can't pass here.
+      await createOwnerRepository(client, "owner").saveFarmProfile({ questionPlan, reportMode: "open" }).catch(() => undefined);
+      expect(updates(calls)[0].args[0]).toEqual({ report_mode: "open", question_plan: [{ ...questionPlan[0], id: toDbId(farmId, "cq_new") }, questionPlan[1]] });
+    });
   });
 });

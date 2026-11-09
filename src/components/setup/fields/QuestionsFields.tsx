@@ -1,27 +1,44 @@
 "use client";
 
-import { Plus, Trash } from "@phosphor-icons/react";
+import { CaretDown, CaretUp, Plus, Trash } from "@phosphor-icons/react";
 import { useRef, useState } from "react";
+import { Switch } from "@/components/ui";
 import { RESOURCE_LABELS } from "@/domain/catalog";
 import { callQuestionPlan } from "@/domain/callQuestions";
 import { uid } from "@/domain/id";
-import { canAddCustomQuestion, customQuestionLimit } from "@/domain/rules";
+import {
+  canAddCustomQuestion, customQuestionLimit, moveQuestionInPlan, planEntriesFromRows, questionPlanRows, reportPlanHasContent,
+  type QuestionPlanRow,
+} from "@/domain/rules";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
+import { useNow } from "@/store/workspace";
 import type { SetupFieldsProps } from "../types";
 import { StepField, StepInput, wizardControl } from "../onboarding/WizardParts";
 
+const iconButton =
+  "inline-flex size-11 items-center justify-center rounded-full text-muted transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown disabled:cursor-not-allowed disabled:opacity-35";
+const moveButton = cn(iconButton, "enabled:hover:bg-espresso/5 enabled:hover:text-espresso");
+
 /**
- * What the next report call asks, in order: NAQAH's own questions (always asked, listed openly),
- * then the owner's, which they add, edit and remove within the plan's limit. Shared by setup and Settings.
+ * What the next report call asks, in order: one list of NAQAH's questions and the owner's, each
+ * switched on or off and moved up or down. The owner adds, edits and removes their own within the
+ * plan's limit. Shared by setup and Settings.
  */
 export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsProps & { headingLevel?: 2 | 3 }) {
   const { m, t } = useI18n();
   const q = m.setup.questions;
   const Heading = headingLevel === 2 ? "h2" : "h3";
+  const now = useNow();
   const [draft, setDraft] = useState("");
-  // The last removed question, so a slip of the finger can be undone.
-  const [removed, setRemoved] = useState<{ question: (typeof ws.settings.customQuestions)[number]; index: number } | null>(null);
+  // The last removed question, so a slip of the finger can be undone, with its place in the plan.
+  const [removed, setRemoved] = useState<{
+    question: (typeof ws.settings.customQuestions)[number];
+    index: number;
+    entry: { id: string; enabled: boolean; required: boolean } | null;
+    planIndex: number;
+  } | null>(null);
+  const [moved, setMoved] = useState<number | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
   const addRef = useRef<HTMLInputElement>(null);
   const plan = callQuestionPlan(ws);
@@ -31,9 +48,30 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
   const planName = m.common.plans[ws.settings.plan];
   const worker = ws.settings.worker.name.trim() || m.setup.call.workerFallback;
   const v = m.visual.script;
+  const rows = questionPlanRows(ws).filter((row) => row.applicable);
+  const hasContent = reportPlanHasContent(ws, now);
 
   const setQuestions = (edit: (list: typeof questions) => typeof questions) =>
     onChange((current) => ({ ...current, settings: { ...current.settings, customQuestions: edit(current.settings.customQuestions) } }));
+
+  const setPlan = (edit: (list: QuestionPlanRow[]) => QuestionPlanRow[]) =>
+    onChange((current) => ({ ...current, settings: { ...current.settings, questionPlan: planEntriesFromRows(edit(questionPlanRows(current))) } }));
+
+  const setRow = (id: string, patch: { enabled?: boolean; required?: boolean }) =>
+    setPlan((list) => list.map((row) => (row.question.id === id ? { ...row, ...patch } : row)));
+
+  const rowElement = (id: string) => listRef.current?.querySelector<HTMLElement>(`[data-question="${CSS.escape(id)}"]`);
+
+  function move(id: string, step: -1 | 1) {
+    setPlan((list) => moveQuestionInPlan(list, id, step));
+    setMoved(rows.findIndex((row) => row.question.id === id) + step + 1);
+    setRemoved(null);
+    // At either end of the list its own button is disabled, so the other one takes the focus.
+    requestAnimationFrame(() => {
+      const row = rowElement(id);
+      (row?.querySelector<HTMLButtonElement>(`[data-move="${step}"]:not(:disabled)`) ?? row?.querySelector<HTMLButtonElement>("[data-move]:not(:disabled)"))?.focus();
+    });
+  }
 
   function add() {
     const text = draft.trim();
@@ -41,32 +79,58 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
     setQuestions((list) => [...list, { id: uid("cq"), text, createdAt: new Date().toISOString() }]);
     setDraft("");
     setRemoved(null);
+    setMoved(null);
   }
 
-  function remove(index: number) {
+  function remove(id: string) {
+    const index = questions.findIndex((item) => item.id === id);
+    if (index < 0) return;
     const question = questions[index];
-    setQuestions((list) => list.filter((item) => item.id !== question.id));
-    setRemoved({ question, index });
+    const position = rows.filter((row) => row.kind === "custom").findIndex((row) => row.question.id === id);
+    const stored = ws.settings.questionPlan ?? [];
+    const planIndex = stored.findIndex((entry) => entry.id === id);
+    onChange((current) => ({
+      ...current,
+      settings: {
+        ...current.settings,
+        customQuestions: current.settings.customQuestions.filter((item) => item.id !== id),
+        questionPlan: (current.settings.questionPlan ?? []).filter((entry) => entry.id !== id),
+      },
+    }));
+    setRemoved({ question, index, entry: planIndex >= 0 ? stored[planIndex] : null, planIndex });
+    setMoved(null);
     // Focus stays in the list: the question that took its place, the one before it, or the add field.
     requestAnimationFrame(() => {
       const fields = listRef.current?.querySelectorAll<HTMLTextAreaElement>("textarea");
-      const next = fields?.[Math.min(index, (fields?.length ?? 0) - 1)];
+      const next = fields?.[Math.min(position, (fields?.length ?? 0) - 1)];
       (next ?? addRef.current)?.focus();
     });
   }
 
   function undo() {
     if (!removed) return;
-    const { question, index } = removed;
-    setQuestions((list) => (list.some((item) => item.id === question.id) ? list : [...list.slice(0, index), question, ...list.slice(index)]));
+    const { question, index, entry, planIndex } = removed;
+    onChange((current) => {
+      const { customQuestions, questionPlan = [] } = current.settings;
+      if (customQuestions.some((item) => item.id === question.id)) return current;
+      return {
+        ...current,
+        settings: {
+          ...current.settings,
+          customQuestions: [...customQuestions.slice(0, index), question, ...customQuestions.slice(index)],
+          questionPlan: entry ? [...questionPlan.slice(0, planIndex), entry, ...questionPlan.slice(planIndex)] : questionPlan,
+        },
+      };
+    });
     setRemoved(null);
-    requestAnimationFrame(() => listRef.current?.querySelectorAll<HTMLTextAreaElement>("textarea")[index]?.focus());
+    requestAnimationFrame(() => rowElement(question.id)?.querySelector("textarea")?.focus());
   }
 
   return (
     <div>
-      <p className="ps-8 text-[1.0625rem] text-muted">{v.title(worker)}</p>
-      <div className="relative mt-4">
+      <Heading className="ps-8 text-[1.0625rem] font-bold text-espresso">{v.title(worker)}</Heading>
+      <p className="mt-0.5 ps-8 text-[0.9375rem] text-muted">{q.listNote}</p>
+      <div className="relative mt-5">
         {/* One line through the whole call, from NAQAH's greeting to its call to the owner. */}
         <span aria-hidden className="absolute -bottom-[2.4rem] start-[5.5px] top-[0.75rem] w-px bg-stone" />
         <div className="relative ps-8">
@@ -75,90 +139,56 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
           <p className="mt-0.5 text-[0.9375rem] text-muted">{v.introDetail}</p>
         </div>
 
-        <section aria-labelledby="naqah-questions" className="mt-8">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 ps-8">
-            <Heading id="naqah-questions" className="text-[1.0625rem] font-bold text-espresso">{q.naqah}</Heading>
-            <span className="text-[0.9375rem] text-muted">{q.naqahNote}</span>
-          </div>
-          <ol className="mt-2">
-            {plan.asked.map((question) => (
-              <li key={question.id} className="relative py-2.5 ps-8 leading-relaxed text-espresso">
-                <Marker kind="naqah" />
-                {t(question.text)}
+        <ol ref={listRef} className="mt-4">
+          {rows.map((row, index) => (
+            <QuestionRow
+              key={row.question.id}
+              row={row}
+              position={index + 1}
+              total={rows.length}
+              onToggle={(enabled) => setRow(row.question.id, { enabled })}
+              onRequired={(required) => setRow(row.question.id, { required })}
+              onMove={(step) => move(row.question.id, step)}
+              onEdit={(text) => setQuestions((list) => list.map((item) => (item.id === row.question.id ? { ...item, text } : item)))}
+              onRemove={() => remove(row.question.id)}
+            />
+          ))}
+        </ol>
+        {hasContent ? null : (
+          // The wizard's Next button and the Settings guard both focus the first aria-invalid element.
+          <p role="alert" className="mt-3 ps-8 text-[0.9375rem] font-semibold text-danger">
+            <span tabIndex={-1} aria-invalid="true" className="block scroll-mt-40 outline-none">{q.nothingToAsk}</span>
+          </p>
+        )}
+        <p className="mt-2 ps-8 text-[0.9375rem] leading-relaxed text-muted">{q.requiredNote}</p>
+        {plan.skipped.length ? (
+          <ul className="mt-2 space-y-1 ps-8 text-[0.9375rem] leading-relaxed text-muted">
+            {plan.skipped.map((item) => (
+              <li key={item.question.id}>
+                {item.reason === "herd_count" ? q.skippedHerd : q.skippedResource(t(RESOURCE_LABELS[item.resource]))}
               </li>
             ))}
-          </ol>
-          {plan.skipped.length ? (
-            <ul className="mt-2 space-y-1 ps-8 text-[0.9375rem] leading-relaxed text-muted">
-              {plan.skipped.map((item) => (
-                <li key={item.question.id}>
-                  {item.reason === "herd_count" ? q.skippedHerd : q.skippedResource(t(RESOURCE_LABELS[item.resource]))}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </section>
+          </ul>
+        ) : null}
 
-        <section aria-labelledby="owner-questions" className="mt-8">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 ps-8">
-            <Heading id="owner-questions" className="text-[1.0625rem] font-bold text-espresso">{q.yours}</Heading>
-            <span className="ltr-nums text-[0.9375rem] text-muted">
-              {Number.isFinite(limit) ? q.left(planName, limit, Math.max(0, limit - questions.length)) : q.unlimited}
-            </span>
-          </div>
-          {questions.length ? (
-            <ol ref={listRef} className="mt-3 space-y-3">
-              {questions.map((question, index) => (
-                <li key={question.id} className="relative flex items-start gap-2 ps-8">
-                  <Marker kind="owner" />
-                  <StepField label={<span className="sr-only">{q.question(index + 1)}</span>} className="min-w-0 flex-1 gap-0">
-                    {({ id }) => (
-                      <textarea
-                        id={id}
-                        dir="auto"
-                        rows={1}
-                        maxLength={300}
-                        className={cn(wizardControl, "h-auto min-h-14 resize-none py-3.5 leading-relaxed [field-sizing:content]")}
-                        value={question.text}
-                        onChange={(event) => {
-                          const text = event.target.value;
-                          setQuestions((list) => list.map((item) => (item.id === question.id ? { ...item, text } : item)));
-                        }}
-                      />
-                    )}
-                  </StepField>
-                  <button
-                    type="button"
-                    aria-label={q.remove(index + 1)}
-                    title={q.remove(index + 1)}
-                    onClick={() => remove(index)}
-                    className="inline-flex size-14 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-danger-soft hover:text-danger"
-                  >
-                    <Trash size={20} aria-hidden />
-                  </button>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="mt-1 ps-8 text-[0.9375rem] text-muted">{q.yoursNote}</p>
-          )}
-          <p role="status" className={removed ? "mt-3 flex flex-wrap items-center gap-x-3 ps-8 text-[0.9375rem] text-espresso" : "sr-only"}>
-            {removed ? (
-              <>
-                <span className="naqah-saved-in">{q.removed}</span>
-                <button
-                  type="button"
-                  onClick={undo}
-                  className="inline-flex min-h-11 items-center font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown"
-                >
-                  {q.undo}
-                </button>
-              </>
-            ) : null}
-          </p>
-          {canAdd ? (
+        <p role="status" className={removed ? "mt-3 flex flex-wrap items-center gap-x-3 ps-8 text-[0.9375rem] text-espresso" : "sr-only"}>
+          {removed ? (
+            <>
+              <span className="naqah-saved-in">{q.removed}</span>
+              <button
+                type="button"
+                onClick={undo}
+                className="inline-flex min-h-11 items-center font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown"
+              >
+                {q.undo}
+              </button>
+            </>
+          ) : moved ? q.moved(moved) : null}
+        </p>
+        {canAdd ? (
+          <>
             <form
-              className="mt-4 flex flex-col gap-3 ps-8 sm:flex-row sm:items-end sm:gap-2"
+              className="mt-5 flex flex-col gap-3 ps-8 sm:flex-row sm:items-end sm:gap-2"
               onSubmit={(event) => {
                 event.preventDefault();
                 add();
@@ -176,10 +206,13 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
                 {m.common.actions.add}
               </button>
             </form>
-          ) : (
-            <p className="mt-3 ps-8 text-[0.9375rem] text-muted">{q.limitReached(limit)}</p>
-          )}
-        </section>
+            <p className="mt-2 ps-8 text-[0.9375rem] text-muted">
+              {Number.isFinite(limit) ? q.left(planName, limit, Math.max(0, limit - questions.length)) : q.unlimited}
+            </p>
+          </>
+        ) : (
+          <p className="mt-5 ps-8 text-[0.9375rem] text-muted">{q.limitReached(limit)}</p>
+        )}
 
         {plan.checksTasks ? (
           <div className="relative mt-8 ps-8">
@@ -197,16 +230,79 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
   );
 }
 
+function QuestionRow({ row, position, total, onToggle, onRequired, onMove, onEdit, onRemove }: {
+  row: QuestionPlanRow;
+  position: number;
+  total: number;
+  onToggle: (enabled: boolean) => void;
+  onRequired: (required: boolean) => void;
+  onMove: (step: -1 | 1) => void;
+  onEdit: (text: string) => void;
+  onRemove: () => void;
+}) {
+  const { m, t } = useI18n();
+  const q = m.setup.questions;
+  const text = row.kind === "custom" ? row.question.text : t(row.question.text);
+  return (
+    <li data-question={row.question.id} className="relative py-3 ps-8">
+      <Marker kind={row.kind === "custom" ? "owner" : "naqah"} muted={!row.enabled} />
+      <div className="flex items-start gap-3">
+        {row.kind === "custom" ? (
+          <StepField label={<span className="sr-only">{q.question(position)}</span>} className="min-w-0 flex-1 gap-0">
+            {({ id }) => (
+              <textarea
+                id={id}
+                dir="auto"
+                rows={1}
+                maxLength={300}
+                className={cn(wizardControl, "h-auto min-h-14 resize-none py-3.5 leading-relaxed [field-sizing:content]", !row.enabled && "text-muted!")}
+                value={row.question.text}
+                onChange={(event) => onEdit(event.target.value)}
+              />
+            )}
+          </StepField>
+        ) : (
+          <p className={cn("min-w-0 flex-1 leading-relaxed", row.enabled ? "text-espresso" : "text-muted")}>{text}</p>
+        )}
+        <Switch checked={row.enabled} onChange={onToggle} label={q.ask(position, text)} className={row.kind === "custom" ? "mt-3.5" : "mt-0.5"} />
+      </div>
+      <div className="mt-0.5 flex flex-wrap items-center justify-between gap-x-3">
+        {row.enabled ? (
+          <label className="-ms-1 inline-flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[0.9375rem] text-muted">
+            <input type="checkbox" checked={row.required} onChange={(event) => onRequired(event.target.checked)} className="size-[1.125rem] shrink-0 accent-brown" />
+            <span>{q.mustAnswer}<span className="sr-only"> · {q.nth(position)}</span></span>
+          </label>
+        ) : (
+          <span className="inline-flex min-h-11 items-center text-[0.9375rem] text-muted">{q.off}</span>
+        )}
+        <div className="-me-2 flex items-center">
+          <button type="button" data-move="-1" aria-label={q.moveUp(position)} title={q.moveUp(position)} disabled={position === 1} onClick={() => onMove(-1)} className={moveButton}>
+            <CaretUp size={18} aria-hidden />
+          </button>
+          <button type="button" data-move="1" aria-label={q.moveDown(position)} title={q.moveDown(position)} disabled={position === total} onClick={() => onMove(1)} className={moveButton}>
+            <CaretDown size={18} aria-hidden />
+          </button>
+          {row.kind === "custom" ? (
+            <button type="button" aria-label={q.remove(position)} title={q.remove(position)} onClick={onRemove} className={cn(iconButton, "hover:bg-danger-soft hover:text-danger")}>
+              <Trash size={18} aria-hidden />
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </li>
+  );
+}
+
 /** Rail marks: open rings where the call starts and ends, brown for NAQAH's questions, gold for the owner's. */
-function Marker({ kind }: { kind: "end" | "naqah" | "owner" }) {
+function Marker({ kind, muted }: { kind: "end" | "naqah" | "owner"; muted?: boolean }) {
   return (
     <span
       aria-hidden
       className={cn(
         "absolute start-0 rounded-full",
         kind === "end" && "top-[0.4rem] size-3 border-2 border-brown bg-cream",
-        kind === "naqah" && "start-[2px] top-[1.15rem] size-2 bg-brown",
-        kind === "owner" && "start-[1.5px] top-[1.5rem] size-2.5 bg-gold",
+        kind === "naqah" && cn("start-[2px] top-[1.15rem] size-2", muted ? "bg-stone" : "bg-brown"),
+        kind === "owner" && cn("start-[1.5px] top-[1.5rem] size-2.5", muted ? "bg-stone" : "bg-gold"),
       )}
     />
   );

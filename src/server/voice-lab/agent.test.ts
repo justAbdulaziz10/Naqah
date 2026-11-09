@@ -1,8 +1,10 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { CallSession } from "@/domain/conversation/engine";
-import { labWorkspace, openLabAgent, runLabTool } from "./agent";
+import { askedTopic } from "@/domain/conversation/answer-topic";
+import { reportSummaryId } from "@/domain/conversation/engine";
+import type { Workspace } from "@/domain/types";
+import { labWorkspace, openLabAgent, runLabTool, type LabSession } from "./agent";
 import { isVoiceLabOwner } from "./config";
 import { signLabState, verifyLabState, type LabState } from "./state";
 import { sampleLabWorkspace } from "./workspace";
@@ -12,11 +14,19 @@ vi.mock("server-only", () => ({}));
 const now = new Date("2026-11-08T15:00:00Z");
 const ws = labWorkspace(sampleLabWorkspace("ar", now), now);
 const open = () => openLabAgent(ws, now, "ar");
-const tool = (session: CallSession, name: string, args: unknown, spoke = true) => runLabTool({ session, ws, locale: "ar", name, args, spoke, now });
+/** A model call: the schema makes it name the asked topic, and the worker's words are the reply it picked. */
+const withTopic = (session: LabSession, name: string, args: unknown) => name === "answer_question" ? { topic: askedTopic(session), ...(args as object) } : args;
+const tool = (session: LabSession, name: string, args: unknown, spoke = true, workspace: Workspace = ws) => {
+  const answer = args as { value?: string; text?: string };
+  const workerUtterance = answer.text ?? session.replies.find((reply) => reply.value === answer.value)?.label.ar ?? "تمام";
+  return runLabTool({ session, ws: workspace, locale: "ar", name, args: withTopic(session, name, args), spoke, workerUtterance, now });
+};
+const said = (session: LabSession, args: unknown, workerUtterance: string, workspace: Workspace = ws) =>
+  runLabTool({ session, ws: workspace, locale: "ar", name: "answer_question", args: withTopic(session, "answer_question", args), spoke: true, workerUtterance, now });
 
 /** Answers every question with its first reply, or a number where one is asked for. */
-function walkToSummary(): CallSession {
-  let { session } = open();
+function walkToSummary(): LabSession {
+  let session: LabSession = open().session;
   for (let turn = 0; turn < 60 && session.step !== "report_summary"; turn += 1) {
     const args = session.replies.length ? { value: session.replies[0].value } : { text: session.inputMode === "number" ? "5" : "كل شي تمام" };
     const result = tool(session, "answer_question", args);
@@ -32,7 +42,8 @@ describe("Voice Lab agent", () => {
   it("opens with the real report questions", () => {
     const opened = open();
     expect(opened.opening).toContain("مساعد ناقة الآلي");
-    expect(opened.instructions).toContain("<call_data>");
+    expect(opened.instructions).toContain('"firstStep"');
+    expect(opened.repromptText).toBeTruthy();
     expect(opened.view.queue.length).toBeGreaterThan(0);
   });
 
@@ -44,34 +55,35 @@ describe("Voice Lab agent", () => {
     expect(result.view.facts).toEqual([]);
   });
 
-  const confirm = (session: CallSession, spoke: boolean, workerUtterance: string | null, heardSummary?: boolean) =>
-    runLabTool({ session, ws, locale: "ar", name: "confirm_report", args: { confirmed: true }, spoke, workerUtterance, heardSummary, now });
+  const confirm = (session: LabSession, spoke: boolean, workerUtterance: string | null, heardSummaryId: string | undefined = reportSummaryId(session, "ar")) =>
+    runLabTool({ session, ws, locale: "ar", name: "confirm_report", args: { confirmed: true }, spoke, workerUtterance, heardSummaryId, now });
 
   it("does not let the model confirm before the worker has spoken", () => {
-    const result = confirm(walkToSummary(), false, "إيه احفظه", true);
+    const result = confirm(walkToSummary(), false, "إيه احفظه");
     expect(result.refused).toBe("worker_has_not_confirmed");
     expect(result.view.verdict).toBeNull();
   });
 
   it("requires the worker's final transcript", () => {
     for (const missing of [null, ""]) {
-      const result = confirm(walkToSummary(), true, missing, true);
+      const result = confirm(walkToSummary(), true, missing);
       expect(result.refused).toBe("worker_has_not_confirmed");
     }
   });
 
-  it("never saves after a summary that was interrupted or unfinished", () => {
-    for (const heard of [false, undefined]) {
-      const result = confirm(walkToSummary(), true, "إيه احفظه", heard);
+  it("never saves after a summary that was interrupted or unfinished, and reads it again", () => {
+    for (const heardId of [undefined, "0:stale"]) {
+      const summary = walkToSummary();
+      const result = runLabTool({ session: summary, ws, locale: "ar", name: "confirm_report", args: { confirmed: true }, spoke: true, workerUtterance: "إيه احفظه", heardSummaryId: heardId, now });
       expect(result.refused).toBe("summary_not_finished");
       expect(result.view.verdict).toBeNull();
-      expect(JSON.parse(result.output).message).toContain("It is being read again now");
       expect(result.summaryText).toBeTruthy();
+      expect(result.summaryId).toBe(reportSummaryId(summary, "ar"));
     }
   });
 
-  it("hands over the summary to read word for word when it first comes up, and not after an unclear yes", () => {
-    let { session } = open();
+  it("hands over the summary to read word for word, with its id", () => {
+    let session: LabSession = open().session;
     let last = tool(session, "answer_question", { value: session.replies[0].value });
     for (let turn = 0; turn < 60 && last.session.step !== "report_summary"; turn += 1) {
       session = last.session;
@@ -79,25 +91,26 @@ describe("Voice Lab agent", () => {
       last = tool(session, "answer_question", args);
     }
     expect(last.summaryText).toBeTruthy();
-    expect(confirm(last.session, true, "لا، الملخص غلط", true).summaryText).toBeUndefined();
+    expect(last.summaryId).toBe(reportSummaryId(last.session, "ar"));
+    expect(last.sayText).toBeUndefined();
   });
 
-  it.each(["لا، الملخص غلط", "إيه بس غير العلف", "لحظة", "إيه لكن فيه غلط", "ما أدري", "الجو حار", "ماهو صحيح", "مهوب صحيح"])("does not take «%s» as confirmation", (said) => {
-    const result = confirm(walkToSummary(), true, said, true);
+  it.each(["لا، الملخص غلط", "إيه بس غير العلف", "لحظة", "إيه لكن فيه غلط", "ما أدري", "الجو حار", "ماهو صحيح", "مهوب صحيح"])("does not take «%s» as confirmation", (words) => {
+    const result = confirm(walkToSummary(), true, words);
     expect(result.refused).toBe("worker_has_not_confirmed");
     expect(result.view.verdict).toBeNull();
   });
 
-  it.each(["إيه احفظه", "احفظه", "تمام احفظه"])("takes «%s» as confirmation after the full summary", (said) => {
-    const result = confirm(walkToSummary(), true, said, true);
+  it.each(["إيه احفظه", "احفظه", "تمام احفظه"])("takes «%s» as confirmation after the full summary", (words) => {
+    const result = confirm(walkToSummary(), true, words);
     expect(result.refused).toBeNull();
     expect(result.view.verdict).toEqual({ kind: "would_save" });
   });
 
   it("stops at the second failed confirmation, as a real call does, without saving", () => {
-    const first = confirm(walkToSummary(), true, "لا، الملخص غلط", true);
+    const first = confirm(walkToSummary(), true, "لا، الملخص غلط");
     expect(first.end).toBeNull();
-    const second = confirm(first.session, true, "لا، الملخص غلط", true);
+    const second = confirm(first.session, true, "لا، الملخص غلط");
     expect(second.end).toBe("fallback");
     expect(second.goodbye).toBeNull();
     expect(second.view.verdict).toEqual({ kind: "fallback" });
@@ -107,7 +120,7 @@ describe("Voice Lab agent", () => {
   it("gives a saved verdict through the real contract and never changes the ranch", () => {
     const summary = walkToSummary();
     const before = JSON.stringify(ws);
-    const result = confirm(summary, true, "إيه احفظه", true);
+    const result = confirm(summary, true, "إيه احفظه");
     expect(result.refused).toBeNull();
     expect(JSON.parse(result.output).status).toBe("saved");
     expect(result.end).toBe("hangup");
@@ -116,14 +129,22 @@ describe("Voice Lab agent", () => {
     expect(JSON.stringify(ws)).toBe(before);
   });
 
-  it("records a decline and an early end as nothing saved", () => {
-    expect(tool(walkToSummary(), "confirm_report", { confirmed: false }).view.verdict).toEqual({ kind: "declined" });
+  it("records an end of call as nothing saved", () => {
+    expect(tool(walkToSummary(), "end_call", { reason: "worker_ended" }).view.verdict).toEqual({ kind: "declined" });
     expect(tool(open().session, "end_call", { reason: "worker_ended" }).view.verdict).toEqual({ kind: "ended" });
+  });
+
+  it("treats a no to the summary as a correction, not an end", () => {
+    const result = tool(walkToSummary(), "confirm_report", { confirmed: false });
+    expect(result.session.step).toBe("report_correct_pick");
+    expect(result.view.verdict).toBeNull();
+    expect(result.end).toBeNull();
+    expect(result.sayText).toBeTruthy();
   });
 
   it("shows answers as facts once accepted", () => {
     const summary = walkToSummary();
-    const view = tool(summary, "confirm_report", { confirmed: false }).view;
+    const view = tool(summary, "repeat_or_clarify", { reason: "asked_to_repeat" }).view;
     expect(view.facts.length).toBeGreaterThan(0);
     expect(view.answered).toBe(view.queue.length);
   });
@@ -173,8 +194,8 @@ describe("Voice Lab has no way to write or call", () => {
 });
 
 describe("Voice Lab asks instead of guessing", () => {
-  function walkTo(step: string): CallSession {
-    let { session } = open();
+  function walkTo(step: string): LabSession {
+    let session: LabSession = open().session;
     for (let turn = 0; turn < 60 && session.step !== step; turn += 1) {
       const args = session.inputMode === "number" ? { text: "5" } : session.replies.length ? { value: session.replies[0].value } : { text: "تمام" };
       session = tool(session, "answer_question", args).session;
@@ -222,70 +243,201 @@ describe("Voice Lab asks instead of guessing", () => {
 
   it("asks when the number recorded is not the number said", () => {
     const session = walkTo("quantity_input");
-    const heard = "عشرة أكياس";
-    expect(runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { text: "12" }, spoke: true, heard, now }).refused).toBe("number_not_in_answer");
-    expect(runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { text: "10" }, spoke: true, heard, now }).refused).toBeNull();
-  });
-
-  it("won't accept an answer without the worker's words once the question needed clarifying", () => {
-    const session = walkTo("quantity_input");
-    const first = runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { text: "12" }, spoke: true, heard: "عشرة أكياس", now });
-    const late = runLabTool({ session: first.session, ws, locale: "ar", name: "answer_question", args: { text: "12" }, spoke: true, heard: null, now });
-    expect(late.refused).toBe("number_not_in_answer");
-    expect(late.session.draft).toEqual(session.draft);
+    expect(said(session, { text: "12" }, "عشرة أكياس").refused).toBe("number_not_in_answer");
+    expect(said(session, { text: "10" }, "عشرة أكياس").refused).toBeNull();
   });
 
   it("won't take 'unknown' from the model when the worker said a number", () => {
-    const session = walkTo("quantity_input");
-    const result = runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { value: "quantity_unknown" }, spoke: true, heard: "عشرة أكياس", now });
-    expect(result.refused).toBe("answer_conflicts_with_words");
+    expect(said(walkTo("quantity_input"), { value: "quantity_unknown" }, "عشرة أكياس").refused).toBe("answer_conflicts_with_words");
   });
 
   it("ignores a parser reading the current question doesn't offer", () => {
-    let { session } = open();
+    let session: LabSession = open().session;
     for (let turn = 0; turn < 60 && session.data.currentQuestionId !== "fences_condition"; turn += 1) {
       const args = session.inputMode === "number" ? { text: "5" } : session.replies.length ? { value: session.replies[0].value } : { text: "تمام" };
       session = tool(session, "answer_question", args).session;
     }
-    const result = runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { value: "good" }, spoke: true, heard: "الشبك سليم", now });
-    expect(result.refused).toBeNull();
+    expect(said(session, { value: "good" }, "الشبك سليم").refused).toBeNull();
   });
 
-  it("keeps asking when the words keep disagreeing, and never accepts on a repeat", () => {
-    let session = walkTo("quantity_input");
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const result = runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { text: "12" }, spoke: true, heard: "عشرة أكياس", now });
-      expect(result.refused).toBe("number_not_in_answer");
-      expect(result.session.draft).toEqual(session.draft);
-      session = result.session;
-    }
-  });
-
-  it("follows the worker's clear words on the herd-health question, as a real call does", () => {
+  it("refuses conflicting herd-health classification instead of flipping the value", () => {
     const { session } = open();
-    const result = runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { value: "no" }, spoke: true, heard: "لا ما فيه مريض", now });
-    expect(result.refused).toBeNull();
+    const result = said(session, { value: "no" }, "لا ما فيه مريض");
+    expect(result.refused).toBe("answer_conflicts_with_words");
     expect(result.session.step).not.toBe("health_pick");
-    expect(result.session.draft.camelUpdates.every((update) => update.health === "healthy")).toBe(true);
+    expect(result.session.draft.camelUpdates).toHaveLength(0);
   });
 
   it("never records a healthy herd from words about something else", () => {
     const { session } = open();
     expect(session.data.queue?.[session.data.reportIndex ?? 0]?.id).toBe("herd_health");
-    const yes = (heard: string) => runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { value: "yes" }, spoke: true, heard, now });
-    for (const [heard, refused] of [["العلف زين", "answer_off_topic"], ["الجو حار اليوم", "answer_unclear"], ["", "answer_unclear"]]) {
-      const result = yes(heard);
+    for (const [words, refused] of [["العلف زين", "answer_off_topic"], ["الجو حار اليوم", "answer_unclear"]]) {
+      const result = said(session, { value: "yes" }, words);
       expect(result.refused).toBe(refused);
       expect(result.session.draft.camelUpdates).toEqual([]);
       expect(result.session.step).toBe(session.step);
       expect(result.view.facts).toEqual([]);
     }
-    expect(yes("كلها بخير").refused).toBeNull();
+    expect(said(session, { value: "yes" }, "كلها بخير").refused).toBeNull();
   });
 
   it("gives the model the real call's instructions, unchanged", () => {
-    expect(open().instructions).toContain("إذا انقطع الملخص أعده كاملاً");
+    expect(open().instructions).toContain("لا تتكلم بنفسك أبداً");
     expect(open().instructions.endsWith("</call_data>")).toBe(true);
+  });
+});
+
+describe("Voice Lab follows the server-spoken protocol", () => {
+  const withMode = (reportMode: Workspace["settings"]["reportMode"]): Workspace => ({ ...ws, settings: { ...ws.settings, reportMode } });
+  const openFor = (workspace: Workspace) => openLabAgent(workspace, now, "ar");
+  const actionsOf = (result: { summaryText?: string; sayText?: string; silent?: true }) => [result.summaryText, result.sayText, result.silent].filter((value) => value !== undefined).length;
+
+  function walkTo(step: string): LabSession {
+    let session: LabSession = open().session;
+    for (let turn = 0; turn < 60 && session.step !== step; turn += 1) {
+      const args = session.inputMode === "number" ? { text: "5" } : session.replies.length ? { value: session.replies[0].value } : { text: "تمام" };
+      session = tool(session, "answer_question", args).session;
+    }
+    expect(session.step).toBe(step);
+    return session;
+  }
+
+  it("carries exactly one spoken action on every result that doesn't end the call", () => {
+    let session: LabSession = open().session;
+    for (let turn = 0; turn < 60 && session.step !== "report_summary"; turn += 1) {
+      const args = session.replies.length ? { value: session.replies[0].value } : { text: session.inputMode === "number" ? "5" : "كل شي تمام" };
+      const result = tool(session, "answer_question", args);
+      expect(actionsOf(result)).toBe(1);
+      expect(result.repromptText).toBeTruthy();
+      session = result.session;
+    }
+    expect(actionsOf(tool(session, "repeat_or_clarify", { reason: "unclear" }))).toBe(1);
+  });
+
+  it("stays silent on the first noise, then says it couldn't hear, recording nothing", () => {
+    const { session } = open();
+    const first = runLabTool({ session, ws, locale: "ar", name: "answer_question", args: withTopic(session, "answer_question", { value: "yes" }), spoke: true, workerUtterance: "", now });
+    expect(first.silent).toBe(true);
+    expect(first.refused).toBe("noise");
+    expect(first.session.draft).toEqual(session.draft);
+    const second = runLabTool({ session: first.session, ws, locale: "ar", name: "answer_question", args: withTopic(session, "answer_question", { value: "yes" }), spoke: true, workerUtterance: "ضجيج", now });
+    expect(second.silent).toBeUndefined();
+    expect(second.sayText).toContain("ما وصلني صوتك زين");
+    expect(second.session.draft).toEqual(session.draft);
+  });
+
+  it("speaks its own refusal with the current question", () => {
+    const { session } = open();
+    const result = said(session, { value: "yes" }, "العلف زين");
+    expect(result.sayText).toContain("خلنا نرجع للسؤال");
+    expect(result.sayText).toContain(JSON.parse(result.output).question);
+  });
+
+  it("gives up after two refusals and records unknown, never the disputed number", () => {
+    let session = walkTo("quantity_input");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = said(session, { text: "12" }, "عشرة أكياس");
+      expect(result.refused).toBe("number_not_in_answer");
+      expect(result.session.draft).toEqual(session.draft);
+      session = result.session;
+    }
+    const third = said(session, { text: "12" }, "عشرة أكياس");
+    expect(third.refused).toBeNull();
+    expect(third.sayText).toContain("بنسجلها غير معروف");
+    expect(JSON.stringify(third.session.draft)).not.toContain('"quantity":12');
+  });
+
+  it("stores free text as the worker said it, not as the model worded it", () => {
+    const session = walkTo("herd_count_detail");
+    const result = said(session, { text: "ناقة مفقودة في الوادي" }, "شعلة ضايعة");
+    expect(result.session.draft.answers.at(-1)?.answerText?.ar).toContain("شعلة ضايعة");
+    expect(JSON.stringify(result.session.draft)).not.toContain("مفقودة في الوادي");
+  });
+
+  it("warns on an urgent concern, keeps the worker's words and stays on the question", () => {
+    const { session } = open();
+    const result = runLabTool({ session, ws, locale: "ar", name: "flag_urgent", args: { note: "حالة طارئة" }, spoke: true, workerUtterance: "الناقة تنزف", now });
+    expect(result.sayText).toContain("اتصل بصاحب العزبة مباشرة");
+    expect(result.session.draft.urgentNote).toBe("الناقة تنزف");
+    expect(result.session.step).toBe(session.step);
+  });
+
+  it("re-reads the whole summary after a correction, and an old id no longer confirms", () => {
+    const summary = walkToSummary();
+    const heardBefore = reportSummaryId(summary, "ar");
+    let result = tool(summary, "correct_report", { item_id: "water_level" });
+    for (let turn = 0; turn < 10 && result.session.step !== "report_summary"; turn += 1) {
+      const session = result.session;
+      result = tool(session, "answer_question", session.replies.length ? { value: session.replies[0].value } : { text: session.inputMode === "number" ? "5" : "تمام" });
+    }
+    expect(result.summaryText).toBeTruthy();
+    expect(result.summaryId).not.toBe(heardBefore);
+    const stale = runLabTool({ session: result.session, ws, locale: "ar", name: "confirm_report", args: { confirmed: true }, spoke: true, workerUtterance: "إيه احفظه", heardSummaryId: heardBefore, now });
+    expect(stale.refused).toBe("summary_not_finished");
+    const fresh = runLabTool({ session: result.session, ws, locale: "ar", name: "confirm_report", args: { confirmed: true }, spoke: true, workerUtterance: "إيه احفظه", heardSummaryId: result.summaryId, now });
+    expect(fresh.view.verdict).toEqual({ kind: "would_save" });
+  });
+
+  it("uses the owner's fixed guided mode", () => {
+    const opened = openFor(withMode("guided"));
+    expect(opened.session.step).toBe("report_question");
+    expect(opened.view.mode).toBe("guided");
+  });
+
+  it("lets the worker choose when the owner left it to them, either way", () => {
+    const workspace = withMode("worker_choice");
+    const opened = openFor(workspace);
+    expect(opened.session.step).toBe("report_mode_choice");
+    expect(opened.view.mode).toBeNull();
+    const words = (mode: string) => runLabTool({ session: opened.session, ws: workspace, locale: "ar", name: "choose_mode", args: { mode }, spoke: true, workerUtterance: "أقول اللي صار", now });
+    expect(words("open").session.step).toBe("open_listen");
+    expect(words("open").view.mode).toBe("open");
+    expect(words("guided").view.mode).toBe("guided");
+  });
+
+  it("takes an open update through facts, then reads it back and saves what was never mentioned as not reported", () => {
+    const workspace = withMode("open");
+    const opened = openFor(workspace);
+    expect(opened.session.step).toBe("open_listen");
+    const run = (session: LabSession, name: string, args: unknown, workerUtterance: string, heardSummaryId?: string) => runLabTool({ session, ws: workspace, locale: "ar", name, args, spoke: true, workerUtterance, heardSummaryId, now });
+    const heard = run(opened.session, "record_facts", { facts: [{ type: "resource", resource: "feed", level: "low", quantity: null, evidence: "العلف قليل" }] }, "العلف قليل");
+    expect(heard.refused).toBeNull();
+    expect(heard.session.step).toBe("open_more");
+    expect(heard.session.draft.resourceUpdates[0]).toMatchObject({ kind: "feed", level: "low" });
+    let result = run(heard.session, "finish_update", {}, "لا ما عندي شي");
+    for (let turn = 0; turn < 10 && result.session.step !== "report_summary"; turn += 1) {
+      const session = result.session;
+      result = tool(session, "answer_question", session.replies.length ? { value: session.replies[0].value } : { text: "تمام" }, true, workspace);
+    }
+    expect(result.summaryText).toBeTruthy();
+    expect(result.view.notReported.length).toBeGreaterThan(0);
+    const saved = run(result.session, "confirm_report", { confirmed: true }, "إيه احفظه", result.summaryId);
+    expect(saved.view.verdict).toEqual({ kind: "would_save" });
+    expect(saved.session.draft.mode).toBe("open");
+    expect(saved.session.draft.coverage?.some((entry) => entry.status === "not_reported")).toBe(true);
+  });
+
+  it("moves on after repeated unsupported facts, recording none of them", () => {
+    const workspace = withMode("open");
+    const { session } = openFor(workspace);
+    const facts = { facts: [{ type: "resource", resource: "water", level: "good", quantity: null, evidence: "الماء زين" }] };
+    const attempt = (current: LabSession) => runLabTool({ session: current, ws: workspace, locale: "ar", name: "record_facts", args: facts, spoke: true, workerUtterance: "العلف قليل", now });
+    let result = attempt(session);
+    result = attempt(result.session);
+    expect(result.refused).toBe("facts_not_supported");
+    result = attempt(result.session);
+    expect(result.refused).toBeNull();
+    expect(result.session.draft.resourceUpdates).toEqual([]);
+    expect(result.summaryText ?? result.sayText).toContain("خلنا نراجع");
+  });
+
+  it("refuses facts the worker's words don't support", () => {
+    const workspace = withMode("open");
+    const { session } = openFor(workspace);
+    const result = runLabTool({ session, ws: workspace, locale: "ar", name: "record_facts", args: { facts: [{ type: "resource", resource: "water", level: "good", quantity: null, evidence: "الماء زين" }] }, spoke: true, workerUtterance: "العلف قليل", now });
+    expect(result.refused).toBe("facts_not_supported");
+    expect(result.sayText).toBeTruthy();
+    expect(result.session.draft.resourceUpdates).toEqual([]);
   });
 });
 
@@ -307,22 +459,38 @@ describe("Voice Lab stays in step with the phone call", () => {
     expect(lab).toContain('reasoning: { effort: "minimal" }');
   });
 
+  const decide = readFileSync("src/server/voice/realtime/decide.ts", "utf8");
   const service = readFileSync("src/server/voice/realtime/service.ts", "utf8");
+  it("decides through the same code as a real call, free of the write paths", () => {
+    expect(readFileSync("src/server/voice-lab/agent.ts", "utf8")).toContain("decideTool(");
+    expect(service).toContain("decideTool(");
+    expect(decide).not.toMatch(/^import (?!type).*(?:farm-call|voice-sessions|server\/db)/m);
+  });
+
   it("uses the real call's confirmation limits", () => {
-    expect(service).toContain("failures >= 2");
-    expect(service).toContain('"summary_not_finished"');
-    expect(service).toContain("isVerifiedConfirmation");
-    expect(service).toContain("summaryText");
-    expect(bridge).toContain("requestResponse('summary', summary)");
+    expect(decide).toContain("failures >= 2");
+    expect(decide).toContain('"summary_not_finished"');
+    expect(decide).toContain("isVerifiedConfirmation");
+    expect(decide).toContain("summaryText");
+    expect(bridge).toContain("requestResponse('summary', summary,");
     for (const limit of ["transcriptionMs: 2_500", "speechMs: 10_000"]) expect(bridge).toContain(limit);
     for (const value of ["TRANSCRIPTION_MS = 2_500", "SPEECH_MS = 10_000"]) expect(loop).toContain(value);
+  });
+
+  it("makes the model call tools and re-speaks on the bridge's schedule", () => {
+    expect(bridge).toContain("tool_choice: 'required'");
+    expect(lab).toContain('tool_choice: "required"');
+    expect(bridge).toContain("repromptMs: 10_000");
+    expect(loop).toContain("REPROMPT_MS = 10_000");
+    expect(bridge).toContain("maxReprompts: 2");
+    expect(loop).toContain("MAX_REPROMPTS = 2");
   });
 
   it("uses the phone call's closing line", () => {
     expect(calls).toContain("تم حفظ التحديث، شكراً لك. مع السلامة.");
   });
 
-  it.each(["silenceMs: 45_000", "responseMs: 45_000", "goodbyeMs: 15_000"])("matches the bridge's limit %s", (limit) => {
+  it.each(["responseMs: 45_000", "goodbyeMs: 15_000"])("matches the bridge's limit %s", (limit) => {
     expect(bridge).toContain(limit);
     expect(loop).toContain(limit.replace(/^(\w+?)Ms: /, (_, name: string) => `${name.toUpperCase()}_MS = `));
   });

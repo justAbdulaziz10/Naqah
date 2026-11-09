@@ -33,8 +33,7 @@ const all = <T>(table: string, farmId: string) => json<T[]>(`select coalesce(jso
 
 function loadRows(farmId: string): { rows: FarmRows; revision: number } {
   const farm = json<FarmRows["farm"]>(`select row_to_json(f) from farms f where id = ${quote(farmId)}`);
-  const reports = json<FarmRows["reports"]>(`select coalesce(json_agg(json_build_object(
-      'id', r.id, 'farm_id', r.farm_id, 'call_id', r.call_id, 'at', r.at, 'herd_count_reported', r.herd_count_reported,
+  const reports = json<FarmRows["reports"]>(`select coalesce(jsonb_agg(to_jsonb(r) || jsonb_build_object(
       'report_answers', (select coalesce(json_agg(a), '[]') from report_answers a where a.report_id = r.id),
       'findings', (select coalesce(json_agg(f), '[]') from findings f where f.report_id = r.id))), '[]')
     from reports r where r.farm_id = ${quote(farmId)}`);
@@ -154,9 +153,13 @@ describe.skipIf(!database)("domain flows through the real schema", () => {
   it("saves a report with answers, findings, camel and resource updates", () => {
     const camel = current.camels[0];
     const { ws } = completeWorkerReport(current, minutes(0), {
+      mode: "open",
+      coverage: [{ questionId: "herd_health", status: "reported" }, { questionId: "feed_level", status: "reported" }, { questionId: "water_level", status: "not_reported" }, { questionId: "shelter_condition", status: "unknown" }],
+      urgentNote: "She is limping",
       answers: [
         { questionId: "herd_health", question: { ar: "س", en: "q" }, answer: "One is limping", certainty: "reported", followUp: false },
         { questionId: "feed_level", question: { ar: "س", en: "q" }, answer: "low", answerText: { ar: "قليل", en: "Low" }, certainty: "approximate", followUp: true },
+        { questionId: "shelter_condition", question: { ar: "س", en: "q" }, answer: "I don't know", certainty: "unknown", followUp: false },
       ],
       camelUpdates: [{ camelId: camel.id, health: "sick", note: "Limping", certainty: "reported" }],
       resourceUpdates: [{ kind: "feed", level: "low", quantity: "about 3 bags", note: null, certainty: "approximate" }],
@@ -164,8 +167,10 @@ describe.skipIf(!database)("domain flows through the real schema", () => {
       taskConfirmations: [],
     });
     save(ws, "CA-report");
-    expect(current.reports[0].answers.map((a) => a.questionId)).toEqual(["herd_health", "feed_level"]);
+    expect(current.reports[0].answers.map((a) => a.questionId)).toEqual(["herd_health", "feed_level", "shelter_condition"]);
     expect(current.reports[0].findings.length).toBeGreaterThan(0);
+    expect(current.reports[0]).toMatchObject({ mode: "open", coverage: [{ questionId: "herd_health", status: "reported" }, { questionId: "feed_level", status: "reported" }, { questionId: "water_level", status: "not_reported" }, { questionId: "shelter_condition", status: "unknown" }] });
+    expect(current.reports[0].findings.filter((finding) => finding.criterionId === "worker_urgent")).toHaveLength(1);
     expect(current.lastUpdateAt).not.toBeNull();
   });
 

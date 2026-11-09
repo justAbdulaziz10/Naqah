@@ -9,6 +9,7 @@ import {
   EmergencySection,
   QuestionsFields,
   RanchFields,
+  ReportModeField,
   ResourcesSection,
   SaveState,
   TeamFields,
@@ -21,10 +22,12 @@ import { CallingStateNote } from "@/components/setup/CallingState";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { PlanChoice } from "@/components/setup/onboarding/PlanChoice";
 import { RanchWeek } from "@/components/setup/onboarding/RanchWeek";
+import { nowFor } from "@/domain/clock";
+import { reportPlanHasContent } from "@/domain/rules";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { accountSync } from "@/store/account";
-import { useIsAccount, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
+import { useIsAccount, useNow, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
 
 /** Jump targets clear the app's sticky header and the section nav (measured below). */
 const anchor = "scroll-mt-[var(--settings-offset,9rem)]";
@@ -182,6 +185,7 @@ export default function SettingsPage() {
   const startDemo = useWorkspaceStore((state) => state.startDemo);
   const reset = useWorkspaceStore((state) => state.reset);
   const account = useIsAccount();
+  const now = useNow();
   const saveFailed = useSaveStatus((state) => state.status === "failed") && !account; // The account banner covers it.
   const [edited, setEdited] = useState<string | null>(null);
   const [confirmingSample, setConfirmingSample] = useState(false);
@@ -196,15 +200,22 @@ export default function SettingsPage() {
     { id: "connections", label: s.groups.connections },
     { id: "settings-account", label: account ? s.groups.account : s.groups.demo },
   ];
-  // Leaving with an edit that can't be sent yet asks first (a reload is covered by the account boundary).
+  // A call with nothing to ask can't be left behind. Other edits that can't be sent yet ask first
+  // (a reload is covered by the account boundary).
   useEffect(() => {
-    if (!account) return;
     const guard = (event: MouseEvent) => {
       const link = (event.target as Element | null)?.closest?.("a[href]");
       if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
       const url = new URL((link as HTMLAnchorElement).href, window.location.href);
       if (url.origin !== window.location.origin || url.pathname === window.location.pathname) return;
-      if (accountSync.unsentDrafts().length && !window.confirm(m.account.leaveUnsaved)) {
+      const latest = useWorkspaceStore.getState().workspace;
+      if (latest && !reportPlanHasContent(latest, nowFor(latest))) {
+        event.preventDefault();
+        event.stopPropagation();
+        document.querySelector<HTMLElement>("#settings-questions [aria-invalid='true']")?.focus();
+        return;
+      }
+      if (account && accountSync.unsentDrafts().length && !window.confirm(m.account.leaveUnsaved)) {
         event.preventDefault();
         event.stopPropagation();
       }
@@ -289,8 +300,11 @@ export default function SettingsPage() {
         </SettingsCard>
       </div>
 
-      <SettingsCard id="settings-questions" title={m.setup.questions.title} saved={edited === "questions"}>
-        <QuestionsFields {...fields("questions")} />
+      <SettingsCard id="settings-questions" title={m.setup.questions.title} saved={edited === "questions" && reportPlanHasContent(ws, now)}>
+        <div className="space-y-8">
+          <ReportModeField {...fields("questions")} />
+          <QuestionsFields {...fields("questions")} />
+        </div>
       </SettingsCard>
 
       <div id="settings-ranch" className={cn(anchor, "space-y-5")}>

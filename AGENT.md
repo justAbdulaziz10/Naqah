@@ -22,7 +22,8 @@ Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. P
 | Area | Basic | Ultimate |
 |---|---|---|
 | Custom questions (owner-written) | up to **5** | unlimited |
-| Predefined questions (NAQAH team) | mandatory when applicable; skipped if the resource is absent | same |
+| Predefined questions (NAQAH team) | the owner can switch any question off, reorder it or make it optional; skipped if the resource is absent. At least one enabled question or follow-up task is required | same |
+| How the report is taken | owner chooses: worker chooses, guided only, or open only. Open and worker-choice need a realtime call; a scripted call is always guided | same |
 | Report call (NAQAH → primary worker) | **one per week**, on the weekday and exact time the owner sets (Asia/Riyadh) | **one per day**, at the exact time the owner sets |
 | Report call unanswered | retry after **20 min**, up to **2 retries**, then the run is *missed*; the worker may call back that period to report | same |
 | Registered workers / herd | up to **3** workers; the owner keeps the official herd count, a worker's count is a proposal | up to **10** workers; same |
@@ -39,6 +40,8 @@ Agent behavior (from `NAQAH_AI_Agent_Identity_DRAFT_v0.1`): identifies itself as
 accepts «ما أدري» / "I don't know"; confirms quantities and camel names; never diagnoses; never claims
 "saved/notified/created" before the system confirms; labels facts as *reported / approximate / unknown / verified*;
 never presents old data as new; stores extracted facts only (**no recordings**).
+
+**Report modes (Nov 2026).** *Guided* asks the owner's enabled questions in order, one at a time. *Open* lets the worker say what happened; facts land in their topics and anything unmentioned is saved as **not reported**, never healthy or unchanged, and is not asked about. Due tasks are still asked after an open update, because a task closes only on an explicit yes. Both modes read back every recorded detail, allow corrections, and save one report only after an explicit yes to the summary the worker actually heard. The model listens and classifies; the server chooses every spoken word.
 
 The old Basic From/To *reporting window* (worker calls in) is **retired** (Nov 2026): columns remain only so old rows load.
 
@@ -182,7 +185,7 @@ the same functions and swaps only the storage and the "who triggers it" layer.
 ### 8.1 Database — Supabase (free tier is enough to start)
 - Schema, applied in order: `0001_init.sql`, `0002_backend_foundation.sql`, `0003_voice_call_sessions.sql`,
   `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql`, `20261107213717_owner_flow.sql`,
-  `20261108000000_pending_worker_call_tasks.sql` under `supabase/migrations/` (Postgres 15+).
+  `20261108000000_pending_worker_call_tasks.sql`, `20261109120000_test_calls.sql`, `20261109130000_report_mode_coverage.sql`, `20261109140000_report_mode_settings.sql` under `supabase/migrations/` (Postgres 15+).
   Local validation uses stand-in Supabase roles/Auth; it does not prove live activation. The existing Supabase project
   contains Auth test users; migrations 0001–0005 and both timestamped migrations are applied. The latter adds durable
   links from a pending worker call to multiple task tickets while retaining the legacy single-task field.
@@ -216,7 +219,7 @@ are recognised by caller ID (`workers.phone`) — an identification signal only,
   scripted engine in `src/domain/conversation/` is the **reference behaviour**: question order, follow-ups,
   confirmations, "I don't know", certainty labels. Use it as the tool/state layer and let the model only phrase the
   turns. The model must call tools (below) and may say "saved" only after the tool returns success.
-- **No recordings**: disable Twilio recording and transcription storage; persist only extracted facts.
+- **No recordings**: disable Twilio recording and transcription storage; persist only extracted facts. The one exception is the opt-in local debug trace (`NAQAH_CALL_TRACE_DIR`, `--trace-transcripts` on the local test stack) for consenting test participants: temp directory only, deleted after 24 hours, refused on Vercel or with a non-loopback database.
 
 ### 8.4 Webhook → domain action map
 The implemented contract is `docs/integrations/voice-data-contract.md`.

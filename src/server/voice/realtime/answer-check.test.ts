@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { answer, start, type CallSession } from "@/domain/conversation/engine";
 import { fromRiyadh } from "@/domain/clock";
 import { createDemoWorkspace } from "@/domain/seed";
-import { herdAnswerFromWords, refuseAnswer } from "./answer-check";
+import { refuseAnswer } from "./answer-check";
+import { validateFacts } from "./facts";
+import { askedTopic, isOffTopicAnswer } from "@/domain/conversation/answer-topic";
 
 const NOW = fromRiyadh(2026, 11, 5, 17, 10);
 
@@ -13,7 +15,8 @@ function at(id: string): CallSession {
   const session = answer(started.session, ringing, NOW, { value: "answer" }).session;
   const index = session.data.queue?.findIndex((item) => item.id === id) ?? -1;
   expect(index).toBeGreaterThanOrEqual(0);
-  return { ...session, step: "report_question", data: { ...session.data, reportIndex: index } };
+  const replies = id === "feed_level" ? ["good", "medium", "low", "critical", "unknown"].map((value) => ({ id: value, value, label: { ar: value, en: value } })) : session.replies;
+  return { ...session, replies, step: "report_question", data: { ...session.data, reportIndex: index } };
 }
 
 describe("worker words against the chosen answer", () => {
@@ -39,13 +42,10 @@ describe("worker words against the chosen answer", () => {
     expect(refuseAnswer(health, { value: "no" }, "وحدة تعبانة", "ar")).toBeNull();
   });
 
-  it("lets the worker's clear words decide the herd-health answer", () => {
-    expect(herdAnswerFromWords(health, { value: "no" }, "لا ما فيه مريض", "ar")).toEqual({ value: "yes" });
-    expect(herdAnswerFromWords(health, { value: "yes" }, "وحدة تعبانة", "ar")).toEqual({ value: "no" });
-    expect(herdAnswerFromWords(health, { value: "unknown" }, "الجو حار اليوم", "ar")).toEqual({ value: "unknown" });
-    expect(herdAnswerFromWords(health, { value: "no" }, "لا", "ar")).toEqual({ value: "no" });
-    expect(herdAnswerFromWords(health, { value: "no" }, "", "ar")).toEqual({ value: "no" });
-    expect(herdAnswerFromWords(feed, { value: "low" }, "لا ما فيه مريض", "ar")).toEqual({ value: "low" });
+  it("never flips a chosen value to get past an evidence refusal", () => {
+    const chosen = { value: "no" };
+    expect(refuseAnswer(health, chosen, "لا ما فيه مريض", "ar")).toBe("answer_conflicts_with_words");
+    expect(chosen).toEqual({ value: "no" });
   });
 
   it("treats a camel name as the topic", () => {
@@ -56,5 +56,95 @@ describe("worker words against the chosen answer", () => {
     expect(refuseAnswer(feed, { value: "low" }, "باقي شوي", "ar")).toBeNull();
     expect(refuseAnswer(feed, { value: "good" }, "الحلال زين", "ar")).toBe("answer_off_topic");
     expect(refuseAnswer(feed, { value: "good" }, null, "ar")).toBeNull();
+  });
+
+  it.each([null, "", "   "])("never records herd-health no without actual words (%s)", (heard) => {
+    expect(refuseAnswer(health, { value: "no" }, heard, "ar")).toBe("answer_unclear");
+  });
+
+  it("refuses a sick-camel answer classified as all healthy and a healthy answer classified as sick", () => {
+    expect(refuseAnswer(health, { value: "yes" }, "a camel is sick", "en")).toBe("answer_unclear");
+    expect(refuseAnswer(health, { value: "no" }, "all camels are well", "en")).toBe("answer_conflicts_with_words");
+  });
+
+  it("checks numbers against real words, including in Lab's shared guard", () => {
+    const quantity = { ...feed, step: "quantity_input", inputMode: "number" as const };
+    expect(refuseAnswer(quantity, { text: "12" }, "ten bags of feed", "en")).toBe("number_not_in_answer");
+    expect(refuseAnswer(quantity, { text: "12" }, "twelve bags of feed", "en")).toBeNull();
+    expect(refuseAnswer(quantity, { text: "12" }, null, "en")).toBe("number_not_in_answer");
+  });
+
+  it.each(["quantity_input", "quantity_confirm"])("keeps the asked feed topic through %s", (step) => {
+    const quantity = { ...feed, step, inputMode: "number" as const };
+    expect(askedTopic(quantity)).toBe("feed");
+    expect(isOffTopicAnswer(quantity, "a camel is sick")).toBe(true);
+    expect(isOffTopicAnswer(quantity, "الناقه تعرج")).toBe(true);
+  });
+});
+
+describe("open facts evidence", () => {
+  const workspace = createDemoWorkspace("ar", "ultimate", NOW);
+  const session = at("herd_health");
+  const validate = (facts: unknown[], heard: string) => validateFacts(facts, heard, session, workspace, "ar");
+  const feed = { type: "resource", resource: "feed", level: "low", quantity: null, evidence: "feed is low" };
+
+  it("drops feed facts whose evidence is about a sick camel", () => {
+    expect(validate([{ ...feed, evidence: "a camel is sick" }], "a camel is sick")).toEqual({ facts: [], dropped: true });
+    expect(validate([{ type: "resource", resource: "feed", evidence: "a camel is sick" }], "a camel is sick").facts).toEqual([]);
+  });
+
+  it("requires normalized evidence to occur in the actual worker utterance", () => {
+    expect(validate([feed], "water is low").facts).toEqual([]);
+    expect(validate([feed], "The feed is low, and I am here").facts).toHaveLength(1);
+    expect(validate([{ ...feed, evidence: "العلف ناقص" }], "العَلَف ناقص").facts).toHaveLength(1);
+  });
+
+  it("drops unsupported numbers, statuses and model-assigned certainty", () => {
+    expect(validate([{ ...feed, quantity: 12 }], "feed is low").facts).toEqual([]);
+    expect(validate([{ ...feed, quantity: 12, evidence: "feed twelve bags low" }], "feed twelve bags low").facts).toHaveLength(1);
+    expect(validate([{ ...feed, level: "good" }], feed.evidence).facts).toEqual([{ type: "other", note: feed.evidence, evidence: feed.evidence }]);
+    expect(validate([{ ...feed, certainty: "verified" }], feed.evidence).facts).toEqual([]);
+    expect(validate([{ type: "herd_count", count: 42, evidence: "forty two camels" }], "forty two camels").facts).toHaveLength(1);
+    expect(validate([{ type: "herd_count", count: 43, evidence: "forty two camels" }], "forty two camels").facts).toEqual([]);
+  });
+
+  it("keeps a denied condition as the worker's words, not as the condition", () => {
+    const sick = { type: "camel_health", scope: "one", status: "sick", note: null, camelId: null, evidence: "ناقة مريضة" };
+    const facts = validate([sick], "ما فيه ناقة مريضة").facts;
+    expect(facts).toEqual([{ type: "other", note: "ما فيه ناقة مريضة", evidence: "ما فيه ناقة مريضة" }]);
+    expect(validate([sick], "فيه ناقة مريضة").facts[0]).toMatchObject({ type: "camel_health", status: "sick" });
+    expect(validate([feed], "the feed is not low").facts).toEqual([{ type: "other", note: "feed is not low", evidence: "feed is not low" }]);
+  });
+
+  it("does not treat a leading «لا» as a denial", () => {
+    const sick = { type: "camel_health", scope: "one", status: "sick", note: null, camelId: null, evidence: "ناقة مريضة" };
+    expect(validate([sick], "لا، ناقة مريضة").facts[0]).toMatchObject({ type: "camel_health" });
+    const out = { type: "resource", resource: "feed", level: "critical", quantity: null, evidence: "العلف خلص" };
+    expect(validate([out], "لا العلف خلص").facts[0]).toMatchObject({ type: "resource" });
+    expect(validate([sick], "لا ناقة مريضة").facts[0]).toMatchObject({ type: "other" });
+  });
+
+  it("keeps a camel id only when its farm camel's name is in the evidence", () => {
+    const camel = workspace.camels[0];
+    const base = { type: "camel_health", scope: "one", status: "sick", note: null, camelId: camel.id };
+    const named = camel.name + " is sick";
+    expect(validate([{ ...base, evidence: named }], named).facts[0]).toMatchObject({ camelId: camel.id });
+    expect(validate([{ ...base, evidence: "a camel is sick" }], "a camel is sick").facts[0]).toMatchObject({ camelId: null });
+    expect(validate([{ ...base, camelId: "not-a-farm-camel", evidence: named }], named).facts[0]).toMatchObject({ camelId: null });
+  });
+
+  it("requires explicit all-camels words before changing the entire herd", () => {
+    const base = { type: "camel_health", scope: "all", status: "healthy", note: null, camelId: null };
+    expect(validate([{ ...base, evidence: "a camel is healthy" }], "a camel is healthy").facts).toEqual([]);
+    expect(validate([{ ...base, evidence: "all camels are healthy" }], "all camels are healthy").facts).toHaveLength(1);
+    expect(validate([{ ...base, evidence: "كل الحلال بخير" }], "كل الحلال بخير").facts).toHaveLength(1);
+  });
+
+  it("accepts a custom answer only for a queued custom question and with actual words", () => {
+    const custom = { type: "custom", questionId: "owner-question", answer: "the gate is blue", evidence: "the gate is blue" };
+    expect(validate([custom], custom.evidence).facts).toEqual([]);
+    const queued = { ...session, data: { ...session.data, queue: [...session.data.queue!, { kind: "custom" as const, id: custom.questionId, question: { ar: "لون الباب؟", en: "Gate color?" } }] } };
+    expect(validateFacts([custom], custom.evidence, queued, workspace, "en").facts).toHaveLength(1);
+    expect(validateFacts([{ ...custom, answer: "the gate is red" }], custom.evidence, queued, workspace, "en").facts).toEqual([]);
   });
 });
