@@ -27,6 +27,8 @@ export const pwa = defineMessages({
     testNotificationBody: "Notifications are ready for important ranch updates.",
     testNotificationSent: "Test notification sent.",
     testNotificationFailed: "The test notification could not be shown.",
+    offlineTitle: "You’re offline",
+    offlineBody: "This page has not been saved on this device yet. Connect to the internet and try again.",
   },
   ar: {
     title: "التطبيق والتنبيهات",
@@ -53,5 +55,7 @@ export const pwa = defineMessages({
     testNotificationBody: "التنبيهات جاهزة لمستجدات العزبة المهمة.",
     testNotificationSent: "تم إرسال التنبيه التجريبي.",
     testNotificationFailed: "تعذّر عرض التنبيه التجريبي.",
+    offlineTitle: "لا يوجد اتصال بالإنترنت",
+    offlineBody: "الصفحة المطلوبة غير محفوظة على هذا الجهاز بعد. اتصل بالإنترنت وحاول مرة أخرى.",
   },
 });

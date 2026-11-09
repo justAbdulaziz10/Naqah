@@ -10,7 +10,7 @@
 import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
-import { createDemoWorkspace, createEmptyWorkspace, nowFor, type Locale, type Plan, type Workspace } from "@/domain";
+import { createDemoWorkspace, createEmptyWorkspace, nowFor, retainDemoHistory, type Locale, type Plan, type Workspace } from "@/domain";
 import { isAccountWorkspace } from "@/lib/account/types";
 
 interface WorkspaceState {
@@ -92,6 +92,71 @@ const safeStorage: PersistStorage<Persisted> = {
   },
 };
 
+type CoalescingPersistStorage<T> = PersistStorage<T> & {
+  flushPending: () => void;
+  dispose: () => void;
+};
+
+/** Delay full-document serialization until the workspace has been quiet for 300 ms. */
+export function createCoalescingStorage<T>(
+  storage: PersistStorage<T>,
+  delayMs = 300,
+): CoalescingPersistStorage<T> {
+  const pending = new Map<string, { value: StorageValue<T>; timer: ReturnType<typeof setTimeout> }>();
+
+  const flushItem = (name: string) => {
+    const write = pending.get(name);
+    if (!write) return;
+    clearTimeout(write.timer);
+    pending.delete(name);
+    storage.setItem(name, write.value);
+  };
+  const flushPending = () => {
+    for (const name of [...pending.keys()]) flushItem(name);
+  };
+  const onPageExit = () => flushPending();
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "hidden") flushPending();
+  };
+  const pageEvents = typeof window !== "undefined" && typeof window.addEventListener === "function" ? window : null;
+  const visibilityEvents = typeof document !== "undefined" && typeof document.addEventListener === "function" ? document : null;
+
+  if (pageEvents) {
+    pageEvents.addEventListener("pagehide", onPageExit);
+    pageEvents.addEventListener("beforeunload", onPageExit);
+  }
+  visibilityEvents?.addEventListener("visibilitychange", onVisibilityChange);
+
+  return {
+    getItem: (name) => storage.getItem(name),
+    setItem: (name, value) => {
+      if (accountLink.active) return;
+      const previous = pending.get(name);
+      if (previous) clearTimeout(previous.timer);
+      useSaveStatus.setState({ status: "idle" });
+      const timer = setTimeout(() => flushItem(name), delayMs);
+      pending.set(name, { value, timer });
+    },
+    removeItem: (name) => {
+      const previous = pending.get(name);
+      if (previous) clearTimeout(previous.timer);
+      pending.delete(name);
+      storage.removeItem(name);
+    },
+    flushPending,
+    dispose: () => {
+      flushPending();
+      if (pageEvents) {
+        pageEvents.removeEventListener("pagehide", onPageExit);
+        pageEvents.removeEventListener("beforeunload", onPageExit);
+      }
+      visibilityEvents?.removeEventListener("visibilitychange", onVisibilityChange);
+    },
+  };
+}
+
+const coalescingStorage = createCoalescingStorage(safeStorage);
+
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set, get) => ({
@@ -103,7 +168,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const ws = get().workspace;
         if (!ws) return;
         const next = fn(ws);
-        if (!accountLink.active) return set({ workspace: next });
+        if (!accountLink.active) return set({ workspace: retainDemoHistory(next) });
         // A different document is a sample or a restart, never an edit to a real farm.
         if (!isAccountWorkspace(ws) || !isAccountWorkspace(next) || next.farmId !== ws.farmId || next.ownerId !== ws.ownerId) return;
         set({ workspace: next });
@@ -122,7 +187,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     {
       name: "naqah-workspace-v1",
       version: 1,
-      storage: safeStorage,
+      storage: coalescingStorage,
       partialize: (s) => ({ workspace: s.workspace }),
       // Future Workspace versions: transform `persisted` here instead of discarding it.
       migrate: (persisted) => persisted as Persisted,

@@ -19,6 +19,44 @@ import type {
 const clone = (ws: Workspace): Workspace => structuredClone(ws);
 const iso = (d: Date) => d.toISOString();
 
+export const DEMO_CALL_RETENTION_LIMIT = 200;
+export const DEMO_REPORT_RETENTION_LIMIT = 100;
+
+/**
+ * Bound the history saved by the browser demo. Account actions use the same transitions on the
+ * server and must never apply this policy to database rows, so the store calls this explicitly
+ * only for local demo workspaces.
+ */
+export function retainDemoHistory(input: Workspace): Workspace {
+  const protectedTicketIds = new Set([
+    ...input.taskTickets.filter((ticket) => ticket.status === "open").map((ticket) => ticket.id),
+    ...input.noAnswerTickets.filter((ticket) => ticket.status === "open").map((ticket) => ticket.id),
+    ...input.pendingWorkerCalls
+      .filter((call) => call.state === "pending" || call.state === "no_answer_ticket")
+      .flatMap((call) => [call.taskTicketId, ...(call.coveredTaskIds ?? [])])
+      .filter((id): id is string => id !== null),
+  ]);
+
+  const recentCalls = [...input.calls]
+    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at))
+    .slice(0, DEMO_CALL_RETENTION_LIMIT);
+  const protectedCalls = input.calls.filter((call) => call.ticketId !== null && protectedTicketIds.has(call.ticketId));
+  const keptCallIds = new Set([...recentCalls, ...protectedCalls].map((call) => call.id));
+  const protectedReportIds = new Set(protectedCalls.flatMap((call) => call.reportId ? [call.reportId] : []));
+
+  const recentReports = [...input.reports]
+    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at))
+    .slice(0, DEMO_REPORT_RETENTION_LIMIT);
+  const keptReportIds = new Set([...recentReports.map((report) => report.id), ...protectedReportIds]);
+
+  if (keptCallIds.size === input.calls.length && keptReportIds.size === input.reports.length) return input;
+  return {
+    ...input,
+    calls: input.calls.filter((call) => keptCallIds.has(call.id)),
+    reports: input.reports.filter((report) => keptReportIds.has(report.id)),
+  };
+}
+
 /** @internal Shared with reportCalls.ts. */
 export function pushEvent(ws: Workspace, at: Date, tone: EventTone, text: LocalizedText) {
   ws.events.push({ id: uid("evt"), at: iso(at), tone, text });
