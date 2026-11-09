@@ -125,9 +125,12 @@ export class WsConn extends EventEmitter {
   terminate() { this.socket.destroy(); }
 }
 
-/** `onUpgrade(request)` returns `{ status, body }` to refuse, or anything else to accept; `onConnection(conn, request)` follows. */
-export function wsServer({ port, host = "127.0.0.1", onUpgrade, onConnection }) {
-  const server = createServer((_request, response) => { response.writeHead(426); response.end(); });
+/**
+ * `onUpgrade(request)` returns `{ status, body }` to refuse, or anything else to accept; `onConnection(conn, request)` follows.
+ * `onRequest(request, response)` answers ordinary HTTP on the same port; without it every plain request gets 426.
+ */
+export function wsServer({ port, host = "127.0.0.1", onUpgrade, onConnection, onRequest }) {
+  const server = createServer(onRequest ?? ((_request, response) => { response.writeHead(426); response.end(); }));
   const sockets = new Set();
   server.on("connection", (socket) => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); });
   server.on("upgrade", (request, socket, head) => {

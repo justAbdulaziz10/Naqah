@@ -3,6 +3,8 @@ import { voiceMode } from "@/server/env";
 import { logCallProgress } from "@/server/voice/diagnostics";
 import { reportCallStatus } from "@/server/voice/farm-call";
 import { farmWebhook } from "@/server/voice/farm-webhook";
+import { testCallsEnabled } from "@/server/calls/test-call-config";
+import { recordTestCallProgress } from "@/server/calls/test-call-store";
 
 const empty = (status: number) => new Response(null, { status, headers: { "Cache-Control": "no-store" } });
 
@@ -23,5 +25,10 @@ export async function POST(request: Request): Promise<Response> {
     console.error(`[NAQAH] report call status failed (${error instanceof Error ? error.name : "unknown"})`);
     // Twilio does not retry status callbacks; the run stays as it was and the next scheduler pass sees it.
     return empty(503);
+  } finally {
+    if (testCallsEnabled()) {
+      try { await recordTestCallProgress(hook.client, token.r, token.f, status, now); }
+      catch { console.error("[NAQAH] test call status storage failed"); }
+    }
   }
 }

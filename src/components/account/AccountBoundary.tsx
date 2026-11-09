@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { CamelMark } from "@/components/brand/CamelMark";
 import { ACCOUNT_DATA } from "@/components/entry/paths";
@@ -24,7 +24,6 @@ const REFRESH_MS = 30_000;
 export function AccountBoundary({ area, children }: { area: "app" | "start"; children: ReactNode }) {
   const { locale, m, href } = useI18n();
   const router = useRouter();
-  const pathname = usePathname() ?? "";
   const status = useAccountState((state) => state.status);
   const active = useAccountState((state) => state.active);
   const notice = useAccountState((state) => state.notice);
@@ -44,7 +43,7 @@ export function AccountBoundary({ area, children }: { area: "app" | "start"; chi
     ? visitorTarget
     : area === "start"
       ? setupComplete ? "/app" : null
-      : !setupComplete ? "/start" : pathname.endsWith("/app/lab") ? "/app" : null;
+      : !setupComplete ? "/start" : null; // LabPage sends account owners away unless the server allows test calls.
 
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_NAQAH_ACCOUNT_DATA !== "1") return;

@@ -15,7 +15,7 @@ import { scenarioAvailability } from "@/domain/conversation/availability";
 import { makePersonalizer, personalizeTree } from "@/domain/conversation/personalize";
 import { withDemoHeat } from "@/domain/weather";
 import { useI18n } from "@/i18n/client";
-import { useNow, useWorkspaceStore } from "@/store/workspace";
+import { useIsAccount, useNow, useWorkspaceStore } from "@/store/workspace";
 import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
 import { EmergencyPanel, InsidePanel } from "./LabInsidePanel";
 import { LabCallPreview } from "./LabCallPreview";
@@ -25,6 +25,7 @@ import { useLabCall, type PickerScenario } from "./labStore";
 import type { LabLaunch } from "./LabSimulator";
 
 const LabSimulator = lazy(() => import("./LabSimulator").then((module) => ({ default: module.LabSimulator })));
+const TestCallPanel = lazy(() => import("./TestCallPanel").then((module) => ({ default: module.TestCallPanel })));
 
 function availabilityCopy(
   scenario: PickerScenario,
@@ -96,7 +97,18 @@ function availabilityCopy(
   return { text: m.lab.availability.directOwner, tone: "neutral", jump: false, enabled: true };
 }
 
+/** The simulator is demo-only. A signed-in owner gets the test call, or is sent on if the server refuses it. */
 export function LabPage() {
+  const account = useIsAccount();
+  if (!account) return <DemoLab />;
+  return (
+    <Suspense fallback={null}>
+      <TestCallPanel />
+    </Suspense>
+  );
+}
+
+function DemoLab() {
   const { m: baseMessages, t: baseT, locale, fmt, href } = useI18n();
   const ws = useWorkspaceStore((state) => state.workspace);
   const update = useWorkspaceStore((state) => state.update);
