@@ -49,6 +49,13 @@ describe("reportRhythm", () => {
     expect(slots.find((slot) => slot.current)?.state).toBe("open");
   });
 
+  it("does not wait for a call time that passed before the ranch was set up", () => {
+    const ws = daily(fromRiyadh(2026, 11, 8, 17, 30));
+    const slots = reportRhythm(ws, fromRiyadh(2026, 11, 8, 18, 0));
+    expect(slots.find((slot) => slot.current)?.state).toBe("quiet");
+    expect(slots[slots.findIndex((slot) => slot.current) + 1].state).toBe("next");
+  });
+
   it("uses weeks on Basic", () => {
     const ws = createEmptyWorkspace("basic");
     ws.createdAt = fromRiyadh(2026, 10, 1).toISOString();
