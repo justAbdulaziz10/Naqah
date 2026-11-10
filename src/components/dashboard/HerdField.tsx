@@ -21,7 +21,7 @@ export function HerdField({ ws, worker }: { ws: Workspace; worker: string }) {
   return (
     <section aria-labelledby="herd-field" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-6 sm:px-7">
       <div className="flex items-start justify-between gap-3">
-        <h2 id="herd-field" className="text-2xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{h.title}</h2>
+        <h2 id="herd-field" className="text-xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{h.title}</h2>
         {ws.camels.length ? (
           <Link href={href("/app/herd")} className="naqah-nudge -me-2 -mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-full px-2 text-sm font-semibold text-brown hover:bg-espresso/5">
             {m.app.overview.viewHerd}
@@ -29,16 +29,16 @@ export function HerdField({ ws, worker }: { ws: Workspace; worker: string }) {
           </Link>
         ) : null}
       </div>
-      <HerdCountFact ws={ws} worker={worker} className="mt-3" />
+      <HerdCountFact ws={ws} worker={worker} showNamed={!dots} className="mt-3" />
       {dots ? <HerdDots camels={ws.camels} herdCount={ws.settings.herdCount} className="mt-5" /> : <HerdHealthBar camels={ws.camels} className="mt-5" />}
 
       {ws.camels.length ? (
-        <ul className="mt-4 flex flex-wrap gap-x-1 border-t border-stone/70 pt-2">
+        <ul className="-mx-2 mt-5 flex flex-wrap border-t border-stone/70 pt-2">
           {ws.camels.map((camel) => (
             <li key={camel.id}>
               <Link
                 href={`${href("/app/herd")}#camel-${camel.id}`}
-                className="naqah-name inline-flex min-h-11 items-center rounded-sm px-2 py-2 text-sm font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown"
+                className="naqah-name inline-flex min-h-11 items-center rounded-sm px-2 py-2 text-sm font-medium text-espresso underline decoration-stone underline-offset-4 hover:decoration-brown"
               >
                 {camel.name}
               </Link>

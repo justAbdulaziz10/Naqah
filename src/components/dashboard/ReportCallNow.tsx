@@ -1,5 +1,6 @@
 "use client";
 
+import { Phone } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { formatSaudiMobile } from "@/components/setup/phone";
 import { ConfirmDialog } from "@/components/ui";
@@ -77,8 +78,9 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
           type="button"
           onClick={() => setConfirming(true)}
           disabled={pending}
-          className="min-h-11 rounded-full border border-cream/40 px-4 text-sm font-semibold text-cream transition hover:bg-cream/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:opacity-60"
+          className="inline-flex min-h-11 items-center gap-2 rounded-full bg-cream px-5 text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:opacity-60"
         >
+          <Phone size={16} weight="fill" aria-hidden />
           {pending ? d.calling : d.callNow(worker)}
         </button>
       ) : null}

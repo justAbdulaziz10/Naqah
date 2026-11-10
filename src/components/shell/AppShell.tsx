@@ -247,7 +247,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
             </div>
           </div>
-          {account ? null : <DemoNotice showSimulate={!isActive("/app/lab")} labHref={href("/app/lab")} />}
+          {account ? null : <DemoNotice showSimulate={!isActive("/app/lab") && !isActive("/app")} labHref={href("/app/lab")} />}
         </header>
 
         <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-6 focus:outline-none sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">{children}</main>

@@ -15,7 +15,7 @@ import { useCallSentence } from "@/components/schedule/ReportCallSection";
 import { CallSetupStatus, getCallSetupGaps } from "@/components/setup";
 import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { RhythmStrip } from "@/components/visuals/RhythmStrip";
-import { HEALTH_LABELS, lastReportAt, ownerAllowanceUsed, ownerMissedCallbackUsed, routeOwnerInboundCall } from "@/domain";
+import { HEALTH_LABELS, lastReportAt } from "@/domain";
 import { undeliveredCalls } from "@/domain/alerts";
 import { reportRhythm } from "@/domain/rhythm";
 import { useI18n } from "@/i18n/client";
@@ -102,23 +102,6 @@ export default function OverviewPage() {
   const showStrip = Boolean(next) || slots.some((slot) => slot.state === "saved" || slot.state === "missed");
   const rhythm = showStrip ? <RhythmStrip slots={slots} weekly={ws.settings.plan === "basic"} now={now} planned={scheduledOff} /> : null;
 
-  const ownerRoute = routeOwnerInboundCall(ws, now);
-  const allowanceUsed = ownerAllowanceUsed(ws, now);
-  const missedCallbackUsed = ownerMissedCallbackUsed(ws, now);
-  const allowance = ws.settings.plan === "ultimate" ? null : (
-    <div className="min-w-0 lg:max-w-xs lg:border-s lg:border-stone/70 lg:ps-8">
-      <p className="text-sm text-muted">{o.allowance}</p>
-      <p className="font-semibold text-espresso">
-        {allowanceUsed && ws.ownerAllowanceUsedAt ? <>{o.allowanceUsed} <time className="ltr-nums" dateTime={ws.ownerAllowanceUsedAt}>{fmt.date(ws.ownerAllowanceUsedAt)}</time></> : o.allowanceAvailable}
-      </p>
-      {ownerRoute.kind === "inquiry" && ownerRoute.mode === "missed_callback" ? (
-        <p className="mt-1 text-sm text-muted">{o.callbackAvailable}</p>
-      ) : missedCallbackUsed ? (
-        <p className="mt-1 text-sm text-muted">{o.callbackUsed}</p>
-      ) : null}
-    </div>
-  );
-
   return (
     <div className="space-y-5 pb-8">
       <EstateHeader name={estateName} answer={answer} tone={tone} provenance={provenance} rhythm={rhythm} next={nextBlock} />
@@ -137,7 +120,7 @@ export default function OverviewPage() {
         <HerdField ws={ws} worker={worker} />
       </div>
 
-      <EmergencyStrip ws={ws} worker={worker} allowance={allowance} />
+      <EmergencyStrip ws={ws} worker={worker} allowance={null} />
     </div>
   );
 }

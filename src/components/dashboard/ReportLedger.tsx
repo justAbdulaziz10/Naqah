@@ -56,16 +56,15 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
   let index = 0;
 
   return (
-    <section aria-labelledby="report-ledger" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 pb-3 pt-6 sm:px-8 sm:pt-7">
-      <figure className="border-t-2 border-espresso">
-        <figcaption className="flex flex-wrap items-end justify-between gap-x-6 gap-y-1 pb-3 pt-4">
+    <section aria-labelledby="report-ledger" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 pb-3 pt-5 sm:px-8 sm:pt-7">
+      <figure>
+        <figcaption className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 pb-4">
           <div className="min-w-0">
-            <h2 id="report-ledger" className="naqah-name text-2xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{o.reportTitle(worker)}</h2>
-            <p className="mt-1 text-sm text-muted">{o.reportNote}</p>
+            <h2 id="report-ledger" className="naqah-name text-xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{o.reportTitle(worker)}</h2>
           </div>
-          <p className="text-sm font-medium text-espresso">
+          <p className="text-sm text-muted">
             <time className="ltr-nums" dateTime={report.at}>{fmt.dateTime(report.at, { weekday: "long", day: "numeric", month: "short", hour: undefined, minute: undefined })}</time>
-            {report.mode ? <span className="font-normal text-muted"> · {o.reportMode[report.mode]}</span> : null}
+            {report.mode ? <span> · {o.reportMode[report.mode]}</span> : null}
           </p>
         </figcaption>
         <ReportCoverage ws={ws} report={report} />
@@ -76,7 +75,7 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
                 {answers.map((answer, i) => (
                   <div key={`${answer.questionId}-${i}`}>
                     <dt className="text-sm leading-relaxed text-muted">{t(answer.question)}</dt>
-                    <dd className="text-[1.0625rem] font-semibold leading-relaxed text-espresso">
+                    <dd className="font-semibold leading-relaxed text-espresso">
                       {answer.answerText ? t(answer.answerText) : answer.answer}
                       {answer.certainty !== "reported" ? <span className="ms-2 font-normal"><CertaintyBadge certainty={answer.certainty} /></span> : null}
                     </dd>
@@ -112,7 +111,7 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
             </Line>
           ) : null}
           <Line at={briefing?.at ?? null} who={m.visual.calls.naqah} whoTone="text-brown" index={index++}>
-            <p className={cn("flex items-center gap-2.5 font-semibold", briefing?.outcome === "completed" ? "text-brown" : briefing ? "text-warn" : "text-muted")}>
+            <p className={cn("flex items-center gap-2.5 font-medium", briefing?.outcome === "completed" ? "text-brown" : briefing ? "text-warn" : "text-muted")}>
               <span aria-hidden className={cn("size-2.5 shrink-0 rounded-full", briefing?.outcome === "completed" ? "bg-brown" : briefing ? "border-2 border-warn" : "border-2 border-stone")} />
               {briefing?.outcome === "completed" ? o.briefedYou : briefing ? o.briefMissed : o.briefPending}
             </p>

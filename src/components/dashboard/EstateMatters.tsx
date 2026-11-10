@@ -24,7 +24,7 @@ export function Step({ title, detail, last = false, waiting = false, missed = fa
         {last ? null : <span className="absolute inset-y-0 start-1/2 top-3 w-px -translate-x-1/2 bg-stone md:inset-x-0 md:start-3 md:top-1/2 md:h-px md:w-auto md:translate-x-0" aria-hidden />}
       </span>
       <div className="min-w-0 md:mt-3">
-        <p className={`naqah-name font-semibold leading-snug ${missed ? "text-warn" : "text-espresso"}`}>{title}</p>
+        <p className={`naqah-name font-medium leading-snug ${missed ? "text-warn" : "text-espresso"}`}>{title}</p>
         {detail ? <p className="mt-1 text-sm leading-relaxed text-muted">{detail}</p> : null}
       </div>
     </li>
@@ -72,9 +72,9 @@ function MatterRow({ ws, matter, reportAt, worker, now, undelivered }: { ws: Wor
   const instructionText = instruction && instruction.text !== headline ? instruction.text : instructionTitle;
 
   return (
-    <li className="py-6 first:pt-0 last:pb-0">
+    <li className="py-5 first:pt-0 last:pb-0">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <p className="naqah-name text-xl font-semibold leading-snug text-espresso">
+        <p className="naqah-name text-lg font-semibold leading-snug text-espresso">
           {headlineHref ? <Link href={headlineHref} className={`${recordLink} ${target}`}>{headline}</Link> : headline}
         </p>
         {camel ? <HealthBadge health={camel.health} /> : null}
@@ -98,10 +98,10 @@ function MatterRow({ ws, matter, reportAt, worker, now, undelivered }: { ws: Wor
 function UndeliveredRow({ call, worker }: { call: UndeliveredCall; worker: string }) {
   const { m, fmt } = useI18n();
   return (
-    <li className="flex items-start gap-3 py-6 first:pt-0 last:pb-0">
+    <li className="flex items-start gap-3 py-5 first:pt-0 last:pb-0">
       <WarningCircle size={22} weight="fill" className="mt-0.5 shrink-0 text-danger" aria-hidden />
       <div className="min-w-0">
-        <p className="naqah-name text-xl font-semibold leading-snug text-espresso">{m.app.overview.notDeliveredTo(worker)}</p>
+        <p className="naqah-name text-lg font-semibold leading-snug text-espresso">{m.app.overview.notDeliveredTo(worker)}</p>
         <p className="mt-1 leading-relaxed text-espresso">{call.message}</p>
         <AttemptDots count={call.attempts} label={m.visual.tasks.attempts(fmt.number(call.attempts))} className="mt-2" />
         <p className="mt-1 text-sm text-muted">{undeliveredDetail(call, m, fmt)}</p>
@@ -129,8 +129,8 @@ export function EstateMatters({ ws, matters, undelivered, reportAt, worker, now 
   if (!shownUndelivered.length && !shownMatters.length) return null;
   return (
     <section aria-labelledby="estate-matters" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-5 sm:px-8 sm:py-7">
-      <h2 id="estate-matters" className="text-2xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{m.app.overview.attention}</h2>
-      <ul className="mt-6 divide-y divide-stone/70">
+      <h2 id="estate-matters" className="text-xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{m.app.overview.attention}</h2>
+      <ul className="mt-5 divide-y divide-stone/70">
         {shownUndelivered.map((call) => <UndeliveredRow key={call.id} call={call} worker={worker} />)}
         {shownMatters.map((matter) => <MatterRow key={matter.id} ws={ws} matter={matter} reportAt={reportAt} worker={worker} now={now} undelivered={undelivered} />)}
       </ul>

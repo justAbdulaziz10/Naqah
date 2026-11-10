@@ -15,7 +15,7 @@ const quietButton =
  * worker counted a different number on the last call, the owner can take it or keep theirs;
  * nothing changes on its own.
  */
-export function HerdCountFact({ ws, worker, className }: { ws: Workspace; worker: string; className?: string }) {
+export function HerdCountFact({ ws, worker, showNamed = true, className }: { ws: Workspace; worker: string; showNamed?: boolean; className?: string }) {
   const { m, fmt } = useI18n();
   const d = m.setup.dashboard;
   const now = useNow();
@@ -31,7 +31,7 @@ export function HerdCountFact({ ws, worker, className }: { ws: Workspace; worker
           {official === null ? m.app.overview.herdNotCounted : <bdi className="ltr-nums">{fmt.number(official)}</bdi>}
         </span>
         {official === null ? null : <span className="font-medium">{m.app.overview.camelsWord(official)}</span>}
-        {named ? <span className="text-sm text-muted">· {m.app.herd.count(fmt.number(named))}</span> : null}
+        {named && showNamed ? <span className="text-sm text-muted">· {m.app.herd.count(fmt.number(named))}</span> : null}
       </p>
       {proposal ? (
         <div aria-live="polite" className={cn("mt-3 border-s-2 border-sand ps-3")}>

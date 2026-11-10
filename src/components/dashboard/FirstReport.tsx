@@ -25,7 +25,7 @@ export function FirstReport({ ws, worker }: { ws: Workspace; worker: string }) {
           {o.reviewQuestions}
         </Link>
       </div>
-      <ol className="mt-6 flex min-w-0 flex-col md:flex-row">
+      <ol className="mt-5 flex min-w-0 flex-col md:flex-row">
         <Step title={o.firstCallStep(worker)} detail={o.firstCallDetail} waiting />
         <Step title={o.askStep} detail={questions ? o.askCount(questions) : null} waiting />
         <Step title={o.callsYouStep} detail={o.callsYouDetail} last waiting />
