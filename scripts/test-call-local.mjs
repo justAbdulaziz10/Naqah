@@ -458,13 +458,18 @@ async function main() {
     const stack = Object.fromEntries([...readFileSync(STACK_ENV, "utf8").matchAll(/export (\w+)='([^']*)'/g)].map((match) => [match[1], match[2]]));
     const envs = buildEnvironments(options, stack, secrets);
 
+    let testerId;
+    let controlId;
     if (kept) {
       // The owner's saved numbers, questions and history stay exactly as they were saved.
       console.log("Keeping the saved local data (--keep-data): nothing is seeded or overwritten.");
+      const ownerOf = (farm) => localSql(base)(`select owner_id from farms where id = '${farm}'`);
+      testerId = ownerOf(TEST_FARM);
+      controlId = ownerOf(CONTROL_FARM);
     } else {
       console.log("Creating local accounts and sample ranches…");
-      const testerId = await createUser(TESTER);
-      const controlId = await createUser(CONTROL);
+      testerId = await createUser(TESTER);
+      controlId = await createUser(CONTROL);
       seed(base, testerId, controlId);
       // A fresh test ranch starts on the first approved number; after that the owner's saved number is used.
       if (options.dashboardCall) localSql(base)(`update workers set phone = '${options.allow[0]}' where farm_id = '${TEST_FARM}'`);
