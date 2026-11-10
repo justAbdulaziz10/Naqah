@@ -1,6 +1,6 @@
 "use client";
 
-import { Phone } from "@phosphor-icons/react";
+import { Phone, PhoneOutgoing } from "@phosphor-icons/react";
 import Link from "next/link";
 import { ACCOUNT_DATA } from "@/components/entry/paths";
 import { formatSaudiMobile } from "@/components/setup/phone";
@@ -10,13 +10,14 @@ import { useLabCall } from "@/components/lab/labStore";
 import { useIsAccount } from "@/store/workspace";
 import { ReportCallNow } from "./ReportCallNow";
 
+const realClass = "inline-flex min-h-11 items-center gap-2 rounded-full border border-cream/40 px-5 text-sm font-semibold text-cream transition hover:border-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
 const linkClass = "inline-flex min-h-11 items-center font-semibold text-cream underline decoration-cream/40 underline-offset-4 transition hover:decoration-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
 
 /**
  * The one place to call the worker: who NAQAH calls, their number and where to change it, and the
  * call button. A real account uses the existing "Call now" with its confirmation; the demo opens the
- * Call Lab, where every call is a simulation. Where accounts exist, the demo says it is the sample
- * ranch and points to sign-in, so it is never mistaken for the owner's own farm.
+ * Call Lab, where every call is a simulation, and shows the real call beside it: a way to sign in where
+ * accounts exist, otherwise disabled with the reason, so the two are never mistaken for each other.
  */
 export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; now: Date }) {
   const { m, href } = useI18n();
@@ -47,19 +48,26 @@ export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; no
         {account ? (
           <ReportCallNow ws={ws} worker={worker} now={now} />
         ) : (
-          <div className="space-y-1.5">
-            <Link href={href("/app/lab")} prefetch={false} onClick={() => { if (!useLabCall.getState().session) useLabCall.getState().patch({ selected: "report_call" }); }} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-cream px-5 text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream">
-              <Phone size={16} weight="fill" aria-hidden />
-              {d.simulateWith(worker)}
-            </Link>
-            {ACCOUNT_DATA ? (
-              <p className="text-xs text-cream/70">
-                {o.callBar.sampleRanch}{" "}
-                <Link href={href("/login")} className="font-semibold text-cream underline decoration-cream/40 underline-offset-4 hover:decoration-cream">{o.callBar.signIn}</Link>
-              </p>
-            ) : (
-              <p className="text-xs text-cream/70">{o.callBar.simulated}</p>
-            )}
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <Link href={href("/app/lab")} prefetch={false} onClick={() => { if (!useLabCall.getState().session) useLabCall.getState().patch({ selected: "report_call" }); }} aria-describedby="call-sim-note" className="inline-flex min-h-11 items-center gap-2 rounded-full bg-cream px-5 text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream">
+                <Phone size={16} weight="fill" aria-hidden />
+                {d.simulateWith}
+              </Link>
+              {ACCOUNT_DATA ? (
+                <Link href={href("/login")} aria-describedby="call-real-note" className={realClass}>
+                  <PhoneOutgoing size={16} aria-hidden />
+                  {d.callNow}
+                </Link>
+              ) : (
+                <button type="button" disabled aria-describedby="call-real-note" className={`${realClass} cursor-not-allowed opacity-60`}>
+                  <PhoneOutgoing size={16} aria-hidden />
+                  {d.callNow}
+                </button>
+              )}
+            </div>
+            <p id="call-sim-note" className="text-xs text-cream/70">{d.simulateWith}: {o.callBar.simulated}</p>
+            <p id="call-real-note" className="text-xs text-cream/70">{d.callNow}: {ACCOUNT_DATA ? o.callBar.signIn : o.callBar.realDemo}</p>
           </div>
         )}
       </div>

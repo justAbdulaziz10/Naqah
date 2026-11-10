@@ -85,7 +85,7 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
           className="inline-flex min-h-11 items-center gap-2 rounded-full bg-cream px-5 text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:cursor-not-allowed disabled:bg-cream/25 disabled:text-cream/80 disabled:active:scale-100"
         >
           <Phone size={16} weight="fill" aria-hidden />
-          {pending ? d.calling : d.callNow(worker)}
+          {pending ? d.calling : d.callNow}
         </button>
       ) : null}
       {reason && !active ? <p id="call-now-reason" className="text-sm text-cream/75">{reason}</p> : null}
