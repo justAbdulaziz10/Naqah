@@ -4,7 +4,7 @@ import { PhoneOutgoing } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { formatSaudiMobile } from "@/components/setup/phone";
 import { ConfirmDialog } from "@/components/ui";
-import { dialableWorkerPhone, latestReportCall, reportCallIsLive } from "@/domain/reportCalls";
+import { dialableWorkerPhone, latestReportCall, reportCallBlock, reportCallIsLive } from "@/domain/reportCalls";
 import type { Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { accountSync, reportCallNow } from "@/store/account";
@@ -72,8 +72,14 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   const message = notice ?? placedNotice;
   if (!phone) return null; // The call bar offers to add the number instead.
   // Always shown in an account, so the owner can find it; it only calls where this site allows it.
-  const off = available !== true;
-  const reason = available === null ? m.app.overview.callBar.checking : available === false ? m.app.overview.callBar.callOff : null;
+  // The same rule the server applies (e.g. this period's report is already in) is shown before the
+  // press, so the owner never confirms a call that will be refused.
+  const block = reportCallBlock(ws, now);
+  const off = available !== true || (block !== null && block !== "no_worker_phone");
+  const reason = available === null ? m.app.overview.callBar.checking
+    : available === false ? m.app.overview.callBar.callOff
+    : block && block !== "no_worker_phone" ? d.callNowResult[block]
+    : null;
   return (
     <div className="space-y-2">
       {!active ? (

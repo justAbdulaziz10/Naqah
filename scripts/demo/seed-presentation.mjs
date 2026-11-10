@@ -5,6 +5,8 @@
  *
  *   PGHOST=127.0.0.1 PGPORT=54600 node scripts/demo/seed-presentation.mjs --db naqah_staging --gateway http://127.0.0.1:54602
  *   … --reset        removes the demo ranch (cascades to all its rows); the login stays
+ *   … --worker-phone +9665XXXXXXXX --end-yesterday   a callable copy for the local real-call stack: the worker is the
+ *                    one approved number and today has no report yet, so «اتصال حقيقي» can take today's call
  */
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
@@ -20,6 +22,8 @@ const DB = arg("db", "naqah_staging");
 const GATEWAY = arg("gateway", "http://127.0.0.1:54602");
 const EMAIL = arg("email", "demo@naqah.demo");
 const PASSWORD = arg("password", "naqah-demo-2026");
+const WORKER_PHONE = arg("worker-phone", undefined);
+if (WORKER_PHONE !== undefined && !/^\+9665\d{8}$/.test(WORKER_PHONE)) throw new Error("--worker-phone takes a Saudi mobile such as +9665XXXXXXXX");
 if (!/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(GATEWAY) || !/^(127\.0\.0\.1|localhost)$/.test(process.env.PGHOST ?? "")) {
   throw new Error("Local stand-in stack only (PGHOST and --gateway must be loopback)");
 }
@@ -53,7 +57,7 @@ else {
 if (sql(`select count(*) from farms where owner_id = ${quote(ownerId)}`) !== "0") throw new Error("The demo owner already has another ranch");
 
 const now = new Date();
-const ws = demoSettings(now);
+const ws = demoSettings(now, { workerPhone: WORKER_PHONE });
 const s = ws.settings;
 const farmId = sql(`insert into farms (owner_id, plan, plan_selected_at, setup_complete, name, owner_name, owner_phone, location, herd_count,
     call_time, owner_call_time, report_mode, created_at)
@@ -78,7 +82,7 @@ for (const e of s.emergencies) sql(`insert into emergency_categories (id, farm_i
 for (const q of s.customQuestions) sql(`insert into custom_questions (id, farm_id, text, created_at) values (${quote(id(q.id))}, ${quote(farmId)}, ${quote(q.text)}, ${quote(q.createdAt)})`);
 
 // History through the same path the voice service uses.
-const history = demoHistory(ws, now);
+const history = demoHistory(ws, now, { endYesterday: process.argv.includes("--end-yesterday") });
 const changes = diffWorkspace(ws, history, farmId);
 const revision = sql(`select revision from farms where id = ${quote(farmId)}`);
 sql(`select public.apply_farm_changes(${quote(farmId)}, ${revision}, ${quote(JSON.stringify(changes))}::jsonb)`);

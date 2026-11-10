@@ -41,13 +41,13 @@ const answer = (id: string, text: string, certainty: ReportAnswer["certainty"] =
   ({ questionId: id, question: q(id).text, answer: text, certainty, followUp: false });
 
 /** Settings only: what is inserted as rows before the history is applied. */
-export function demoSettings(now: Date): Workspace {
+export function demoSettings(now: Date, options: { workerPhone?: string } = {}): Workspace {
   const ws = createDemoWorkspace("ar", "ultimate", now);
   const created = new Date(now.getTime() - 21 * 24 * HOUR).toISOString();
   ws.createdAt = created;
   ws.settings.owner = { name: "فهد العتيبي", phone: "+966500000201" };
   ws.settings.farm = { name: DEMO_RANCH_NAME, location: "الصمان، المنطقة الشرقية", coords: null };
-  ws.settings.worker = { id: uid("wkr"), name: "أحمد", phone: "+966500000202", language: "ar" };
+  ws.settings.worker = { id: uid("wkr"), name: "أحمد", phone: options.workerPhone ?? "+966500000202", language: "ar" };
   ws.settings.otherWorkers = [];
   ws.settings.customQuestions = [
     { id: uid("cq"), text: "كم لتر حليب تقريباً اليوم؟", createdAt: created },
@@ -66,7 +66,7 @@ export function demoSettings(now: Date): Workspace {
 }
 
 /** The same ranch with three weeks' worth of believable, consistent history. */
-export function demoHistory(base: Workspace, now: Date): Workspace {
+export function demoHistory(base: Workspace, now: Date, options: { endYesterday?: boolean } = {}): Workspace {
   const ws: Workspace = structuredClone(base);
   const worker = ws.settings.worker.name;
   const crit = (kind: string) => ws.settings.criteria.find((c) => c.kind === kind)!.id;
@@ -74,7 +74,8 @@ export function demoHistory(base: Workspace, now: Date): Workspace {
   const camel = (name: string) => ws.camels.find((c) => c.name === name)!;
   // The latest report is today's if today's 17:00 call is behind us, otherwise yesterday's.
   const todayCall = atRiyadhTime(now, 17, 0);
-  const latestDay = todayCall.getTime() + 15 * MINUTE < now.getTime() ? 0 : -1;
+  // endYesterday leaves today without a report, so the ranch can still take today's real call.
+  const latestDay = !options.endYesterday && todayCall.getTime() + 15 * MINUTE < now.getTime() ? 0 : -1;
   const day = (offset: number, h: number, m: number) => atRiyadhTime(now, h, m, latestDay + offset);
   const iso = (d: Date) => d.toISOString();
 
