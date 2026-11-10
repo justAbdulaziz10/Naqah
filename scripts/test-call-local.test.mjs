@@ -202,3 +202,12 @@ describe("local report reset", () => {
     expect(envs.bridge.NAQAH_CALL_TIME_LIMIT_SECONDS).toBe("180");
   });
 });
+
+describe("voice choice", () => {
+  it("passes a known realtime voice to the bridge only", () => {
+    const envs = buildEnvironments(parseArgs([...liveArgs, "--voice", "cedar"]), stack, parseSecrets(secretsText));
+    expect(envs.bridge.NAQAH_REALTIME_VOICE).toBe("cedar");
+    expect(envs.next).not.toHaveProperty("NAQAH_REALTIME_VOICE");
+    expect(() => parseArgs([...liveArgs, "--voice", "nova"])).toThrow(/realtime voice/);
+  });
+});

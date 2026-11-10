@@ -111,11 +111,14 @@ async function answerCall() {
   return answerReportCall(db.client, { token: token(), callSid: CALL, now: new Date() });
 }
 
-async function open() {
+/** Opens the stream and, unless `greeted` is false, answers «جاهز؟» so the report's first question is current. */
+async function open(greeted = true) {
   const ticket = ticketIn(await answerCall());
   const response = await sessionRoute(signed("/api/voice/realtime/session", { ticket, callSid: CALL }));
   expect(response.status).toBe(200);
-  return { ticket, opened: await response.json() };
+  const opened = await response.json();
+  if (greeted) expect((await tool(ticket, "answer_question", { value: "ready" }, { workerUtterance: "إيه جاهز" })).status).toBe(200);
+  return { ticket, opened };
 }
 
 async function tool(ticket: string, name: unknown, args: unknown, extra: Record<string, unknown> = {}) {
@@ -209,7 +212,9 @@ describe("configuration", () => {
     vi.stubEnv("NAQAH_VOICE_ENGINE", "realtime");
     const streamed = await answerCall();
     expect(streamed).toContain("<Connect");
-    expect(row().last_response).toBe(scripted);
+    // The phone call greets and waits for «جاهز؟» first; the script it falls back to starts the same way.
+    expect(row().last_response).toContain("جاهز؟");
+    expect(scripted).not.toContain("جاهز؟");
   });
 
   it("keeps the bridge routes closed when off", async () => {
@@ -414,7 +419,7 @@ describe("session response", () => {
     expect(opened.maxSeconds).toBe(300);
     expect(opened.tools.map((item: { name: string }) => item.name)).toEqual(REALTIME_TOOLS.map((item) => item.name));
     expect(opened.repromptText).toBeTruthy();
-    expect(opened.opening).toContain("مساعد ناقة الآلي");
+    expect(opened.opening).toContain("المساعد الآلي");
     expect(opened.instructions).toContain("بيانات");
     expect(opened.instructions).not.toContain("currentStep");
     expect(firstPrompt(opened).replies.length).toBeGreaterThan(0);
@@ -453,7 +458,7 @@ describe("server-owned report tool protocol", () => {
     const label = repeated.output.replies.find((reply: { value: string }) => reply.value === "unknown").label;
     if (reason === "asked_meaning") expect(repeated.result.sayText).toContain(label);
     else expect(repeated.result.sayText).not.toContain(label);
-    expect(row().seq).toBe(0);
+    expect(row().seq).toBe(1); // «جاهز؟» was the one step taken
   });
 
   it.each(["", "ضجيج", "background noise"])("is silent first, then re-asks on repeated noise %j", async (workerUtterance) => {
@@ -481,7 +486,7 @@ describe("server-owned report tool protocol", () => {
     expect(result.output.status).toBe("invalid");
     expect(result.result.sayText).toContain(firstPrompt(opened).question);
     expect(speechFields(result.result)).toEqual(["sayText"]);
-    expect(row().seq).toBe(0);
+    expect(row().seq).toBe(1); // «جاهز؟» was the one step taken
   });
 
   it("ends the four-refused-yes replay as unknown and never invents a sick camel on a wordless no", async () => {

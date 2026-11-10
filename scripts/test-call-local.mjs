@@ -80,6 +80,11 @@ export function parseArgs(argv) {
     else if (name === "--dashboard-call") options.dashboardCall = true;
     else if (name === "--trace-transcripts") options.traceTranscripts = true;
     else if (name === "--reset-report") options.resetReport = true;
+    else if (name === "--voice") {
+      options.voice = takeValue(index, name);
+      if (!/^(marin|cedar|alloy|ash|ballad|coral|echo|sage|shimmer|verse)$/.test(options.voice)) throw new UsageError("--voice takes a realtime voice such as marin or cedar");
+      index += 1;
+    }
     else if (name === "--max-call-seconds") {
       options.maxCallSeconds = takeValue(index, name);
       if (!/^\d{2,4}$/.test(options.maxCallSeconds)) throw new UsageError("--max-call-seconds needs a number of seconds");
@@ -203,6 +208,7 @@ export function buildEnvironments(options, stack, secrets = null) {
     OPENAI_API_KEY: live ? secrets.OPENAI_API_KEY : "local-test-key",
   };
   if (options.maxCallSeconds) bridge.NAQAH_CALL_TIME_LIMIT_SECONDS = options.maxCallSeconds;
+  if (options.voice) bridge.NAQAH_REALTIME_VOICE = options.voice;
   // Some networks (NAT64) list an unreachable IPv6 address first for api.twilio.com: placement then times out.
   next.NODE_OPTIONS = IPV4_FIRST;
   bridge.NODE_OPTIONS = IPV4_FIRST;

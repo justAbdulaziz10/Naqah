@@ -89,6 +89,10 @@ export interface ConversationData {
   correcting?: boolean;
   /** How this report was taken. Absent on a call still choosing, which is read as guided. */
   reportMode?: "guided" | "open";
+  /** Realtime: the worker was greeted and asked «جاهز؟»; the report starts after they answer. */
+  readyModes?: boolean;
+  /** How many times the greeting was said again because the worker didn't catch it («ألو؟»). */
+  readyRepeats?: number;
   /** Open mode: camel observations whose camel the worker hasn't named yet. */
   openClarify?: { status: HealthStatus; note: string | null }[];
   openNotes?: number;

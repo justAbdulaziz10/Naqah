@@ -1,5 +1,7 @@
 export const REALTIME_MODEL = 'gpt-realtime-2.1';
 export const REALTIME_URL = `wss://api.openai.com/v1/realtime?model=${REALTIME_MODEL}`;
+/** The built-in voices of the realtime model. marin and cedar are the ones OpenAI recommends for natural speech. */
+export const VOICES = new Set(['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse']);
 
 export function loadConfig(env = process.env) {
   const required = ['NAQAH_BRIDGE_PUBLIC_URL', 'TWILIO_AUTH_TOKEN', 'NAQAH_VOICE_SECRET', 'OPENAI_API_KEY'];
@@ -31,7 +33,10 @@ export function loadConfig(env = process.env) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT');
   const requestedSeconds = Number(env.NAQAH_CALL_TIME_LIMIT_SECONDS);
   const maxCallSeconds = Number.isInteger(requestedSeconds) && requestedSeconds >= 10 && requestedSeconds < 300 ? requestedSeconds : 300;
+  const voice = env.NAQAH_REALTIME_VOICE || 'marin';
+  if (!VOICES.has(voice)) throw new Error('Invalid NAQAH_REALTIME_VOICE');
   return {
+    voice,
     port,
     publicUrl: env.NAQAH_BRIDGE_PUBLIC_URL,
     upstream,

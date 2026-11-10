@@ -8,7 +8,7 @@ import { makePersonalizer } from "@/domain/conversation/personalize";
 import { PREDEFINED_QUESTIONS } from "@/domain/catalog";
 import type { Locale, Workspace } from "@/domain/types";
 import type { VoiceCallSession } from "../farm-call";
-import { camelClauses, mapSpeechToInput, namedCamels, saysRestAreWell, topicSegments, unknownReply } from "../speech";
+import { camelClauses, mapSpeechToInput, namedCamels, numbersSaid, saysRestAreWell, topicSegments, unknownReply } from "../speech";
 import { spokenWording } from "../twiml";
 import { askedToStop, evidenceWords, isGarbled, isLeakedHint, refuseAnswer } from "./answer-check";
 import { isVerifiedConfirmation } from "./confirmation";
@@ -134,7 +134,7 @@ export function promptResult(session: CallSession, workspace: Workspace, locale:
   };
 }
 
-export type ToolCounters = Partial<Pick<RealtimeState, "confirmationFailures" | "refusalAt" | "refusals" | "noiseAt" | "noiseCount" | "closed">>;
+export type ToolCounters = Partial<Pick<RealtimeState, "confirmationFailures" | "refusalAt" | "refusals" | "refusedAnswer" | "noiseAt" | "noiseCount" | "closed">>;
 
 export type ToolTurn = {
   session: CallSession;
@@ -163,7 +163,24 @@ export type ToolDecision = { counters: ToolCounters; checkError: string | null }
   | { kind: "end"; session: VoiceCallSession }
 );
 
+const BUSY = /(?:^| )(?:مشغول|مو فاضي|مب فاضي|بعدين|مو الحين|مب الحين|موب الحين|not now|busy|later)(?: |$)/;
+const DIDNT_HEAR = /^(?:الو|الوو|هلو|الو الو|مين|مين معي|من معي|مين معاي|مين انت|alo|hello|hello hello|who is this)$/;
+
+/**
+ * «جاهز؟» right after the greeting. The words decide, not the tool: anything but «مو الحين» starts the report,
+ * and «ألو؟», «مين؟» or no words at all mean the greeting wasn't heard over the line.
+ */
+function readyChoice(heard: string): "ready" | "busy" | "again" {
+  const words = evidenceWords(heard);
+  if (BUSY.test(words) || askedToStop(heard)) return "busy";
+  if (!words || isLeakedHint(heard) || DIDNT_HEAR.test(words) || /^(?:نعم|ايوه|ايه)\s*[?؟]$/u.test(heard.trim())) return "again";
+  return "ready";
+}
+
 export function decideTool({ session: current, counters, workspace, locale, name, args, spoke, heard, heardSummaryId, now, keypad = false }: ToolTurn): ToolDecision {
+  if (current.step === "report_ready" && name !== "flag_urgent" && (spoke || name === "end_call")) {
+    return { kind: "apply", session: { ...current, voiceSilences: 0 }, chosen: { value: name === "end_call" ? "busy" : readyChoice(heard) }, prefix: "", counters: {}, checkError: null };
+  }
   const position = positionOf(current);
   let next: ToolCounters = {};
   let checkError: string | null = null;
@@ -271,10 +288,19 @@ export function decideTool({ session: current, counters, workspace, locale, name
     chosen = action.input;
   }
   if (action.kind === "answer" && name === "answer_question" && gaveUp === null) {
-    const refused = refuseAnswer(session, action.input, heard, locale, workspace.camels.map((camel) => camel.name));
+    let refused = refuseAnswer(session, action.input, heard, locale, workspace.camels.map((camel) => camel.name));
+    // Phone transcription misses short replies the model heard («عشرين»). The model hearing the same answer twice,
+    // from two separate replies, outweighs the transcript; the read-back still lets the worker correct it.
+    const said = JSON.stringify(action.input);
+    // A task still closes only on words that say it is done.
+    const closesTask = askedTopic(session) === "task";
+    // Only a count: a different number in the transcript is a contradiction, and words that say nothing about the
+    // camels («الجو حار») must never become "all well".
+    const missed = refused === "number_not_in_answer" && numbersSaid(heard).size === 0;
+    if (refused && missed && !closesTask && counters.refusalAt === position && counters.refusedAnswer === said) refused = null;
     if (refused) {
       const refusals = counters.refusalAt === position ? (counters.refusals ?? 0) + 1 : 1;
-      next = { ...next, refusalAt: position, refusals };
+      next = { ...next, refusalAt: position, refusals, refusedAnswer: said };
       if (refused === "answer_off_topic") {
         const noted = addWorkerNote(session, heard);
         if (refusals < 3) return { kind: "stay", session: noted, result: promptResult(noted, workspace, locale, "invalid", refused, NOTED_BACK[locale]), refused, counters: next, checkError };

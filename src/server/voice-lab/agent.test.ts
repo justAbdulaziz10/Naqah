@@ -455,7 +455,8 @@ describe("Voice Lab stays in step with the phone call", () => {
   });
 
   it("uses the bridge's voice and reasoning effort", () => {
-    expect(bridge).toMatch(/voice: 'marin'/);
+    // The phone's default voice; a local test can pick another with --voice.
+    expect(readFileSync("services/voice-bridge/config.mjs", "utf8")).toContain("env.NAQAH_REALTIME_VOICE || 'marin'");
     expect(lab).toContain('voice: "marin"');
     expect(bridge).toMatch(/reasoning: \{ effort: 'minimal' \}/);
     expect(lab).toContain('reasoning: { effort: "minimal" }');

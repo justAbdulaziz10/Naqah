@@ -3,11 +3,13 @@
  * Free: no model, no phone. The real model's own choices on these words are checked separately (real-model.live.test.ts).
  */
 import { describe, expect, it } from "vitest";
-import { answer, reportSummaryId, type CallSession } from "@/domain/conversation/engine";
+import { answer, reportSummaryId, start, type CallSession } from "@/domain/conversation/engine";
+import { placeReportCallAttempt, resolveReportCallAttempt, startReportCall } from "@/domain/reportCalls";
 import type { Workspace } from "@/domain/types";
 import type { VoiceCallSession } from "../farm-call";
 import { decideTool, spokenFrom, type ToolCounters } from "./decide";
 import { at, freshCall, NOW } from "./saudi-cases";
+import { demoHistory, demoSettings } from "../../../../scripts/demo/presentation-ranch";
 
 function live(first: { ws: Workspace; session: VoiceCallSession }) {
   let session = first.session;
@@ -184,5 +186,70 @@ describe("the presentation call, start to finish", () => {
     call.turn("إيه احفظه", "confirm_report", { confirmed: true });
     expect(call.committed).toBe(true);
     expect(call.said.length).toBe(11);
+  });
+});
+
+describe("the opening on a live call", () => {
+  function opening() {
+    const ws = demoHistory(demoSettings(NOW), NOW, { endYesterday: true });
+    const opened = startReportCall(ws, NOW, "manual");
+    const live0 = resolveReportCallAttempt(placeReportCallAttempt(opened.ws, NOW, opened.run!.id).ws, NOW, opened.run!.id, true).ws;
+    live0.settings.reportMode = "guided";
+    return { ws: live0, session: start(live0, NOW, "report_call", { reportCallId: opened.run!.id, modesAvailable: true, greetFirst: true }).session as VoiceCallSession };
+  }
+
+  it("greets by name and ranch, and waits for «جاهز؟»", () => {
+    const call = live(opening());
+    expect(call.said[0]).toBe("السلام عليكم يا أحمد، معك ناقة، المساعد الآلي لعزبة الوسم. بتطمن على الحلال اليوم، جاهز؟");
+    expect(call.session.step).toBe("report_ready");
+  });
+
+  it.each(["إيه جاهز", "وعليكم السلام، تفضل", "هلا والله", "يلا", "نعم"])("starts the report on «%s»", (heard) => {
+    const call = live(opening());
+    call.turn(heard, "answer_question", { value: "ready", topic: "herd" });
+    expect(call.said.at(-1)).toBe("كيف الحلال اليوم؟");
+  });
+
+  it.each(["ألو", "الو؟", "مين معي", ""])("says the greeting again on «%s», then goes ahead", (heard) => {
+    const call = live(opening());
+    call.turn(heard, "repeat_or_clarify", { reason: "noise" });
+    expect(call.said.at(-1)).toBe("هلا. السلام عليكم يا أحمد، معك ناقة، المساعد الآلي لعزبة الوسم. بتطمن على الحلال اليوم، جاهز؟");
+    call.turn("ألو", "repeat_or_clarify", { reason: "noise" });
+    call.turn("ألو", "repeat_or_clarify", { reason: "noise" });
+    expect(call.said.at(-1)).toBe("كيف الحلال اليوم؟");
+  });
+
+  it("ends politely, saving nothing, when the worker is busy", () => {
+    const call = live(opening());
+    call.turn("والله مشغول الحين", "end_call", { reason: "worker_ended" });
+    expect(call.session.done).toBe(true);
+    expect(call.said.at(-1)).toBe("ما عليه، يعطيك العافية يا أحمد. مع السلامة.");
+  });
+});
+
+describe("when the phone transcript misses what the model heard", () => {
+  it("asks once, then takes the same count heard a second time", () => {
+    const call = live(at("herd_count"));
+    expect(call.turn("عشرييين", "answer_question", { text: "20", topic: "herd" }).kind).toBe("reply");
+    expect(call.turn("هم عشرييين", "answer_question", { text: "20", topic: "herd" }).kind).toBe("apply");
+    expect(recorded(call.session, "herd_count")).toEqual(["20 من الحلال"]);
+  });
+
+  it("does not take a different count the second time", () => {
+    const call = live(at("herd_count"));
+    call.turn("عشرييين", "answer_question", { text: "20", topic: "herd" });
+    expect(call.turn("عشرييين", "answer_question", { text: "21", topic: "herd" }).kind).toBe("reply");
+  });
+
+  it("does not take the model's count over a different number in the words", () => {
+    const call = live(at("herd_count"));
+    call.turn("عشرة", "answer_question", { text: "20", topic: "herd" });
+    expect(call.turn("عشرة", "answer_question", { text: "20", topic: "herd" }).kind).toBe("reply");
+  });
+
+  it("never closes a task on the model's word alone", () => {
+    const call = live(at("task"));
+    call.turn("ممم", "answer_question", { value: "yes", topic: "task" });
+    expect(call.turn("ممم", "answer_question", { value: "yes", topic: "task" }).kind).toBe("reply");
   });
 });

@@ -948,10 +948,12 @@ test('sayText is spoken verbatim as a question without leaking text to logs', as
     await playPrompt(state, connection);
     await workerTool(state, 'question-tool');
     const response = state.providerEvents.filter((event) => event.type === 'response.create').at(-1).response;
-    assert.deepEqual(response, {
+    assert.deepEqual({ ...response, instructions: response.instructions.split(' Speak it ')[0] }, {
       output_modalities: ['audio'], tool_choice: 'none',
       instructions: `Say only the following text verbatim, with no additions: ${JSON.stringify(question)}`,
     });
+    // The delivery note says how to speak, never what: the words stay the server's.
+    assert.match(response.instructions, / Speak it (as a friendly Saudi|warmly)/);
     assert.ok(state.logs.some((record) => record.event === 'response_requested' && record.kind === 'question'));
     assert.ok(!JSON.stringify(state.logs).includes(question));
     assert.ok(!JSON.stringify(state.logs).includes('Mock worker words'));

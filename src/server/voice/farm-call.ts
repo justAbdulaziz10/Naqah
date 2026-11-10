@@ -435,7 +435,8 @@ export async function answerReportCall(client: SupabaseClient, input: { token: R
     return twimlGoodbye(locale, NOT_READY[locale]);
   }
 
-  const result = start(workspace, now, "report_call", { reportCallId: run.id, modesAvailable: Boolean(realtime) });
+  // A phone call greets and waits for «جاهز؟»: whoever picks up often says «ألو» over the first words.
+  const result = start(workspace, now, "report_call", { reportCallId: run.id, modesAvailable: Boolean(realtime), greetFirst: Boolean(realtime) });
   // The run was answered above, so the engine has nothing left to commit at the start.
   if (result.commit) throw new DbError("invalid_input", "report call start has no voice event");
   const response = respond(result.session, 0, workspace, locale, 0);

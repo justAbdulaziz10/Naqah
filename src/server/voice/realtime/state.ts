@@ -33,6 +33,8 @@ export interface RealtimeState {
   confirmationFailures?: number;
   refusalAt?: string;
   refusals?: number;
+  /** The answer the model gave when the transcript didn't back it, to accept it when the model hears it again. */
+  refusedAnswer?: string;
   noiseAt?: string;
   noiseCount?: number;
   progressVersion?: number;

@@ -35,11 +35,11 @@ export function start(
   ws: Workspace,
   now: Date,
   scenario: Scenario = "report_call",
-  options: { reportId?: string; reportCallId?: string; modesAvailable?: boolean } = {},
+  options: { reportId?: string; reportCallId?: string; modesAvailable?: boolean; greetFirst?: boolean } = {},
 ): EngineResult {
   switch (scenario) {
     case "report_call":
-      return startReportCallScenario(ws, now, options.reportCallId, options.modesAvailable);
+      return startReportCallScenario(ws, now, options.reportCallId, options.modesAvailable, options.greetFirst);
     case "worker_inbound":
       return startWorkerInbound(ws, now);
     case "worker_callback":

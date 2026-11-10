@@ -4,6 +4,11 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { REALTIME_MODEL } from './config.mjs';
 import { internalHeaders, verifyInternalSignature, verifyTwilioSignature } from './security.mjs';
 
+/** How the words are said, never which words. Saudi workers hear a Gulf accent as one of their own. */
+const DELIVERY = Object.freeze({
+  ar: ' Speak it as a friendly Saudi speaking natural Najdi Gulf Arabic, warm and calm, at an unhurried pace, with clear Gulf pronunciation of names and numbers. Do not use formal Modern Standard Arabic pronunciation or an Egyptian or Levantine accent.',
+  en: ' Speak it warmly and clearly, at an unhurried pace.',
+});
 const HARMLESS_PROVIDER_ERRORS = new Set(['response_cancel_not_active', 'conversation_already_has_active_response']);
 /** A provider enum for the logs; anything that doesn't look like one is not logged. */
 const label = (value) => (typeof value === 'string' && /^[a-z0-9_.-]{1,64}$/i.test(value) ? value : null);
@@ -348,7 +353,7 @@ class CallStream {
                   silence_duration_ms: 700, create_response: false, interrupt_response: false,
                 },
               },
-              output: { format: { type: 'audio/pcmu' }, voice: 'marin' },
+              output: { format: { type: 'audio/pcmu' }, voice: this.config.voice ?? 'marin' },
             },
           },
         });
@@ -404,7 +409,7 @@ class CallStream {
     this.log('response_requested', { kind: next.kind });
     const response = { output_modalities: ['audio'] };
     if (next.text) {
-      response.instructions = `Say only the following text verbatim, with no additions: ${JSON.stringify(next.text)}`;
+      response.instructions = `Say only the following text verbatim, with no additions: ${JSON.stringify(next.text)}${DELIVERY[this.session?.locale] ?? ''}`;
       response.tool_choice = 'none';
     }
     this.send(this.provider, { type: 'response.create', response });

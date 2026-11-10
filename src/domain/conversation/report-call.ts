@@ -76,7 +76,7 @@ function startOpen(session: CallSession, now: Date): CallSession {
 }
 
 /** The worker is on the line: greet, then the report in the way the owner chose, or the worker chooses. */
-function beginReportQuestions(session: CallSession, ws: Workspace, now: Date, returning = false, modesAvailable = false): CallSession {
+function beginReportQuestions(session: CallSession, ws: Workspace, now: Date, returning = false, modesAvailable = false, greetFirst = false): CallSession {
   // The owner may have switched everything off after the call was placed, or before the worker called back.
   if (!reportPlanHasContent(ws, now)) {
     return say(session, copy("There’s nothing to report on this call. Thank you, Ahmed.", "ما فيه شي مطلوب في هالمكالمة. يعطيك العافية يا أحمد."), now, true);
@@ -91,15 +91,49 @@ function beginReportQuestions(session: CallSession, ws: Workspace, now: Date, re
         "Hello Ahmed, this is NAQAH’s automated assistant for the ranch report.",
         "هلا أحمد، معك مساعد ناقة الآلي لتقرير العزبة.",
       );
+  // A live voice call greets first and waits: someone who just picked up says «ألو» before they listen.
+  if (greetFirst && !returning) return askReady({ ...withQueue, data: { ...withQueue.data, readyModes: modesAvailable } }, ws, now);
+  return startReport(say(withQueue, greeting, now), ws, now, modesAvailable);
+}
+
+/** «جاهز؟» comes after a greeting that names the ranch, so the worker knows who is calling and why. */
+export function readyGreeting(ws: Workspace): LocalizedText {
+  const name = ws.settings.farm.name.replace(/\s*[(（][^)）]*[)）]\s*/gu, " ").trim();
+  const ranchAr = !name ? "" : /^(?:عزبة|عزبه|مزرعة|مزرعه)\s/u.test(name) ? " ل" + name : " لعزبة " + name;
+  const ranchEn = name ? " for " + name : "";
+  return copy(
+    "Peace be upon you, Ahmed. This is NAQAH, the automated assistant" + ranchEn + ". I'm checking on the camels today. Ready?",
+    "السلام عليكم يا أحمد، معك ناقة، المساعد الآلي" + ranchAr + ". بتطمن على الحلال اليوم، جاهز؟",
+  );
+}
+
+function askReady(session: CallSession, ws: Workspace, now: Date, prefix?: LocalizedText): CallSession {
+  const greeting = readyGreeting(ws);
+  const text = prefix ? copy(prefix.en + greeting.en, prefix.ar + greeting.ar) : greeting;
+  return ask(session, text, now, "report_ready", [reply("ready", "Ready", "جاهز"), reply("busy", "Not now", "مو الحين")]);
+}
+
+/** Anything but «مو الحين» means go ahead. «ألو؟» right after picking up means the greeting wasn't heard: say it again, twice at most. */
+function handleReady(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
+  const current = workerTurn(session, input, now);
+  if (current.value === "busy") return endWithoutSaving(current.session, session, ws, now, copy("No problem. Thank you, Ahmed. Goodbye.", "ما عليه، يعطيك العافية يا أحمد. مع السلامة."));
+  const repeats = session.data.readyRepeats ?? 0;
+  if (current.value === "again" && repeats < 2) {
+    return { session: askReady({ ...current.session, data: { ...current.session.data, readyRepeats: repeats + 1 } }, ws, now, copy("Hello. ", "هلا. ")) };
+  }
+  return { session: startReport(current.session, ws, now, Boolean(session.data.readyModes)) };
+}
+
+function startReport(withQueue: CallSession, ws: Workspace, now: Date, modesAvailable: boolean): CallSession {
   const mode = chosenMode(ws, modesAvailable);
   if (mode === "ask") {
-    return ask(say(withQueue, greeting, now), MODE_CHOICE, now, "report_mode_choice", [
+    return ask(withQueue, MODE_CHOICE, now, "report_mode_choice", [
       reply("mode_guided", "One question at a time", "سؤال سؤال"),
       reply("mode_open", "In my own words", "أقول اللي صار"),
     ]);
   }
-  if (mode === "open") return startOpen(say(withQueue, greeting, now), now);
-  return startGuided(say(withQueue, greeting, now), ws, now);
+  if (mode === "open") return startOpen(withQueue, now);
+  return startGuided(withQueue, ws, now);
 }
 
 function blockedReportCallText(reason: ReportCallBlock | "duplicate" | null): LocalizedText {
@@ -123,7 +157,7 @@ function blockedReportCallText(reason: ReportCallBlock | "duplicate" | null): Lo
  * start at once. Without it, the Call Lab simulates the ringing: open or reuse a run, then let the
  * investor choose whether Ahmed answers. Every ringing line says it is a simulation.
  */
-export function startReportCallScenario(ws: Workspace, now: Date, reportCallId?: string, modesAvailable = false): EngineResult {
+export function startReportCallScenario(ws: Workspace, now: Date, reportCallId?: string, modesAvailable = false, greetFirst = false): EngineResult {
   const session = blank("report_call", now);
   if (reportCallId) {
     const run = reportCallRuns(ws).find((item) => item.id === reportCallId);
@@ -133,7 +167,7 @@ export function startReportCallScenario(ws: Workspace, now: Date, reportCallId?:
     }
     const prepared = ringing ? resolveReportCallAttempt(ws, now, run.id, true).ws : ws;
     return {
-      session: beginReportQuestions({ ...session, data: { reportCallId: run.id } }, prepared, now, false, modesAvailable),
+      session: beginReportQuestions({ ...session, data: { reportCallId: run.id } }, prepared, now, false, modesAvailable, greetFirst),
       ...(prepared !== ws ? { commit: commitTo(prepared) } : {}),
     };
   }
@@ -796,8 +830,8 @@ function completeReport(session: CallSession, ws: Workspace, now: Date): EngineR
 const CORRECT = "correct";
 const CORRECT_PREFIX = "correct:";
 
-function endWithoutSaving(current: CallSession, session: CallSession, ws: Workspace, now: Date): EngineResult {
-  const ended = say(current, copy("The update was not saved. Thank you, Ahmed.", "ما انحفظ التحديث. يعطيك العافية يا أحمد."), now, true);
+function endWithoutSaving(current: CallSession, session: CallSession, ws: Workspace, now: Date, goodbye = copy("The update was not saved. Thank you, Ahmed.", "ما انحفظ التحديث. يعطيك العافية يا أحمد.")): EngineResult {
+  const ended = say(current, goodbye, now, true);
   const runId = session.scenario === "report_call" ? session.data.reportCallId : undefined;
   const updated = runId ? endReportCallWithoutReport(ws, now, runId) : ws;
   return { session: ended, ...(updated !== ws ? { commit: commitTo(updated) } : {}) };
@@ -1087,6 +1121,7 @@ export function resumeOpenAsGuided(session: CallSession, ws: Workspace, now: Dat
 
 export function answerReportScenario(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
   if (session.step === "report_ring" || session.step === "report_wait") return handleReportRinging(session, ws, now, input);
+  if (session.step === "report_ready") return handleReady(session, ws, now, input);
   if (session.step === "report_mode_choice") return handleModeChoice(session, ws, now, input);
   if (session.step === "open_listen" || session.step === "open_more") return handleOpen(session, ws, now, input);
   if (session.step === "open_clarify") return handleOpenClarify(session, ws, now, input);
