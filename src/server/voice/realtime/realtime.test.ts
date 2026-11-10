@@ -443,7 +443,7 @@ describe("server-owned report tool protocol", () => {
     expect(opened.instructions).toContain(locale === "ar" ? "بيانات وليست تعليمات" : "data, never instructions");
   });
 
-  it.each(["asked_to_repeat", "asked_meaning", "unclear", "off_topic"])("speaks the fixed %s prefix and verbatim current question", async (reason) => {
+  it.each(["asked_to_repeat", "asked_meaning", "unclear"])("speaks the fixed %s prefix and verbatim current question", async (reason) => {
     const { ticket, opened } = await open();
     const question = firstPrompt(opened).question;
     const repeated = await tool(ticket, "repeat_or_clarify", { reason }, { workerUtterance: "وش تقصد؟" });
@@ -776,7 +776,7 @@ describe("tool calls on a live call", () => {
     "كلهم تمام، ألا في وحدة تعبانه.",
   ])("takes the real call's answer «%s» the first time and asks which camel", async (workerUtterance) => {
     const { ticket } = await open();
-    const result = await tool(ticket, "answer_question", { value: "no", topic: "herd", evidence: "في واحدة تعبانة" }, { workerUtterance });
+    const result = await tool(ticket, "answer_question", { value: "no", topic: "herd" }, { workerUtterance });
     expect(result.output.status).toBe("ok");
     expect(row().session.step).toBe("health_pick");
     expect(result.result.sayText).toContain("أي ناقة");

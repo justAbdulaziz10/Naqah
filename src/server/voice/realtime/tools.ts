@@ -5,7 +5,7 @@ import type { Locale, Workspace } from "@/domain/types";
 import { mapSpeechToInput } from "../speech";
 
 const TOPICS = ["herd", "feed", "water", "fences", "shelter", "medicine", "task", "other"] as const;
-export const CLARIFY_REASONS = ["noise", "asked_to_repeat", "asked_meaning", "unclear", "off_topic"] as const;
+export const CLARIFY_REASONS = ["noise", "asked_to_repeat", "asked_meaning", "unclear"] as const;
 export type ClarifyReason = typeof CLARIFY_REASONS[number];
 const string = { type: "string" };
 const evidence = { type: "string", description: "Exact words from the worker's utterance supporting this fact." };
@@ -15,7 +15,7 @@ export const object = (properties: object, required: string[]) => ({ type: "obje
 export const tool = (name: string, description: string, properties: object, required: string[]) => ({ type: "function", name, description, parameters: object(properties, required) });
 
 export const REALTIME_TOOLS = [
-  tool("answer_question", "Classify the current guided answer. Pass exactly one of value or text, and the asked topic.", { value: string, text: string, topic: { type: "string", enum: TOPICS }, evidence: { type: "string", description: "The worker's own words that give this answer." } }, ["topic"]),
+  tool("answer_question", "Classify the current guided answer. Pass exactly one of value or text, and the asked topic.", { value: string, text: string, topic: { type: "string", enum: TOPICS } }, ["topic"]),
   tool("record_facts", "Record only facts supported by the worker's exact words in open mode. Never supply certainty.", {
     facts: { type: "array", maxItems: 20, items: { anyOf: [
       object({ type: { const: "camel_health" }, camelId: nullableString, scope: { enum: ["one", "all"] }, status: { enum: ["healthy", "watch", "sick", "unknown"] }, note: nullableString, evidence }, ["type", "camelId", "scope", "status", "note", "evidence"]),
@@ -27,7 +27,7 @@ export const REALTIME_TOOLS = [
   }, ["facts"]),
   tool("finish_update", "The worker has nothing more to add, only at open_more.", {}, []),
   tool("choose_mode", "Choose guided questions or an open update, only when offered.", { mode: { enum: ["guided", "open"] } }, ["mode"]),
-  tool("repeat_or_clarify", "Ask the server to repeat or clarify the current question. Never speak yourself.", { reason: { enum: CLARIFY_REASONS } }, ["reason"]),
+  tool("repeat_or_clarify", "Only when the worker gave no answer: noise, asked to repeat or explain, or speech with no meaning.", { reason: { enum: CLARIFY_REASONS } }, ["reason"]),
   tool("confirm_report", "Confirm saving only after the worker heard the current full summary and explicitly agreed. False requests correction.", { confirmed: { type: "boolean" } }, ["confirmed"]),
   tool("correct_report", "Request correction of the summary. Use an offered item id if known.", { item_id: string }, []),
   tool("flag_urgent", "Report an urgent concern in the worker's words. The server tells them to call the owner directly.", { note: string }, ["note"]),
@@ -67,7 +67,6 @@ export function toolsFor(session: CallSession) {
           ...(session.replies.length ? { value: { type: "string", enum: session.replies.map((reply) => reply.value) } } : {}),
           ...(textAllowed(session) ? { text: string } : {}),
           topic: { type: "string", enum: [askedTopic(session)] },
-          evidence: { type: "string", description: "The worker's own words that give this answer." },
         },
       },
     };
@@ -81,7 +80,7 @@ function takesQuantity(session: CallSession): boolean {
 export const textAllowed = (session: CallSession) => session.inputMode === "text" || session.inputMode === "number" || session.inputMode === "time" || takesQuantity(session);
 
 function checkAnswer(args: Record<string, unknown>, session: CallSession, locale: Locale): ToolCheck {
-  if (!onlyKeys(args, ["value", "text", "topic", "evidence"]) || ("value" in args) === ("text" in args)) return { ok: false, error: "pass_exactly_one_of_value_or_text" };
+  if (!onlyKeys(args, ["value", "text", "topic"]) || ("value" in args) === ("text" in args)) return { ok: false, error: "pass_exactly_one_of_value_or_text" };
   if (!TOPICS.includes(args.topic as AnswerTopic) || args.topic !== askedTopic(session)) return { ok: false, error: "answer_off_topic" };
   if ("value" in args) {
     if (!cleanString(args.value, 100) || !session.replies.some((reply) => reply.value === args.value)) return { ok: false, error: "value_not_allowed" };

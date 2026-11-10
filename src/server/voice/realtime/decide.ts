@@ -9,7 +9,7 @@ import type { Locale, Workspace } from "@/domain/types";
 import type { VoiceCallSession } from "../farm-call";
 import { mapSpeechToInput, unknownReply } from "../speech";
 import { spokenWording } from "../twiml";
-import { askedToStop, evidenceWords, isGarbled, refuseAnswer } from "./answer-check";
+import { askedToStop, evidenceWords, isGarbled, isLeakedHint, refuseAnswer } from "./answer-check";
 import { isVerifiedConfirmation } from "./confirmation";
 import { validateFacts } from "./facts";
 import type { RealtimeState, ToolResponse } from "./state";
@@ -31,7 +31,6 @@ const PREFIXES: Record<ClarifyReason, Record<Locale, string>> = {
   asked_to_repeat: { ar: "أكيد. ", en: "Of course. " },
   asked_meaning: { ar: "المقصود بهالسؤال: ", en: "This question means: " },
   unclear: { ar: "معليش، ما فهمت جوابك زين. ", en: "Sorry, I didn't understand that answer. " },
-  off_topic: { ar: "خلنا نرجع للسؤال. ", en: "Let's return to the question. " },
 };
 const URGENT: Record<Locale, string> = {
   ar: "إذا الأمر عاجل، اتصل بصاحب العزبة مباشرة الآن. ناقة ما تبلغ أحد بالطوارئ. ",
@@ -40,6 +39,7 @@ const URGENT: Record<Locale, string> = {
 const CONFIRM_AGAIN: Record<Locale, string> = { ar: "ما سمعتك زين. أحفظه؟ قل إيه، أو اضغط واحد.", en: "I didn't catch that. Shall I save it? Say yes, or press 1." };
 const isDeny = (heard: string) => /(?:^| )(?:لا|غلط|عدل|عدله|تعديل|no|wrong|change)(?: |$)/.test(evidenceWords(heard));
 const SAVE_OR_CORRECT: Record<Locale, string> = { ar: "أحفظ التحديث، ولا تبي تعدل شي؟", en: "Shall I save the update, or would you like to correct something?" };
+const SECOND_TRY: Record<Locale, string> = { ar: "قلها لي بكلمة. ", en: "In a word, please. " };
 const UNKNOWN: Record<Locale, string> = {
   ar: "ما قدرت أحدد الإجابة، بنسجلها غير معروف ونكمل. ",
   en: "I couldn't determine the answer. I'll mark it unknown and continue. ",
@@ -58,6 +58,8 @@ export function spokenFrom(session: CallSession, from: number, ws: Workspace, lo
 function afterRefusals(session: CallSession, locale: Locale): { input: AnswerInput; prefix: string } {
   const unknown = unknownReply(session.replies)?.value;
   if (!unknown && session.replies.some((reply) => reply.value === "no")) return { input: { value: "no" }, prefix: PREFIXES.unclear[locale] };
+  const steady = session.replies.find((reply) => ["mode_guided", "open_done", "back_to_summary"].includes(reply.value))?.value;
+  if (!unknown && steady) return { input: { value: steady }, prefix: PREFIXES.unclear[locale] };
   return { input: { value: unknown ?? "unknown" }, prefix: UNKNOWN[locale] };
 }
 
@@ -110,14 +112,18 @@ export function decideTool({ session: current, counters, workspace, locale, name
   let checkError: string | null = null;
   const reply = (result: ToolResponse, refused: string | null = null): ToolDecision => ({ kind: "reply", result, refused, counters: next, checkError });
   const refuse = (error: string, prefix = PREFIXES.unclear[locale]) => reply(promptResult(current, workspace, locale, "invalid", error, prefix), error);
+  /** Asked differently: in one short phrase, with the options a worker can pick from. */
+  const secondTry = (error?: string): ToolDecision => reply(promptResult(current, workspace, locale, error ? "invalid" : "ok", error, SECOND_TRY[locale], "asked_meaning"), error ?? null);
   let check = checkTool(name, args, spoke || name === "end_call", current, locale);
   let gaveUp: string | null = null;
   const offered = toolsFor(current).some((entry) => entry.name === name);
-  const noise = !evidenceWords(heard) || /^(?:noise|background noise|silence|ضجيج|ضوضاء|صمت)$/.test(evidenceWords(heard)) || (check.ok && check.action.kind === "repeat" && check.action.reason === "noise");
+  const noise = isLeakedHint(heard) || !evidenceWords(heard) || /^(?:noise|background noise|silence|ضجيج|ضوضاء|صمت)$/.test(evidenceWords(heard)) || (check.ok && check.action.kind === "repeat" && check.action.reason === "noise");
   // An urgent concern always gets its warning, even if the transcript failed.
   if (offered && name !== "end_call" && name !== "confirm_report" && name !== "flag_urgent" && noise) {
     const count = counters.noiseAt === position ? (counters.noiseCount ?? 0) + 1 : 1;
-    next = { ...next, noiseAt: position, noiseCount: count };
+    next = { ...next, noiseAt: position, noiseCount: count, ...(count >= 4 ? { closed: true } : {}) };
+    // The audio isn't getting through: the keypad is the different thing to try.
+    if (count >= 4) return reply(fallbackResult(), "noise");
     const explicitNoise = !evidenceWords(heard) && check.ok && check.action.kind === "repeat" && check.action.reason === "noise";
     return reply(promptResult(current, workspace, locale, "ok", undefined, count > 1 ? PREFIXES.noise[locale] : "", undefined, explicitNoise || count === 1), "noise");
   }
@@ -140,16 +146,28 @@ export function decideTool({ session: current, counters, workspace, locale, name
     if (name !== "answer_question" || check.error === "worker_has_not_answered" || !offered) return refuse(check.error);
     const refusals = counters.refusalAt === position ? (counters.refusals ?? 0) + 1 : 1;
     next = { ...next, refusalAt: position, refusals };
-    if (refusals < 3) return refuse(check.error);
+    if (refusals < 3) return refusals === 2 ? secondTry(check.error) : refuse(check.error);
     const fallback = afterRefusals(current, locale);
     check = { ok: true, action: { kind: "answer", input: fallback.input } };
     gaveUp = fallback.prefix;
   }
   const action = check.action;
-  if (action.kind === "repeat") return reply(promptResult(current, workspace, locale, "ok", undefined, PREFIXES[action.reason][locale], action.reason));
+  let forced: { input: AnswerInput; prefix: string } | null = null;
+  // A worker can ask for a repeat, but a call never circles: the second time is asked differently, the third moves on.
+  if (action.kind === "repeat") {
+    const tries = counters.refusalAt === position ? (counters.refusals ?? 0) + 1 : 1;
+    next = { ...next, refusalAt: position, refusals: tries };
+    if (tries === 1) return reply(promptResult(current, workspace, locale, "ok", undefined, PREFIXES[action.reason][locale], action.reason));
+    if (tries === 2) return secondTry();
+    if (current.step === SUMMARY_STEP || current.step === "report_correct_pick") {
+      next = { ...next, closed: true };
+      return reply(fallbackResult());
+    }
+    forced = afterRefusals(current, locale);
+  }
   let session: VoiceCallSession = { ...current, voiceSilences: 0 };
-  let chosen: AnswerInput | null = action.kind === "answer" ? action.input : action.kind === "confirm" ? { value: action.confirmed ? "confirm_save" : "correct" } : null;
-  let prefix = gaveUp ?? "";
+  let chosen: AnswerInput | null = forced ? forced.input : action.kind === "answer" ? action.input : action.kind === "confirm" ? { value: action.confirmed ? "confirm_save" : "correct" } : null;
+  let prefix = forced?.prefix ?? gaveUp ?? "";
   let droppedFacts = false;
   if (action.kind === "facts") {
     const checked = validateFacts(action.facts, heard, session, workspace, locale);
@@ -181,8 +199,7 @@ export function decideTool({ session: current, counters, workspace, locale, name
     if (asked !== "other" && asked !== "task" && [...topicsInWords(evidenceWords(heard))].some((topic) => topic !== asked)) session = addWorkerNote(session, heard);
   }
   if (action.kind === "answer" && name === "answer_question" && gaveUp === null) {
-    const evidence = typeof args === "object" && args !== null && "evidence" in args && typeof args.evidence === "string" ? args.evidence : undefined;
-    const refused = refuseAnswer(session, action.input, heard, locale, workspace.camels.map((camel) => camel.name), evidence);
+    const refused = refuseAnswer(session, action.input, heard, locale, workspace.camels.map((camel) => camel.name));
     if (refused) {
       const refusals = counters.refusalAt === position ? (counters.refusals ?? 0) + 1 : 1;
       next = { ...next, refusalAt: position, refusals };
@@ -191,9 +208,16 @@ export function decideTool({ session: current, counters, workspace, locale, name
         if (refusals < 3) return { kind: "stay", session: noted, result: promptResult(noted, workspace, locale, "invalid", refused, NOTED_BACK[locale]), refused, counters: next, checkError };
         session = noted;
       }
+      if (refusals === 2) return secondTry(refused);
       if (refusals < 3) return refuse(refused, PREFIXES.unclear[locale]);
       ({ input: chosen, prefix } = afterRefusals(session, locale));
     }
+  }
+  // «كلهم بخير بس نورة تعبانة»: the worker already said which one.
+  if (chosen?.value === "no" && current.step === "report_question" && askedTopic(current) === "herd") {
+    const words = evidenceWords(heard).split(" ");
+    const named = workspace.camels.filter((camel) => words.includes(evidenceWords(camel.name)));
+    if (named.length === 1) chosen = { value: "no", text: heard.trim().slice(0, 300), camelId: named[0].id };
   }
   if (action.kind === "urgent") {
     // The model heard the audio and the note may word it differently, so what is kept is what was transcribed.

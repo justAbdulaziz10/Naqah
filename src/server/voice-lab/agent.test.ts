@@ -497,7 +497,6 @@ describe("Voice Lab stays in step with the phone call", () => {
   it("transcribes with the phone call's model and a hint", () => {
     expect(bridge).toContain("model: 'gpt-4o-transcribe'");
     expect(lab).toContain('"gpt-4o-transcribe"');
-    expect(lab).toContain("prompt: TRANSCRIPTION_HINT[locale]");
   });
 
   it.each(["responseMs: 45_000", "goodbyeMs: 15_000"])("matches the bridge's limit %s", (limit) => {

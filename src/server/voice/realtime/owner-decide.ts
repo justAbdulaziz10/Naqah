@@ -6,7 +6,7 @@ import { reportSummaryId, type AnswerInput, type CallSession } from "@/domain/co
 import type { Locale, Workspace } from "@/domain/types";
 import type { VoiceCallSession } from "../farm-call";
 import { mapSpeechToInput } from "../speech";
-import { askedToStop, evidenceWords } from "./answer-check";
+import { askedToStop, evidenceWords, isLeakedHint } from "./answer-check";
 import { isVerifiedConfirmation } from "./confirmation";
 import { fallbackResult, spokenFrom, type ToolCounters, type ToolDecision, type ToolTurn } from "./decide";
 import { validateCorrection, validateProposals } from "./owner-facts";
@@ -21,7 +21,6 @@ const PREFIXES: Record<ClarifyReason, Record<Locale, string>> = {
   asked_to_repeat: { ar: "أكيد، أعيد. ", en: "Of course. " },
   asked_meaning: { ar: "المقصود: ", en: "This means: " },
   unclear: { ar: "معليش، ما فهمت عليك زين. ", en: "Sorry, I didn't quite follow that. " },
-  off_topic: { ar: "خلنا نرجع للتعليمات. ", en: "Let's return to the instructions. " },
 };
 const SAVE_OR_CHANGE: Record<Locale, string> = { ar: "أحفظها، ولا تبي تغير شي؟", en: "Shall I save these, or would you like to change something?" };
 
@@ -54,7 +53,7 @@ export function decideOwnerTool({ session: current, counters, workspace, locale,
 
   const check = checkOwnerTool(name, args, spoke || name === "end_call", current);
   const offered = ownerToolsFor(current).some((entry) => entry.name === name);
-  const noise = !evidenceWords(heard) || /^(?:noise|background noise|silence|ضجيج|ضوضاء|صمت)$/.test(evidenceWords(heard)) || (check.ok && check.action.kind === "repeat" && check.action.reason === "noise");
+  const noise = isLeakedHint(heard) || !evidenceWords(heard) || /^(?:noise|background noise|silence|ضجيج|ضوضاء|صمت)$/.test(evidenceWords(heard)) || (check.ok && check.action.kind === "repeat" && check.action.reason === "noise");
   if (offered && name !== "end_call" && name !== "confirm_instructions" && noise) {
     const count = counters.noiseAt === position ? (counters.noiseCount ?? 0) + 1 : 1;
     next = { ...next, noiseAt: position, noiseCount: count };
@@ -78,7 +77,12 @@ export function decideOwnerTool({ session: current, counters, workspace, locale,
   }
   if (!check.ok) return refuse(check.error);
   const { action } = check;
-  if (action.kind === "repeat") return reply(ownerPromptResult(current, workspace, locale, "ok", undefined, PREFIXES[action.reason][locale], action.reason));
+  // Never circle on one prompt: after three the script takes over.
+  if (action.kind === "repeat") {
+    const tries = counters.refusalAt === position ? (counters.refusals ?? 0) + 1 : 1;
+    next = { ...next, refusalAt: position, refusals: tries, closed: tries >= 3 };
+    return reply(tries >= 3 ? fallbackResult() : ownerPromptResult(current, workspace, locale, "ok", undefined, PREFIXES[action.reason][locale], action.reason));
+  }
   const session: VoiceCallSession = { ...current, voiceSilences: 0 };
   const said = mapSpeechToInput(session, heard, null, locale)?.value;
   let chosen: AnswerInput;

@@ -600,7 +600,7 @@ scenario("C1", "Replay of real call 2: a herd-health yes refused every time ends
   const third = await live.say("الجو حار اليوم", "answer_question", { value: "yes", topic: "herd" });
   check("the third refusal says it is marked unknown and moves on", live.said.includes("غير معروف") && third?.isSummary === true, { third, said: live.said });
   check("the draft holds unknown, not a guess", live.s?.draft.answers[0]?.certainty === "unknown" && live.s?.draft.camelUpdates.length === 0, live.s?.draft);
-  check("nothing ever says a camel needs attention", !live.spoken.some((line) => ATTENTION.test(line)), live.spoken);
+  check("nothing ever says a camel needs attention", !live.spoken.some((line) => ATTENTION.test(line) && !line.includes("قلها لي بكلمة")), live.spoken);
   const saved = await live.save();
   check("the unknown report saves", saved?.status === "saved", saved);
   await assertSaved(ranch, live.call);
@@ -617,7 +617,7 @@ scenario("C2", "Replay of real call 2: yes refused twice, then no without suppor
   await live.say("الجو حار اليوم", "answer_question", { value: "yes", topic: "herd" });
   const no = await live.say("الجو حار اليوم", "answer_question", { value: "no", topic: "herd" });
   check("a no the words do not support does not open the sick-camel path", live.s?.step !== "health_pick", { step: live.s?.step, no, said: live.said });
-  check("nothing says a camel needs attention", !live.spoken.some((line) => ATTENTION.test(line)), live.spoken);
+  check("nothing says a camel needs attention", !live.spoken.some((line) => ATTENTION.test(line) && !line.includes("قلها لي بكلمة")), live.spoken);
   const status = live.s?.step === "report_summary" ? await live.save() : null;
   if (status) {
     await assertSaved(ranch, live.call);

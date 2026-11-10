@@ -16,6 +16,7 @@ const DEFAULT_LIMITS = Object.freeze({
   readyMs: 5_000,
   responseMs: 45_000,
   transcriptionMs: 2_500,
+  bargeInMs: 400,
   speechMs: 10_000,
   goodbyeMs: 15_000,
   repromptMs: 10_000,
@@ -337,7 +338,7 @@ class CallStream {
             audio: {
               input: {
                 format: { type: 'audio/pcmu' },
-                transcription: { model: 'gpt-4o-transcribe', language: this.session.locale, ...(this.session.transcriptionPrompt ? { prompt: this.session.transcriptionPrompt } : {}) },
+                transcription: { model: 'gpt-4o-transcribe', language: this.session.locale },
                 turn_detection: {
                   type: 'server_vad', threshold: 0.5, prefix_padding_ms: 300,
                   silence_duration_ms: 700, create_response: false, interrupt_response: false,
@@ -519,8 +520,11 @@ class CallStream {
         && !this.responseAudible && !this.items.size;
       this.activity();
       this.log('speech_started');
-      this.interrupt();
+      // A cough or a line click shouldn't cut NAQAH off: only speech that keeps going interrupts.
+      if (this.limits.bargeInMs) this.timer('barge_in', this.limits.bargeInMs, () => { if (this.speaking) this.interrupt(); });
+      else this.interrupt();
     } else if (event.type === 'input_audio_buffer.speech_stopped') {
+      this.clearTimer('barge_in');
       this.speaking = false;
       this.clearTimer('speech');
       this.activity();

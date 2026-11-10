@@ -121,6 +121,8 @@ export interface AnswerInput {
   facts?: OpenFact[];
   /** What the owner asked for on a realtime call, already checked against their words. */
   instructions?: ProposedInstruction[];
+  /** Realtime: the camel the worker already named while answering how the herd is. */
+  camelId?: string;
   /** Realtime: the owner removed this instruction, by its place in the list. */
   instructionRemove?: number;
   /** A change to one instruction under review, already checked against the owner's words. */

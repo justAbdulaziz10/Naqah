@@ -173,20 +173,17 @@ describe("natural Arabic answers", () => {
     expect(mapSpeechToInput(feed, heard, null, "ar")).toEqual({ value });
   });
 
-  it("trusts the model's meaning only when it can point to the worker's words", () => {
-    const heard = "والله الوضع ماشي الحال";
-    expect(refuseAnswer(feed, { value: "good" }, heard, "ar", [], "الوضع ماشي الحال")).toBeNull();
-    expect(refuseAnswer(feed, { value: "good" }, heard, "ar")).toBe("answer_unclear");
-    expect(refuseAnswer(feed, { value: "good" }, heard, "ar", [], "العلف كافي")).toBe("answer_unclear");
+  it("trusts the model's reading of a natural phrase it can't find in the word list", () => {
+    expect(refuseAnswer(feed, { value: "good" }, "والله الوضع ماشي الحال", "ar")).toBeNull();
   });
 
   it("does not guess from unclear or unrelated words", () => {
-    expect(refuseAnswer(feed, { value: "good" }, "كاسييا", "ar", [], "كاسييا")).toBe("answer_unclear");
+    expect(refuseAnswer(feed, { value: "good" }, "كاسييا", "ar")).toBe("answer_unclear");
     expect(refuseAnswer(health, { value: "no" }, "الجو حار اليوم", "ar")).toBe("answer_unclear");
     expect(refuseAnswer(health, { value: "yes" }, "إيه", "ar")).toBe("answer_unclear");
   });
 
   it("does not let another topic in the sentence contradict the answer", () => {
-    expect(refuseAnswer(feed, { value: "good" }, "العلف زين بس الماء قرب يخلص", "ar", [], "العلف زين")).toBeNull();
+    expect(refuseAnswer(feed, { value: "good" }, "العلف زين بس الماء قرب يخلص", "ar")).toBeNull();
   });
 });

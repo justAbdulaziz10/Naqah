@@ -151,7 +151,7 @@ async function fixture(options = {}) {
   await listen(providerServer, 3902);
   const bridge = createBridge({
     config: loadConfig(TEST_ENV), logger: (record) => logs.push(record),
-    limits: { closeMs: 10, transcriptionMs: 50, ...options.limits },
+    limits: { closeMs: 10, transcriptionMs: 50, bargeInMs: 0, ...options.limits },
   });
   await listen(bridge.server, 3903);
   return {
@@ -326,13 +326,13 @@ test('session fetch and provider connection run side by side; nothing is sent un
   } finally { await state.close(); }
 });
 
-test('input transcription uses the session hint and VAD waits 700 ms', async () => {
-  const state = await fixture({ session: { transcriptionPrompt: 'Mock hint' } });
+test('input transcription carries no hint and VAD waits 700 ms', async () => {
+  const state = await fixture();
   try {
     const { socket } = await state.connect();
     await state.ready(socket);
     const input = state.providerEvents.find((event) => event.type === 'session.update').session.audio.input;
-    assert.deepEqual(input.transcription, { model: 'gpt-4o-transcribe', language: 'en', prompt: 'Mock hint' });
+    assert.deepEqual(input.transcription, { model: 'gpt-4o-transcribe', language: 'en' });
     assert.equal(input.turn_detection.silence_duration_ms, 700);
   } finally { await state.close(); }
 });
@@ -977,6 +977,21 @@ test('speech during a tool call cannot replace the question the server has queue
     send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'second' });
     await waitFor(() => state.logs.some((record) => record.event === 'turn_discarded_for_prompt'));
     await waitFor(() => state.providerEvents.filter((event) => event.type === 'response.create').at(-1)?.response?.instructions?.includes(question));
+  } finally { await state.close(); }
+});
+
+test('a short noise does not cut NAQAH off; speech that keeps going does', async () => {
+  const state = await fixture({ limits: { bargeInMs: 30 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection, undefined, false);
+    send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 0 });
+    send(state.provider, { type: 'input_audio_buffer.speech_stopped' });
+    await delay(60);
+    assert.ok(!state.logs.some((record) => record.event === 'barge_in'));
+    send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 100 });
+    await waitFor(() => state.logs.some((record) => record.event === 'barge_in'));
   } finally { await state.close(); }
 });
 

@@ -1,5 +1,4 @@
 import { askedTopic, isOffTopicAnswer, topicsInWords } from "@/domain/conversation/answer-topic";
-import { supports } from "./facts";
 import type { AnswerInput, CallSession } from "@/domain/conversation/engine";
 import type { Locale } from "@/domain/types";
 import { extractNumber, mapSpeechToInput, normalizeSpeech } from "../speech";
@@ -7,6 +6,9 @@ import { extractNumber, mapSpeechToInput, normalizeSpeech } from "../speech";
 export type AnswerRefusal = "answer_off_topic" | "answer_unclear" | "number_not_in_answer" | "answer_conflicts_with_words";
 export const ANSWER_REFUSAL_MESSAGE = "Nothing was recorded. The worker's words did not support this answer. Do not change the answer to get past a refusal.";
 export const evidenceWords = (text: string) => normalizeSpeech(text).replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
+
+/** A recogniser can write its own context back on silence. It is never the worker speaking. */
+export const isLeakedHint = (heard: string) => /مكالمه هاتف/.test(normalizeSpeech(heard)) || (heard.match(/[،,]/g)?.length ?? 0) >= 4;
 
 const FOREIGN_OK = new Set(["ok", "okay", "yes", "no", "sms"]);
 
@@ -21,7 +23,7 @@ const STOP_WORDS = /(?:^| )(?:وقف|اوقف|اقفل|اقفلها|سكر|سك�
 /** Only the person on the line can end the call, in words that say so. */
 export const askedToStop = (heard: string) => STOP_WORDS.test(evidenceWords(heard));
 
-export function refuseAnswer(session: CallSession, input: AnswerInput, heard: string | null, locale: Locale, camelNames: readonly string[] = [], evidence?: string): AnswerRefusal | null {
+export function refuseAnswer(session: CallSession, input: AnswerInput, heard: string | null, locale: Locale, camelNames: readonly string[] = []): AnswerRefusal | null {
   const item = session.data.queue?.[session.data.reportIndex ?? 0];
   const health = session.step === "report_question" && item?.kind === "predefined" && item.answerKind === "herd-health";
   const closesTask = session.step === "report_question" && item?.kind === "task" && input.value === "yes";
@@ -42,10 +44,9 @@ export function refuseAnswer(session: CallSession, input: AnswerInput, heard: st
     if (mapped?.value !== undefined && session.replies.some((reply) => reply.value === mapped.value) && mapped.value !== input.value && !mixedTopics) return "answer_conflicts_with_words";
   }
   if (input.value === undefined || session.inputMode !== "choices" || mapped?.value === input.value) return null;
-  // The model understands the meaning; a word list can't. It must show which of the worker's words say so.
-  // One unrecognised word is too thin to carry an answer: that is what a mishearing looks like.
-  const quoted = evidenceWords(evidence ?? "");
+  // The model reads the meaning. A herd-wide health answer changes every camel, so it needs health words or a camel's name;
+  // one unrecognised word is what a mishearing looks like.
   const namedCamel = health && input.value === "no" && words.split(" ").some((word) => camelNames.map(evidenceWords).includes(word));
-  if (!namedCamel && !(quoted.split(" ").length >= 2 && supports(words, quoted))) return "answer_unclear";
+  if (!namedCamel && (health || words.split(" ").length < 2)) return "answer_unclear";
   return null;
 }

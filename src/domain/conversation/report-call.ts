@@ -483,6 +483,9 @@ function handleReportQuestion(
       );
       return { session: nextReportItem(recorded, ws, now) };
     }
+    if (input.camelId && ws.camels.some((camel) => camel.id === input.camelId)) {
+      return handleHealthStatus({ ...session, data: { ...session.data, askedCamelIds: [], tempCamelId: input.camelId } }, ws, now, { value: "sick", text: input.text });
+    }
     const picking = {
       ...current.session,
       data: { ...current.session.data, askedCamelIds: [], tempCamelId: undefined },

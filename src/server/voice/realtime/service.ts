@@ -35,14 +35,6 @@ const ENDED: Record<Locale, string> = {
 const OWNER_ENDED: Record<Locale, string> = { ar: "ما انحفظ شيء. يعطيك العافية. مع السلامة.", en: "Nothing was saved. Thank you. Goodbye." };
 const stringify = (value: object) => JSON.stringify(value);
 
-/** Words a Saudi ranch call is full of, so the recogniser expects them. */
-function transcriptionHint(locale: Locale, camels: string[]): string {
-  const names = camels.slice(0, 20).join("، ");
-  return locale === "ar"
-    ? `مكالمة هاتف عن عزبة إبل باللهجة السعودية. كلمات متوقعة: الحلال، ناقة، النوق، علف، شعير، ماء، خزان، وايت، شبك، بيطري، زين، بخير، الحمد لله، كافي، خلص، باقي، إيه، صح، تمام، احفظ، ما أدري${names ? `، ${names}` : ""}.`
-    : `A phone call about a camel ranch. Expected words: camels, feed, water, tank, fence, vet, fine, enough, yes, save${names ? `, ${names}` : ""}.`;
-}
-
 function logTool(callSid: string, name: unknown, result: string, tookMs: number): void {
   const tool = typeof name === "string" && /^[a-z_]+$/.test(name) ? name : "invalid";
   console.info(`[NAQAH] realtime tool call=${callSid.slice(-6)} name=${tool} result=${result} ms=${tookMs}`);
@@ -71,7 +63,6 @@ export type OpenedSession = {
   tools: typeof REALTIME_TOOLS | typeof OWNER_TOOLS;
   opening: string;
   repromptText: string;
-  transcriptionPrompt: string;
   locale: Locale;
   maxSeconds: number;
 };
@@ -102,7 +93,6 @@ export async function openRealtimeSession(client: SupabaseClient, body: Record<s
     opening: realtime.opening,
     repromptText: spoken.join(" ") || realtime.opening,
     locale: row.locale,
-    transcriptionPrompt: transcriptionHint(row.locale, (await farmOf(client, row, now)).camels.map((camel) => camel.name)),
     maxSeconds: REALTIME_MAX_SECONDS,
   };
 }
