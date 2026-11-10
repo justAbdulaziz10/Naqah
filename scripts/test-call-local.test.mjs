@@ -128,6 +128,16 @@ describe("test-call environments", () => {
     for (const name of FORBIDDEN_LIVE) expect(next).not.toHaveProperty(name);
   });
 
+  it("enables «اتصال حقيقي» in live mode only with --dashboard-call, for exactly one number", () => {
+    expect(live().next).not.toHaveProperty("NAQAH_MANUAL_REPORT_CALLS");
+    const { next } = buildEnvironments(parseArgs([...liveArgs, "--dashboard-call"]), stack, parseSecrets(secretsText));
+    expect(next.NAQAH_MANUAL_REPORT_CALLS).toBe("1");
+    for (const name of ["CRON_SECRET", "NAQAH_SCHEDULED_CALLS", "NAQAH_CALL_OWNER"]) expect(next).not.toHaveProperty(name);
+    expect(next.NAQAH_CALL_ALLOWLIST).toBe("+966512345678");
+    expect(() => parseArgs([...liveArgs, "--allow", "+966512345679", "--dashboard-call"])).toThrow(/exactly one/);
+    expect(() => parseArgs(["--dashboard-call"])).toThrow(/live only/);
+  });
+
   it("enables the manual report path only when the verifier asks, and never in live", () => {
     expect(mock(["--report-path"]).next.NAQAH_MANUAL_REPORT_CALLS).toBe("1");
     expect(() => parseArgs([...liveArgs, "--report-path"])).toThrow(/mock only/);

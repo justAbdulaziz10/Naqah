@@ -61,7 +61,7 @@ export class UsageError extends Error {}
 /* ─────────────────── arguments and environment (pure, unit tested) ─────────────────── */
 
 export function parseArgs(argv) {
-  const options = { mode: null, secrets: null, publicUrl: null, allow: [], bridgePort: null, dryRun: false, skipBuild: false, reportPath: false, traceTranscripts: false };
+  const options = { mode: null, secrets: null, publicUrl: null, allow: [], bridgePort: null, dryRun: false, skipBuild: false, reportPath: false, dashboardCall: false, traceTranscripts: false };
   const takeValue = (index, name) => {
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("--")) throw new UsageError(`${name} needs a value`);
@@ -76,6 +76,7 @@ export function parseArgs(argv) {
     } else if (name === "--dry-run") options.dryRun = true;
     else if (name === "--skip-build") options.skipBuild = true;
     else if (name === "--report-path") options.reportPath = true;
+    else if (name === "--dashboard-call") options.dashboardCall = true;
     else if (name === "--trace-transcripts") options.traceTranscripts = true;
     else if (name === "--max-call-seconds") {
       options.maxCallSeconds = takeValue(index, name);
@@ -95,7 +96,7 @@ export function parseArgs(argv) {
   options.mode ??= "mock";
 
   if (options.mode === "mock") {
-    for (const [given, name] of [[options.secrets, "--secrets"], [options.publicUrl, "--public-url"], [options.allow.length || null, "--allow"], [options.bridgePort, "--bridge-port"]]) {
+    for (const [given, name] of [[options.secrets, "--secrets"], [options.publicUrl, "--public-url"], [options.allow.length || null, "--allow"], [options.bridgePort, "--bridge-port"], [options.dashboardCall || null, "--dashboard-call"]]) {
       if (given !== null) throw new UsageError(`${name} is for --live only`);
     }
     return options;
@@ -111,6 +112,7 @@ export function parseArgs(argv) {
     return number;
   });
   options.allow = [...new Set(options.allow)];
+  if (options.dashboardCall && options.allow.length !== 1) throw new UsageError("--dashboard-call needs exactly one --allow number: the worker «اتصال حقيقي» calls");
   options.bridgePort ??= PORTS.live.bridge;
   if (options.bridgePort === PORTS.live.next) throw new UsageError(`--bridge-port cannot be ${PORTS.live.next}: Next uses it`);
   return options;
@@ -184,6 +186,9 @@ export function buildEnvironments(options, stack, secrets = null) {
     NAQAH_BRIDGE_PUBLIC_URL: bridgePublic, NAQAH_PUBLIC_BASE_URL: publicBase,
   };
   if (options.maxCallSeconds) next.NAQAH_CALL_TIME_LIMIT_SECONDS = options.maxCallSeconds;
+  // The owner's «اتصال حقيقي» on the Dashboard. Scheduling and owner calls stay off; the allowlist,
+  // per-ranch rate limits, 300-second cap and no-retry rule of manual calls all still apply.
+  if (live && options.dashboardCall) next.NAQAH_MANUAL_REPORT_CALLS = "1";
   if (options.traceTranscripts) next.NAQAH_CALL_TRACE_DIR = join(tmpdir(), "naqah-call-transcripts");
   const bridge = {
     NODE_ENV: "production", PORT: String(ports.bridge),
@@ -305,7 +310,7 @@ function refuseBusyPorts(options, ports) {
 function printLiveWarning(options, ports) {
   console.log(`
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  LIVE MODE: pressing "Test AI Call" places a REAL, CHARGED phone call
+  LIVE MODE: pressing "Test AI Call"${options.dashboardCall ? " or the Dashboard's «اتصال حقيقي»" : ""} places a REAL, CHARGED phone call
   through Twilio and OpenAI to: ${options.allow.join(", ")}
   Public address: ${options.publicUrl} (must tunnel to bridge port ${ports.bridge})
   The database is local. Scheduled calls and owner calls stay off.
@@ -380,6 +385,8 @@ async function main() {
     const testerId = await createUser(TESTER);
     const controlId = await createUser(CONTROL);
     seed(base, testerId, controlId);
+    // «اتصال حقيقي» calls the ranch's saved primary worker: make that the one approved number.
+    if (options.dashboardCall) localSql(base)(`update workers set phone = '${options.allow[0]}' where farm_id = '${TEST_FARM}'`);
 
     if (options.skipBuild && existsSync(join(REPO, ".next/BUILD_ID"))) {
       console.log("Using the existing build (--skip-build).");
@@ -409,7 +416,7 @@ async function main() {
     await waitFor(async () => (await fetch(`http://127.0.0.1:${envs.ports.next}/api/cron/report-calls`)).status > 0, "Next", 240);
     await waitFor(() => portOpen(envs.ports.bridge), "the voice bridge", 80);
 
-    const url = `http://127.0.0.1:${envs.ports.next}/ar/app/lab`;
+    const url = `http://127.0.0.1:${envs.ports.next}/ar/app${options.dashboardCall ? "" : "/lab"}`;
     writeFileSync(READY_FILE, JSON.stringify({ mode: options.mode, app: `http://127.0.0.1:${envs.ports.next}`, bridge: envs.ports.bridge, provider: options.mode === "mock" ? `http://127.0.0.1:${PROVIDER_PORT}` : null, tester: TESTER, testerId, controlId }));
 
     console.log(`

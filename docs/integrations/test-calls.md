@@ -78,3 +78,16 @@ files with `--no-file-parallelism`. No live provider or hosted database is neede
 question, tool, arguments, the worker's words and what was spoken. Everyone on the call must consent first. It is refused
 when `VERCEL` is set, the Supabase URL isn't loopback, or the directory is outside the OS temp directory. Files are removed
 after 24 hours.
+
+## Dashboard «اتصال حقيقي» on this machine
+
+`node scripts/test-call-local.mjs --live --dashboard-call --secrets <file> --public-url https://<tunnel> --allow +9665XXXXXXXX --bridge-port 3302 --max-call-seconds 300`
+
+The option turns on `NAQAH_MANUAL_REPORT_CALLS` for the local app only. It also makes the one allowed number the test ranch's primary worker, so the signed-in owner can call from the Dashboard.
+
+The strict allowlist, the per-ranch limits (3 an hour, 10 a day), the 300-second cap and the no-retry rule for manual calls all still apply. Scheduling and owner calls stay off.
+
+## Follow-ups from the first real call (10 Nov 2026)
+
+- **Misheard vet answer.** «جا البيطري اليوم؟» was saved as «إن عمّتي». Transcription misheard a short reply, and the answer was stored as free text. Check `gpt-4o-transcribe` prompting or vocabulary for yes/no replies. A reply that maps to no option should be asked again rather than saved.
+- **No fence alert.** «الشبك سليم؟ → يحتاج إصلاح» was saved, but it raised no finding. The test ranch has no fence criterion. Check whether a "needs repair" fence answer should always raise a finding, or only through the owner's criteria (`evaluateFindings`).

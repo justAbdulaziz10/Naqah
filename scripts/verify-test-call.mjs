@@ -208,7 +208,7 @@ function assertCallEvidence(call, farm, destination) {
   check("session.update limits the model to listening and classifying", /دورك الاستماع والتصنيف فقط/.test(instructions) && /لا تتكلم بنفسك أبداً/.test(instructions), instructions.slice(0, 300));
   check("session.update requires one tool per worker turn", /في كل دور للعامل نادِ أداة واحدة بالضبط/.test(instructions), instructions.slice(0, 300));
   check("session.update has the server choose every word and read questions verbatim", /الخادم يختار كل الكلام ويقرأ السؤال حرفياً/.test(instructions), instructions.slice(0, 300));
-  check("session.update requires a topic and forbids guessing", /answer_question للجواب مع topic المطابق/.test(instructions) && /لا تخمن جواباً أو رقماً/.test(instructions), instructions.length);
+  check("session.update requires a topic and forbids guessing", /answer_question فوراً مع topic المطابق/.test(instructions) && /لا تخمن رقماً أو حالة/.test(instructions), instructions.length);
   check("session.update requires the whole summary and clear agreement before saving", /confirm_report\(true\) فقط بعد سماع الملخص كاملاً والموافقة الواضحة/.test(instructions) && /ولا تخترع حقائق أو تدعي الحفظ/.test(instructions), instructions.length);
   check("the provider gets exactly the current call tools", JSON.stringify((session.tools ?? []).map((tool) => tool.name).sort()) === JSON.stringify(CALL_TOOLS), session.tools?.map((tool) => tool.name));
   const answerTool = session.tools?.find((tool) => tool.name === "answer_question");
