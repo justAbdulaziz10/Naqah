@@ -16,7 +16,7 @@ export async function testCallReadiness(client: SupabaseClient, actorId: string)
   const blockers: TestCallBlocker[] = [];
   if (!farmId) blockers.push("no_test_ranch");
   if (voiceMode() !== "farm" || !realtimeVoiceConfig() || farmVoiceMissing().length || !config) blockers.push("not_configured");
-  if (!allowlist?.length) blockers.push("no_allowlist");
+  if (!allowlist.length) blockers.push("no_allowlist");
   return { farmId, config, allowlist, blockers };
 }
 
@@ -48,7 +48,7 @@ export async function startTestCall(
   if (existing) return existing.actor_id === actorId ? { ok: true, call: await testCallView(client, existing) } : { ok: false, error: "invalid_request" };
   const ready = await testCallReadiness(client, actorId);
   if (!ready.farmId) return { ok: false, error: "no_test_ranch" };
-  if (!ready.allowlist?.includes(input.phone)) return { ok: false, error: "number_not_allowed" };
+  if (!ready.allowlist.includes(input.phone)) return { ok: false, error: "number_not_allowed" };
   if (!ready.config || ready.blockers.includes("not_configured")) return { ok: false, error: "not_configured" };
   await expireTestCalls(client, now);
 

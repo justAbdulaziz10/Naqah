@@ -10,21 +10,34 @@ export interface OutboundConfig {
   from: string;
   /** Public HTTPS origin Twilio fetches the call's TwiML and status callback from. */
   baseUrl: string;
-  /** When set, NAQAH dials only these E.164 numbers, whatever a farm has saved. For controlled tests. */
-  allowlist: string[] | null;
+  /** NAQAH dials only these Saudi mobiles, whatever a farm has saved. Empty → nothing is dialled. */
+  allowlist: string[];
 }
 
-const E164 = /^\+[1-9]\d{7,14}$/;
+/** A Saudi mobile in E.164: +9665 and eight digits. NAQAH places calls to nothing else. */
+export const SAUDI_MOBILE = /^\+9665\d{8}$/;
 
 /**
- * NAQAH_CALL_ALLOWLIST: comma-separated E.164 numbers. Unset → no extra limit (production).
- * Set but with no valid number → nothing can be dialled, so a typo fails closed.
+ * NAQAH_CALL_ALLOWLIST: comma-separated Saudi mobiles. Strict: unset, empty or without one valid
+ * number, nothing can be dialled, so a missing or mistyped setting fails closed.
  */
-export function callAllowlist(): string[] | null {
-  const raw = value("NAQAH_CALL_ALLOWLIST");
-  if (!raw) return null;
-  return raw.split(",").map((item) => item.replace(/[\s-]/g, "")).filter((item) => E164.test(item));
+export function callAllowlist(): string[] {
+  return value("NAQAH_CALL_ALLOWLIST").split(",").map((item) => item.replace(/[\s-]/g, "")).filter((item) => SAUDI_MOBILE.test(item));
 }
+
+/** The longest any call NAQAH places may last. NAQAH_CALL_TIME_LIMIT_SECONDS can only lower it. */
+export const MAX_CALL_SECONDS = 300;
+
+export function callTimeLimitSeconds(): number {
+  const configured = Number(value("NAQAH_CALL_TIME_LIMIT_SECONDS"));
+  return Number.isInteger(configured) && configured >= 10 && configured < MAX_CALL_SECONDS ? configured : MAX_CALL_SECONDS;
+}
+
+/** «اتصال حقيقي»: at most this many placed calls per ranch, per window. */
+export const CALL_NOW_LIMITS = [
+  { window: "hour", limit: 3, seconds: 3600 },
+  { window: "day", limit: 10, seconds: 86400 },
+] as const;
 
 /** Unattended scheduled calls. Off unless NAQAH_SCHEDULED_CALLS=1, even when the cron secret is right. */
 export const scheduledCallsEnabled = () => value("NAQAH_SCHEDULED_CALLS") === "1";

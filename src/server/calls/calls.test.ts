@@ -21,7 +21,7 @@ const SECRET = "unit-test-voice-secret-at-least-32-bytes";
 const FARM = "11111111-1111-4111-8111-111111111111";
 const RUN = "22222222-2222-4222-8222-222222222222";
 const CALL = `CA${"b".repeat(32)}`;
-const config = { accountSid: "AC123", authToken: "token", from: "+15550100", baseUrl: "https://naqah.test", allowlist: null };
+const config = { accountSid: "AC123", authToken: "token", from: "+15550100", baseUrl: "https://naqah.test", allowlist: ["+966501234567"] };
 
 function farmEnv() {
   vi.stubEnv("NAQAH_VOICE_MODE", "farm");
@@ -107,11 +107,36 @@ describe("controlled-test allowlist", () => {
   it("reads the allowlist from the environment and fails closed on a typo", () => {
     farmEnv();
     vi.stubEnv("NAQAH_CALL_ALLOWLIST", "+966 50 123 4567, +44 7700 900123");
-    expect(outboundConfig()?.allowlist).toEqual(["+966501234567", "+447700900123"]);
+    expect(outboundConfig()?.allowlist).toEqual(["+966501234567"]);
     vi.stubEnv("NAQAH_CALL_ALLOWLIST", "0501234567");
     expect(outboundConfig()?.allowlist).toEqual([]);
     vi.stubEnv("NAQAH_CALL_ALLOWLIST", "");
-    expect(outboundConfig()?.allowlist).toBeNull();
+    expect(outboundConfig()?.allowlist).toEqual([]);
+  });
+  it("refuses every call when the allowlist is empty or unset", async () => {
+    const fetchMock = ok();
+    const caller = createTwilioCaller({ ...config, allowlist: [] }, fetchMock as unknown as typeof fetch);
+    expect(await caller.place(request("+966501234567"))).toEqual({ placed: false, reason: "not_allowed" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("dials Saudi mobiles only, even when another number is allowlisted", async () => {
+    const fetchMock = ok();
+    const caller = createTwilioCaller({ ...config, allowlist: ["+447700900123", "+966112345678"] }, fetchMock as unknown as typeof fetch);
+    expect(await caller.place(request("+447700900123"))).toEqual({ placed: false, reason: "invalid_number" });
+    expect(await caller.place(request("+966112345678"))).toEqual({ placed: false, reason: "invalid_number" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("caps every call at 300 seconds; the setting can only lower it", async () => {
+    const limitFor = async (value: string | undefined) => {
+      vi.stubEnv("NAQAH_CALL_TIME_LIMIT_SECONDS", value ?? "");
+      const fetchMock = ok();
+      await createTwilioCaller(config, fetchMock as unknown as typeof fetch).place(request("+966501234567"));
+      return (fetchMock.mock.calls[0] as unknown as [string, { body: URLSearchParams }])[1].body.get("TimeLimit");
+    };
+    expect(await limitFor(undefined)).toBe("300");
+    expect(await limitFor("120")).toBe("120");
+    expect(await limitFor("900")).toBe("300");
+    expect(await limitFor("abc")).toBe("300");
   });
   it("always asks Twilio not to record", async () => {
     const fetchMock = ok();

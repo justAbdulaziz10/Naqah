@@ -244,7 +244,7 @@ const server = http.createServer(async (req, res) => {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
       const fields = Object.fromEntries(new URLSearchParams(Buffer.concat(chunks).toString()));
-      if (!["+15555550101", "+15555550102"].includes(fields.To)) return sendJson(res, 403, { message: "Fake numbers only" });
+      if (!["+966500000101", "+966500000102", "+15555550101", "+15555550102"].includes(fields.To)) return sendJson(res, 403, { message: "Fake numbers only" });
       const sid = `CA${randomBytes(16).toString("hex")}`;
       outboundRequests.push({ ...fields, sid });
       return sendJson(res, outboundStatus, outboundStatus === 201 ? { sid } : { message: "Mock provider unavailable" });
