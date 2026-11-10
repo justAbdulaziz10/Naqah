@@ -18,6 +18,7 @@ import { DbError } from "@/server/db/errors";
 import { loadFarm, requireFarm } from "@/server/db/queries";
 import { findCaller, findReportCallRun, recordedOutcome, runFarmAction } from "@/server/db/service-repository";
 import { afterResponse } from "@/server/calls/after";
+import { recordCallFailure } from "@/server/calls/reliability";
 import { signCallToken, type CallToken } from "@/server/calls/token";
 import {
   advanceVoiceSession, createVoiceSession, deleteStaleVoiceSessions, deleteVoiceSession, readVoiceSession,
@@ -32,7 +33,7 @@ import { newRealtimeState, realtimeOf } from "./realtime/state";
 import { isOffTopicAnswer } from "@/domain/conversation/answer-topic";
 import { evidenceWords } from "./realtime/answer-check";
 import { isVerifiedConfirmation } from "./realtime/confirmation";
-import { rememberCallWorkspace } from "./realtime/call-workspace";
+import { forgetCallWorkspace, rememberCallWorkspace } from "./realtime/call-workspace";
 import { buildInstructions } from "./realtime/instructions";
 import { buildOwnerInstructions } from "./realtime/owner-instructions";
 import { ownerPromptFor } from "./realtime/owner-tools";
@@ -479,7 +480,11 @@ export async function reportCallStatus(
   const base = { version: 1, eventId: `${callSid}:final:${status}`, providerCallId: callSid, reportCallId: token.r, attempt: token.n };
   const event = status === "completed" ? { ...base, type: "report_call_ended" } : { ...base, type: "report_call_attempt", answered: false };
   await save(client, token.f, { party: "system" }, event, now);
+  try {
+    await recordCallFailure(client, token.f, token.r, status === "completed" ? "not_saved" : status === "busy" ? "busy" : status === "no-answer" ? "no_answer" : "provider_rejected", now);
+  } catch { console.error("[NAQAH] call diagnostic storage failed"); }
   await deleteVoiceSession(client, callSid);
+  forgetCallWorkspace(callSid);
 }
 
 async function openLiveCall(

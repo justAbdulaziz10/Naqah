@@ -23,7 +23,6 @@ export async function withCallNowLimit(farmId: string, now: Date, place: () => P
     if (result.status === "blocked") await release();
     return result;
   } catch (error) {
-    await release();
     throw error;
   }
 }

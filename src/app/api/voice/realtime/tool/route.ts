@@ -2,6 +2,8 @@ import { withTimeout } from "@/lib/supabase/timeout";
 import { bridgeRequest } from "@/server/voice/realtime/internal";
 import { fallbackResult, parseToolBody, runRealtimeTool } from "@/server/voice/realtime/service";
 
+export const maxDuration = 20;
+
 /** One model tool call, applied as one engine step. Failures return a fallback, never a claim. */
 export async function POST(request: Request): Promise<Response> {
   const bridge = await bridgeRequest(request);

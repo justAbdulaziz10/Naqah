@@ -62,4 +62,8 @@ describe("«اتصال حقيقي» rate limit", () => {
     expect(results.filter((r) => r.status === "blocked")).toHaveLength(5);
     expect(place).toHaveBeenCalledTimes(3);
   });
+  it("keeps reservations when placement throws and acceptance is unknown", async () => {
+    for (let index = 0; index < 3; index += 1) await expect(withCallNowLimit("farm-a", at(index), async () => { throw new Error("response lost"); })).rejects.toThrow("response lost");
+    expect(await withCallNowLimit("farm-a", at(4), placed)).toEqual({ status: "blocked", reason: "rate_limited" });
+  });
 });

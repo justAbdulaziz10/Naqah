@@ -17,3 +17,13 @@ export function internalHeaders(rawBody, voiceSecret, timestamp = Date.now().toS
     'x-naqah-bridge-signature': createHmac('sha256', key).update(`${timestamp}.${rawBody}`).digest('hex'),
   };
 }
+
+export function verifyInternalSignature(headers, body, secret, now = Date.now()) {
+  const timestamp = headers['x-naqah-bridge-timestamp'];
+  const signature = headers['x-naqah-bridge-signature'];
+  if (typeof timestamp !== 'string' || !/^\d{1,16}$/.test(timestamp) || Math.abs(now - Number(timestamp)) > 60_000
+    || typeof signature !== 'string' || !/^[0-9a-f]{64}$/i.test(signature)) return false;
+  const expected = Buffer.from(internalHeaders(body, secret, timestamp)['x-naqah-bridge-signature'], 'hex');
+  const supplied = Buffer.from(signature, 'hex');
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}

@@ -280,7 +280,7 @@ test('bridge rejects unsigned upgrades before accepting; health stays secret-fre
       assert.equal(opened, false);
     }
     const response = await fetch('http://127.0.0.1:3903/voice-bridge/health');
-    assert.deepEqual(await response.json(), { ok: true });
+    assert.deepEqual(await response.json(), { ok: true, publicUrl: 'wss://bridge.example.test/voice-bridge/media', maxCallSeconds: 300 });
     assert.equal(state.requests.length, 0);
   } finally { await state.close(); }
 });

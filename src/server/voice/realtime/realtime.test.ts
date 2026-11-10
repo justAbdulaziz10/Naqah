@@ -411,7 +411,7 @@ describe("session response", () => {
   it("returns the rules, tools, opening, locale and a time limit", async () => {
     const { opened } = await open();
     expect(opened.locale).toBe("ar");
-    expect(opened.maxSeconds).toBe(600);
+    expect(opened.maxSeconds).toBe(300);
     expect(opened.tools.map((item: { name: string }) => item.name)).toEqual(REALTIME_TOOLS.map((item) => item.name));
     expect(opened.repromptText).toBeTruthy();
     expect(opened.opening).toContain("مساعد ناقة الآلي");
