@@ -1,4 +1,4 @@
-import { isOffTopicAnswer } from "@/domain/conversation/answer-topic";
+import { askedTopic, isOffTopicAnswer, topicsInWords } from "@/domain/conversation/answer-topic";
 import type { AnswerInput, CallSession, Reply } from "@/domain/conversation/engine";
 import type { Locale } from "@/domain/types";
 
@@ -453,7 +453,10 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   const exact = session.replies.find((item) => [...(bareYesNo ? [] : [item.value]), item.label.ar, item.label.en].some((text) => compact(text) === normalized));
   if (exact) return { value: exact.value };
   if (session.step === "health_pick" || session.step === "open_clarify") {
-    const names = session.replies.filter((reply) => [reply.label.ar, reply.label.en].some((label) => camelNameKey(label) === camelNameKey(transcript)));
+    const camels = session.replies.filter((reply) => reply.value.startsWith("camel:"));
+    const exact = camels.filter((reply) => [reply.label.ar, reply.label.en].some((label) => camelNameKey(label) === camelNameKey(transcript)));
+    // «هي نورا»: the name inside a short sentence, when it names exactly one camel.
+    const names = exact.length ? exact : camels.filter((reply) => namedCamels(transcript, [{ name: reply.label.ar }, { name: reply.label.en }]).length > 0);
     if (names.length === 1) return { value: names[0].value };
     if (names.length > 1) return null;
   }
@@ -486,6 +489,79 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   return negative ? { value: negative.value } : null;
 }
 
+/** A word NAQAH already reads as meaning («زين», «تمام», «مريضة») is never taken for a name that merely looks like it. */
+const isVocabulary = (word: string) => Boolean(lookup(CONCEPT_OF, word)) || AFFIRM.has(word) || SCOPE_NEGATORS.has(word) || topicsInWords(word).size > 0;
+
+/**
+ * The camels a sentence names, each once, in the order the herd lists them. An exact name always counts;
+ * a spelling variant («نورا» for نورة, «ونورة») counts only when the word isn't one NAQAH reads as meaning,
+ * so «الحلال زين» never names a camel called زينة.
+ */
+export function namedCamels<T extends { name: string }>(transcript: string, camels: readonly T[]): T[] {
+  const tokens = compact(transcript).split(" ").filter(Boolean);
+  const bare = (word: string) => (word.startsWith("و") && word.length > 3 ? word.slice(1) : word);
+  return camels.filter((camel) => {
+    const name = compact(camel.name);
+    const size = name.split(" ").length;
+    if (!name) return false;
+    for (let index = 0; index + size <= tokens.length; index += 1) {
+      const words = tokens.slice(index, index + size);
+      const said = words.join(" ");
+      const plain = words.map(bare).join(" ");
+      if (said === name || plain === name) return true;
+      if (!words.some((word) => isVocabulary(word) || isVocabulary(bare(word))) && (camelNameKey(said) === camelNameKey(name) || camelNameKey(plain) === camelNameKey(name))) return true;
+    }
+    return false;
+  });
+}
+
+const EVERYONE = /(?:^| )(?:كلهم|كلها|كلهن|الكل|الباقي|البقيه|الباقين|الباقيات|غيرها|الحلال|الابل|النوق|all|everyone|rest|others)(?: |$)/u;
+
+/** «كلهم بخير بس نورة تعبانة»: before the exception, the sentence says the rest are well. */
+export function saysRestAreWell(transcript: string): boolean {
+  const before = normalizeSpeech(transcript).replace(/ما\s*عدا|الا/gu, " بس ").split(/\s(?:بس|لكن|غير|but|except)\s/u);
+  if (before.length < 2) return false;
+  const words = compact(before[0]);
+  const reading = readSpeech(before[0]);
+  return EVERYONE.test(words) && (reading.wellbeing || has(reading, "healthy")) && !has(reading, "sick") && !has(reading, "healthy", true);
+}
+
+/** Words that open a new part of a sentence. */
+const JOINS = new Set(["بس", "لكن", "واما", "اما", "but", "and", "also", "و"]);
+
+/**
+ * A sentence split where it moves to another ranch topic: «العلف كافي والماي قليل» is two answers.
+ * Each part keeps the worker's own words and the topic it is about (null when it names none).
+ */
+export function topicSegments(transcript: string): { text: string; topic: ReturnType<typeof askedTopic> | null }[] {
+  const segments: { words: string[]; topic: ReturnType<typeof askedTopic> | null }[] = [];
+  let current: { words: string[]; topic: ReturnType<typeof askedTopic> | null } = { words: [], topic: null };
+  const close = () => { if (current.words.length) segments.push(current); current = { words: [], topic: null }; };
+  for (const raw of transcript.trim().split(/\s+/)) {
+    const word = compact(raw);
+    if (!word) { current.words.push(raw); continue; }
+    const topic = [...topicsInWords(word)][0] ?? null;
+    const joined = JOINS.has(word) || (word.startsWith("و") && topic !== null);
+    if (current.words.length && (joined || (topic && current.topic && topic !== current.topic))) close();
+    current.words.push(raw);
+    if (topic && !current.topic) current.topic = topic;
+    if (/[,،.;؛!?؟]$/u.test(raw)) close();
+  }
+  close();
+  return segments.map((segment) => ({ text: segment.words.join(" "), topic: segment.topic }));
+}
+
+/** The part of a sentence about the asked topic, or the whole sentence when it mentions no other. */
+function ownWords(session: CallSession, transcript: string): string {
+  if (session.step !== "report_question") return transcript;
+  const asked = askedTopic(session);
+  if (asked === "other" || asked === "task") return transcript;
+  const segments = topicSegments(transcript);
+  if (!segments.some((segment) => segment.topic && segment.topic !== asked)) return transcript;
+  const own = segments.filter((segment) => segment.topic === null || segment.topic === asked);
+  return own.length ? own.map((segment) => segment.text).join(" ") : transcript;
+}
+
 export function mapSpeechToInput(
   session: CallSession,
   transcript: string,
@@ -511,7 +587,7 @@ export function mapSpeechToInput(
   }
 
   if (digits) return null;
-  const raw = transcript.trim().slice(0, 300);
+  const raw = ownWords(session, transcript.trim().slice(0, 300));
   const normalized = compact(raw);
   if (["report_summary", "report_correct_pick"].includes(session.step) && session.replies.some((reply) => reply.value === "end_without_save") && /(?:^|\s)(?:لا\s+(?:تحفظ|تحفظه|تحفظها|تسجل|تسجله)|بدون\s+حفظ|don\s*t\s+save|do\s+not\s+save|save\s+nothing)(?:\s|$)/u.test(normalized)) return { value: "end_without_save" };
   if (session.step === "instruction_review") {

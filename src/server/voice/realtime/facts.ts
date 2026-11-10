@@ -1,10 +1,9 @@
 import { topicsInWords } from "@/domain/conversation/answer-topic";
 import type { CallSession, OpenFact } from "@/domain/conversation/engine";
 import type { Locale, Workspace } from "@/domain/types";
-import { DETERMINED, extractNumber, mapSpeechToInput } from "../speech";
+import { DETERMINED, extractNumber, mapSpeechToInput, namedCamels } from "../speech";
 import { evidenceWords } from "./answer-check";
 
-const contains = (source: string, part: string) => Boolean(part) && (` ${source} `).includes(` ${part} `);
 export const token = (word: string) => word.replace(/[ءؤئ]/gu, "").replace(/^و(?=.{2})/u, "").replace(/^ال(?=.{3})/u, "");
 const tokens = (words: string) => words.split(" ").filter(Boolean).map(token);
 /**
@@ -20,7 +19,6 @@ export const supports = (source: string, part: string) => {
   const transcribed = topicsInWords(source);
   return [...topicsInWords(part)].every((topic) => transcribed.has(topic));
 };
-const namesCamel = (evidence: string, name: string) => contains(tokens(evidence).join(" "), tokens(name).join(" "));
 const asNote = (evidence: string): OpenFact => ({ type: "other", note: evidence, evidence });
 const NEGATORS = new Set(["ما", "مو", "مب", "مش", "لا", "ولا", "مافي", "مافيه", "ماكو", "بدون", "ليس", "no", "not", "never", "without"]);
 const NEGATION_REACH = 2;
@@ -87,7 +85,7 @@ export function validateFacts(facts: unknown[], utterance: string, session: Call
     } else if (fact.type === "camel_health") {
       if (!["one", "all"].includes(String(fact.scope)) || !["healthy", "watch", "sick", "unknown"].includes(String(fact.status)) || !nullableText(fact.note)) continue;
       if (typeof fact.note === "string" && !supports(evidence, evidenceWords(fact.note))) continue;
-      const named = workspace.camels.find((camel) => camel.id === fact.camelId && namesCamel(evidence, evidenceWords(camel.name)));
+      const named = workspace.camels.find((camel) => camel.id === fact.camelId && namedCamels(String(fact.evidence), [camel]).length > 0);
       if (!topics.has("herd") && !named) continue;
       if (fact.scope === "all" && !/(?:^| )(?:كل الحلال|الحلال كله|الحلال كلها|كل الابل|الابل كلها|كل النوق|النوق كلها|كل النياق|كل الجمال|all (?:the )?(?:camels|herd)|every camel)(?: |$)/u.test(evidence)) continue;
       const replies = ["healthy", "watch", "sick", "unknown"].map((value) => ({ id: value, value, label: { ar: value, en: value } }));

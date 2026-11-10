@@ -338,6 +338,8 @@ class CallStream {
             audio: {
               input: {
                 format: { type: 'audio/pcmu' },
+                // A phone is held to the ear; filtering wind and animals before VAD keeps noise from becoming a "turn".
+                noise_reduction: { type: 'near_field' },
                 transcription: { model: 'gpt-4o-transcribe', language: this.session.locale },
                 turn_detection: {
                   type: 'server_vad', threshold: 0.5, prefix_padding_ms: 300,

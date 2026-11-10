@@ -92,6 +92,10 @@ export interface ConversationData {
   /** Open mode: camel observations whose camel the worker hasn't named yet. */
   openClarify?: { status: HealthStatus; note: string | null }[];
   openNotes?: number;
+  /** Guided mode: questions the worker already answered while answering an earlier one. They are not asked again. */
+  answeredAhead?: string[];
+  /** Guided mode: the herd answer said the rest are well, so once the unwell camel is named nothing more is asked. */
+  restWell?: boolean;
 }
 
 export interface CallSession {
@@ -123,6 +127,12 @@ export interface AnswerInput {
   instructions?: ProposedInstruction[];
   /** Realtime: the camel the worker already named while answering how the herd is. */
   camelId?: string;
+  /** Realtime: every camel the worker named as needing attention in that answer. */
+  camelIds?: string[];
+  /** Realtime: the same answer said the rest are well («كلهم بخير بس نورة تعبانة»). */
+  restWell?: boolean;
+  /** Guided mode: later questions this answer already covered («الحلال بخير والعلف قليل»), checked against the worker's words. */
+  heardAhead?: OpenFact[];
   /** Realtime: the owner removed this instruction, by its place in the list. */
   instructionRemove?: number;
   /** A change to one instruction under review, already checked against the owner's words. */

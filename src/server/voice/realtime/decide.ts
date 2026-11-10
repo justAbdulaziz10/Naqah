@@ -5,9 +5,10 @@
 import { askedTopic, topicsInWords } from "@/domain/conversation/answer-topic";
 import { addUrgentNote, addWorkerNote, reportSummaryId, type AnswerInput, type CallSession, type OpenFact } from "@/domain/conversation/engine";
 import { makePersonalizer } from "@/domain/conversation/personalize";
+import { PREDEFINED_QUESTIONS } from "@/domain/catalog";
 import type { Locale, Workspace } from "@/domain/types";
 import type { VoiceCallSession } from "../farm-call";
-import { camelNameKey, mapSpeechToInput, unknownReply } from "../speech";
+import { mapSpeechToInput, namedCamels, saysRestAreWell, topicSegments, unknownReply } from "../speech";
 import { spokenWording } from "../twiml";
 import { askedToStop, evidenceWords, isGarbled, isLeakedHint, refuseAnswer } from "./answer-check";
 import { isVerifiedConfirmation } from "./confirmation";
@@ -46,6 +47,37 @@ const UNKNOWN: Record<Locale, string> = {
 };
 const NOTED: Record<Locale, string> = { ar: "سجلت كلامك كملاحظة. ", en: "I've kept that as a note. " };
 const NOTED_BACK: Record<Locale, string> = { ar: "سجلتها ملاحظة، وخلنا نرجع للسؤال. ", en: "I've kept that as a note. Back to the question. " };
+const isHerdHealth = (session: CallSession) => {
+  const item = session.step === "report_question" ? session.data.queue?.[session.data.reportIndex ?? 0] : undefined;
+  return item?.kind === "predefined" && item.answerKind === "herd-health";
+};
+const LEVEL_REPLIES = ["good", "medium", "low", "critical", "unknown"].map((value) => ({ id: value, value, label: { ar: value, en: value } }));
+
+/**
+ * The parts of a guided answer that already answer a later question in this call («الحلال بخير والعلف قليل»).
+ * Each part must state a level in its own words and pass the same checks as an open-mode fact.
+ * `rest` is set when something else was said that only a note can keep.
+ */
+function coveredAhead(session: CallSession, heard: string, workspace: Workspace, locale: Locale): { facts: OpenFact[]; rest: boolean } {
+  const asked = askedTopic(session);
+  const queue = session.data.queue ?? [];
+  const index = session.data.reportIndex ?? 0;
+  const facts: OpenFact[] = [];
+  let rest = false;
+  for (const segment of topicSegments(heard)) {
+    if (!segment.topic || segment.topic === asked) continue;
+    const id = PREDEFINED_QUESTIONS.find((question) => question.requires === segment.topic)?.id;
+    const later = Boolean(id) && queue.findIndex((item) => item.id === id) > index && !facts.some((fact) => fact.type === "resource" && fact.resource === segment.topic);
+    const level = later ? mapSpeechToInput({ ...session, step: "fact_resource", inputMode: "choices", replies: LEVEL_REPLIES }, segment.text, null, locale)?.value : undefined;
+    const checked = level && level !== "unknown"
+      ? validateFacts([{ type: "resource", resource: segment.topic, level, quantity: null, evidence: segment.text }], heard, session, workspace, locale)
+      : null;
+    const fact = checked && !checked.dropped ? checked.facts[0] : undefined;
+    if (fact?.type === "resource") facts.push(fact);
+    else rest = true;
+  }
+  return { facts, rest };
+}
 const positionOf = (session: CallSession) => [session.step, session.data.reportIndex ?? 0, session.data.tempCamelId ?? "", session.data.draftRevision ?? 0].join(":");
 
 /** The agent's lines from a turn onwards, with the farm's real names. Here and not imported, because farm-call brings in the write paths. */
@@ -198,10 +230,20 @@ export function decideTool({ session: current, counters, workspace, locale, name
   if (action.kind === "answer" && action.input.text !== undefined && session.inputMode === "text" && heard.trim()) {
     chosen = mapSpeechToInput(session, heard, null, locale) ?? chosen;
   }
-  // An answer that also mentions another topic: the answer stands and the rest is kept with it.
+  // An answer that also covers a later question answers that one too; anything else it mentions is kept as a note.
+  let ahead: OpenFact[] = [];
   if (action.kind === "answer" && name === "answer_question" && gaveUp === null && session.inputMode !== "text") {
     const asked = askedTopic(session);
-    if (asked !== "other" && asked !== "task" && [...topicsInWords(evidenceWords(heard))].some((topic) => topic !== asked)) session = addWorkerNote(session, heard);
+    if (asked !== "other" && asked !== "task" && [...topicsInWords(evidenceWords(heard))].some((topic) => topic !== asked)) {
+      const covered = coveredAhead(session, heard, workspace, locale);
+      ahead = covered.facts;
+      if (covered.rest) session = addWorkerNote(session, heard);
+    }
+  }
+  // «كلهم تمام بس نورة تعبانة»: when the words say one isn't well, "all well" is never what gets recorded.
+  if (action.kind === "answer" && name === "answer_question" && action.input.value === "yes" && isHerdHealth(current) && mapSpeechToInput(current, heard, null, locale)?.value === "no") {
+    action.input = { value: "no" };
+    chosen = action.input;
   }
   if (action.kind === "answer" && name === "answer_question" && gaveUp === null) {
     const refused = refuseAnswer(session, action.input, heard, locale, workspace.camels.map((camel) => camel.name));
@@ -218,12 +260,15 @@ export function decideTool({ session: current, counters, workspace, locale, name
       ({ input: chosen, prefix } = afterRefusals(session, locale));
     }
   }
-  // «كلهم بخير بس نورة تعبانة»: the worker already said which one.
-  if (chosen?.value === "no" && current.step === "report_question" && askedTopic(current) === "herd") {
-    const words = evidenceWords(heard).split(" ");
-    const named = workspace.camels.filter((camel) => words.some((word) => camelNameKey(word) === camelNameKey(camel.name)));
-    if (named.length === 1) chosen = { value: "no", text: heard.trim().slice(0, 300), camelId: named[0].id };
+  // «كلهم بخير بس نورة تعبانة»: the worker already said which camels, and maybe that the rest are well.
+  if (chosen?.value === "no" && isHerdHealth(current)) {
+    const named = namedCamels(heard, workspace.camels);
+    const restWell = saysRestAreWell(heard);
+    chosen = named.length
+      ? { value: "no", text: heard.trim().slice(0, 300), camelIds: named.map((camel) => camel.id), restWell, ...(named.length === 1 ? { camelId: named[0].id } : {}) }
+      : { ...chosen, restWell };
   }
+  if (chosen && ahead.length && current.step === "report_question") chosen = { ...chosen, heardAhead: ahead };
   if (action.kind === "urgent") {
     // The model heard the audio and the note may word it differently, so what is kept is what was transcribed.
     const note = heard.trim().slice(0, 300);

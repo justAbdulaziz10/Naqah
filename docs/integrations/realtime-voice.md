@@ -69,7 +69,13 @@ Answers need supporting words in the worker's transcript. After three refusals a
 unknown, never switched to another value. Free text and urgent notes are stored from the transcript, not the model's wording.
 Open-mode facts must be supported by the transcript (`realtime/facts.ts`); a fact with the right topic but unclear value is
 kept as a note instead of guessed. Two 10-second reprompts follow silence, then the call continues by script.
-Transcription is `gpt-4o-transcribe` with a hint of expected ranch words and the camels' names. Key 1 confirms once the whole summary was heard. A fixed choice needs words that map to it, a garbled transcript is asked again, and only words asking to stop can end a call.
+A guided answer is read by topic: «العلف كافي والماي قليل» answers the feed question with "enough", and a part that clearly
+answers a later question in the same call («الحلال بخير والعلف قليل») is recorded as that answer and not asked again; anything
+else it mentions stays a note. Camels named in the herd answer are recorded at once, including several («نورة ومزون تعبانات»)
+and spelling variants («نورا»), but a word NAQAH reads as meaning («زين») never counts as a name. When the worker says the rest are
+well («كلهم بخير بس نورة تعبانة»), the rest are recorded as well and «فيه غيرها؟» is not asked. Words saying a camel is unwell
+always win over a model reading of "all well".
+Input audio uses `noise_reduction: near_field` (a handset at the ear; not yet measured on a live call). Transcription is `gpt-4o-transcribe` with a hint of expected ranch words and the camels' names. Key 1 confirms once the whole summary was heard. A fixed choice needs words that map to it, a garbled transcript is asked again, and only words asking to stop can end a call.
 
 ## Bridge behaviour
 

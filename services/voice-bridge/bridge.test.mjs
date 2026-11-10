@@ -326,7 +326,7 @@ test('session fetch and provider connection run side by side; nothing is sent un
   } finally { await state.close(); }
 });
 
-test('input transcription carries no hint and VAD waits 700 ms', async () => {
+test('input transcription carries no hint, phone noise is filtered and VAD waits 700 ms', async () => {
   const state = await fixture();
   try {
     const { socket } = await state.connect();
@@ -334,6 +334,7 @@ test('input transcription carries no hint and VAD waits 700 ms', async () => {
     const input = state.providerEvents.find((event) => event.type === 'session.update').session.audio.input;
     assert.deepEqual(input.transcription, { model: 'gpt-4o-transcribe', language: 'en' });
     assert.equal(input.turn_detection.silence_duration_ms, 700);
+    assert.deepEqual(input.noise_reduction, { type: 'near_field' });
   } finally { await state.close(); }
 });
 

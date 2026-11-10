@@ -392,7 +392,8 @@ function nextReportItem(session: CallSession, ws: Workspace, now: Date): CallSes
   // Kept notes stay in the queue for the read-back, but they are never asked.
   const queue = session.data.queue ?? [];
   let index = (session.data.reportIndex ?? 0) + 1;
-  while (queue[index] && isOpenNote(queue[index])) index += 1;
+  const ahead = new Set(session.data.answeredAhead ?? []);
+  while (queue[index] && (isOpenNote(queue[index]) || ahead.has(queue[index].id))) index += 1;
   return askReportItem(
     { ...session, data: { ...session.data, reportIndex: index, currentQuestionId: undefined } },
     ws,
@@ -406,7 +407,8 @@ function handleReportQuestion(
   now: Date,
   input: AnswerInput,
 ): EngineResult {
-  const current = workerTurn(session, input, now);
+  const turn = workerTurn(session, input, now);
+  const current = { ...turn, session: input.heardAhead?.length ? applyAhead(turn.session, ws, input.heardAhead) : turn.session };
   const value = current.value;
   const item = session.data.queue?.[session.data.reportIndex ?? 0];
   if (!item) return { session: session };
@@ -483,12 +485,14 @@ function handleReportQuestion(
       );
       return { session: nextReportItem(recorded, ws, now) };
     }
+    const named = (input.camelIds ?? []).filter((id) => ws.camels.some((camel) => camel.id === id));
+    if (named.length > 1 || (named.length === 1 && input.restWell)) return { session: namedCamels(current.session, ws, now, named, input) };
     if (input.camelId && ws.camels.some((camel) => camel.id === input.camelId)) {
       return handleHealthStatus({ ...session, data: { ...session.data, askedCamelIds: [], tempCamelId: input.camelId } }, ws, now, { value: "sick", text: input.text });
     }
     const picking = {
       ...current.session,
-      data: { ...current.session.data, askedCamelIds: [], tempCamelId: undefined },
+      data: { ...current.session.data, askedCamelIds: [], tempCamelId: undefined, restWell: input.restWell || undefined },
     };
     return {
       session: askCamelToCheck(picking, ws, now, copy("Which camel?", "أي ناقة؟")),
@@ -628,9 +632,14 @@ function handleHealthStatus(session: CallSession, ws: Workspace, now: Date, inpu
   const note = said.split(/\s+/).length >= 3 ? said : null;
   const update = { camelId: camel.id, health: status, note, certainty: (status === "unknown" ? "unknown" : "reported") as Certainty };
   const updates = current.session.draft.camelUpdates.filter((entry) => entry.camelId !== camel.id);
+  const recorded = { ...current.session, draft: { ...current.session.draft, camelUpdates: [...updates, update] }, data: { ...current.session.data, askedCamelIds: [...new Set([...(session.data.askedCamelIds ?? []), camel.id])], tempCamelId: undefined, tempHealth: undefined, restWell: undefined } };
+  // «كلهم تمام بس وحدة تعبانة»: the worker said the rest are well, so «فيه غيرها؟» would ask it again.
+  if (session.data.restWell) {
+    return { session: nextReportItem(recordWholeHerd(recorded, ws, { type: "camel_health", camelId: null, scope: "all", status: "healthy", note: null, evidence: "" }, "reported"), ws, now) };
+  }
   return {
     session: ask(
-      { ...current.session, draft: { ...current.session.draft, camelUpdates: [...updates, update] }, data: { ...current.session.data, askedCamelIds: [...new Set([...(session.data.askedCamelIds ?? []), camel.id])], tempCamelId: undefined, tempHealth: undefined } },
+      recorded,
       copy("Any other camel?", "فيه غيرها؟"),
       now,
       "health_more",
@@ -942,6 +951,40 @@ function recordCamel(session: CallSession, ws: Workspace, update: CallSession["d
   const cleared = replaced(withItem, item);
   const named = { ...cleared, draft: { ...cleared.draft, camelUpdates: updates }, data: { ...cleared.data, askedCamelIds: [...new Set([...(cleared.data.askedCamelIds ?? []), update.camelId])] } };
   return withCamelAnswer(named, ws, item, updates);
+}
+
+/**
+ * «نورة ومزون تعبانات» or «كلهم بخير بس نورة تعبانة»: the worker already said which camels, and
+ * maybe that the rest are well. Nothing they said is asked again.
+ */
+function namedCamels(session: CallSession, ws: Workspace, now: Date, camelIds: string[], input: AnswerInput): CallSession {
+  const note = input.text?.trim() || null;
+  const named = camelIds.reduce((current, camelId) => recordCamel(current, ws, { camelId, health: "sick", note, certainty: "reported" }), session);
+  if (input.restWell) {
+    const herd = recordWholeHerd(named, ws, { type: "camel_health", camelId: null, scope: "all", status: "healthy", note: null, evidence: note ?? "" }, "reported");
+    return nextReportItem(herd, ws, now);
+  }
+  // The answer recordCamel wrote is replaced by the one finishCamelHealth writes after «فيه غيرها؟».
+  const item = session.data.queue?.[session.data.reportIndex ?? 0];
+  const unanswered = item ? { ...named, draft: { ...named.draft, answers: named.draft.answers.filter((answer) => answer.questionId !== item.id) } } : named;
+  return ask(unanswered, copy("Any other camel?", "فيه غيرها؟"), now, "health_more", [reply("yes", "Yes, another", "إيه، فيه غيرها"), reply("no", "No, that’s all", "لا، بس")]);
+}
+
+/**
+ * Later questions the worker already answered («الحلال بخير والعلف قليل»). Only questions still ahead in
+ * this call count; anything else stays a note, as before.
+ */
+function applyAhead(session: CallSession, ws: Workspace, facts: OpenFact[]): CallSession {
+  const queue = session.data.queue ?? [];
+  const index = session.data.reportIndex ?? 0;
+  return facts.reduce((current, fact) => {
+    if (fact.type !== "resource") return current;
+    const id = PREDEFINED_QUESTIONS.find((question) => question.requires === fact.resource)?.id;
+    const at = queue.findIndex((item) => item.id === id);
+    if (!id || at <= index || (current.data.answeredAhead ?? []).includes(id)) return current;
+    const applied = applyFact(current, ws, fact);
+    return { ...applied, data: { ...applied.data, answeredAhead: [...(applied.data.answeredAhead ?? []), id] } };
+  }, session);
 }
 
 /** "The rest are fine" must not overwrite a camel the worker has just named. */

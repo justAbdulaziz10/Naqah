@@ -102,18 +102,87 @@ describe("a whole call on natural answers", () => {
     for (const word of ["الحلال كله بخير", "العلف", "الماء", "جا البيطري اليوم؟ لا ما جا"]) expect(summary).toContain(word);
   });
 
-  it("takes «كلهم بخير بس نورة تعبانة» at once: no asking which camel", () => {
+  it("takes «كلهم بخير بس نورة تعبانة» at once: no asking which camel, or whether there is another", () => {
     const first = call();
     const live = driver(first);
     live.turn("answer_question", { value: "no", topic: "herd" }, "كلهم بخير بس نورة تعبانة");
-    expect(live.session.step).toBe("health_more");
-    expect(live.session.draft.camelUpdates).toEqual([expect.objectContaining({ camelId: first.ws.camels[0].id, health: "sick", note: "كلهم بخير بس نورة تعبانة" })]);
+    expect(current(live.session)).toBe("feed_level");
+    const [noura, ...rest] = first.ws.camels;
+    expect(live.session.draft.camelUpdates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ camelId: noura.id, health: "sick", note: "كلهم بخير بس نورة تعبانة" }),
+      ...rest.map((camel) => expect.objectContaining({ camelId: camel.id, health: "healthy" })),
+    ]));
+    expect(live.session.draft.answers.filter((answer) => answer.questionId === "herd_health")).toHaveLength(1);
   });
 
-  it("asks which camel when the worker didn't name one", () => {
-    const live = driver(call());
+  it("records «كلهم تمام بس نورة تعبانة» as نورة even when the model says all are well", () => {
+    const first = call();
+    const live = driver(first);
+    live.turn("answer_question", { value: "yes", topic: "herd" }, "كلهم تمام بس نورة تعبانة");
+    expect(live.session.draft.camelUpdates.find((update) => update.camelId === first.ws.camels[0].id)).toMatchObject({ health: "sick" });
+  });
+
+  it("takes two named camels at once, then asks only whether there is another", () => {
+    const first = call();
+    const live = driver(first);
+    live.turn("answer_question", { value: "no", topic: "herd" }, "نورة ومزون تعبانات");
+    expect(live.session.step).toBe("health_more");
+    expect(live.session.draft.camelUpdates.map((update) => update.camelId)).toEqual([first.ws.camels[0].id, first.ws.camels[1].id]);
+    live.turn("answer_question", { value: "no", topic: "herd" }, "لا بس");
+    expect(current(live.session)).toBe("feed_level");
+    expect(live.session.draft.answers.filter((answer) => answer.questionId === "herd_health")).toHaveLength(1);
+  });
+
+  it("never takes «زين» for a camel called زينة", () => {
+    const first = call();
+    first.ws.camels[2] = { ...first.ws.camels[2], name: "زينة" };
+    const live = driver(first);
+    live.turn("answer_question", { value: "no", topic: "herd" }, "كلهم زين بس وحدة تعبانة");
+    expect(live.session.step).toBe("health_pick");
+    expect(live.session.draft.camelUpdates).toEqual([]);
+  });
+
+  it("asks which camel when the worker didn't name one, and nothing more once they do", () => {
+    const first = call();
+    const live = driver(first);
     live.turn("answer_question", { value: "no", topic: "herd" }, "كلهم تمام بس وحدة تعبانة");
     expect(live.session.step).toBe("health_pick");
+    live.turn("answer_question", { value: `camel:${first.ws.camels[0].id}`, topic: "herd" }, "نورة");
+    live.turn("answer_question", { value: "sick", topic: "herd" }, "مسخنة");
+    expect(current(live.session)).toBe("feed_level");
+  });
+
+  it("does not ask the feed question again after «الحلال بخير والعلف قليل»", () => {
+    const live = driver(call());
+    live.turn("answer_question", { value: "yes", topic: "herd" }, "الحلال بخير والعلف قليل");
+    expect(current(live.session)).toBe("water_level");
+    expect(live.session.draft.resourceUpdates).toEqual([expect.objectContaining({ kind: "feed", level: "low" })]);
+    // Nothing is left over to keep as a note: the sentence was fully understood.
+    expect(live.session.draft.answers.some((answer) => answer.questionId.startsWith("open_note_"))).toBe(false);
+    live.turn("answer_question", { value: "good", topic: "water" }, "الماء كافي");
+    live.turn("answer_question", { text: "لا ما جا", topic: "other" }, "لا ما جا");
+    expect(live.session.step).toBe("report_summary");
+    expect(live.spoken.at(-1)).toContain("العلف");
+  });
+
+  it("keeps an unclear mention of another topic as a note and still asks that question", () => {
+    const live = driver(call());
+    live.turn("answer_question", { value: "yes", topic: "herd" }, "الحلال بخير والعلف جابوه أمس");
+    expect(current(live.session)).toBe("feed_level");
+    expect(live.session.draft.resourceUpdates).toEqual([]);
+    expect(live.session.draft.answers.some((answer) => answer.answer === "الحلال بخير والعلف جابوه أمس")).toBe(true);
+  });
+
+  it("reads only the feed part of «العلف كافي والماي قليل»", () => {
+    const live = driver(call());
+    live.turn("answer_question", { value: "yes", topic: "herd" }, "الحلال بخير");
+    live.turn("answer_question", { value: "good", topic: "feed" }, "العلف كافي والماي قليل");
+    expect(live.session.draft.resourceUpdates).toHaveLength(2);
+    expect(live.session.draft.resourceUpdates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "feed", level: "good" }),
+      expect.objectContaining({ kind: "water", level: "low" }),
+    ]));
+    expect(current(live.session)).toBe("custom-vet");
   });
 
   it("asks again on unclear words instead of guessing", () => {
@@ -146,13 +215,13 @@ describe("the 10 November call that named نورة", () => {
     live.turn("answer_question", { value: "no", topic: "herd" }, "كلهم تمام بس وحدة تعبانة");
     live.turn("answer_question", { value: `camel:${first.ws.camels[0].id}`, topic: "herd" }, "نورة");
     live.turn("answer_question", { value: "sick", topic: "herd" }, "مسخنة");
-    expect(live.session.step).toBe("health_more");
+    expect(live.session.draft.camelUpdates[0]).toMatchObject({ camelId: first.ws.camels[0].id, health: "sick" });
   });
 
   it("does not take the garbled «ماريانا نارا» as no to «فيه غيرها؟»", () => {
     const first = call();
     const live = driver(first);
-    live.turn("answer_question", { value: "no", topic: "herd" }, "كلهم بخير بس نورة تعبانة");
+    live.turn("answer_question", { value: "no", topic: "herd" }, "نورة تعبانة");
     live.turn("answer_question", { value: "no", topic: "herd" }, "ماريانا نارا");
     expect(live.session.step).toBe("health_more");
     live.turn("answer_question", { value: "no", topic: "herd" }, "لا بس");
