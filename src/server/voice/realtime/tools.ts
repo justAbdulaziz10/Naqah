@@ -86,10 +86,10 @@ function checkAnswer(args: Record<string, unknown>, session: CallSession, locale
     if (!cleanString(args.value, 100) || !session.replies.some((reply) => reply.value === args.value)) return { ok: false, error: "value_not_allowed" };
     return { ok: true, action: { kind: "answer", input: { value: args.value } } };
   }
-  if (!textAllowed(session)) return { ok: false, error: "text_not_allowed" };
   if (!cleanString(args.text)) return { ok: false, error: "invalid_text" };
   const input = mapSpeechToInput(session, args.text, null, locale);
-  if (!input || (session.inputMode === "choices" && input.text === undefined)) return { ok: false, error: session.inputMode === "text" ? "invalid_text" : "number_not_understood" };
+  // The model sometimes sends the sentence instead of the reply: the same reading as a scripted call decides it.
+  if (!input) return { ok: false, error: session.inputMode === "text" ? "invalid_text" : session.inputMode === "number" ? "number_not_understood" : "answer_unclear" };
   return { ok: true, action: { kind: "answer", input } };
 }
 

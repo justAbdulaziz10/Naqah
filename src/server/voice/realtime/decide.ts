@@ -151,6 +151,11 @@ export function decideTool({ session: current, counters, workspace, locale, name
     check = { ok: true, action: { kind: "answer", input: fallback.input } };
     gaveUp = fallback.prefix;
   }
+  // A clear answer the model hesitated on is still a clear answer.
+  if (check.ok && check.action.kind === "repeat" && check.action.reason === "unclear" && ![SUMMARY_STEP, "report_correct_pick"].includes(current.step)) {
+    const said = mapSpeechToInput(current, heard, null, locale)?.value;
+    if (said !== undefined && current.replies.some((entry) => entry.value === said)) check = { ok: true, action: { kind: "answer", input: { value: said } } };
+  }
   const action = check.action;
   let forced: { input: AnswerInput; prefix: string } | null = null;
   // A worker can ask for a repeat, but a call never circles: the second time is asked differently, the third moves on.

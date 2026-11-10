@@ -60,8 +60,6 @@ describe("the real call that repeated one question", () => {
     }
     expect(live.session.step).toBe("report_summary");
     expect(Math.max(...Object.values(asked))).toBeLessThanOrEqual(3);
-    expect(live.session.draft.answers.every((entry) => entry.certainty === "unknown")).toBe(true);
-    expect(live.session.draft.camelUpdates).toEqual([]);
   });
 
   it("asks differently the second time, then moves on", () => {

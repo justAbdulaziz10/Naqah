@@ -689,7 +689,7 @@ describe("tool validation", () => {
     ["inherited value name", "answer_question", { value: "__proto__" }],
     ["long value", "answer_question", { value: "y".repeat(65) }],
     ["number value", "answer_question", { value: 1 }],
-    ["text on a choice", "answer_question", { text: "yes" }],
+    ["unreadable text on a choice", "answer_question", { text: "كاسييا", topic: "herd" }],
     ["confirm away from the summary", "confirm_report", { confirmed: true }],
     ["end with a bad reason", "end_call", { reason: "because" }],
     ["end with extra field", "end_call", { reason: "worker_ended", save: true }],

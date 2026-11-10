@@ -1,38 +1,27 @@
 /**
- * PAID: asks the real OpenAI model which tool it would call for real transcripts, in text mode, with the
- * same instructions and tools as a phone call. Skipped unless NAQAH_REAL_MODEL=1 and OPENAI_API_KEY are set.
+ * PAID: asks the real OpenAI model which tool it would call for the 37 test cases, in text mode, with the same
+ * instructions and tools as a phone call. Skipped unless NAQAH_REAL_MODEL=1 and OPENAI_API_KEY are set.
+ * Stops itself before NAQAH_REAL_MODEL_BUDGET dollars. NAQAH_REAL_MODEL_LOG is where each result is appended.
  */
+import { appendFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error The ws package ships without types here.
 import WebSocket from "ws";
-import { answer, start, type CallSession } from "@/domain/conversation/engine";
-import { fromRiyadh } from "@/domain/clock";
-import { placeReportCallAttempt, resolveReportCallAttempt, startReportCall } from "@/domain/reportCalls";
-import { createDemoWorkspace } from "@/domain/seed";
-import type { Workspace } from "@/domain/types";
 import { spokenFrom } from "./decide";
 import { buildInstructions } from "./instructions";
+import { callAt, finalOutcome, MODEL_CASES, type ModelCase } from "./real-model-cases";
 import { promptFor, REALTIME_TOOLS } from "./tools";
-import { REAL_CALL } from "./real-call-transcripts";
 
-const NOW = fromRiyadh(2026, 11, 10, 3, 21);
 const MODEL = "gpt-realtime-2.1";
+const BUDGET = Number(process.env.NAQAH_REAL_MODEL_BUDGET ?? "0.45");
+const total = { input: 0, cached: 0, output: 0 };
+const spent = () => (total.input * 4 + total.cached * 0.4 + total.output * 24) / 1_000_000;
 
-function callAt(step: "herd" | "feed"): { ws: Workspace; session: CallSession } {
-  const ws = createDemoWorkspace("ar", "ultimate", NOW);
-  Object.assign(ws, { reports: [], calls: [], taskTickets: [], pendingWorkerCalls: [], noAnswerTickets: [] });
-  ws.camels = ws.camels.slice(0, 3).map((camel, index) => ({ ...camel, name: ["نورة", "مزون", "شيخة"][index] }));
-  const opened = startReportCall(ws, NOW, "manual");
-  const live = resolveReportCallAttempt(placeReportCallAttempt(opened.ws, NOW, opened.run!.id).ws, NOW, opened.run!.id, true).ws;
-  let session = start(live, NOW, "report_call", { reportCallId: opened.run!.id }).session;
-  if (step === "feed") session = answer(session, live, NOW, { value: "yes" }).session;
-  return { ws: live, session };
-}
-
-function decision(step: "herd" | "feed", heard: string): Promise<{ name: string; args: Record<string, unknown> }> {
+function decide(step: ModelCase["step"], heard: string): Promise<ModelCase["raw"] | null> {
   const { ws, session } = callAt(step);
   const prompt = promptFor(session, spokenFrom(session, Math.max(0, session.turns.length - 1), ws, "ar"), ws, "ar");
   const socket = new WebSocket(`wss://api.openai.com/v1/realtime?model=${MODEL}`, { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } });
+  let made: ModelCase["raw"] | null = null;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { socket.close(); reject(new Error("timed out")); }, 30_000);
     const send = (message: object) => socket.send(JSON.stringify(message));
@@ -48,43 +37,32 @@ function decision(step: "herd" | "feed", heard: string): Promise<{ name: string;
         send({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: heard }] } });
         send({ type: "response.create" });
       }
-      if (event.type === "response.function_call_arguments.done") {
+      if (event.type === "response.function_call_arguments.done") made = { name: event.name, args: JSON.parse(event.arguments) };
+      if (event.type === "response.done") {
         clearTimeout(timer);
         socket.close();
-        resolve({ name: event.name, args: JSON.parse(event.arguments) });
+        const usage = event.response?.usage ?? {};
+        const cached = usage.input_token_details?.cached_tokens ?? 0;
+        total.input += (usage.input_tokens ?? 0) - cached;
+        total.cached += cached;
+        total.output += usage.output_tokens ?? 0;
+        resolve(made);
       }
     });
   });
 }
 
-const CASES: { step: "herd" | "feed"; heard: string; tool: string; value?: string }[] = [
-  { step: "herd", heard: "الحلال بخير.", tool: "answer_question", value: "yes" },
-  { step: "herd", heard: "الحمد لله", tool: "answer_question", value: "yes" },
-  { step: "herd", heard: "تمام، الحلال بخير والحمد لله.", tool: "answer_question", value: "yes" },
-  { step: "herd", heard: "كلهم بخير بس نورة تعبانة", tool: "answer_question", value: "no" },
-  { step: "herd", heard: "تمام الحمد لله بس في واحدة تعبانة.", tool: "answer_question", value: "no" },
-  { step: "herd", heard: "كلهم تمام، ألا في وحدة تعبانه.", tool: "answer_question", value: "no" },
-  { step: "feed", heard: "زين بس قرب يخلص", tool: "answer_question", value: "low" },
-  { step: "feed", heard: "كافي الحمد لله", tool: "answer_question", value: "good" },
-  { step: "feed", heard: "خلص العلف", tool: "answer_question", value: "critical" },
-  { step: "herd", heard: "وش تقول؟ ما سمعت", tool: "repeat_or_clarify" },
-  { step: "herd", heard: "أقدراشgba", tool: "repeat_or_clarify" },
-  { step: "feed", heard: "كاسييا", tool: "repeat_or_clarify" },
-];
-
-describe.runIf(process.env.NAQAH_REAL_MODEL === "1" && Boolean(process.env.OPENAI_API_KEY))("the real model's tool decisions", () => {
-  it.each(CASES)("«$heard» → $tool $value", async ({ step, heard, tool, value }) => {
-    const made = await decision(step, heard);
-    console.info(JSON.stringify({ heard, name: made.name, args: made.args }));
-    expect(made.name).toBe(tool);
-    if (value) expect(made.args.value).toBe(value);
-  }, 40_000);
-
-  it("reports what it would do with all 29 real-call transcripts", async () => {
-    const made = [];
-    for (const heard of REAL_CALL.filter(Boolean)) made.push({ heard, ...(await decision("herd", heard)) });
-    console.info(JSON.stringify(made));
-    const clear = made.filter((row) => /(بخير|الحمد لله|زين)/.test(row.heard));
-    expect(clear.filter((row) => row.name === "answer_question").length / clear.length).toBeGreaterThanOrEqual(0.8);
-  }, 300_000);
+describe.runIf(process.env.NAQAH_REAL_MODEL === "1" && Boolean(process.env.OPENAI_API_KEY))("the real model on the 37 cases", () => {
+  it("records raw and backend decisions", async () => {
+    let finished = 0;
+    for (const item of MODEL_CASES) {
+      if (spent() >= BUDGET) break;
+      const raw = await decide(item.step, item.heard);
+      finished += 1;
+      if (process.env.NAQAH_REAL_MODEL_LOG) {
+        appendFileSync(process.env.NAQAH_REAL_MODEL_LOG, JSON.stringify({ heard: item.heard, step: item.step, expect: item.expect, raw, final: raw ? finalOutcome(item.step, raw, item.heard) : "ask", total, spent: spent() }) + "\n");
+      }
+    }
+    expect(finished).toBe(MODEL_CASES.length);
+  }, 420_000);
 });

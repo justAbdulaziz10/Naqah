@@ -795,7 +795,7 @@ scenario("R4", "A cheating model cannot change or save anything", async () => {
   await expectRefused("confirm_report true before the summary, with no worker speech", async () => unspoken);
   await sleep(300);
   await expectRefused("an invalid value", () => say("كلها بخير", "answer_question", { value: "banana", topic: "herd" }), { allowed: ["yes", "no", "unknown"] });
-  await expectRefused("free text on a choice question", () => say("كلها بخير", "answer_question", { text: "كلها بخير", topic: "herd" }));
+  await expectRefused("unreadable text on a choice question", () => say("كاسييا", "answer_question", { text: "كاسييا", topic: "herd" }));
   await expectRefused("an unknown tool", () => say("كلها بخير", "delete_everything", {}));
   await expectRefused("end_call with an invalid reason", () => say("كلها بخير", "end_call", { reason: "because" }));
   await say("كلها بخير", "answer_question", { value: "yes", topic: "herd" });
