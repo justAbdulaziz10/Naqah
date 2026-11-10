@@ -145,7 +145,22 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
     call.queue = (first?.data?.queue ?? []).map((item) => item.id ?? item.questionId ?? item.kind);
 
     let lastOutput = null;
-    for (let turn = 0; turn < 30; turn += 1) {
+    // A natural call: the worker answers freely and the model hands the whole report over once.
+    call.natural = call.provider.sessionUpdate?.tool_choice === "auto";
+    if (call.natural) {
+      const answers = (first?.data?.queue ?? []).map((item) => {
+        const plan = ANSWER_PLAN.find((entry) => entry.when({ step: "report_question", q: item.id }));
+        if (!plan) throw new Error(`The scripted worker has no answer for ${item.id}`);
+        if (item.id === "herd_count") return { question_id: item.id, number: Number(plan.args.text) };
+        return { question_id: item.id, ...(plan.args.text !== undefined ? { text: plan.args.text } : { value: plan.args.value }) };
+      });
+      upstream.workerSays("كلها بخير، عشرين راس، العلف باقي منه شوي، الموية كافية، الشبك سليم، ولا والله ما جا أحد اليوم");
+      lastOutput = await upstream.toolCall("submit_report", { answers });
+      if (lastOutput === null) throw new Error("No output for submit_report");
+      call.toolResults.push({ name: "submit_report", output: lastOutput });
+      if (JSON.parse(lastOutput).status !== "ok") throw new Error(`The server refused the hand-over: ${lastOutput.slice(0, 300)}`);
+    }
+    for (let turn = 0; turn < 30 && !call.natural; turn += 1) {
       const state = engineState(call.sid);
       if (!state) throw new Error("The voice session row disappeared mid-call");
       if (state.step === "report_summary") break;

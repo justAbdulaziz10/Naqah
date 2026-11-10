@@ -27,6 +27,8 @@ const arg = (name, fallback) => {
   return index >= 0 ? process.argv[index + 1] : fallback;
 };
 const flag = (name) => process.argv.includes(`--${name}`);
+/** --natural: run the local stack's natural conversation instead of the guided one. */
+const NATURAL = flag("natural");
 /** The one short word the server may say before the next question («تمام.»، «سلامتها.»). */
 const ACKNOWLEDGED = /^(?:تمام|زين|طيب|ما عليه|الحمد لله|سلامتها|سلامته|سلامتهم|الله يعطيك العافية|عدلتها)\. $/u;
 
@@ -101,7 +103,7 @@ async function startRunner(extra) {
   }
   if (existsSync(READY_FILE)) throw new Error(`A runner already looks active (${READY_FILE}). Stop it, or pass --attach.`);
   runnerLog = openSync(join(OUT, "runner.log"), "a");
-  runner = spawn(process.execPath, [join(REPO, "scripts/test-call-local.mjs"), "--mock", ...extra], { cwd: REPO, stdio: ["ignore", runnerLog, runnerLog] });
+  runner = spawn(process.execPath, [join(REPO, "scripts/test-call-local.mjs"), "--mock", ...extra, ...(NATURAL ? ["--natural"] : [])], { cwd: REPO, stdio: ["ignore", runnerLog, runnerLog] });
   await waitFor(() => {
     if (runner.exitCode !== null) throw Object.assign(new Error("runner exited"), { fatal: true });
     return existsSync(READY_FILE);
@@ -206,6 +208,12 @@ function assertCallEvidence(call, farm, destination) {
 
   const session = call.provider.sessionUpdate ?? {};
   const instructions = session.instructions ?? "";
+  const natural = call.natural === true;
+  if (natural) {
+    check("natural: the model talks for itself and calls a tool only to hand over or confirm", session.tool_choice === "auto", session.tool_choice);
+    check("natural: the instructions keep it from asking again what was answered", /لا تعيد سؤال انجاوب/.test(instructions) && /submit_report/.test(instructions) && /لا تخمّن/.test(instructions), instructions.slice(0, 300));
+    check("natural: exactly four tools, none to answer question by question", JSON.stringify((session.tools ?? []).map((tool) => tool.name)) === JSON.stringify(["submit_report", "confirm_report", "flag_urgent", "end_call"]), session.tools?.map((tool) => tool.name));
+  } else {
   check("session.update makes the model call tools only: tool_choice is required", session.tool_choice === "required", session.tool_choice);
   check("session.update limits the model to listening and classifying", /دورك الاستماع والتصنيف فقط/.test(instructions) && /لا تتكلم بنفسك أبداً/.test(instructions), instructions.slice(0, 300));
   check("session.update requires one tool per worker turn", /في كل دور للعامل نادِ أداة واحدة بالضبط/.test(instructions), instructions.slice(0, 300));
@@ -215,6 +223,7 @@ function assertCallEvidence(call, farm, destination) {
   check("the provider gets exactly the current call tools", JSON.stringify((session.tools ?? []).map((tool) => tool.name).sort()) === JSON.stringify(CALL_TOOLS), session.tools?.map((tool) => tool.name));
   const answerTool = session.tools?.find((tool) => tool.name === "answer_question");
   check("answer_question requires a topic", answerTool?.parameters?.required?.includes("topic"), answerTool?.parameters);
+  }
   check("input transcription is Arabic and audio is G.711", session.audio?.input?.transcription?.language === "ar" && /pcmu/i.test(JSON.stringify(session.audio ?? {})), session.audio);
   const opening = call.provider.opening ?? "";
   const letters = opening.match(/\p{L}/gu)?.length ?? 0;
@@ -223,19 +232,25 @@ function assertCallEvidence(call, farm, destination) {
 
   const responses = call.provider.responses ?? [];
   const verbatim = responses.filter((entry) => entry.verbatim);
+  if (natural) {
+    check("natural: only the opening, the summary and the goodbye are the server's words", verbatim.length === 3 && verbatim.every((entry) => entry.toolChoice === "none"), verbatim.map((entry) => entry.instructions?.slice(0, 60)));
+    check("natural: the model's turns carry no server words", responses.some((entry) => !entry.verbatim) && responses.filter((entry) => !entry.verbatim).every((entry) => entry.instructions === null), responses.map((entry) => entry.toolChoice));
+  } else {
   check("every line the caller heard was the server's, verbatim, with tools disabled", verbatim.length > 0 && verbatim.length === call.provider.spoken?.length && verbatim.every((entry) => entry.toolChoice === "none" && entry.instructions.startsWith("Say only the following text verbatim")), verbatim.map((entry) => entry.toolChoice));
   check("the model's own turns only classify: they carry no words to say", responses.some((entry) => !entry.verbatim) && responses.filter((entry) => !entry.verbatim).every((entry) => entry.toolChoice !== "none"), responses.map((entry) => entry.toolChoice));
+  }
   const arabicShare = (line) => (line.match(ARABIC)?.length ?? 0) / Math.max(1, line.match(/\p{L}/gu)?.length ?? 0);
   check("every spoken line is Arabic", (call.provider.spoken ?? []).length > 0 && call.provider.spoken.every((line) => arabicShare(line) >= 0.8), call.provider.spoken);
   check("the caller hears the ranch's Saudi wording", (call.provider.spoken ?? []).some((line) => /الحلال/.test(line)) && (call.provider.spoken ?? []).some((line) => /العزبة|عزبة/.test(line) || /وش|زين|ولا فيه/.test(line)), call.provider.spoken);
-  check("each answer is followed by exactly the server's next line", (call.linesAfterAnswers ?? []).length === call.questions.length && call.linesAfterAnswers.every((entry) => entry.expected && (entry.spoken === entry.expected || ACKNOWLEDGED.test(entry.spoken.slice(0, -entry.expected.length)) && entry.spoken.endsWith(entry.expected))), call.linesAfterAnswers);
+  if (!natural) check("each answer is followed by exactly the server's next line", (call.linesAfterAnswers ?? []).length === call.questions.length && call.linesAfterAnswers.every((entry) => entry.expected && (entry.spoken === entry.expected || ACKNOWLEDGED.test(entry.spoken.slice(0, -entry.expected.length)) && entry.spoken.endsWith(entry.expected))), call.linesAfterAnswers);
 
   const answers = answersOf(farm);
   const answered = new Set(answers.map((row) => row.question_id));
   const queued = call.queue ?? [];
-  check("every question queued for the session was asked", queued.length >= 4 && queued.every((id) => call.questions.some((entry) => entry.q === id)), { queued, asked: call.questions });
+  if (natural) check("natural: one hand-over then the confirmation, nothing question by question", JSON.stringify(call.toolResults.map((entry) => entry.name)) === JSON.stringify(["submit_report", "confirm_report"]), call.toolResults.map((entry) => entry.name));
+  else check("every question queued for the session was asked", queued.length >= 4 && queued.every((id) => call.questions.some((entry) => entry.q === id)), { queued, asked: call.questions });
   check("every question queued for the session was answered", queued.every((id) => answered.has(id)), { queued, answered: [...answered] });
-  check("the model never skipped to a save: one tool call per step, then the confirmation", call.toolResults.filter((entry) => entry.name === "confirm_report").length === 1 && call.toolResults.at(-1).name === "confirm_report" && call.toolResults.length === call.questions.length + 1, call.toolResults.map((entry) => entry.name));
+  if (!natural) check("the model never skipped to a save: one tool call per step, then the confirmation", call.toolResults.filter((entry) => entry.name === "confirm_report").length === 1 && call.toolResults.at(-1).name === "confirm_report" && call.toolResults.length === call.questions.length + 1, call.toolResults.map((entry) => entry.name));
 
   check("the engine flagged the summary", call.summary?.flagged === true && Boolean(call.summary?.text), call.summary);
   check("the summary offers exactly save, correct and end without saving", JSON.stringify([...(call.summary?.replies ?? [])].sort()) === JSON.stringify(["confirm_save", "correct", "end_without_save"]), call.summary?.replies);
