@@ -29,7 +29,7 @@ export function PlanPrice({
   const ink = tone === "dark" ? "text-cream" : "text-espresso";
   const muted = tone === "dark" ? "text-cream/70" : "text-muted";
   const amount = (value: number) => (
-    <bdi dir="ltr" className="whitespace-nowrap tabular-nums">
+    <bdi className="whitespace-nowrap tabular-nums">
       {new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value)} {copy.currency}
     </bdi>
   );

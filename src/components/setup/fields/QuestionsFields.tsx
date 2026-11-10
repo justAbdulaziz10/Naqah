@@ -7,7 +7,7 @@ import { RESOURCE_LABELS } from "@/domain/catalog";
 import { callQuestionPlan } from "@/domain/callQuestions";
 import { uid } from "@/domain/id";
 import {
-  canAddCustomQuestion, customQuestionLimit, moveQuestionInPlan, planEntriesFromRows, questionPlanRows, reportPlanHasContent,
+  canAddCustomQuestion, customQuestionLimit, moveQuestionInPlan, planEntriesFromRows, questionPlanRows, reportModeOf, reportPlanHasContent,
   type QuestionPlanRow,
 } from "@/domain/rules";
 import { useI18n } from "@/i18n/client";
@@ -50,6 +50,8 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
   const v = m.visual.script;
   const rows = questionPlanRows(ws).filter((row) => row.applicable);
   const hasContent = reportPlanHasContent(ws, now);
+  // Open talk has no order or "must answer": the list is what NAQAH listens for.
+  const open = reportModeOf(ws) === "open";
 
   const setQuestions = (edit: (list: typeof questions) => typeof questions) =>
     onChange((current) => ({ ...current, settings: { ...current.settings, customQuestions: edit(current.settings.customQuestions) } }));
@@ -128,16 +130,16 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
 
   return (
     <div>
-      <Heading className="ps-8 text-[1.0625rem] font-bold text-espresso">{v.title(worker)}</Heading>
+      <Heading className="ps-8 text-[1.0625rem] font-bold text-espresso">{open ? q.openTitle(worker) : v.title(worker)}</Heading>
       <p className="mt-0.5 ps-8 text-[0.9375rem] text-muted">{q.listNote}</p>
-      <p className="mt-1 ps-8 text-[0.9375rem] leading-relaxed text-muted">{q.requiredNote}</p>
+      {open ? null : <p className="mt-1 ps-8 text-[0.9375rem] leading-relaxed text-muted">{q.requiredNote}</p>}
       <div className="relative mt-5">
         {/* One line through the whole call, from NAQAH's greeting to its call to the owner. */}
         <span aria-hidden className="absolute -bottom-[2.4rem] start-[5.5px] top-[0.75rem] w-px bg-stone" />
         <div className="relative ps-8">
           <Marker kind="end" />
           <p className="leading-relaxed text-espresso">{v.intro}</p>
-          <p className="mt-0.5 text-[0.9375rem] text-muted">{v.introDetail}</p>
+          {open ? null : <p className="mt-0.5 text-[0.9375rem] text-muted">{v.introDetail}</p>}
         </div>
 
         <ol ref={listRef} className="mt-4">
@@ -147,6 +149,7 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
               row={row}
               position={index + 1}
               total={rows.length}
+              open={open}
               onToggle={(enabled) => setRow(row.question.id, { enabled })}
               onRequired={(required) => setRow(row.question.id, { required })}
               onMove={(step) => move(row.question.id, step)}
@@ -238,8 +241,9 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
   );
 }
 
-function QuestionRow({ row, position, total, onToggle, onRequired, onMove, onEdit, onRemove }: {
+function QuestionRow({ row, position, total, open, onToggle, onRequired, onMove, onEdit, onRemove }: {
   row: QuestionPlanRow;
+  open: boolean;
   position: number;
   total: number;
   onToggle: (enabled: boolean) => void;
@@ -252,7 +256,7 @@ function QuestionRow({ row, position, total, onToggle, onRequired, onMove, onEdi
   const q = m.setup.questions;
   const text = row.kind === "custom" ? row.question.text : t(row.question.text);
   // Said on the question, not on the checkbox: "Must answer · optional" would contradict itself.
-  const optional = row.enabled && !row.required;
+  const optional = row.enabled && !row.required && !open;
   return (
     <li data-question={row.question.id} className="relative py-3 ps-8">
       <Marker kind={row.kind === "custom" ? "owner" : "naqah"} muted={!row.enabled} />
@@ -280,7 +284,7 @@ function QuestionRow({ row, position, total, onToggle, onRequired, onMove, onEdi
         <Switch checked={row.enabled} onChange={onToggle} label={q.ask(position, text)} className={row.kind === "custom" ? "mt-3.5" : "mt-0.5"} />
       </div>
       <div className="mt-0.5 flex flex-wrap items-center justify-between gap-x-3">
-        {row.enabled ? (
+        {open && row.enabled ? <span /> : row.enabled ? (
           <label className="-ms-1 inline-flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[0.9375rem]">
             <input type="checkbox" checked={row.required} onChange={(event) => onRequired(event.target.checked)} className="size-[1.125rem] shrink-0 accent-brown" />
             <span className={row.required ? "font-medium text-espresso" : "text-muted"}>
