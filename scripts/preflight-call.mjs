@@ -31,7 +31,7 @@ if (process.argv.includes("--providers") || process.argv.length === 2) {
     const body = JSON.stringify({ farmId: option("farm") || env("NAQAH_PREFLIGHT_FARM_ID") || TEST_FARM });
     const response = await request(new URL("/api/report-call-now", base), { method: "POST", body, headers: internalHeaders(body, secret) });
     const result = response.ok ? await response.json() : null;
-    const names = ["worker_allowlisted", "no_active_run", "public_bridge_url", "twilio_account", "twilio_voice_number", "openai_key", "bridge_health", "bridge_configuration"];
+    const names = ["worker_allowlisted", "no_active_run", "public_bridge_url", "twilio_account", "twilio_voice_number", "openai_key", "openai_realtime", "bridge_health", "bridge_configuration"];
     check("authenticated free preflight", result?.ok === true);
     for (const name of names) check(name, result?.checks?.some((entry) => entry.name === name && entry.passed === true) === true);
   } catch { check("free preflight reachable and configured", false); }

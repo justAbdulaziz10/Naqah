@@ -800,6 +800,29 @@ class CallStream {
   }
 }
 
+/**
+ * A realtime session opened and configured, with no response requested, so nothing is generated or billed. Listing
+ * models works on an account with no credit; this is what a call needs (10 Nov: «credit_balance_exhausted»).
+ */
+function realtimeProbe(config) {
+  return new Promise((resolve) => {
+    const socket = new WebSocket(config.providerUrl, {
+      headers: { Authorization: `Bearer ${config.apiKey}` }, handshakeTimeout: 4_000, followRedirects: false, perMessageDeflate: false,
+    });
+    const done = (result) => { clearTimeout(timer); socket.removeAllListeners('message'); socket.terminate(); resolve(result); };
+    const timer = setTimeout(() => done({ ready: false, error: 'timeout' }), 6_000);
+    socket.on('open', () => socket.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', model: REALTIME_MODEL, output_modalities: ['text'], instructions: 'Preflight only.' } })));
+    socket.on('message', (raw) => {
+      let event;
+      try { event = JSON.parse(raw.toString()); } catch { return done({ ready: false, error: 'invalid' }); }
+      if (event.type === 'session.updated') done({ ready: true, error: null });
+      else if (event.type === 'error') done({ ready: false, error: label(event.error?.code ?? event.error?.type) ?? 'provider_error' });
+    });
+    socket.on('error', () => done({ ready: false, error: 'connect' }));
+    socket.on('unexpected-response', (_request, response) => { response.resume(); done({ ready: false, error: response.statusCode === 401 ? 'invalid_api_key' : 'handshake' }); });
+  });
+}
+
 export function createBridge({ config, limits: overrides = {}, logger = (record) => console.log(JSON.stringify(record)), fetchImpl = fetch }) {
   const limits = { ...DEFAULT_LIMITS, ...overrides };
   const calls = new Map();
@@ -826,8 +849,9 @@ export function createBridge({ config, limits: overrides = {}, logger = (record)
         });
         const data = models.ok ? await models.json() : null;
         if (!models.ok) await models.body?.cancel();
+        const realtime = data?.object === 'list' ? await realtimeProbe(config) : { ready: false, error: null };
         response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-        return response.end(JSON.stringify({ openaiKeyValid: data?.object === 'list' && Array.isArray(data.data) }));
+        return response.end(JSON.stringify({ openaiKeyValid: data?.object === 'list' && Array.isArray(data.data), realtimeReady: realtime.ready, realtimeError: realtime.error }));
       } catch {
         response.writeHead(503, { 'cache-control': 'no-store' });
         return response.end();

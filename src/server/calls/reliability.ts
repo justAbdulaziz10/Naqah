@@ -11,6 +11,7 @@ export const callFailureMessages = {
   configuration: { ar: "إعدادات الاتصال ناقصة. شغّل فحص الاتصال قبل المحاولة.", en: "Calling is not fully configured. Run the call preflight before trying again." },
   twilio_auth: { ar: "تعذّر التحقق من حساب Twilio. راجع بيانات الدخول وحالة الحساب.", en: "Twilio account verification failed. Check its credentials and account status." },
   from_number: { ar: "رقم الاتصال غير موجود في حساب Twilio أو لا يدعم الصوت. راجع الرقم.", en: "The calling number is missing from this Twilio account or is not voice-capable. Check the number." },
+  openai_quota: { ar: "رصيد OpenAI خلص، فالمساعد ما يقدر يتكلم. اشحن الرصيد في حساب OpenAI ثم حاول.", en: "The OpenAI account is out of credit, so the assistant can't speak. Add credit to the OpenAI account, then try again." },
   openai_auth: { ar: "تعذّر التحقق من مفتاح OpenAI. راجع المفتاح وصلاحياته.", en: "OpenAI key verification failed. Check the key and its permissions." },
   bridge_unreachable: { ar: "جسر الصوت غير متاح. شغّل الجسر والنفق العام ثم افحص الاتصال.", en: "The voice bridge is unreachable. Start the bridge and public tunnel, then run preflight." },
   bridge_url: { ar: "عنوان النفق لا يطابق إعدادات جسر الصوت. حدّث العنوان وأعد تشغيل الخدمات.", en: "The public tunnel does not match the voice bridge configuration. Update the URL and restart the services." },

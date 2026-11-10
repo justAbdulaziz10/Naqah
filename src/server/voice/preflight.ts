@@ -58,6 +58,8 @@ export async function freeCallPreflight(client: SupabaseClient, farmId: string, 
   check("bridge_health", health?.ok === true, "bridge_unreachable");
   check("bridge_configuration", health?.publicUrl === bridgeUrl?.href && health?.maxCallSeconds === callTimeLimitSeconds(), "bridge_url");
   check("openai_key", models?.openaiKeyValid === true, "openai_auth");
+  // A key can list models with no credit left; only an opened realtime session shows a call can start.
+  check("openai_realtime", models?.realtimeReady === true, models?.realtimeError === "credit_balance_exhausted" || models?.realtimeError === "insufficient_quota" ? "openai_quota" : "openai_auth");
   const failed = checks.find((entry) => !entry.passed);
   return { ready: !failed, checks, message: failed ? callFailureMessages[failed.reason] : null };
 }

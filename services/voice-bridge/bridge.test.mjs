@@ -139,7 +139,8 @@ async function fixture(options = {}) {
     socket.on('message', (raw) => {
       const event = JSON.parse(raw.toString());
       providerEvents.push(event);
-      if (event.type === 'session.update' && !options.noReady) send(socket, { type: 'session.updated', session: event.session });
+      if (event.type === 'session.update' && options.sessionError) send(socket, { type: 'error', error: options.sessionError });
+      else if (event.type === 'session.update' && !options.noReady) send(socket, { type: 'session.updated', session: event.session });
       if (event.type === 'response.create' && !options.noResponse) {
         latestResponseId = `response-${++responseCount}`;
         send(socket, { type: 'response.created', response: { id: latestResponseId } });
@@ -150,7 +151,7 @@ async function fixture(options = {}) {
   await listen(upstream, 3901);
   await listen(providerServer, 3902);
   const bridge = createBridge({
-    config: { ...loadConfig(TEST_ENV), ...options.config }, logger: (record) => logs.push(record),
+    config: { ...loadConfig(TEST_ENV), ...options.config }, logger: (record) => logs.push(record), ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     limits: { closeMs: 10, transcriptionMs: 50, bargeInMs: 0, ...options.limits },
   });
   await listen(bridge.server, 3903);
@@ -1477,4 +1478,26 @@ test('lines are traced to a file only when the local trace directory is set', as
     const lines = readFileSync(join(directory, files[0]), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     assert.deepEqual(lines.map((line) => [line.who, line.text]), [['naqah', 'Mock opening'], ['worker', 'كلها بخير']]);
   } finally { await state.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+async function preflight(options) {
+  const models = async () => new Response(JSON.stringify({ object: 'list', data: [] }), { status: 200 });
+  const state = await fixture({ ...options, fetchImpl: models });
+  try {
+    const body = '{"preflight":true}';
+    const response = await fetch('http://127.0.0.1:3903/voice-bridge/preflight', { method: 'POST', body, headers: internalHeaders(body, TEST_ENV.NAQAH_VOICE_SECRET) });
+    return { status: response.status, json: await response.json(), events: state.providerEvents };
+  } finally { await state.close(); }
+}
+
+test('preflight opens a realtime session and asks for nothing, so it costs nothing', async () => {
+  const result = await preflight({});
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.json, { openaiKeyValid: true, realtimeReady: true, realtimeError: null });
+  assert.equal(result.events.some((event) => event.type === 'response.create'), false);
+});
+
+test('preflight reports an account with no credit left, which listing models cannot show', async () => {
+  const result = await preflight({ sessionError: { type: 'insufficient_quota', code: 'credit_balance_exhausted', message: 'secret detail' } });
+  assert.deepEqual(result.json, { openaiKeyValid: true, realtimeReady: false, realtimeError: 'credit_balance_exhausted' });
 });
