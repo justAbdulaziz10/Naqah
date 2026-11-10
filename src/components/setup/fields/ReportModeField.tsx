@@ -8,7 +8,7 @@ import type { SetupFieldsProps } from "../types";
 
 const MODES: ReportMode[] = ["worker_choice", "guided", "open"];
 
-/** How the worker gives the report. Settings only: setup keeps the default. */
+/** How the worker gives the report. Shared by setup and Settings. */
 export function ReportModeField({ ws, onChange }: SetupFieldsProps) {
   const { m } = useI18n();
   const c = m.setup.questions.mode;

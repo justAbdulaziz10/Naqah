@@ -163,7 +163,7 @@ function Onboarding() {
           </div>
           {saveFailed ? <p className="mt-6 text-[0.975rem] leading-relaxed text-danger" role="alert">{f.notSaved}</p> : null}
 
-          {account ? null : <p className="mt-10 text-[0.9375rem] text-muted lg:hidden">{f.demoNote}</p>}
+          {account || isLast ? null : <p className="mt-10 text-[0.9375rem] text-muted lg:hidden">{f.demoNote}</p>}
 
           {/* Phones: the actions stay in thumb reach at the bottom while the step scrolls; wider screens keep them under the step. */}
           <div className="sticky bottom-0 z-20 -mx-4 mt-8 flex items-center justify-between gap-3 border-t border-stone/80 bg-ivory px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:static sm:mx-0 sm:mt-10 sm:px-0 sm:pb-0 sm:pt-6">

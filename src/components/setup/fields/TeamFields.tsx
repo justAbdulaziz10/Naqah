@@ -165,7 +165,12 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
           </button>
           <p className="text-[0.9375rem] text-muted">{s.limit(limit, m.common.plans[ws.settings.plan])}</p>
         </div>
-        {over ? <p className="mt-3 text-[0.9375rem] text-danger" role="alert">{s.overLimit(over)}</p> : null}
+        {/* Setup's Next button focuses the first aria-invalid element, so this message takes the focus. */}
+        {over ? (
+          <p className="mt-3 text-[0.9375rem] text-danger" role="alert">
+            <span tabIndex={-1} aria-invalid="true" className="block scroll-mt-40 outline-none">{s.overLimit(over)}</span>
+          </p>
+        ) : null}
       </FieldGroup>
 
       <FieldGroup title={s.herd}>

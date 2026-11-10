@@ -7,6 +7,7 @@ export { RanchFields } from "./fields/RanchFields";
 export { TeamFields } from "./fields/TeamFields";
 export { QuestionsFields } from "./fields/QuestionsFields";
 export { ReportModeField } from "./fields/ReportModeField";
+export { ResourcesFields } from "./fields/ResourcesFields";
 export { createOnboardingSample, hasOwnSetupData } from "./draft";
 export type { SetupFieldsProps, SetupSectionProps, WorkspaceUpdate } from "./types";
 export { formatSaudiMobile, isSaudiMobile, phoneNeedsFixing } from "./phone";
