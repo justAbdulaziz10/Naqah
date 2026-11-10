@@ -235,7 +235,9 @@ export function buildEnvironments(options, stack, secrets = null) {
   }
   const browserStack = { ...stack };
   delete browserStack.SUPABASE_SECRET_KEY;
-  return { build: { ...browserStack, ...accountFlags, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" }, next, bridge, ports, publicBase };
+  const naturalFlag = options.natural ? { NEXT_PUBLIC_NAQAH_NATURAL_CALLS: "1" } : {};
+  if (options.natural) Object.assign(next, naturalFlag);
+  return { build: { ...browserStack, ...accountFlags, ...naturalFlag, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" }, next, bridge, ports, publicBase };
 }
 
 export function describeEnvironment(name, env) {
