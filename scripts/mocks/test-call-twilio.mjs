@@ -149,6 +149,16 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
       const state = engineState(call.sid);
       if (!state) throw new Error("The voice session row disappeared mid-call");
       if (state.step === "report_summary") break;
+      // The phone call greets and asks «جاهز؟» before the first question.
+      if (state.step === "report_ready") {
+        const [spoken, prompts] = [upstream.spoken.length, marks("prompt-")];
+        upstream.workerSays("إيه جاهز");
+        const output = await upstream.toolCall("answer_question", { value: "ready", topic: "herd" });
+        if (output === null || JSON.parse(output).status !== "ok") throw new Error("The server refused «جاهز»");
+        call.readyAnswered = true;
+        await waitUntil(() => upstream.spoken.length > spoken && marks("prompt-") > prompts, "the first question", 20_000);
+        continue;
+      }
       const plan = state.step === "report_question" ? ANSWER_PLAN.find((entry) => entry.when(state)) : null;
       if (!plan) throw new Error(`The scripted worker has no answer for ${state.step}/${state.q}`);
       call.questions.push({ step: state.step, q: state.q });

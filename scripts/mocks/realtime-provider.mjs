@@ -76,7 +76,8 @@ export class Upstream extends EventEmitter {
   #onResponseCreate(event) {
     const instructions = event.response?.instructions;
     if (typeof instructions === "string") {
-      const quoted = instructions.match(/"(?:[^"\\]|\\.)*"$/)?.[0];
+      // The words are the JSON string after "verbatim, with no additions:"; a delivery note may follow it.
+      const quoted = instructions.match(/no additions: ("(?:[^"\\]|\\.)*")/)?.[1] ?? instructions.match(/"(?:[^"\\]|\\.)*"$/)?.[0];
       let line = instructions;
       try { line = quoted ? JSON.parse(quoted) : instructions; } catch { /* keep the raw text */ }
       this.spoken.push(line);
