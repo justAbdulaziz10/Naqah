@@ -14,7 +14,7 @@ import { useIsAccount } from "@/store/workspace";
  * Where this deployment allows it, the owner's "Call now" for one controlled call. Real accounts
  * only: the demo's calls live in the Call Lab. How the latest call stands is in the estate header.
  */
-export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: string; now: Date }) {
+export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Workspace; worker: string; now: Date; primary?: boolean }) {
   const { m, t } = useI18n();
   const d = m.setup.dashboard;
   const account = useIsAccount();
@@ -135,7 +135,9 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
           onClick={() => setConfirming(true)}
           disabled={pending || off}
           aria-describedby={reason ? "call-now-reason" : undefined}
-          className="inline-flex min-h-11 items-center gap-2 rounded-full border border-cream/40 px-5 text-sm font-semibold text-cream transition hover:border-cream active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-cream/40 disabled:active:scale-100"
+          className={primary
+            ? "inline-flex min-h-11 items-center gap-2 rounded-full bg-cream px-5 text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:cursor-not-allowed disabled:bg-cream/40 disabled:text-espresso/70 disabled:active:scale-100"
+            : "inline-flex min-h-11 items-center gap-2 rounded-full border border-cream/40 px-5 text-sm font-semibold text-cream transition hover:border-cream active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-cream/40 disabled:active:scale-100"}
         >
           <PhoneOutgoing size={16} aria-hidden />
           {pending ? d.calling : d.callNow}

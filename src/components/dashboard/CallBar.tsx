@@ -49,11 +49,12 @@ export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; no
         {account ? (
           <div className="space-y-2">
             <div className="flex flex-wrap items-start gap-2 sm:justify-end">
-              <Link href={href("/app/simulate")} prefetch={false} aria-describedby="call-sim-note" className={simClass}>
+              {/* The real call is the main action; the simulation sits beside it as the quieter one. */}
+              <ReportCallNow ws={ws} worker={worker} now={now} primary />
+              <Link href={href("/app/simulate")} prefetch={false} aria-describedby="call-sim-note" className={realClass}>
                 <Phone size={16} weight="fill" aria-hidden />
                 {d.simulateWith}
               </Link>
-              <ReportCallNow ws={ws} worker={worker} now={now} />
             </div>
             <p id="call-sim-note" className="text-xs text-cream/70">{d.simulateWith}: {o.callBar.practice}</p>
           </div>
