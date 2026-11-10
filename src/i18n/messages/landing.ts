@@ -284,9 +284,9 @@ export const landing = defineMessages({
     },
     plans: {
       title: "اختر إيقاعك",
-      pricing: (percent: number) => `شهريًا لكل مزرعة. الأسعار موضحة قبل الضريبة وشاملة ${percent}٪ ضريبة قيمة مضافة.`,
+      pricing: (percent: number) => `شهريًا لكل عزبة. الأسعار موضحة قبل الضريبة وشاملة ${percent}٪ ضريبة قيمة مضافة.`,
       price: {
-        monthlyPerRanch: "شهريًا لكل مزرعة",
+        monthlyPerRanch: "شهريًا لكل عزبة",
         currency: "ريال",
         beforeVat: "قبل الضريبة",
         includingVat: (percent: number) => `شامل ضريبة القيمة المضافة ${percent}٪`,

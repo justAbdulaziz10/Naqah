@@ -362,6 +362,8 @@ const commands = {
       await page.goto(`${BASE}/${LOCALE}`, { waitUntil: "networkidle" });
       await page.getByRole("button", { name: ar ? "استكشف العرض التجريبي" : "Explore the demo", exact: true }).first().click();
       await page.waitForURL(new RegExp(`/${LOCALE}/app$`), { timeout: 10000 });
+      // The store persists after the navigation starts; read it once it has.
+      await page.waitForFunction(() => !!localStorage.getItem("naqah-workspace-v1")?.includes('"setupComplete":true'), null, { timeout: 10_000 });
       check("Explore the demo opens the sample ranch", (await readWs(page))?.settings?.plan === "ultimate");
     });
     // Locale switch keeps the path.
