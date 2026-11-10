@@ -309,7 +309,7 @@ async function assertOwnerNotDialled() {
 
 /** One saved report, its run linked, no call straight to the owner, and the dashboard showing it. */
 async function assertSaved(ranch, call, { expected = [], herd } = {}) {
-  check("the worker hears that the update is saved", /تم حفظ التحديث/.test(call.text), call.text);
+  check("the worker hears that the update is saved", /(?<!ما )انحفظ التحديث/.test(call.text), call.text);
   const status = await call.finalStatus("completed");
   check("final status callback is accepted", status.status === 204, status);
   const farm = ranch.farm;
@@ -343,17 +343,17 @@ async function assertSaved(ranch, call, { expected = [], herd } = {}) {
 function assertNotSaved(ranch, call, label = "no report") {
   check(`${label}: no report row`, count("reports", ranch.farm) === 0, reportOf(ranch.farm));
   const transcript = call.transcript.map((t) => t.said).join(" ");
-  check(`${label}: never says the update was saved`, !/تم حفظ/.test(transcript), transcript.slice(-300));
+  check(`${label}: never says the update was saved`, !/(?<!ما )انحفظ التحديث/.test(transcript), transcript.slice(-300));
 }
 
 /* ─────────────────── questions ─────────────────── */
 
 const Q = {
   // The full read-back repeats questions, so the question patterns must not match the summary.
-  health: /^(?![\s\S]*أحفظه)[\s\S]*حال الحلال/,
+  health: /^(?![\s\S]*أحفظه)[\s\S]*كيف الحلال/,
   herdCount: /كم عدد الحلال/,
-  feed: /كم باقي من العلف/,
-  water: /كيف وضع الماء/,
+  feed: /^(?![\s\S]*أحفظه)[\s\S]*كيف العلف/,
+  water: /^(?![\s\S]*أحفظه)[\s\S]*كيف الماء/,
   custom: /^(?![\s\S]*أحفظه)[\s\S]*البيطري/,
   summary: /أحفظه/,
 };
@@ -375,7 +375,7 @@ scenario("S1a", "Happy: zero camels, no herd count, natural speech", async () =>
     { ask: Q.health, input: speech("كلها بخير") },
     { ask: Q.summary, input: speech("إيه") },
   ]);
-  note(`empty ranch hears the herd question: ${/حال الحلال/.test(call.transcript[0].said)}; summary: ${call.transcript.find((t) => /أحفظه/.test(t.said))?.said}`);
+  note(`empty ranch hears the herd question: ${/كيف الحلال/.test(call.transcript[0].said)}; summary: ${call.transcript.find((t) => /أحفظه/.test(t.said))?.said}`);
   check("not asked for a herd count on an empty ranch", !call.transcript.some((t) => /كم عدد/.test(t.said)), call.transcript.map((t) => t.said));
   await assertSaved(ranch, call, { expected: [] });
 });
@@ -463,9 +463,8 @@ scenario("S3a", "Silence once, then answered (empty SpeechResult and no fields)"
   const ranch = await makeFarm(FULL);
   const call = await callNow(ranch, "S3a");
   await call.answer();
-  const first = call.text;
   await call.turn(SILENT);
-  check("one empty SpeechResult repeats the same question", call.action && call.text.includes(first.slice(-40)) && /معليش/.test(call.text), call.text);
+  check("one empty SpeechResult repeats the same question", call.action && Q.health.test(call.text) && /معليش/.test(call.text), call.text);
   await call.turn(speech("كلها بخير"));
   const second = call.text;
   await call.turn(NOTHING);
@@ -558,16 +557,15 @@ scenario("S4b", "Nonsense speech", async () => {
   const ranch = await makeFarm(FULL);
   const call = await callNow(ranch, "S4b");
   await call.answer();
-  const first = call.text;
   await call.turn(speech("البطيخ طاير فوق السطح"));
-  check("nonsense on a choice question is asked again", call.action && call.text.includes(first.slice(-40)), call.text);
+  check("nonsense on a choice question is asked again", call.action && Q.health.test(call.text), call.text);
   await call.turn(speech("كلها بخير"));
   check("herd count is the next question", Q.herdCount.test(call.text), call.text);
   const before = call.text;
   await call.turn(speech("الجو حلو اليوم"));
   check("nonsense on a number question is asked again", call.action && call.text.includes(before.slice(-30)), call.text);
   await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.custom, input: speech("لا") }]);
-  check("reached the summary", /تم حفظ/.test(call.text), call.text);
+  check("reached the summary", /(?<!ما )انحفظ التحديث/.test(call.text), call.text);
 });
 
 scenario("S4e", "Off-topic words on a guided question are kept as a note and read back", async () => {
@@ -622,7 +620,7 @@ scenario("S4d", "A whole call whose speech scores below 0.5", async () => {
   await call.finalStatus("completed");
   note(`after ${call.turns} turns; last line: ${call.text}`);
   note(`reports saved: ${count("reports", ranch.farm)}; summary heard: ${call.transcript.find((t) => /أحفظه/.test(t.said))?.said ?? "never reached"}`);
-  check("the answers the worker gave are saved", /تم حفظ/.test(call.text) && count("reports", ranch.farm) === 1, call.text);
+  check("the answers the worker gave are saved", /(?<!ما )انحفظ التحديث/.test(call.text) && count("reports", ranch.farm) === 1, call.text);
 });
 
 scenario("S5", "Hang-up midway", async () => {
@@ -654,7 +652,7 @@ scenario("S6a", "Database 503 on a turn", async () => {
   await faults(true);
   try { await call.turn(speech("عشرين")); } finally { await faults(false); }
   note(`during the 503 the worker hears: ${call.text} (HTTP ${call.status}, hangup: ${/Hangup/.test(call.xml)})`);
-  check("a failed turn is an honest message, not a claim of saving", !/تم حفظ/.test(call.text), call.text);
+  check("a failed turn is an honest message, not a claim of saving", !/(?<!ما )انحفظ التحديث/.test(call.text), call.text);
   check("the webhook answers valid TwiML within the failure", call.status === 200 && /<Response>/.test(call.xml), call.xml.slice(0, 200));
   await call.finalStatus("completed");
   assertNotSaved(ranch, call);
@@ -681,7 +679,7 @@ scenario("S6b", "Duplicate POST of the same turn (Twilio retry)", async () => {
   const saveAction = call.action;
   const saveInput = callFields(call.sid, speech("إيه"));
   const [save1, save2] = await Promise.all([post(saveAction, saveInput), post(saveAction, saveInput)]);
-  check("both duplicate saves answer with the same outcome", save1.xml === save2.xml && /تم حفظ/.test(says(save1.xml)), [says(save1.xml), says(save2.xml)]);
+  check("both duplicate saves answer with the same outcome", save1.xml === save2.xml && /(?<!ما )انحفظ التحديث/.test(says(save1.xml)), [says(save1.xml), says(save2.xml)]);
   Object.assign(call, save1);
   call.log("[save x2 concurrent]");
   const replay = await post(saveAction, saveInput);
@@ -717,7 +715,7 @@ scenario("S6c", "Out-of-order status callbacks", async () => {
   call.log("[late confirm after status]");
   note(`late confirm after completed status hears: ${says(reply.xml)}`);
   check("a confirm after the final status does not save", count("reports", ranch.farm) === 0, reportOf(ranch.farm));
-  check("and does not claim it did", !/تم حفظ/.test(says(reply.xml)), says(reply.xml));
+  check("and does not claim it did", !/(?<!ما )انحفظ التحديث/.test(says(reply.xml)), says(reply.xml));
 
   // A duplicate completed after a save leaves the report alone.
   ranch = await makeFarm();

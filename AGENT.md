@@ -13,7 +13,7 @@ their code being present does not mean the live project has been migrated or act
 
 NAQAH is private camel-ranch operations management for **one owner, one farm**, with up to 3 registered workers (Basic)
 or 10 (Ultimate). At the time the owner chooses, **NAQAH calls the primary worker** on an ordinary phone (no app); the AI
-voice agent asks the owner-configured questions, records structured facts (never audio), and updates the farm. Right after a successful update the AI **calls the owner** with only what matters.
+voice agent asks the owner-configured questions, records structured facts (never audio), and updates the farm. At the owner's own scheduled time the AI **calls the owner** with only what matters from the latest verified report (or says plainly that none arrived).
 The **owner** uses a website (this app) to set up the farm, see the latest state, and track tickets.
 Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. Personality: *The Quiet Steward*.
 

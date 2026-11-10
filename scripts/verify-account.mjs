@@ -262,7 +262,7 @@ const ANSWER = "زارنا البيطري اليوم";
 await A.page.goto(`${BASE}/ar/app/calls`);
 await settled(A.page);
 const callA = await workerCall(workerA, { [QUESTION]: ANSWER, "سؤال لم يُحفظ": "لا شيء" });
-check("worker call saves", /تم حفظ التحديث/.test(callA.last), callA.script.join(" | "));
+check("worker call saves", /(?<!ما )انحفظ التحديث/.test(callA.last), callA.script.join(" | "));
 check("the farm's real names are spoken", callA.script[0].includes("يوسف"), callA.script[0]);
 check("one report in Supabase, on the right call", sql(`select count(*) from reports r join calls c on c.id = r.call_id where r.farm_id = ${q(farmA)} and c.provider_call_id = ${q(callA.CallSid)}`) === "1");
 await A.page.evaluate(() => window.dispatchEvent(new Event("focus")));

@@ -1168,7 +1168,7 @@ scenario("J1", "Off-topic words are kept as a note and read back, on realtime", 
   const live = await answerLive((await outbound())[0]);
   const refused = await live.say(NOTE_WORDS, "answer_question", { value: "yes", topic: "herd" });
   check("the answer is not taken for the question", refused?.error === "answer_off_topic" && live.s?.step === "report_question", refused);
-  check("the worker hears it is a note and the question again", heardAll(live.said, ["سجلتها ملاحظة", "حال الحلال"]), live.said);
+  check("the worker hears it is a note and the question again", heardAll(live.said, ["سجلتها ملاحظة", "كيف الحلال"]), live.said);
   check("the note is kept, nothing is guessed", live.s?.draft.answers.some((answer) => answer.answer === NOTE_WORDS) && live.s?.draft.camelUpdates.length === 0, live.s?.draft);
   const summary = await live.say("كلها بخير", "answer_question", { value: "yes", topic: "herd" });
   check("the note is read back", summary?.isSummary === true && heard(live.said, NOTE_WORDS), live.said);
@@ -1186,17 +1186,17 @@ scenario("J2", "Off-topic words are kept as a note and read back, on the scripte
   await ranch.account({ op: "callNow" });
   await waitFor(async () => (await outbound()).length >= 1, "provider request", 80);
   const call = await answerScripted((await outbound())[0]);
-  check("the script asks the question", heard(call.text, "حال الحلال") && Boolean(call.action), call.text);
+  check("the script asks the question", heard(call.text, "كيف الحلال") && Boolean(call.action), call.text);
   await call.turn(speech(NOTE_WORDS));
   const after = state(call.sid);
   check("the words did not answer the question", after?.step === "report_question" && after?.draft.answers.every((answer) => answer.questionId !== "herd_health"), after?.draft);
   check("the note is kept", after?.draft.answers.some((answer) => answer.answer === NOTE_WORDS), after?.draft);
-  check("the question is asked again", heard(call.text, "حال الحلال") && Boolean(call.action), call.text);
+  check("the question is asked again", heard(call.text, "كيف الحلال") && Boolean(call.action), call.text);
   await call.turn(speech("كلها بخير"));
   check("the note is read back", heard(call.text, NOTE_WORDS) && heard(call.text, "أحفظه"), call.text);
   if (!heard(call.text, "أحفظه")) { await call.finalStatus(); return; }
   await call.turn(keys("1"));
-  check("the worker hears the save", /تم حفظ/.test(call.text), call.text);
+  check("the worker hears the save", /(?<!ما )انحفظ التحديث/.test(call.text), call.text);
   await call.finalStatus();
   check("the note is saved in the worker's words", answersOf(ranch.farm).some((row) => row.answer === NOTE_WORDS), answersOf(ranch.farm));
 });
