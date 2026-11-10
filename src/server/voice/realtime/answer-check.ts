@@ -1,7 +1,7 @@
 import { askedTopic, isOffTopicAnswer, topicsInWords } from "@/domain/conversation/answer-topic";
 import type { AnswerInput, CallSession } from "@/domain/conversation/engine";
 import type { Locale } from "@/domain/types";
-import { extractNumber, mapSpeechToInput, normalizeSpeech } from "../speech";
+import { camelNameKey, extractNumber, mapSpeechToInput, normalizeSpeech } from "../speech";
 
 export type AnswerRefusal = "answer_off_topic" | "answer_unclear" | "number_not_in_answer" | "answer_conflicts_with_words";
 export const ANSWER_REFUSAL_MESSAGE = "Nothing was recorded. The worker's words did not support this answer. Do not change the answer to get past a refusal.";
@@ -34,6 +34,9 @@ export function refuseAnswer(session: CallSession, input: AnswerInput, heard: st
   if (!words) return numeric ? "number_not_in_answer" : "answer_unclear";
   if (isGarbled(words, locale)) return "answer_unclear";
   const mapped = mapSpeechToInput(session, heard ?? "", null, locale);
+  // «تمام بس نورة تعبانة»: naming a camel says one needs attention, whatever else the sentence says.
+  const namesCamel = words.split(" ").some((word) => camelNames.some((name) => camelNameKey(word) === camelNameKey(name)));
+  if (health && input.value === "no" && namesCamel) return null;
   if (closesTask && mapped?.value !== "yes") return "answer_unclear";
   if (numeric && extractNumber(heard ?? "") !== Number(input.text)) return "number_not_in_answer";
   if (input.value !== undefined) {
@@ -46,7 +49,8 @@ export function refuseAnswer(session: CallSession, input: AnswerInput, heard: st
   if (input.value === undefined || session.inputMode !== "choices" || mapped?.value === input.value) return null;
   // The model reads the meaning. A herd-wide health answer changes every camel, so it needs health words or a camel's name;
   // one unrecognised word is what a mishearing looks like.
-  const namedCamel = health && input.value === "no" && words.split(" ").some((word) => camelNames.map(evidenceWords).includes(word));
-  if (!namedCamel && (health || words.split(" ").length < 2)) return "answer_unclear";
+  // A plain yes/no follow-up has no meaning to read into: words must say yes or no.
+  const yesNo = session.replies.some((reply) => reply.value === "yes") && session.replies.some((reply) => reply.value === "no");
+  if (health || yesNo || words.split(" ").length < 2) return "answer_unclear";
   return null;
 }

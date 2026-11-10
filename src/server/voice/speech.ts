@@ -72,6 +72,9 @@ const HUNDREDS: Record<string, number> = {
 const ZERO = /(?:^|\s)(?:صفر|zero|none|nothing|nobody|not\s+(?:a\s+single(?:\s+one)?|one|any)|no\s+(?:camels?|bags?|one)|ولا\s+(?:وحده|واحده|واحد|ناقه|شي|شيء|كيس|حبه|لتر|نقطه)|ما\s*(?:في|فيه)\s+(?:شي|شيء|احد)|مافي\s+(?:شي|شيء|احد)|محد)(?:\s|$)/u;
 const EXCEPT = /(?:^|\s)(?:الا|غير|بس|only|just|except|but)(?:\s|$)/u;
 
+/** «نورة», «نوره», «نورا» and «النورة» are one name on the phone. */
+export const camelNameKey = (text: string) => compact(text).split(" ").map((word) => (word.startsWith("ال") && word.length > 3 ? word.slice(2) : word).replace(/[اهي]$/u, "")).join(" ");
+
 export function extractNumber(input: string): number | null {
   const normalized = normalizeSpeech(input).replaceAll("٫", ".");
   const plain = normalized.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -209,10 +212,11 @@ type Concept = "healthy" | "sick" | "watch" | "damaged" | "enough" | "low" | "me
 const CONCEPTS: Record<Concept, readonly string[]> = {
   healthy: ["بخير", "زين", "زينه", "زينين", "طيب", "طيبه", "طيبين", "سليم", "سليمه", "سالمه", "سالمين", "عال", "كويس", "كويسه", "كويسين", "جيد", "جيده", "healthy", "well", "fine", "good", "ok", "okay", "alright"],
   sick: [
+    "مسخنه", "مسخن", "سخنه", "حمى", "محموم", "محمومه",
     "مريض", "مريضه", "مرضى", "مريضات", "تعبان", "تعبانه", "تعبانين", "مصاب", "مصابه", "مصابين", "عيان", "عيانه",
     "مشكله", "مشاكل", "تعرج", "عرجا", "عرجاء", "يعرج", "طايح", "طايحه", "ضعيف", "ضعيفه", "هزيله", "هزيل", "متعب", "متعبه", "مسقوم", "مسقومه", "ميت", "ميته", "نافق", "نافقه", "جربانه", "جرب", "sick", "ill", "injured", "hurt", "unwell", "limping", "wrong", "problem", "problems", "issue", "issues",
   ],
-  watch: ["متابعه", "ملاحظه", "مراقبه", "نراقبها", "watch", "observation"],
+  watch: ["متابعه", "ملاحظه", "مراقبه", "نراقبها", "تابعنا", "نتابعها", "watch", "observation"],
   damaged: ["خراب", "خرب", "منكسر", "خربان", "خربانه", "مكسور", "مكسوره", "broken", "damaged"],
   enough: ["مليان", "مليانه", "متروس", "فل", "كافي", "كافيه", "يكفي", "تكفي", "يكفون", "كفايه", "متوفر", "متوفره", "موجود", "موجوده", "وايد", "كثير", "enough", "plenty", "sufficient", "full"],
   low: ["ناقص", "ناقصه", "نقص", "نقصت", "قليل", "قليله", "شوي", "شويه", "low", "short", "little"],
@@ -449,8 +453,7 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   const exact = session.replies.find((item) => [...(bareYesNo ? [] : [item.value]), item.label.ar, item.label.en].some((text) => compact(text) === normalized));
   if (exact) return { value: exact.value };
   if (session.step === "health_pick" || session.step === "open_clarify") {
-    const nameKey = (text: string) => compact(text).split(" ").map((word) => word.startsWith("ال") && word.length > 3 ? word.slice(2) : word).join(" ");
-    const names = session.replies.filter((reply) => [reply.label.ar, reply.label.en].some((label) => nameKey(label) === nameKey(transcript)));
+    const names = session.replies.filter((reply) => [reply.label.ar, reply.label.en].some((label) => camelNameKey(label) === camelNameKey(transcript)));
     if (names.length === 1) return { value: names[0].value };
     if (names.length > 1) return null;
   }

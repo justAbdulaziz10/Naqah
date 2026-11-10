@@ -7,7 +7,7 @@ import { addUrgentNote, addWorkerNote, reportSummaryId, type AnswerInput, type C
 import { makePersonalizer } from "@/domain/conversation/personalize";
 import type { Locale, Workspace } from "@/domain/types";
 import type { VoiceCallSession } from "../farm-call";
-import { mapSpeechToInput, unknownReply } from "../speech";
+import { camelNameKey, mapSpeechToInput, unknownReply } from "../speech";
 import { spokenWording } from "../twiml";
 import { askedToStop, evidenceWords, isGarbled, isLeakedHint, refuseAnswer } from "./answer-check";
 import { isVerifiedConfirmation } from "./confirmation";
@@ -221,7 +221,7 @@ export function decideTool({ session: current, counters, workspace, locale, name
   // «كلهم بخير بس نورة تعبانة»: the worker already said which one.
   if (chosen?.value === "no" && current.step === "report_question" && askedTopic(current) === "herd") {
     const words = evidenceWords(heard).split(" ");
-    const named = workspace.camels.filter((camel) => words.includes(evidenceWords(camel.name)));
+    const named = workspace.camels.filter((camel) => words.some((word) => camelNameKey(word) === camelNameKey(camel.name)));
     if (named.length === 1) chosen = { value: "no", text: heard.trim().slice(0, 300), camelId: named[0].id };
   }
   if (action.kind === "urgent") {

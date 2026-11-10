@@ -122,3 +122,40 @@ describe("a whole call on natural answers", () => {
     expect(current(live.session)).toBe("herd_health");
   });
 });
+
+describe("the 10 November call that named نورة", () => {
+  it("takes «تمام الحمد لله بس دي وحدة تابعنا نورة» at once, without asking which camel", () => {
+    const first = call();
+    const live = driver(first);
+    live.turn("answer_question", { value: "no", topic: "herd" }, "تمام الحمد لله بس دي وحدة تابعنا نورة.");
+    expect(live.session.step).toBe("health_more");
+    expect(live.session.draft.camelUpdates[0]).toMatchObject({ camelId: first.ws.camels[0].id, health: "sick" });
+  });
+
+  it("matches «نورا» to نورة when asked which camel", () => {
+    const first = call();
+    const live = driver(first);
+    live.turn("answer_question", { value: "no", topic: "herd" }, "كلهم تمام بس وحدة تعبانة");
+    live.turn("answer_question", { value: `camel:${first.ws.camels[0].id}`, topic: "herd" }, "نورا");
+    expect(live.session.step).toBe("health_status");
+  });
+
+  it("understands «مسخنة» as sick", () => {
+    const first = call();
+    const live = driver(first);
+    live.turn("answer_question", { value: "no", topic: "herd" }, "كلهم تمام بس وحدة تعبانة");
+    live.turn("answer_question", { value: `camel:${first.ws.camels[0].id}`, topic: "herd" }, "نورة");
+    live.turn("answer_question", { value: "sick", topic: "herd" }, "مسخنة");
+    expect(live.session.step).toBe("health_more");
+  });
+
+  it("does not take the garbled «ماريانا نارا» as no to «فيه غيرها؟»", () => {
+    const first = call();
+    const live = driver(first);
+    live.turn("answer_question", { value: "no", topic: "herd" }, "كلهم بخير بس نورة تعبانة");
+    live.turn("answer_question", { value: "no", topic: "herd" }, "ماريانا نارا");
+    expect(live.session.step).toBe("health_more");
+    live.turn("answer_question", { value: "no", topic: "herd" }, "لا بس");
+    expect(current(live.session)).toBe("feed_level");
+  });
+});
