@@ -152,7 +152,7 @@ describe("read-back, correction and confirmation", () => {
     call.turn("لا العلف غلط", "correct_report", { item_id: "feed_level" });
     expect(call.said.at(-1)).toBe("طيب، نعدلها. كيف العلف؟");
     call.turn("ثلاثين كيس", "answer_question", { text: "30", topic: "feed" });
-    expect(call.said.at(-1)).toMatch(/^عدلتها\. هذا ملخص التحديث: .*العلف: 30 كيس/);
+    expect(call.said.at(-1)).toMatch(/هذا ملخص التحديث: .*العلف: 30 كيس/);
     call.turn("إيه احفظه", "confirm_report", { confirmed: true });
     expect(call.committed).toBe(true);
   });

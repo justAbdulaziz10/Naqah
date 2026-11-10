@@ -27,6 +27,8 @@ const arg = (name, fallback) => {
   return index >= 0 ? process.argv[index + 1] : fallback;
 };
 const flag = (name) => process.argv.includes(`--${name}`);
+/** The one short word the server may say before the next question («تمام.»، «سلامتها.»). */
+const ACKNOWLEDGED = /^(?:تمام|زين|طيب|ما عليه|الحمد لله|سلامتها|سلامته|سلامتهم|الله يعطيك العافية|عدلتها)\. $/u;
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const OUT = "/tmp/naqah-test-call/verify";
@@ -226,7 +228,7 @@ function assertCallEvidence(call, farm, destination) {
   const arabicShare = (line) => (line.match(ARABIC)?.length ?? 0) / Math.max(1, line.match(/\p{L}/gu)?.length ?? 0);
   check("every spoken line is Arabic", (call.provider.spoken ?? []).length > 0 && call.provider.spoken.every((line) => arabicShare(line) >= 0.8), call.provider.spoken);
   check("the caller hears the ranch's Saudi wording", (call.provider.spoken ?? []).some((line) => /الحلال/.test(line)) && (call.provider.spoken ?? []).some((line) => /العزبة|عزبة/.test(line) || /وش|زين|ولا فيه/.test(line)), call.provider.spoken);
-  check("each answer is followed by exactly the server's next line", (call.linesAfterAnswers ?? []).length === call.questions.length && call.linesAfterAnswers.every((entry) => entry.expected && entry.spoken === entry.expected), call.linesAfterAnswers);
+  check("each answer is followed by exactly the server's next line", (call.linesAfterAnswers ?? []).length === call.questions.length && call.linesAfterAnswers.every((entry) => entry.expected && (entry.spoken === entry.expected || ACKNOWLEDGED.test(entry.spoken.slice(0, -entry.expected.length)) && entry.spoken.endsWith(entry.expected))), call.linesAfterAnswers);
 
   const answers = answersOf(farm);
   const answered = new Set(answers.map((row) => row.question_id));

@@ -79,6 +79,8 @@ function coveredAhead(session: CallSession, heard: string, workspace: Workspace,
   return { facts, rest };
 }
 const ACK: Record<Locale, string[]> = { ar: ["تمام. ", "زين. ", "طيب. "], en: ["Okay. ", "Got it. ", "Thanks. "] };
+const ACKNOWLEDGEMENTS = new Set([...ACK.ar, ...ACK.en, "ما عليه. ", "That's fine. ", "الحمد لله. ", "Good to hear. ", "سلامتها. ", "سلامته. ", "سلامتهم. ", "Sorry to hear that. ", "الله يعطيك العافية. ", "Thank you. ", "عدلتها. ", "Changed. "]);
+const isAcknowledgement = (prefix: string) => ACKNOWLEDGEMENTS.has(prefix);
 
 /**
  * A word that shows the answer was heard before the next question, the way a person would say it. It never
@@ -120,7 +122,8 @@ function afterRefusals(session: CallSession, locale: Locale): { input: AnswerInp
 export function promptResult(session: CallSession, workspace: Workspace, locale: Locale, status = "ok", error?: string, prefix = "", reason?: ClarifyReason, silent = false, spoken?: string[]): ToolResponse {
   const prompt = promptFor(session, spoken ?? spokenFrom(session, Math.max(0, session.turns.length - 1), workspace, locale), workspace, locale);
   const labels = reason === "asked_meaning" && prompt.replies.length ? " " + prompt.replies.map((reply) => reply.label).join(locale === "ar" ? "، " : ", ") : "";
-  const words = prefix + prompt.question + labels;
+  // The summary is read exactly as the engine wrote it, so what the worker confirms is what is saved.
+  const words = (prompt.isSummary && isAcknowledgement(prefix) ? "" : prefix) + prompt.question + labels;
   return {
     output: stringify({ status, ...(error ? { error } : {}), ...prompt }),
     awaitingConfirmation: session.step === SUMMARY_STEP,
