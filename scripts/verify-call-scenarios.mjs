@@ -48,8 +48,8 @@ const AUTH_TOKEN = "local-test-auth-token";
 const SECRET = "local-only-voice-secret-for-call-scenarios";
 const CRON_SECRET = "local-only-cron-secret";
 const SID = `AC${"0".repeat(32)}`;
-const WORKER = "+15555550101";
-const OWNER = "+15555550102";
+const WORKER = "+966500000101";
+const OWNER = "+966500000102";
 const TWILIO_NUMBER = "+15555550100";
 
 mkdirSync(LOGS, { recursive: true });

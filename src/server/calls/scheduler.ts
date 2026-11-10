@@ -151,7 +151,7 @@ async function dial(
 
 export type CallNowResult =
   | { status: "placed" }
-  | { status: "blocked"; reason: ReportCallBlock | "duplicate" | "not_allowed" }
+  | { status: "blocked"; reason: ReportCallBlock | "duplicate" | "not_allowed" | "rate_limited" }
   | { status: "failed"; reason: "not_placed"; code?: number; failureReason?: Extract<OutboundCallResult, { placed: false }>["reason"] };
 
 /**

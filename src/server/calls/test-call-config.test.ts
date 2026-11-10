@@ -41,7 +41,7 @@ describe("provider failures and progress", () => {
   ])("maps %s / %s", (code, reason, expected) => expect(testCallFailure(code as number | undefined, reason)).toBe(expected));
   it("surfaces only the numeric Twilio code, never its message", async () => {
     const fetchMock = vi.fn(async () => Response.json({ code: 21215, message: "sensitive provider detail" }, { status: 400 }));
-    const caller = createTwilioCaller({ accountSid: "fake", authToken: "fake", from: "+15550123456", baseUrl: "https://naqah.test", allowlist: null }, fetchMock);
+    const caller = createTwilioCaller({ accountSid: "fake", authToken: "fake", from: "+15550123456", baseUrl: "https://naqah.test", allowlist: ["+966501234567"] }, fetchMock);
     const result = await caller.place({ to: "+966501234567", url: "https://naqah.test/voice", statusCallback: "https://naqah.test/status" });
     expect(result).toEqual({ placed: false, reason: "rejected", status: 400, code: 21215 });
     expect(JSON.stringify(result)).not.toContain("sensitive");

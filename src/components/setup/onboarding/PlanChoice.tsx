@@ -76,15 +76,18 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
             </span>
           ) : null}
         </span>
-        <PlanRhythm plan={plan} day={day} className="mt-4 h-3" />
-        <span className="mt-3 block text-[1.0625rem] leading-snug">{plan === "basic" ? p.basicRhythm : p.ultimateRhythm}</span>
-        <span className="mt-1 block text-[0.9375rem] leading-relaxed text-muted">{plan === "basic" ? p.basicExtras : p.ultimateExtras}</span>
-        <PlanPrice plan={plan} copy={p.price} compact className="mt-4 border-t border-stone pt-3" />
+        {/* The price answers the first question; the week and what it includes follow. */}
+        <PlanPrice plan={plan} copy={p.price} className="mt-3" />
+        <span className="mt-5 block border-t border-stone pt-4">
+          <PlanRhythm plan={plan} day={day} className="h-3" />
+          <span className="mt-3 block text-[1.0625rem] font-medium leading-snug">{plan === "basic" ? p.basicRhythm : p.ultimateRhythm}</span>
+          <span className="mt-1.5 block text-[0.9375rem] leading-relaxed text-muted">{plan === "basic" ? p.basicExtras : p.ultimateExtras}</span>
+        </span>
         {blocked ? <span className="mt-2 block text-[0.9375rem] text-danger">{p.tooManyForBasic}</span> : null}
       </>
     );
     const frame = cn(
-      "flex flex-col rounded-2xl border p-5 text-start text-espresso transition-[border-color,background-color,box-shadow] duration-200",
+      "flex min-w-0 flex-col rounded-2xl border p-5 text-start sm:p-6 text-espresso transition-[border-color,background-color,box-shadow] duration-200",
       selected ? "border-brown bg-cream shadow-[inset_0_0_0_1px_var(--color-brown)]" : "border-stone bg-cream/60",
     );
     if (!selectable) return <div className={frame}>{body}</div>;
@@ -113,14 +116,15 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
 
   return (
     <fieldset className="min-w-0">
-      <legend className="mb-4 text-[1.0625rem] font-bold text-espresso">{p.choose}</legend>
+      {/* On the plan page the heading already asks the question; the legend stays for screen readers. */}
+      <legend className={initial ? "sr-only" : "mb-4 text-[1.0625rem] font-bold text-espresso"}>{p.choose}</legend>
       {!initial && account ? (
         <div className="grid gap-3">
           {card(ws!.settings.plan, false)}
           <p className="text-[0.9375rem] leading-relaxed text-muted">{p.change}</p>
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2">{PLANS.map((plan) => <div key={plan} className="contents">{card(plan, true)}</div>)}</div>
           {initial ? null : <p className="text-[0.9375rem] leading-relaxed text-muted">{p.chooseDemo}</p>}
         </div>

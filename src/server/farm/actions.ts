@@ -11,6 +11,7 @@ import type { AccountWorkspace } from "@/lib/account/types";
 import type { LoadedFarm } from "@/server/db/queries";
 import { isUuid } from "@/server/db/ids";
 import { manualCallsEnabled, outboundCallMissing, outboundConfig } from "@/server/calls/config";
+import { withCallNowLimit } from "@/server/calls/call-now-limit";
 import { requestReportCallNow, type CallNowResult } from "@/server/calls/scheduler";
 import { createTwilioCaller } from "@/server/calls/twilio";
 import { createServiceClient } from "@/server/db/service-client";
@@ -160,6 +161,8 @@ export async function callWorkerNow(): Promise<ActionResult<CallNowResult>> {
     const service = createServiceClient();
     const config = outboundConfig();
     if (!service || !config) throw new DbError("unavailable");
-    return requestReportCallNow(service, createTwilioCaller(config), farmId, { baseUrl: config.baseUrl, now: new Date(), allowlist: config.allowlist });
+    const now = new Date();
+    return withCallNowLimit(farmId, now, () =>
+      requestReportCallNow(service, createTwilioCaller(config), farmId, { baseUrl: config.baseUrl, now, allowlist: config.allowlist }));
   });
 }

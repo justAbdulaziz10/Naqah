@@ -10,6 +10,7 @@ import { useLabCall } from "@/components/lab/labStore";
 import { useIsAccount } from "@/store/workspace";
 import { ReportCallNow } from "./ReportCallNow";
 
+const simClass = "inline-flex min-h-11 items-center gap-2 rounded-full bg-cream px-5 text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
 const realClass = "inline-flex min-h-11 items-center gap-2 rounded-full border border-cream/40 px-5 text-sm font-semibold text-cream transition hover:border-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
 const linkClass = "inline-flex min-h-11 items-center font-semibold text-cream underline decoration-cream/40 underline-offset-4 transition hover:decoration-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
 
@@ -46,11 +47,20 @@ export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; no
       </div>
       <div className="shrink-0 sm:max-w-xs sm:text-end">
         {account ? (
-          <ReportCallNow ws={ws} worker={worker} now={now} />
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-start gap-2 sm:justify-end">
+              <Link href={href("/app/simulate")} prefetch={false} aria-describedby="call-sim-note" className={simClass}>
+                <Phone size={16} weight="fill" aria-hidden />
+                {d.simulateWith}
+              </Link>
+              <ReportCallNow ws={ws} worker={worker} now={now} />
+            </div>
+            <p id="call-sim-note" className="text-xs text-cream/70">{d.simulateWith}: {o.callBar.practice}</p>
+          </div>
         ) : (
           <div className="space-y-2">
             <div className="flex flex-wrap gap-2 sm:justify-end">
-              <Link href={href("/app/lab")} prefetch={false} onClick={() => { if (!useLabCall.getState().session) useLabCall.getState().patch({ selected: "report_call" }); }} aria-describedby="call-sim-note" className="inline-flex min-h-11 items-center gap-2 rounded-full bg-cream px-5 text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream">
+              <Link href={href("/app/lab")} prefetch={false} onClick={() => { if (!useLabCall.getState().session) useLabCall.getState().patch({ selected: "report_call" }); }} aria-describedby="call-sim-note" className={simClass}>
                 <Phone size={16} weight="fill" aria-hidden />
                 {d.simulateWith}
               </Link>

@@ -14,6 +14,6 @@ export function preflightResponse(): Response {
     transcription: false,
     allowlistValid: Boolean(raw) && raw.split(",").every((item) => /^\+[1-9]\d{7,14}$/.test(item.trim())),
     allowlistDigest: createHmac("sha256", process.env.TWILIO_AUTH_TOKEN!.trim())
-      .update(JSON.stringify(allowlist?.slice().sort() ?? null)).digest("hex"),
+      .update(JSON.stringify(allowlist.slice().sort())).digest("hex"),
   }, { headers: { "Cache-Control": "no-store" } });
 }
