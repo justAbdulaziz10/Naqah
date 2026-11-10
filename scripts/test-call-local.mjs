@@ -212,6 +212,7 @@ export function buildEnvironments(options, stack, secrets = null) {
   if (options.voice) bridge.NAQAH_REALTIME_VOICE = options.voice;
   // One natural conversation, no keypad: local presentation runs only.
   if (options.natural) next.NAQAH_VOICE_STYLE = "natural";
+  if (options.traceTranscripts) bridge.NAQAH_CALL_TRACE_DIR = next.NAQAH_CALL_TRACE_DIR;
   // Some networks (NAT64) list an unreachable IPv6 address first for api.twilio.com: placement then times out.
   next.NODE_OPTIONS = IPV4_FIRST;
   bridge.NODE_OPTIONS = IPV4_FIRST;

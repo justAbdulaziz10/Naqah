@@ -35,8 +35,11 @@ export function loadConfig(env = process.env) {
   const maxCallSeconds = Number.isInteger(requestedSeconds) && requestedSeconds >= 10 && requestedSeconds < 300 ? requestedSeconds : 300;
   const voice = env.NAQAH_REALTIME_VOICE || 'marin';
   if (!VOICES.has(voice)) throw new Error('Invalid NAQAH_REALTIME_VOICE');
+  // Local tracing only: a directory inside the OS temp directory.
+  const traceDir = env.NAQAH_CALL_TRACE_DIR && /^(\/tmp|\/var\/folders|\/private)/.test(env.NAQAH_CALL_TRACE_DIR) ? env.NAQAH_CALL_TRACE_DIR : null;
   return {
     voice,
+    traceDir,
     port,
     publicUrl: env.NAQAH_BRIDGE_PUBLIC_URL,
     upstream,

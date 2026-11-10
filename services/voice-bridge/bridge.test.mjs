@@ -150,7 +150,7 @@ async function fixture(options = {}) {
   await listen(upstream, 3901);
   await listen(providerServer, 3902);
   const bridge = createBridge({
-    config: loadConfig(TEST_ENV), logger: (record) => logs.push(record),
+    config: { ...loadConfig(TEST_ENV), ...options.config }, logger: (record) => logs.push(record),
     limits: { closeMs: 10, transcriptionMs: 50, bargeInMs: 0, ...options.limits },
   });
   await listen(bridge.server, 3903);
@@ -1459,4 +1459,22 @@ test('a continue result is refused outside the natural style', async () => {
     state.complete();
     await closed(connection.socket);
   } finally { await state.close(); }
+});
+
+test('lines are traced to a file only when the local trace directory is set', async () => {
+  const { mkdtempSync, readdirSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const directory = mkdtempSync(join(tmpdir(), 'naqah-trace-'));
+  const state = await fixture({ config: { traceDir: directory } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection, 'Mock opening');
+    await workerTool(state, 'traced', 'answer_question', 'كلها بخير');
+    const files = readdirSync(directory);
+    assert.equal(files.length, 1);
+    const lines = readFileSync(join(directory, files[0]), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    assert.deepEqual(lines.map((line) => [line.who, line.text]), [['naqah', 'Mock opening'], ['worker', 'كلها بخير']]);
+  } finally { await state.close(); rmSync(directory, { recursive: true, force: true }); }
 });

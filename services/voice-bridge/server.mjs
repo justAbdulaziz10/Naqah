@@ -1,4 +1,6 @@
+import { appendFileSync, lstatSync, readdirSync, unlinkSync } from 'node:fs';
 import http from 'node:http';
+import { join } from 'node:path';
 import https from 'node:https';
 import { WebSocket, WebSocketServer } from 'ws';
 import { REALTIME_MODEL } from './config.mjs';
@@ -166,6 +168,24 @@ class CallStream {
       call: this.callSid?.slice(-6) || '', event, ms: Date.now() - this.createdAt,
       inputFrames: this.inputFrames, outputFrames: this.outputFrames, tools: this.toolIds.size, ...detail,
     });
+  }
+
+  /**
+   * Local runs with --trace-transcripts only, after everyone on the call agreed: each line heard and spoken, to a
+   * temp file Next's trace removes after 24 hours. Nothing is written without the directory being set.
+   */
+  trace(who, text) {
+    if (!this.config.traceDir || !this.callSid) return;
+    try {
+      if (!this.traceCleaned) {
+        this.traceCleaned = true;
+        for (const name of readdirSync(this.config.traceDir)) {
+          const file = join(this.config.traceDir, name);
+          if (/^bridge-[0-9a-z]{1,6}\.jsonl$/i.test(name) && lstatSync(file).mtimeMs < Date.now() - 24 * 60 * 60 * 1000) unlinkSync(file);
+        }
+      }
+      appendFileSync(join(this.config.traceDir, `bridge-${this.callSid.slice(-6)}.jsonl`), JSON.stringify({ at: Date.now() - this.createdAt, who, text: String(text).slice(0, 1000) }) + '\n', { mode: 0o600 });
+    } catch { /* tracing never affects the call */ }
   }
 
   /** Next asked for one natural conversation: the model speaks for itself, only the summary is word for word. */
@@ -524,6 +544,7 @@ class CallStream {
     } else if (event.type === 'response.output_audio.delta') {
       this.outputAudio(event);
     } else if (event.type === 'response.output_audio_transcript.done') {
+      if (typeof event.transcript === 'string') this.trace('naqah', event.transcript);
       if (this.responseSummary?.responseId === event.response_id && typeof event.transcript === 'string') {
         this.responseSummary.transcripts.set(`${event.item_id}:${event.content_index}`, event.transcript);
       }
@@ -607,6 +628,7 @@ class CallStream {
       if (!turn || typeof turn.id !== 'string' || event.item_id !== turn.id || event.content_index !== 0) return;
       const transcript = event.type.endsWith('.completed') && typeof event.transcript === 'string'
         && event.transcript.length <= 1000 && !/[\u0000-\u001f\u007f]/u.test(event.transcript) ? event.transcript : '';
+      this.trace('worker', transcript);
       turn.settle(transcript);
     } else if (event.type === 'response.function_call_arguments.done') {
       if (!this.ending && !this.ignoredResponses.has(event.response_id)) this.queueTool(event);
