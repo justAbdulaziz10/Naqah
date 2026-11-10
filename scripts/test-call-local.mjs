@@ -55,6 +55,7 @@ export const FORBIDDEN_LIVE = ["CRON_SECRET", "NAQAH_SCHEDULED_CALLS", "NAQAH_MA
 const MASKED = new Set([...SECRET_NAMES.filter((name) => name !== "TWILIO_PHONE_NUMBER"), "SUPABASE_SECRET_KEY", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"]);
 const LOOPBACK_HOST = /^(localhost|127(\.\d+){3}|\[::1\]|::1)$/;
 const SAUDI_MOBILE = /^\+9665\d{8}$/;
+const IPV4_FIRST = "--dns-result-order=ipv4first";
 
 export class UsageError extends Error {}
 
@@ -202,11 +203,14 @@ export function buildEnvironments(options, stack, secrets = null) {
     OPENAI_API_KEY: live ? secrets.OPENAI_API_KEY : "local-test-key",
   };
   if (options.maxCallSeconds) bridge.NAQAH_CALL_TIME_LIMIT_SECONDS = options.maxCallSeconds;
+  // Some networks (NAT64) list an unreachable IPv6 address first for api.twilio.com: placement then times out.
+  next.NODE_OPTIONS = IPV4_FIRST;
+  bridge.NODE_OPTIONS = IPV4_FIRST;
   if (!live) {
-    next.NODE_OPTIONS = `--import=${join(REPO, "supabase/local-validation/mock-outbound.mjs")}`;
+    next.NODE_OPTIONS = `${IPV4_FIRST} --import=${join(REPO, "supabase/local-validation/mock-outbound.mjs")}`;
     next.NAQAH_TEST_OUTBOUND_GATEWAY = `http://127.0.0.1:${PROVIDER_PORT}/`;
     if (options.reportPath) next.NAQAH_MANUAL_REPORT_CALLS = "1";
-    bridge.NODE_OPTIONS = `--import=${join(REPO, "scripts/mocks/loopback-guard.mjs")}`;
+    bridge.NODE_OPTIONS = `${IPV4_FIRST} --import=${join(REPO, "scripts/mocks/loopback-guard.mjs")}`;
     bridge.NAQAH_REALTIME_URL = `ws://127.0.0.1:${PROVIDER_PORT}/v1/realtime`;
   }
   const browserStack = { ...stack };

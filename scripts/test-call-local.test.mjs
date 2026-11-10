@@ -101,7 +101,7 @@ describe("test-call environments", () => {
     expect(bridge.NAQAH_BRIDGE_UPSTREAM).toBe("http://127.0.0.1:3301");
     expect(next.NAQAH_CALL_ALLOWLIST).toBe("+966512345678");
     for (const env of [next, bridge]) {
-      expect(env).not.toHaveProperty("NODE_OPTIONS");
+      expect(env.NODE_OPTIONS).toBe("--dns-result-order=ipv4first");
       expect(env).not.toHaveProperty("NAQAH_TEST_OUTBOUND_GATEWAY");
       expect(env).not.toHaveProperty("NAQAH_REALTIME_URL");
     }
