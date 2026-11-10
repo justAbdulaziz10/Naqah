@@ -177,6 +177,16 @@ describe("natural Arabic answers", () => {
     expect(refuseAnswer(feed, { value: "good" }, "والله الوضع ماشي الحال", "ar")).toBeNull();
   });
 
+  it.each(["أنا بخير الحمد لله", "لو بخير", "أنا تعبان", "إذا بخير"])("does not take «%s» as a report on the camels", (heard) => {
+    expect(mapSpeechToInput(health, heard, null, "ar")).toBeNull();
+    expect(refuseAnswer(health, { value: "yes" }, heard, "ar")).toBe("answer_unclear");
+    expect(refuseAnswer(health, { value: "no" }, heard, "ar")).toBe("answer_unclear");
+  });
+
+  it("still accepts a first-person sentence about the camels", () => {
+    expect(mapSpeechToInput(health, "أنا شفت الحلال بخير", null, "ar")).toEqual({ value: "yes" });
+  });
+
   it("does not guess from unclear or unrelated words", () => {
     expect(refuseAnswer(feed, { value: "good" }, "كاسييا", "ar")).toBe("answer_unclear");
     expect(refuseAnswer(health, { value: "no" }, "الجو حار اليوم", "ar")).toBe("answer_unclear");

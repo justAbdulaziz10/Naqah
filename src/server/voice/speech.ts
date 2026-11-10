@@ -1,4 +1,4 @@
-import { isOffTopicAnswer } from "@/domain/conversation/answer-topic";
+import { isOffTopicAnswer, topicsInWords } from "@/domain/conversation/answer-topic";
 import type { AnswerInput, CallSession, Reply } from "@/domain/conversation/engine";
 import type { Locale } from "@/domain/types";
 
@@ -444,6 +444,8 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   const normalized = compact(transcript);
   const herdItem = currentItem(session);
   const bareYesNo = herdItem?.kind === "predefined" && herdItem.answerKind === "herd-health"; // The reply values are "yes" and "no".
+  // «أنا بخير» is about the speaker and «لو بخير» is only an if: neither reports on the camels.
+  if (bareYesNo && (/(?:^| )(?:لو|اذا)(?: |$)/.test(normalized) || (/(?:^| )انا(?: |$)/.test(normalized) && !topicsInWords(normalized).has("herd")))) return null;
   const exact = session.replies.find((item) => [...(bareYesNo ? [] : [item.value]), item.label.ar, item.label.en].some((text) => compact(text) === normalized));
   if (exact) return { value: exact.value };
   if (session.step === "health_pick" || session.step === "open_clarify") {
