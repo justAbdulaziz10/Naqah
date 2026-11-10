@@ -9,6 +9,7 @@
 // Env: NAQAH_TEST_JWT_SECRET, NAQAH_TEST_GATEWAY_PORT, NAQAH_TEST_POSTGREST, NAQAH_TEST_DB and the PG* variables.
 import { execFile } from "node:child_process";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 
 const SECRET = process.env.NAQAH_TEST_JWT_SECRET ?? "";
@@ -63,6 +64,15 @@ const usersById = new Map(); // id -> { user, password }
 const usersByEmail = new Map(); // email -> id
 const sessions = new Map(); // session id -> user id
 const refreshTokens = new Map(); // token -> { sessionId, usedAt }
+// NAQAH_TEST_USERS_FILE (the test-call runner's --keep-data): local test accounts survive a restart with the database.
+const USERS_FILE = /^\/(?:tmp|private\/tmp)\/[\w./-]+$/.test(process.env.NAQAH_TEST_USERS_FILE ?? "") ? process.env.NAQAH_TEST_USERS_FILE : null;
+if (USERS_FILE && existsSync(USERS_FILE)) {
+  for (const { user, password } of JSON.parse(readFileSync(USERS_FILE, "utf8"))) {
+    usersById.set(user.id, { user, password });
+    usersByEmail.set(user.email, user.id);
+  }
+}
+const saveUsers = () => { if (USERS_FILE) writeFileSync(USERS_FILE, JSON.stringify([...usersById.values()]), { mode: 0o600 }); };
 const outboundRequests = [];
 let outboundStatus = 201;
 let restFailure = false;
@@ -151,6 +161,7 @@ async function handleTestUsers(req, res) {
   };
   usersById.set(id, { user, password });
   usersByEmail.set(key, id);
+  saveUsers();
   sendJson(res, 201, user);
 }
 

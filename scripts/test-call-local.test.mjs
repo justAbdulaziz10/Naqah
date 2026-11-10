@@ -1,7 +1,7 @@
 import { createServer } from "node:net";
 import { describe, expect, it } from "vitest";
 import {
-  buildEnvironments, cleanBaseEnv, describeEnvironment, FORBIDDEN_LIVE, parseArgs, parseSecrets, portHolder, resetLocalReport, TEST_FARM, UsageError, validatePublicUrl,
+  APPROVED_FILE, buildEnvironments, cleanBaseEnv, describeEnvironment, FORBIDDEN_LIVE, parseArgs, parseSecrets, portHolder, resetLocalReport, TEST_FARM, UsageError, validatePublicUrl,
 } from "./test-call-local.mjs";
 
 const SID = `AC${"a1".repeat(16)}`;
@@ -128,13 +128,15 @@ describe("test-call environments", () => {
     for (const name of FORBIDDEN_LIVE) expect(next).not.toHaveProperty(name);
   });
 
-  it("enables «اتصال حقيقي» in live mode only with --dashboard-call, for exactly one number", () => {
+  it("enables «اتصال حقيقي» in live mode only with --dashboard-call, for approved numbers read from a file", () => {
     expect(live().next).not.toHaveProperty("NAQAH_MANUAL_REPORT_CALLS");
     const { next } = buildEnvironments(parseArgs([...liveArgs, "--dashboard-call"]), stack, parseSecrets(secretsText));
     expect(next.NAQAH_MANUAL_REPORT_CALLS).toBe("1");
     for (const name of ["CRON_SECRET", "NAQAH_SCHEDULED_CALLS", "NAQAH_CALL_OWNER"]) expect(next).not.toHaveProperty(name);
     expect(next.NAQAH_CALL_ALLOWLIST).toBe("+966512345678");
-    expect(() => parseArgs([...liveArgs, "--allow", "+966512345679", "--dashboard-call"])).toThrow(/exactly one/);
+    // Several approved numbers; the app reads them from the file on every call, so approving one needs no restart.
+    expect(parseArgs([...liveArgs, "--allow", "+966512345679", "--dashboard-call"]).allow).toEqual(["+966512345678", "+966512345679"]);
+    expect(next.NAQAH_CALL_ALLOWLIST_FILE).toBe(APPROVED_FILE);
     expect(() => parseArgs(["--dashboard-call"])).toThrow(/live only/);
   });
 
@@ -209,5 +211,11 @@ describe("voice choice", () => {
     expect(envs.bridge.NAQAH_REALTIME_VOICE).toBe("cedar");
     expect(envs.next).not.toHaveProperty("NAQAH_REALTIME_VOICE");
     expect(() => parseArgs([...liveArgs, "--voice", "nova"])).toThrow(/realtime voice/);
+  });
+});
+
+describe("kept local data", () => {
+  it("parses --keep-data", () => {
+    expect(parseArgs([...liveArgs, "--dashboard-call", "--keep-data"]).keepData).toBe(true);
   });
 });

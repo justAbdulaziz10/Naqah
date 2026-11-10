@@ -10,6 +10,7 @@ import { useI18n } from "@/i18n/client";
 import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
 import { latinDigits } from "@/lib/supabase/auth-input";
 import type { SetupFieldsProps } from "../types";
+import { formatSaudiMobile, isSaudiMobile } from "../phone";
 import { FieldGroup, PhoneField, StepField, StepInput, StepSelect } from "../onboarding/WizardParts";
 
 /**
@@ -31,7 +32,66 @@ function parseHerdCount(text: string): number | null | undefined {
 }
 
 /** Registered workers (one is called for the report) and the official herd count. */
-export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProps) {
+/**
+ * Settings: a saved worker's number changes only after the owner sees the whole new number once and confirms it,
+ * so a half-typed number is never saved and never called. The next call reads it from the ranch as saved.
+ */
+function ConfirmedPhone({ label, name, value, onSave }: { label: string; name: string; value: string; onSave: (phone: string) => void }) {
+  const { m } = useI18n();
+  const s = m.setup.team;
+  const [draft, setDraft] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const button = "inline-flex min-h-11 items-center rounded-full px-5 font-semibold transition";
+  if (draft === null) {
+    return (
+      <div>
+        <p className="mb-2 text-[0.9375rem] font-semibold text-espresso">{label}</p>
+        <div className="flex min-h-14 flex-wrap items-center gap-x-4 gap-y-2">
+          <span dir="ltr" className="ltr-nums text-[1.0625rem] text-espresso">{value ? formatSaudiMobile(value) : "—"}</span>
+          <button type="button" onClick={() => { setDraft(value); setSaved(false); }} className="min-h-11 font-semibold text-brown underline decoration-sand underline-offset-4">
+            {s.phoneChange}
+          </button>
+        </div>
+        {saved ? <p role="status" className="mt-1 text-[0.9375rem] text-ok">{s.phoneSaved}</p> : null}
+      </div>
+    );
+  }
+  const valid = isSaudiMobile(draft);
+  const cancel = () => { setDraft(null); setChecking(false); };
+  return (
+    <div>
+      {checking ? (
+        <div role="group" aria-label={s.phoneCheck(name)} className="rounded-xl border border-sand bg-cream p-4">
+          <p className="text-[0.9375rem] text-espresso">{s.phoneCheck(name)}</p>
+          <p dir="ltr" className="ltr-nums mt-1 text-start text-[1.25rem] font-bold text-espresso">{formatSaudiMobile(draft)}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" autoFocus onClick={() => { onSave(formatSaudiMobile(draft)); setDraft(null); setChecking(false); setSaved(true); }} className={`${button} bg-brown text-ivory hover:bg-espresso`}>
+              {s.phoneConfirm}
+            </button>
+            <button type="button" onClick={() => setChecking(false)} className={`${button} border border-stone bg-ivory text-espresso hover:border-sand`}>
+              {s.phoneEdit}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <PhoneField label={label} autoComplete="off" value={draft} showError={draft.trim() !== ""} onChange={setDraft} />
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" disabled={!valid} onClick={() => setChecking(true)} className={`${button} bg-brown text-ivory hover:bg-espresso disabled:cursor-not-allowed disabled:bg-stone disabled:text-muted`}>
+              {s.phoneSave}
+            </button>
+            <button type="button" onClick={cancel} className={`${button} text-muted hover:text-espresso`}>
+              {s.phoneCancel}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function TeamFields({ ws, onChange, showErrors = false, confirmPhone = false }: SetupFieldsProps & { confirmPhone?: boolean }) {
   const { m, t } = useI18n();
   const s = m.setup.team;
   const workers = allWorkers(ws.settings);
@@ -114,14 +174,18 @@ export function TeamFields({ ws, onChange, showErrors = false }: SetupFieldsProp
                         />
                       )}
                     </StepField>
-                    <PhoneField
-                      label={s.phone}
-                      autoComplete="off"
-                      value={worker.phone}
-                      showError={showErrors}
-                      requiredMessage={primary ? m.setup.call.needWorkerPhone : undefined}
-                      onChange={(phone) => editWorker(index, { phone })}
-                    />
+                    {confirmPhone && isSaudiMobile(worker.phone) ? (
+                      <ConfirmedPhone label={s.phone} name={worker.name.trim() || label} value={worker.phone} onSave={(phone) => editWorker(index, { phone })} />
+                    ) : (
+                      <PhoneField
+                        label={s.phone}
+                        autoComplete="off"
+                        value={worker.phone}
+                        showError={showErrors}
+                        requiredMessage={primary ? m.setup.call.needWorkerPhone : undefined}
+                        onChange={(phone) => editWorker(index, { phone })}
+                      />
+                    )}
                   </div>
                   {/* The call language is rarely changed, so it waits behind its current value. */}
                   <details className="group mt-3" open={!isLiveCallLanguage(worker.language) || undefined}>

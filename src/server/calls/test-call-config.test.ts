@@ -62,3 +62,30 @@ describe("provider failures and progress", () => {
     for (const status of ["queued", "initiated", "unknown", "toString"]) expect(testCallProgress(status)).toBeNull();
   });
 });
+
+describe("approved numbers from a local file", () => {
+  it("reads the file on every call, so a newly approved number works without a restart", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { callAllowlist } = await import("./config");
+    const dir = mkdtempSync("/tmp/naqah-approved-");
+    const file = join(dir, "approved.txt");
+    try {
+      vi.stubEnv("NAQAH_CALL_ALLOWLIST", "+966500000001");
+      vi.stubEnv("NAQAH_CALL_ALLOWLIST_FILE", file);
+      expect(callAllowlist()).toEqual([]); // unreadable: nothing approved
+      writeFileSync(file, "+966537099599\n");
+      expect(callAllowlist()).toEqual(["+966537099599"]);
+      writeFileSync(file, "+966537099599\n+966508913447\nnot-a-number\n");
+      expect(callAllowlist()).toEqual(["+966537099599", "+966508913447"]);
+      vi.stubEnv("NAQAH_CALL_ALLOWLIST_FILE", "/etc/passwd");
+      expect(callAllowlist()).toEqual(["+966500000001"]);
+      vi.stubEnv("VERCEL", "1");
+      vi.stubEnv("NAQAH_CALL_ALLOWLIST_FILE", file);
+      expect(callAllowlist()).toEqual(["+966500000001"]);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

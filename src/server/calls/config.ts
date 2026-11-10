@@ -2,6 +2,8 @@
  * Settings for calls NAQAH places itself (report calls to the worker, update calls to the owner).
  * Names only are reported as missing, so the result is safe to log.
  */
+import { readFileSync } from "node:fs";
+
 const value = (name: string) => process.env[name]?.trim() ?? "";
 
 export interface OutboundConfig {
@@ -22,7 +24,28 @@ export const SAUDI_MOBILE = /^\+9665\d{8}$/;
  * number, nothing can be dialled, so a missing or mistyped setting fails closed.
  */
 export function callAllowlist(): string[] {
-  return value("NAQAH_CALL_ALLOWLIST").split(",").map((item) => item.replace(/[\s-]/g, "")).filter((item) => SAUDI_MOBILE.test(item));
+  const file = approvedNumbersFile();
+  const raw = file === null ? value("NAQAH_CALL_ALLOWLIST") : readApproved(file);
+  return raw.split(/[,\n]/).map((item) => item.replace(/[\s-]/g, "")).filter((item) => SAUDI_MOBILE.test(item));
+}
+
+/**
+ * Local test runs only: NAQAH_CALL_ALLOWLIST_FILE names a file of approved numbers in the OS temp directory, read
+ * on every call, so approving a number needs no restart. Never on Vercel; any other path is ignored. An unreadable
+ * file approves nothing.
+ */
+function approvedNumbersFile(): string | null {
+  const file = value("NAQAH_CALL_ALLOWLIST_FILE");
+  if (!file || process.env.VERCEL !== undefined) return null;
+  return /^\/(?:tmp|private\/tmp|var\/folders)\/[\w./-]+$/.test(file) && !file.includes("..") ? file : null;
+}
+
+function readApproved(file: string): string {
+  try {
+    return readFileSync(file, "utf8").slice(0, 4096);
+  } catch {
+    return "";
+  }
 }
 
 /** The longest any call NAQAH places may last. NAQAH_CALL_TIME_LIMIT_SECONDS can only lower it. */

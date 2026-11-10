@@ -21,6 +21,8 @@ const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const ROOT = "/tmp/naqah-test-call";
 const LOGS = join(ROOT, "logs");
 const PGDATA = join(ROOT, "pg");
+/** Approved numbers, read by the app on every call: approving one needs no restart (see scripts/demo/approve-number.mjs). */
+export const APPROVED_FILE = join(ROOT, "approved-numbers.txt");
 const SOCK = join(ROOT, "sock");
 const STACK_ENV = join(ROOT, "stack.env");
 export const READY_FILE = join(ROOT, "ready.json");
@@ -81,6 +83,7 @@ export function parseArgs(argv) {
     else if (name === "--trace-transcripts") options.traceTranscripts = true;
     else if (name === "--reset-report") options.resetReport = true;
     else if (name === "--natural") options.natural = true;
+    else if (name === "--keep-data") options.keepData = true;
     else if (name === "--voice") {
       options.voice = takeValue(index, name);
       if (!/^(marin|cedar|alloy|ash|ballad|coral|echo|sage|shimmer|verse)$/.test(options.voice)) throw new UsageError("--voice takes a realtime voice such as marin or cedar");
@@ -124,7 +127,7 @@ export function parseArgs(argv) {
     return number;
   });
   options.allow = [...new Set(options.allow)];
-  if (options.dashboardCall && options.allow.length !== 1) throw new UsageError("--dashboard-call needs exactly one --allow number: the worker «اتصال حقيقي» calls");
+  if (options.dashboardCall && options.allow.length < 1) throw new UsageError("--dashboard-call needs at least one --allow number");
   options.bridgePort ??= PORTS.live.bridge;
   if (options.bridgePort === PORTS.live.next) throw new UsageError(`--bridge-port cannot be ${PORTS.live.next}: Next uses it`);
   return options;
@@ -195,6 +198,7 @@ export function buildEnvironments(options, stack, secrets = null) {
     NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1",
     NAQAH_TEST_CALLS: "1", NAQAH_TEST_CALL_ADMINS: TESTER.email, NAQAH_CALL_ALLOWLIST: allowlist.join(","),
     NAQAH_VOICE_MODE: "farm", NAQAH_VOICE_LOCALE: "ar", NAQAH_VOICE_ENGINE: "realtime",
+    ...(live ? { NAQAH_CALL_ALLOWLIST_FILE: APPROVED_FILE } : {}),
     NAQAH_BRIDGE_PUBLIC_URL: bridgePublic, NAQAH_PUBLIC_BASE_URL: publicBase,
   };
   if (options.maxCallSeconds) next.NAQAH_CALL_TIME_LIMIT_SECONDS = options.maxCallSeconds;
@@ -276,17 +280,29 @@ async function waitFor(probe, what, tries = 240) {
 
 const pgEnv = (base) => ({ ...base, PATH: `${PG_BIN}:${base.PATH}`, LC_ALL: "en_US.UTF-8", PGHOST: "127.0.0.1", PGPORT: String(PG_PORT), PGUSER: "postgres" });
 
-function startPostgres(base) {
-  rmSync(PGDATA, { recursive: true, force: true });
+/** With --keep-data the database survives restarts: the owner's saved numbers and questions stay as saved. */
+function startPostgres(base, keep = false) {
+  const kept = keep && existsSync(join(PGDATA, "PG_VERSION"));
+  if (!kept) {
+    rmSync(PGDATA, { recursive: true, force: true });
+    rmSync(join(ROOT, "users.json"), { force: true });
+  }
   mkdirSync(SOCK, { recursive: true });
-  execFileSync(join(PG_BIN, "initdb"), ["-D", PGDATA, "-U", "postgres", "--auth=trust", "-E", "UTF8"], { env: pgEnv(base), stdio: "ignore" });
+  if (!kept) execFileSync(join(PG_BIN, "initdb"), ["-D", PGDATA, "-U", "postgres", "--auth=trust", "-E", "UTF8"], { env: pgEnv(base), stdio: "ignore" });
   execFileSync(join(PG_BIN, "pg_ctl"), ["-D", PGDATA, "-w", "-l", join(LOGS, "postgres.log"), "-o", `-p ${PG_PORT} -h 127.0.0.1 -k ${SOCK} -c fsync=off`, "start"], { env: pgEnv(base), stdio: "ignore" });
 }
 
-function stopPostgres(base) {
+function stopPostgres(base, keep = false) {
   if (!existsSync(PGDATA)) return;
   try { execFileSync(join(PG_BIN, "pg_ctl"), ["-D", PGDATA, "-m", "fast", "-w", "stop"], { env: pgEnv(base), stdio: "ignore" }); } catch { /* already stopped */ }
-  rmSync(PGDATA, { recursive: true, force: true });
+  if (!keep) rmSync(PGDATA, { recursive: true, force: true });
+}
+
+/** A kept database that already holds the test ranch: nothing is seeded or overwritten. */
+function keptDatabase(base) {
+  try {
+    return execFileSync(join(PG_BIN, "psql"), ["-X", "-A", "-t", "-d", DB, "-c", `select count(*) from farms where id = '${TEST_FARM}'`], { env: pgEnv(base), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() === "1";
+  } catch { return false; }
 }
 
 async function stopChildren() {
@@ -415,7 +431,7 @@ async function main() {
     rmSync(READY_FILE, { force: true });
     await mock?.close().catch(() => {});
     await stopChildren();
-    stopPostgres(base);
+    stopPostgres(base, options.keepData);
     console.log("Stopped.");
     process.exit(code);
   };
@@ -423,9 +439,17 @@ async function main() {
 
   try {
     console.log("Starting the disposable database and local stack…");
-    startPostgres(base);
+    startPostgres(base, options.keepData);
+    const kept = options.keepData && keptDatabase(base);
+    if (options.mode === "live") {
+      // Approved numbers: these plus any already approved for this kept stack.
+      const already = kept && existsSync(APPROVED_FILE) ? readFileSync(APPROVED_FILE, "utf8").split("\n").filter((line) => SAUDI_MOBILE.test(line.trim())).map((line) => line.trim()) : [];
+      writeFileSync(APPROVED_FILE, [...new Set([...already, ...options.allow])].join("\n") + "\n", { mode: 0o600 });
+    }
     const stackChild = background("stack", "sh", [join(REPO, "supabase/local-validation/run-stack.sh"), STACK_ENV], {
-      ...pgEnv(base), NAQAH_TEST_DB: DB, NAQAH_TEST_REST_PORT: String(REST_PORT), NAQAH_TEST_GATEWAY_PORT: String(GATEWAY_PORT), POSTGREST_BIN,
+      ...pgEnv(base), ...(kept ? { NAQAH_TEST_KEEP_DB: "1" } : {}),
+      // Kept with the database, so the local logins still work after a restart.
+      ...(options.keepData ? { NAQAH_TEST_USERS_FILE: join(ROOT, "users.json") } : {}), NAQAH_TEST_DB: DB, NAQAH_TEST_REST_PORT: String(REST_PORT), NAQAH_TEST_GATEWAY_PORT: String(GATEWAY_PORT), POSTGREST_BIN,
     });
     await waitFor(() => {
       if (stackChild.exitCode !== null) throw new UsageError(`The local stack exited early; see ${LOGS}/stack.log`);
@@ -434,12 +458,17 @@ async function main() {
     const stack = Object.fromEntries([...readFileSync(STACK_ENV, "utf8").matchAll(/export (\w+)='([^']*)'/g)].map((match) => [match[1], match[2]]));
     const envs = buildEnvironments(options, stack, secrets);
 
-    console.log("Creating local accounts and sample ranches…");
-    const testerId = await createUser(TESTER);
-    const controlId = await createUser(CONTROL);
-    seed(base, testerId, controlId);
-    // «اتصال حقيقي» calls the ranch's saved primary worker: make that the one approved number.
-    if (options.dashboardCall) localSql(base)(`update workers set phone = '${options.allow[0]}' where farm_id = '${TEST_FARM}'`);
+    if (kept) {
+      // The owner's saved numbers, questions and history stay exactly as they were saved.
+      console.log("Keeping the saved local data (--keep-data): nothing is seeded or overwritten.");
+    } else {
+      console.log("Creating local accounts and sample ranches…");
+      const testerId = await createUser(TESTER);
+      const controlId = await createUser(CONTROL);
+      seed(base, testerId, controlId);
+      // A fresh test ranch starts on the first approved number; after that the owner's saved number is used.
+      if (options.dashboardCall) localSql(base)(`update workers set phone = '${options.allow[0]}' where farm_id = '${TEST_FARM}'`);
+    }
 
     if (options.skipBuild && existsSync(join(REPO, ".next/BUILD_ID"))) {
       console.log("Using the existing build (--skip-build).");

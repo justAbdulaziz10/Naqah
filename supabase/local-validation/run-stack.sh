@@ -55,10 +55,15 @@ for port in "$REST_PORT" "$GATEWAY_PORT"; do
 done
 
 rm -f "$ENV_FILE"
+# NAQAH_TEST_KEEP_DB=1 (the test-call runner's --keep-data): reuse the existing database as it is.
+if [ "${NAQAH_TEST_KEEP_DB:-}" = "1" ] && [ "$($PSQL -d postgres -A -t -c "select count(*) from pg_database where datname = '$DB'")" = "1" ]; then
+  echo "Keeping database $DB"
+else
 $PSQL -d postgres -c "drop database if exists $DB with (force)"
 $PSQL -d postgres -c "create database $DB"
 $PSQL -d "$DB" -f bootstrap.sql
 for migration in ../migrations/*.sql; do $PSQL -d "$DB" -1 -f "$migration"; done
+fi
 $PSQL -d "$DB" -c "do \$\$ begin create role authenticator login noinherit; exception when duplicate_object then null; end \$\$" \
   -c "grant anon, authenticated, service_role to authenticator"
 
@@ -80,7 +85,7 @@ PGRST_SERVER_PORT="$REST_PORT" PGRST_SERVER_HOST=127.0.0.1 PGRST_LOG_LEVEL=crit 
 "$POSTGREST_BIN" &
 REST=$!
 
-NAQAH_TEST_DB="$DB" NAQAH_TEST_POSTGREST="http://127.0.0.1:$REST_PORT" NAQAH_TEST_JWT_SECRET="$SECRET" \
+NAQAH_TEST_USERS_FILE="${NAQAH_TEST_USERS_FILE:-}" NAQAH_TEST_DB="$DB" NAQAH_TEST_POSTGREST="http://127.0.0.1:$REST_PORT" NAQAH_TEST_JWT_SECRET="$SECRET" \
 NAQAH_TEST_GATEWAY_PORT="$GATEWAY_PORT" node mock-gateway.mjs &
 GATEWAY=$!
 

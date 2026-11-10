@@ -24,6 +24,8 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   const [confirming, setConfirming] = useState(false);
   // Which run was latest when a call was placed, so "NAQAH is calling" ends with that call.
   const [placedAfter, setPlacedAfter] = useState<{ runId: string | null } | null>(null);
+  // Whether the saved number may be called on this computer; checked again whenever the saved number changes.
+  const [approval, setApproval] = useState<{ approved: boolean | null; numbers: string[] } | null>(null);
   // A double click on "Call now" must send one request; state updates arrive too late to stop the second.
   const sending = useRef(false);
   const phone = dialableWorkerPhone(ws); // Shown isolated (U+2066…U+2069) so it reads left to right in Arabic.
@@ -37,6 +39,19 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
     void reportCallNow.available().then((result) => { if (live) setAvailable(result.ok && result.data === true); }).catch(() => { if (live) setAvailable(false); });
     return () => { live = false; };
   }, [account]);
+
+  useEffect(() => {
+    if (!account || available !== true) return;
+    let live = true;
+    // A just-saved number may still be on its way to the database: ask once now and once shortly after.
+    const ask = () => fetch("/api/report-call-now", { cache: "no-store", signal: AbortSignal.timeout(10_000) })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((detail) => { if (live && detail?.ok) setApproval({ approved: detail.numberApproved ?? null, numbers: detail.approvedNumbers ?? [] }); })
+      .catch(() => {});
+    void ask();
+    const again = setTimeout(() => void ask(), 2_000);
+    return () => { live = false; clearTimeout(again); };
+  }, [account, available, phone]);
 
   // While a call is live, pick up its progress sooner than the usual 30-second refresh.
   useEffect(() => {
@@ -105,10 +120,12 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   // The same rule the server applies (e.g. this period's report is already in) is shown before the
   // press, so the owner never confirms a call that will be refused.
   const block = reportCallBlock(ws, now);
-  const off = available !== true || (block !== null && block !== "no_worker_phone");
+  const notApproved = approval?.approved === false;
+  const off = available !== true || (block !== null && block !== "no_worker_phone") || notApproved;
   const reason = available === null ? m.app.overview.callBar.checking
     : available === false ? m.app.overview.callBar.callOff
     : block && block !== "no_worker_phone" ? d.callNowResult[block]
+    : notApproved ? d.callNowResult.notApproved(approval!.numbers.map((number) => `\u2066${number}\u2069`).join("، "))
     : null;
   return (
     <div className="space-y-2">

@@ -312,7 +312,7 @@ export default function SettingsPage() {
           <RanchFields {...fields("ranch")} />
         </SettingsCard>
         <SettingsCard id="settings-team" title={m.setup.team.title} saved={edited === "team"}>
-          <TeamFields {...fields("team")} />
+          <TeamFields {...fields("team")} confirmPhone />
         </SettingsCard>
       </div>
 

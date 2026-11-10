@@ -49,6 +49,13 @@ export const setup = defineMessages({
       worker: (index: number) => `Worker ${index}`,
       name: "Name",
       phone: "Mobile",
+      phoneChange: "Change number",
+      phoneSave: "Save number",
+      phoneCancel: "Cancel",
+      phoneCheck: (name: string) => `NAQAH will call ${name} on this number:`,
+      phoneConfirm: "Yes, save it",
+      phoneEdit: "Edit",
+      phoneSaved: "Saved. The next call goes to this number.",
       language: "Language",
       primary: "Gets the report call",
       remove: (name: string) => `Remove ${name}`,
@@ -273,6 +280,9 @@ export const setup = defineMessages({
       },
       callNowResult: {
         placed: (worker: string) => `NAQAH is calling ${worker}. The report appears here when the call ends.`,
+        notApproved: (numbers: string) => numbers
+          ? `This number isn't approved for test calls on this computer, so NAQAH won't call it. Approved: ${numbers}.`
+          : "No number is approved for test calls on this computer, so NAQAH won't call.",
         no_worker_phone: "Add the worker’s mobile in Settings first.",
         no_questions: "Turn on at least one question in Settings first.",
         already_reported: "This period’s report is already in.",
@@ -331,6 +341,13 @@ export const setup = defineMessages({
       worker: (index: number) => `العامل ${index}`,
       name: "الاسم",
       phone: "الجوال",
+      phoneChange: "تغيير الرقم",
+      phoneSave: "احفظ الرقم",
+      phoneCancel: "إلغاء",
+      phoneCheck: (name: string) => `ناقة بتتصل على ${name} على هذا الرقم:`,
+      phoneConfirm: "إيه، احفظه",
+      phoneEdit: "تعديل",
+      phoneSaved: "انحفظ. المكالمة الجاية على هذا الرقم.",
       language: "اللغة",
       primary: "يستقبل مكالمة التقرير",
       remove: (name: string) => `احذف ${name}`,
@@ -555,6 +572,9 @@ export const setup = defineMessages({
       },
       callNowResult: {
         placed: (worker: string) => `ناقة تتصل على ${worker}. يظهر التقرير هنا بعد نهاية المكالمة.`,
+        notApproved: (numbers: string) => numbers
+          ? `هذا الرقم مو معتمد لتجارب الاتصال على هذا الجهاز، فناقة ما بتتصل عليه. المعتمد: ${numbers}.`
+          : "ما فيه رقم معتمد لتجارب الاتصال على هذا الجهاز، فناقة ما بتتصل.",
         no_worker_phone: "أضف جوال العامل من الإعدادات أولاً.",
         no_questions: "شغّل سؤال واحد على الأقل من الإعدادات أولاً.",
         already_reported: "تقرير هذي الفترة وصل.",

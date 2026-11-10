@@ -67,10 +67,14 @@ function expects(item: Item, locale: Locale): string {
 
 export function buildNaturalInstructions(base: CallSession, ws: Workspace, locale: Locale): string {
   const personalize = makePersonalizer(ws);
-  // The owner's own questions («فيه شي ثاني؟») close the call, after the checks and any task.
-  const rank = (item: Item) => (item.kind === "custom" ? 2 : item.kind === "task" ? 1 : 0);
-  const queue = (base.data.queue ?? []).filter((item) => !item.id.startsWith("open_note_")).map((item, index) => ({ item, index }))
-    .sort((a, b) => rank(a.item) - rank(b.item) || a.index - b.index).map(({ item }) => item);
+  // The owner's order, as saved. Open tasks go just before the owner's own questions at the end of the plan
+  // («فيه شي ثاني؟»), so the call still closes on them.
+  const listed = (base.data.queue ?? []).filter((item) => !item.id.startsWith("open_note_"));
+  const planned = listed.filter((item) => item.kind !== "task");
+  const tasks = listed.filter((item) => item.kind === "task");
+  let tail = planned.length;
+  while (tail > 0 && planned[tail - 1].kind === "custom") tail -= 1;
+  const queue = [...planned.slice(0, tail), ...tasks, ...planned.slice(tail)];
   const wording = (item: Item) => (locale === "ar" && item.kind === "predefined" && NATURAL_WORDING[item.id]) || personalize(item.question[locale]);
   const questions = queue.map((item, index) => `${index + 1}. [${item.id}] «${wording(item)}» → ${expects(item, locale)}`).join("\n");
   const camels = ws.camels.map((camel) => camel.name).join("، ");
