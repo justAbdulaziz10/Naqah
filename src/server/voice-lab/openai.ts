@@ -6,7 +6,12 @@ import { REALTIME_MODEL } from "../../../services/voice-bridge/config.mjs";
 
 export const LAB_MODEL: string = REALTIME_MODEL;
 export const LAB_MAX_SECONDS = 10 * 60;
-const TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
+const TRANSCRIBE_MODEL = "gpt-4o-transcribe";
+/** The phone call's hint, without the farm's camel names. */
+const TRANSCRIPTION_HINT: Record<Locale, string> = {
+  ar: "مكالمة هاتف عن عزبة إبل باللهجة السعودية. كلمات متوقعة: الحلال، ناقة، النوق، علف، شعير، ماء، خزان، وايت، شبك، بيطري، زين، بخير، الحمد لله، كافي، خلص، باقي، إيه، صح، تمام، احفظ، ما أدري.",
+  en: "A phone call about a camel ranch. Expected words: camels, feed, water, tank, fence, vet, fine, enough, yes, save.",
+};
 const API = "https://api.openai.com/v1/realtime/calls";
 const CALL_ID = /^rtc_[\w-]{1,128}$/;
 
@@ -28,8 +33,8 @@ export function labSession(mode: LabMode, locale: Locale, instructions: string) 
     output_modalities: ["audio"],
     audio: {
       input: {
-        transcription: { model: TRANSCRIBE_MODEL, language: locale },
-        turn_detection: { type: "server_vad", threshold: 0.5, prefix_padding_ms: 300, silence_duration_ms: 500, create_response: false, interrupt_response: false },
+        transcription: { model: TRANSCRIBE_MODEL, language: locale, prompt: TRANSCRIPTION_HINT[locale] },
+        turn_detection: { type: "server_vad", threshold: 0.5, prefix_padding_ms: 300, silence_duration_ms: 700, create_response: false, interrupt_response: false },
       },
       output: { voice: "marin" },
     },

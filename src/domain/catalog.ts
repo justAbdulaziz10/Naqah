@@ -69,8 +69,8 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: null,
     answerKind: "herd-health",
     text: {
-      ar: "كيف حال الحلال اليوم؟ فيه ناقة مريضة أو مصابة أو ما تاكل زين؟",
-      en: "How are the camels today? Is any camel sick, injured, or not eating well?",
+      ar: "كيف الحلال اليوم؟",
+      en: "How are the camels today?",
     },
   },
   {
@@ -89,8 +89,8 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: "feed",
     answerKind: "level",
     text: {
-      ar: "كم باقي من العلف تقريباً؟",
-      en: "Roughly how much feed is left?",
+      ar: "كيف العلف؟",
+      en: "How is the feed?",
     },
   },
   {
@@ -99,8 +99,8 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: "water",
     answerKind: "level",
     text: {
-      ar: "كيف وضع الماء؟ الخزان كافي؟",
-      en: "How is the water supply? Is the tank sufficient?",
+      ar: "كيف الماء؟",
+      en: "How is the water?",
     },
   },
   {
@@ -109,8 +109,8 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: "fences",
     answerKind: "level",
     text: {
-      ar: "الشبك سليم ولا فيه خراب؟",
-      en: "Are the fences intact, or is there any damage?",
+      ar: "الشبك سليم؟",
+      en: "Are the fences intact?",
     },
   },
   {
@@ -129,8 +129,8 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: "medicine",
     answerKind: "level",
     text: {
-      ar: "المستلزمات البيطرية كافية ولا قربت تخلص؟",
-      en: "Are the vet supplies sufficient, or running low?",
+      ar: "الأدوية كافية؟",
+      en: "Are the vet supplies enough?",
     },
   },
 ];

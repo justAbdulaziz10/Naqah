@@ -53,12 +53,11 @@ function reportQueue(ws: Workspace, now: Date): ReportItem[] {
   return queue;
 }
 
-const ONE_AT_A_TIME = copy("We’ll go through the questions one at a time.", "بنمشي على الأسئلة وحدة وحدة.");
-const OPEN_ASK = copy("What has happened at the ranch? Tell me everything in your own words.", "وش صار في العزبة؟ قل لي كل اللي عندك بكلامك.");
+const OPEN_ASK = copy("What has happened at the ranch? Tell me everything in your own words.", "وش صار في العزبة؟");
 const OPEN_MORE = copy("Anything else you want to add?", "فيه شي ثاني تبي تضيفه؟");
 const MODE_CHOICE = copy(
   "Would you like me to ask one question at a time, or would you rather tell me what happened in your own words?",
-  "تبي أسألك سؤال سؤال، ولا تقول لي وش صار بكلامك وأنا أرتبه؟",
+  "تبي أسألك سؤال سؤال، ولا تقول لي وش صار؟",
 );
 
 /** How this call is taken. Open needs the realtime model to sort free speech, so a scripted call is always guided. */
@@ -89,8 +88,8 @@ function beginReportQuestions(session: CallSession, ws: Workspace, now: Date, re
         "هلا أحمد، معك مساعد ناقة الآلي. شكراً إنك رجعت تتصل على مكالمة التقرير اللي فاتتك.",
       )
     : copy(
-        "Hello Ahmed, I’m NAQAH’s automated assistant, calling for the farm report.",
-        "هلا أحمد، معك مساعد ناقة الآلي، أتصل عشان تقرير العزبة.",
+        "Hello Ahmed, this is NAQAH’s automated assistant for the ranch report.",
+        "هلا أحمد، معك مساعد ناقة الآلي لتقرير العزبة.",
       );
   const mode = chosenMode(ws, modesAvailable);
   if (mode === "ask") {
@@ -100,7 +99,7 @@ function beginReportQuestions(session: CallSession, ws: Workspace, now: Date, re
     ]);
   }
   if (mode === "open") return startOpen(say(withQueue, greeting, now), now);
-  return startGuided(say(withQueue, copy(greeting.en + " " + ONE_AT_A_TIME.en, greeting.ar + " " + ONE_AT_A_TIME.ar), now), ws, now);
+  return startGuided(say(withQueue, greeting, now), ws, now);
 }
 
 function blockedReportCallText(reason: ReportCallBlock | "duplicate" | null): LocalizedText {
@@ -489,7 +488,7 @@ function handleReportQuestion(
       data: { ...current.session.data, askedCamelIds: [], tempCamelId: undefined },
     };
     return {
-      session: askCamelToCheck(picking, ws, now, copy("Which camel needs attention?", "أي ناقة تحتاج متابعة؟")),
+      session: askCamelToCheck(picking, ws, now, copy("Which camel?", "أي ناقة؟")),
     };
   }
 
@@ -602,7 +601,7 @@ function handleHealthPick(session: CallSession, ws: Workspace, now: Date, input:
   return {
     session: ask(
       withCamel,
-      copy("How is " + camel.name + " today?", "كيف حال " + camel.name + " اليوم؟"),
+      copy("What’s wrong with " + camel.name + "?", "وش فيها " + camel.name + "؟"),
       now,
       "health_status",
       (["healthy", "watch", "sick", "unknown"] as HealthStatus[]).map((status) => ({
@@ -621,33 +620,15 @@ function handleHealthStatus(session: CallSession, ws: Workspace, now: Date, inpu
   if (!camel || !["healthy", "watch", "sick", "unknown"].includes(status)) {
     return { session: askCamelToCheck(current.session, ws, now, copy("Choose a camel from the herd.", "اختر ناقة من الحلال.")) };
   }
-  const next = { ...current.session, data: { ...current.session.data, tempHealth: status } };
+  // What the worker said about her stands as the note; a bare «مريضة» adds nothing to the status.
+  const said = input.text?.trim() ?? "";
+  const note = said.split(/\s+/).length >= 3 ? said : null;
+  const update = { camelId: camel.id, health: status, note, certainty: (status === "unknown" ? "unknown" : "reported") as Certainty };
+  const updates = current.session.draft.camelUpdates.filter((entry) => entry.camelId !== camel.id);
   return {
     session: ask(
-      next,
-      copy("Add a short note about " + camel.name + ", if useful.", "إذا فيه تفاصيل، اذكر ملاحظة قصيرة عن " + camel.name + "."),
-      now,
-      "health_note",
-      [reply("skip_note", "No note", "بدون ملاحظة")],
-      "text",
-    ),
-  };
-}
-
-function handleHealthNote(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
-  const current = workerTurn(session, input, now);
-  const note = current.value === "skip_note" || !input.text?.trim() || addsNothing(input.text) ? null : input.text.trim();
-  const camel = ws.camels.find((entry) => entry.id === session.data.tempCamelId);
-  if (!camel) return { session: askCamelToCheck(current.session, ws, now, copy("Choose a camel from the herd.", "اختر ناقة من الحلال.")) };
-  const camelId = camel.id;
-  const health = session.data.tempHealth ?? "unknown";
-  const asked = [...new Set([...(session.data.askedCamelIds ?? []), camelId])];
-  const update = { camelId, health, note, certainty: (health === "unknown" ? "unknown" : "reported") as Certainty };
-  const updates = current.session.draft.camelUpdates.filter((entry) => entry.camelId !== camelId);
-  return {
-    session: ask(
-      { ...current.session, draft: { ...current.session.draft, camelUpdates: [...updates, update] }, data: { ...current.session.data, askedCamelIds: asked } },
-      copy("Any other camel to mention?", "فيه ناقة ثانية تبي تذكرها؟"),
+      { ...current.session, draft: { ...current.session.draft, camelUpdates: [...updates, update] }, data: { ...current.session.data, askedCamelIds: [...new Set([...(session.data.askedCamelIds ?? []), camel.id])], tempCamelId: undefined, tempHealth: undefined } },
+      copy("Any other camel?", "فيه غيرها؟"),
       now,
       "health_more",
       [reply("yes", "Yes, another", "إيه، فيه غيرها"), reply("no", "No, that’s all", "لا، بس")],
@@ -879,7 +860,7 @@ function handleCorrectPick(session: CallSession, ws: Workspace, now: Date, input
 function handleModeChoice(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
   const current = workerTurn(session, input, now);
   if (current.value === "mode_open") return { session: startOpen(current.session, now) };
-  return { session: startGuided(say(current.session, ONE_AT_A_TIME, now), ws, now) };
+  return { session: startGuided(current.session, ws, now) };
 }
 
 const OPEN_DONE = "open_done";
@@ -1062,7 +1043,6 @@ export function answerReportScenario(session: CallSession, ws: Workspace, now: D
   if (session.step === "report_question") return handleReportQuestion(session, ws, now, input);
   if (session.step === "health_pick") return handleHealthPick(session, ws, now, input);
   if (session.step === "health_status") return handleHealthStatus(session, ws, now, input);
-  if (session.step === "health_note") return handleHealthNote(session, ws, now, input);
   if (session.step === "health_more") {
     const current = workerTurn(session, input, now);
     if (current.value === "yes") {

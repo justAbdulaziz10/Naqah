@@ -118,14 +118,18 @@ describe("Voice Lab agent", () => {
     expect(result.view.verdict).toEqual({ kind: "would_save" });
   });
 
-  it("stops at the second failed confirmation, as a real call does, without saving", () => {
+  it("stops at the third failed confirmation, as a real call does, without saving", () => {
     const first = confirm(walkToSummary(), true, "لا، الملخص غلط");
     expect(first.end).toBeNull();
     const second = confirm(first.session, true, "لا، الملخص غلط");
-    expect(second.end).toBe("fallback");
-    expect(second.goodbye).toBeNull();
-    expect(second.view.verdict).toEqual({ kind: "fallback" });
-    expect(tool(second.session, "confirm_report", { confirmed: true }).view.verdict).toBeNull();
+    expect(second.end).toBeNull();
+    expect(second.sayText).toContain("أحفظه");
+    expect(second.summaryText).toBeUndefined();
+    const third = confirm(second.session, true, "لا، الملخص غلط");
+    expect(third.end).toBe("fallback");
+    expect(third.goodbye).toBeNull();
+    expect(third.view.verdict).toEqual({ kind: "fallback" });
+    expect(tool(third.session, "confirm_report", { confirmed: true }).view.verdict).toBeNull();
   });
 
   it("gives a saved verdict through the real contract and never changes the ranch", () => {
@@ -141,12 +145,21 @@ describe("Voice Lab agent", () => {
   });
 
   it("records an end of call as nothing saved", () => {
-    expect(tool(walkToSummary(), "end_call", { reason: "worker_ended" }).view.verdict).toEqual({ kind: "declined" });
-    expect(tool(open().session, "end_call", { reason: "worker_ended" }).view.verdict).toEqual({ kind: "ended" });
+    const end = (session: LabSession) => runLabTool({ session, ws, locale: "ar", name: "end_call", args: { reason: "worker_ended" }, spoke: true, workerUtterance: "مع السلامة", now });
+    expect(end(walkToSummary()).view.verdict).toEqual({ kind: "declined" });
+    expect(end(open().session).view.verdict).toEqual({ kind: "ended" });
+  });
+
+  it("keeps the call going when the model ends it without words asking to stop", () => {
+    const { session } = open();
+    const result = runLabTool({ session, ws, locale: "ar", name: "end_call", args: { reason: "worker_ended" }, spoke: true, workerUtterance: "", now });
+    expect(result.end).toBeNull();
+    expect(result.silent).toBe(true);
+    expect(result.view.verdict).toBeNull();
   });
 
   it("treats a no to the summary as a correction, not an end", () => {
-    const result = tool(walkToSummary(), "confirm_report", { confirmed: false });
+    const result = runLabTool({ session: walkToSummary(), ws, locale: "ar", name: "confirm_report", args: { confirmed: false }, spoke: true, workerUtterance: "لا، فيه غلط", now });
     expect(result.session.step).toBe("report_correct_pick");
     expect(result.view.verdict).toBeNull();
     expect(result.end).toBeNull();
@@ -436,7 +449,7 @@ describe("Voice Lab stays in step with the phone call", () => {
   const lab = readFileSync("src/server/voice-lab/openai.ts", "utf8");
   const loop = readFileSync("src/components/voice-lab/turnLoop.ts", "utf8");
 
-  it.each(["threshold: 0.5", "prefix_padding_ms: 300", "silence_duration_ms: 500", "create_response: false", "interrupt_response: false"])("matches the bridge's VAD setting %s", (setting) => {
+  it.each(["threshold: 0.5", "prefix_padding_ms: 300", "silence_duration_ms: 700", "create_response: false", "interrupt_response: false"])("matches the bridge's VAD setting %s", (setting) => {
     expect(bridge).toContain(setting);
     expect(lab).toContain(setting);
   });
@@ -457,7 +470,7 @@ describe("Voice Lab stays in step with the phone call", () => {
   });
 
   it("uses the real call's confirmation limits", () => {
-    expect(decide).toContain("failures >= 2");
+    expect(decide).toContain("failures >= 3");
     expect(decide).toContain('"summary_not_finished"');
     expect(decide).toContain("isVerifiedConfirmation");
     expect(decide).toContain("summaryText");
@@ -476,7 +489,15 @@ describe("Voice Lab stays in step with the phone call", () => {
   });
 
   it("uses the phone call's closing line", () => {
-    expect(calls).toContain("تم حفظ التحديث، شكراً لك. مع السلامة.");
+    const closing = "انحفظ التحديث. يعطيك العافية، مع السلامة.";
+    expect(calls).toContain(closing);
+    expect(readFileSync("src/server/voice-lab/agent.ts", "utf8")).toContain(closing);
+  });
+
+  it("transcribes with the phone call's model and a hint", () => {
+    expect(bridge).toContain("model: 'gpt-4o-transcribe'");
+    expect(lab).toContain('"gpt-4o-transcribe"');
+    expect(lab).toContain("prompt: TRANSCRIPTION_HINT[locale]");
   });
 
   it.each(["responseMs: 45_000", "goodbyeMs: 15_000"])("matches the bridge's limit %s", (limit) => {

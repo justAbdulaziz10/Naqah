@@ -501,14 +501,13 @@ async function keypadToEnd(call) {
 /* ─────────────────── wording the checks rely on ─────────────────── */
 
 const TEXT = {
-  health: "كيف حال الحلال اليوم؟ فيه ناقة مريضة أو مصابة أو ما تاكل زين؟",
-  count: "كم عدد الحلال كله اليوم؟",
-  feed: "كم باقي من العلف تقريباً؟",
-  water: "كيف وضع الماء؟ الخزان كافي؟",
-  openAsk: "وش صار في العزبة؟ قل لي كل اللي عندك بكلامك.",
+  health: "كيف الحلال اليوم؟",
+  count: "كم عدد الحلال؟",
+  feed: "كيف العلف؟",
+  water: "كيف الماء؟",
+  openAsk: "وش صار في العزبة؟",
   openMore: "فيه شي ثاني تبي تضيفه؟",
-  choice: "تبي أسألك سؤال سؤال، ولا تقول لي وش صار بكلامك وأنا أرتبه؟",
-  one: "بنمشي على الأسئلة وحدة وحدة.",
+  choice: "تبي أسألك سؤال سؤال، ولا تقول لي وش صار؟",
   keypad: "بالأزرار",
 };
 const ATTENTION = /needs attention|تحتاج متابعة/;
@@ -527,7 +526,7 @@ scenario("M0", "The migrations this verifier depends on are applied", async () =
 scenario("A", "Guided: only enabled questions, owner's order, verbatim wording, full read-back, one report", async () => {
   const ranch = await makeFarm({ ...FULL, questions: ([vet]) => [on(vet), on("water_level"), on("herd_health"), off("feed_level"), off("herd_count")] });
   const live = await open(ranch);
-  check("the opening goes straight to the owner's first question", hasEvery(live.spoken[0], [TEXT.one, VET]) && !live.spoken[0].includes(TEXT.choice), live.spoken[0]);
+  check("the opening goes straight to the owner's first question", hasEvery(live.spoken[0], [VET]) && !live.spoken[0].includes(TEXT.choice), live.spoken[0]);
   await live.say("لا والله ما جا أحد اليوم", "answer_question", { text: "لا ما جا", topic: "other" });
   check("second comes the owner's second question, word for word", live.said === TEXT.water, live.said);
   await live.say("الموية كافية", "answer_question", { value: "good", topic: "water" });
@@ -702,7 +701,7 @@ scenario("D2", "Silence: two reprompts, stream ends, the same question continues
     check("the script continues from the same question", live.call.text.includes(TEXT.count) && Boolean(live.call.action), live.call.text);
     check("the worker is told about the keypad", live.call.text.includes(TEXT.keypad), live.call.text);
     await keypadToEnd(live.call);
-    check("the keypad call saves", /تم حفظ/.test(live.call.text), live.call.text);
+    check("the keypad call saves", /انحفظ التحديث/.test(live.call.text), live.call.text);
     await assertSaved(ranch, live.call);
   } finally {
     await stopChild("bridge-limits");
@@ -736,7 +735,7 @@ scenario("E", "Keypad fallback: a digit is not a custom answer, and digits still
   check("digit 3 picks the third level and moves on", state(call.sid)?.draft.resourceUpdates.at(-1)?.level === "low" && state(call.sid)?.draft.resourceUpdates.at(-1)?.quantity === null, state(call.sid)?.draft.resourceUpdates);
   check("the summary is read for the keypad", /أحفظه/.test(call.text), call.text);
   await call.turn(keys("1"));
-  check("digit 1 saves", /تم حفظ/.test(call.text), call.text);
+  check("digit 1 saves", /انحفظ التحديث/.test(call.text), call.text);
   await assertSaved(ranch, call);
   const rows = answersOf(ranch.farm);
   const custom = rows.find((row) => row.question_id === ranch.customIds[0]);
@@ -930,7 +929,7 @@ scenario("I1", "Worker choice: the worker picks guided", async () => {
   const live = await open(ranch);
   check("the call asks how to take the report", live.spoken[0].includes(TEXT.choice) && live.s?.step === "report_mode_choice", live.spoken[0]);
   await live.say("سؤال سؤال", "choose_mode", { mode: "guided" });
-  check("guided starts with the first question", live.s?.data.reportMode === "guided" && live.said.includes(TEXT.one) && live.said.includes(TEXT.health), live.said);
+  check("guided starts with the first question", live.s?.data.reportMode === "guided" && live.said.includes(TEXT.health), live.said);
   await live.hangUp();
   assertUnsaved(ranch);
 });
@@ -979,7 +978,7 @@ scenario("I4", "Disabled questions are never asked; owner's custom wording is no
   await live.call.turn({ SpeechResult: "إيه كلمه", Confidence: "0.9", msg: "Gather End" });
   check("the summary keeps the owner's words", live.call.text.includes(SAMPLE) && /إيه كلمه/.test(live.call.text), live.call.text);
   await live.call.turn(keys("1"));
-  check("the keypad saves", /تم حفظ/.test(live.call.text), live.call.text);
+  check("the keypad saves", /انحفظ التحديث/.test(live.call.text), live.call.text);
   await assertSaved(ranch, live.call);
   const [row] = answersOf(ranch.farm);
   check("the stored question keeps the owner's words", row?.question_ar === SAMPLE, row);
@@ -1064,7 +1063,7 @@ scenario("K3", "A dropped stream mid-open falls back with the captured facts kep
   check("the script continues on the keypad", live.call.text.includes(TEXT.keypad) && Boolean(live.call.action), live.call.text);
   check("the captured fact is read back and no captured topic is asked again", live.call.text.includes("العلف") && /أحفظه/.test(live.call.text) && !live.call.text.includes(TEXT.feed), live.call.text);
   await live.call.turn(keys("1"));
-  check("the keypad saves", /تم حفظ/.test(live.call.text), live.call.text);
+  check("the keypad saves", /انحفظ التحديث/.test(live.call.text), live.call.text);
   const report = await assertSaved(ranch, live.call);
   check("the report stays open with the captured fact", report?.mode === "open" && answersOf(ranch.farm).some((row) => row.question_id === "feed_level"), { mode: report?.mode, answers: answersOf(ranch.farm).map((row) => row.question_id) });
   check("unmentioned topics stay not_reported", coverageOf(report, "water_level") === "not_reported" && coverageOf(report, "herd_health") === "not_reported", report.coverage);
@@ -1078,7 +1077,7 @@ scenario("K4", "A dropped stream before any fact falls back to the guided script
   await live.call.after();
   check("the script asks the first guided question", live.call.text.includes(TEXT.health) && live.call.text.includes(TEXT.keypad), live.call.text);
   await keypadToEnd(live.call);
-  check("the keypad call saves", /تم حفظ/.test(live.call.text), live.call.text);
+  check("the keypad call saves", /انحفظ التحديث/.test(live.call.text), live.call.text);
   const report = await assertSaved(ranch, live.call);
   check("the fallback report is guided", report?.mode === "guided", report?.mode);
 });

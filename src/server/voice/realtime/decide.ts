@@ -9,7 +9,7 @@ import type { Locale, Workspace } from "@/domain/types";
 import type { VoiceCallSession } from "../farm-call";
 import { mapSpeechToInput, unknownReply } from "../speech";
 import { spokenWording } from "../twiml";
-import { evidenceWords, refuseAnswer } from "./answer-check";
+import { askedToStop, evidenceWords, isGarbled, refuseAnswer } from "./answer-check";
 import { isVerifiedConfirmation } from "./confirmation";
 import { validateFacts } from "./facts";
 import type { RealtimeState, ToolResponse } from "./state";
@@ -28,7 +28,7 @@ export function fallbackResult(): ToolResponse {
 
 const PREFIXES: Record<ClarifyReason, Record<Locale, string>> = {
   noise: { ar: "ما وصلني صوتك زين. ", en: "I couldn't hear you clearly. " },
-  asked_to_repeat: { ar: "أكيد، أعيد السؤال. ", en: "Of course. " },
+  asked_to_repeat: { ar: "أكيد. ", en: "Of course. " },
   asked_meaning: { ar: "المقصود بهالسؤال: ", en: "This question means: " },
   unclear: { ar: "معليش، ما فهمت جوابك زين. ", en: "Sorry, I didn't understand that answer. " },
   off_topic: { ar: "خلنا نرجع للسؤال. ", en: "Let's return to the question. " },
@@ -37,6 +37,8 @@ const URGENT: Record<Locale, string> = {
   ar: "إذا الأمر عاجل، اتصل بصاحب العزبة مباشرة الآن. ناقة ما تبلغ أحد بالطوارئ. ",
   en: "If this is urgent, call the ranch owner directly now. NAQAH does not report emergencies to anyone. ",
 };
+const CONFIRM_AGAIN: Record<Locale, string> = { ar: "ما سمعتك زين. أحفظه؟ قل إيه، أو اضغط واحد.", en: "I didn't catch that. Shall I save it? Say yes, or press 1." };
+const isDeny = (heard: string) => /(?:^| )(?:لا|غلط|عدل|عدله|تعديل|no|wrong|change)(?: |$)/.test(evidenceWords(heard));
 const SAVE_OR_CORRECT: Record<Locale, string> = { ar: "أحفظ التحديث، ولا تبي تعدل شي؟", en: "Shall I save the update, or would you like to correct something?" };
 const UNKNOWN: Record<Locale, string> = {
   ar: "ما قدرت أحدد الإجابة، بنسجلها غير معروف ونكمل. ",
@@ -88,6 +90,8 @@ export type ToolTurn = {
   heard: string;
   heardSummaryId?: string;
   now: Date;
+  /** Key 1, pressed after the whole summary was heard. */
+  keypad?: boolean;
 };
 
 export type ToolDecision = { counters: ToolCounters; checkError: string | null } & (
@@ -100,7 +104,7 @@ export type ToolDecision = { counters: ToolCounters; checkError: string | null }
   | { kind: "end"; session: VoiceCallSession }
 );
 
-export function decideTool({ session: current, counters, workspace, locale, name, args, spoke, heard, heardSummaryId, now }: ToolTurn): ToolDecision {
+export function decideTool({ session: current, counters, workspace, locale, name, args, spoke, heard, heardSummaryId, now, keypad = false }: ToolTurn): ToolDecision {
   const position = positionOf(current);
   let next: ToolCounters = {};
   let checkError: string | null = null;
@@ -118,12 +122,18 @@ export function decideTool({ session: current, counters, workspace, locale, name
     return reply(promptResult(current, workspace, locale, "ok", undefined, count > 1 ? PREFIXES.noise[locale] : "", undefined, explicitNoise || count === 1), "noise");
   }
   const confirming = name === "confirm_report" && typeof args === "object" && args !== null && "confirmed" in args && args.confirmed === true;
-  const verified = spoke && Boolean(heard) && isVerifiedConfirmation(heard, current, locale);
+  const verified = keypad || (spoke && Boolean(heard) && isVerifiedConfirmation(heard, current, locale));
+  if (name === "end_call" && !askedToStop(heard)) {
+    return reply(promptResult(current, workspace, locale, "invalid", "worker_has_not_asked_to_stop", evidenceWords(heard) ? PREFIXES.unclear[locale] : "", undefined, !evidenceWords(heard)), "worker_has_not_asked_to_stop");
+  }
   if (confirming && current.step === SUMMARY_STEP && (!verified || heardSummaryId !== reportSummaryId(current, locale))) {
     const error = heardSummaryId !== reportSummaryId(current, locale) ? "summary_not_finished" : "worker_has_not_confirmed";
     const failures = (counters.confirmationFailures ?? 0) + 1;
-    next = { ...next, confirmationFailures: failures, closed: failures >= 2 };
-    return reply(failures >= 2 ? fallbackResult() : promptResult(current, workspace, locale, "invalid", error), error);
+    next = { ...next, confirmationFailures: failures, closed: failures >= 3 };
+    if (failures >= 3) return reply(fallbackResult(), error);
+    // The summary was heard, so only the question needs asking again.
+    if (error === "worker_has_not_confirmed") return reply({ ...promptResult(current, workspace, locale, "invalid", error), summaryText: undefined, summaryId: undefined, sayText: CONFIRM_AGAIN[locale], repromptText: CONFIRM_AGAIN[locale] }, error);
+    return reply(promptResult(current, workspace, locale, "invalid", error), error);
   }
   if (!check.ok) {
     checkError = check.error;
@@ -147,6 +157,19 @@ export function decideTool({ session: current, counters, workspace, locale, name
     const asNote: OpenFact = { type: "other", note: heard.trim().slice(0, 300), evidence: heard };
     chosen = { facts: checked.dropped ? [...checked.facts, asNote] : checked.facts };
     droppedFacts = checked.dropped;
+  }
+  // A confirmation that "no" needs words too: unclear audio must not reopen a correct report.
+  if (name === "confirm_report" && action.kind === "confirm" && !action.confirmed && !["correct", "end_without_save"].includes(mapSpeechToInput(session, heard, null, locale)?.value ?? "") && !isDeny(heard)) {
+    return reply({ ...promptResult(current, workspace, locale, "invalid", "worker_has_not_confirmed"), summaryText: undefined, summaryId: undefined, sayText: CONFIRM_AGAIN[locale], repromptText: CONFIRM_AGAIN[locale] }, "worker_has_not_confirmed");
+  }
+  // A custom question takes the worker's words, not a canned reply the model picked for them.
+  if (action.kind === "answer" && action.input.value?.startsWith("suggest_")) {
+    if (isGarbled(evidenceWords(heard), locale)) return refuse("answer_unclear");
+    action.input = { text: heard.trim().slice(0, 300) };
+    chosen = action.input;
+  }
+  if (action.kind === "answer" && current.step === "health_status" && action.input.value !== undefined && heard.trim()) {
+    chosen = { value: action.input.value, text: heard.trim().slice(0, 300) };
   }
   // Free text is kept as the worker said it, not as the model worded it.
   if (action.kind === "answer" && action.input.text !== undefined && session.inputMode === "text" && heard.trim()) {

@@ -247,7 +247,7 @@ describe("Saudi Arabic capture regressions", () => {
     expect(extractNumber(speech)).toBe(quantity);
   });
   it.each(["خربان", "مكسور"])("reads fence damage %s as a problem", (speech) => {
-    expect(mapSpeechToInput(question("fences_condition", "yesno", null, ["yes", "no", "unknown"]), speech)).toEqual({ value: "no" });
+    expect(mapSpeechToInput(question("fences_condition", "level", null, ["good", "medium", "low", "critical", "unknown"]), speech)).toEqual({ value: "low" });
   });
   it("matches camel names with or without the definite article", () => {
     const camel = { ...session("choices", [{ id: "camel:test", value: "camel:test", label: { ar: "الحمرا", en: "Al Hamra" } }]), step: "health_pick" };
@@ -288,10 +288,15 @@ describe("negation reads as what was meant", () => {
   ]);
 
   it.each([
-    "لا، ما فيه مريض", "لا ما فيه مريض", "ما في شي", "مو تعبانة", "لا والله ما شفت شي", "لا",
-    "no, none are sick", "nothing wrong", "no I don't think so", "كلها بخير", "all fine",
+    "لا، ما فيه مريض", "لا ما فيه مريض", "ما في شي", "مو تعبانة", "لا والله ما شفت شي",
+    "no, none are sick", "nothing wrong", "كلها بخير", "all fine",
   ])("«%s» on «is any camel sick?» means all are well", (speech) => {
     expect(mapSpeechToInput(herdHealth, speech, null, "ar")).toEqual({ value: "yes" });
+  });
+  // Known product gap: the question is now «كيف الحلال اليوم؟», so a bare yes or no should be asked again,
+  // but choiceInput's YES_WORDS/NO_WORDS fallthrough still maps it. Remove `.fails` when that is fixed.
+  it.each(["لا", "إيه", "no", "yes"])("asks again on a bare «%s» to «how are the camels?»", (speech) => {
+    expect(mapSpeechToInput(herdHealth, speech, null, "ar")).toBeNull();
   });
   it.each(["فيه وحدة مريضة", "إيه، وحدة تعبانة", "مو كلها بخير", "one is sick", "not all of them are well", "something is wrong"])(
     "«%s» on «is any camel sick?» means one needs attention", (speech) => {

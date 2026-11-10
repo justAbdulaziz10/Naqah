@@ -54,7 +54,7 @@ export const OWNER_LINE_CLOSED: Copy = {
   ar: "ناقة هي اللي تتصل عليك في موعدك، وآخر التفاصيل موجودة في الموقع.",
   en: "NAQAH calls you at the time you chose. The latest details are on the website.",
 };
-const SAVED: Copy = { ar: "تم حفظ التحديث، شكراً لك. مع السلامة.", en: "Your update is saved. Thank you. Goodbye." };
+const SAVED: Copy = { ar: "انحفظ التحديث. يعطيك العافية، مع السلامة.", en: "Your update is saved. Thank you, goodbye." };
 const REFUSED: Copy = {
   ar: "ما انحفظ هذا التحديث، لأن تحديث هذه الفترة وصلنا. يعطيك العافية.",
   en: "This update wasn't saved, because this period's update is already in. Thank you.",

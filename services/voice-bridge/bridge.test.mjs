@@ -296,15 +296,44 @@ test('no valid start closes promptly without reaching either API', async () => {
   } finally { await state.close(); }
 });
 
-test('refused ticket closes Twilio without connecting to the provider', async () => {
-  const state = await fixture({ sessionStatus: 403 });
+for (const sessionDelay of [0, 40]) {
+  test(`refused ticket closes Twilio and the provider never speaks (session delay ${sessionDelay}ms)`, async () => {
+    const state = await fixture({ sessionStatus: 403, sessionDelay });
+    try {
+      const { socket } = await state.connect();
+      start(socket);
+      await closed(socket);
+      await delay(20);
+      assert.equal(state.requests[0].url, '/api/voice/realtime/session');
+      assert.deepEqual(state.requests[0].body, { ticket: 'mock-ticket', callSid: CALL_SID });
+      assert.deepEqual(state.providerEvents, []);
+      assert.ok(state.logs.some((record) => record.event === 'session_failed'));
+    } finally { await state.close(); }
+  });
+}
+
+test('session fetch and provider connection run side by side; nothing is sent until both are in', async () => {
+  const state = await fixture({ sessionDelay: 120 });
   try {
     const { socket } = await state.connect();
     start(socket);
-    await closed(socket);
-    assert.equal(state.requests[0].url, '/api/voice/realtime/session');
-    assert.deepEqual(state.requests[0].body, { ticket: 'mock-ticket', callSid: CALL_SID });
-    assert.equal(state.provider, undefined);
+    await waitFor(() => state.requests.length === 1 && state.provider);
+    await delay(20);
+    assert.equal(state.providerEvents.length, 0);
+    const update = await state.providerInbox.wait((event) => event.type === 'session.update');
+    assert.equal(update.session.instructions, 'Mock instructions');
+    await state.providerInbox.wait((event) => event.type === 'response.create');
+  } finally { await state.close(); }
+});
+
+test('input transcription uses the session hint and VAD waits 700 ms', async () => {
+  const state = await fixture({ session: { transcriptionPrompt: 'Mock hint' } });
+  try {
+    const { socket } = await state.connect();
+    await state.ready(socket);
+    const input = state.providerEvents.find((event) => event.type === 'session.update').session.audio.input;
+    assert.deepEqual(input.transcription, { model: 'gpt-4o-transcribe', language: 'en', prompt: 'Mock hint' });
+    assert.equal(input.turn_detection.silence_duration_ms, 700);
   } finally { await state.close(); }
 });
 
@@ -437,7 +466,7 @@ for (const mode of ['ready', 'delayed', 'missing', 'late', 'failed', 'stale', 's
       const { socket } = await state.connect();
       await state.ready(socket);
       const update = state.providerEvents.find((event) => event.type === 'session.update');
-      assert.deepEqual(update.session.audio.input.transcription, { model: 'gpt-4o-mini-transcribe', language: 'en' });
+      assert.deepEqual(update.session.audio.input.transcription, { model: 'gpt-4o-transcribe', language: 'en' });
       const complete = (item_id, transcript) => send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id, content_index: 0, transcript });
       send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'old' });
       complete('old', 'old-private-transcript');
@@ -1164,7 +1193,7 @@ for (const fields of [{}, { summaryText: 42 }, { summaryId: 42, sayText: 'Questi
   });
 }
 
-test('end_call neither waits for nor forwards a worker transcript', async () => {
+test('end_call waits for the worker transcript and carries it to the server', async () => {
   const state = await fixture({
     toolResult: { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: null },
     limits: { transcriptionMs: 500 },
@@ -1175,12 +1204,104 @@ test('end_call neither waits for nor forwards a worker transcript', async () => 
     state.complete();
     send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'end-worker' });
     send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'end-tool', name: 'end_call', arguments: '{}' });
+    await delay(30);
+    assert.equal(state.requests.some((request) => request.body?.toolCallId === 'end-tool'), false);
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'end-worker', content_index: 0, transcript: 'مع السلامة' });
     await closed(socket);
-    const body = state.requests.find((request) => request.body?.toolCallId === 'end-tool').body;
-    assert.equal('workerUtterance' in body, false);
+    assert.equal(state.requests.find((request) => request.body?.toolCallId === 'end-tool').body.workerUtterance, 'مع السلامة');
     assert.ok(state.logs.some((record) => record.event === 'tool_ended'));
   } finally { await state.close(); }
 });
+
+test('end_call the server refuses keeps the call open', async () => {
+  const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: false, end: null, goodbye: null, silent: true } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'not-a-stop', 'end_call', 'العلف زين');
+    assert.equal(connection.socket.readyState, WebSocket.OPEN);
+    assert.ok(!state.logs.some((record) => record.event === 'tool_ended'));
+  } finally { await state.close(); }
+});
+
+const SAVED_GOODBYE = 'انحفظ التحديث. يعطيك العافية، مع السلامة.';
+const keypadResult = (body) => body.name === 'keypad_confirm'
+  ? { output: '{"status":"saved"}', awaitingConfirmation: false, end: 'hangup', goodbye: SAVED_GOODBYE }
+  : { output: '{}', awaitingConfirmation: true, end: null, goodbye: null, summaryText: 'Mock summary', summaryId: 'revision-1' };
+const dtmf = (socket, digit) => send(socket, { event: 'dtmf', streamSid: STREAM_SID, dtmf: { track: 'inbound_track', digit } });
+
+/** The bridge speaks the goodbye verbatim, waits for its last mark, then closes the stream for Twilio's hang-up. */
+async function finishGoodbye(state, connection) {
+  const goodbye = await state.providerInbox.wait((event) => event.type === 'response.create' && event.response.instructions?.includes(SAVED_GOODBYE));
+  assert.equal(goodbye.response.tool_choice, 'none');
+  await delay(10);
+  state.audio(160, 'goodbye-item');
+  state.complete();
+  const final = await connection.messages.wait((event) => event.event === 'mark' && event.mark.name.startsWith('goodbye-'));
+  assert.equal(connection.socket.readyState, WebSocket.OPEN);
+  send(connection.socket, { event: 'mark', streamSid: STREAM_SID, mark: final.mark });
+  await closed(connection.socket);
+  assert.ok(state.logs.some((record) => record.event === 'goodbye_played'));
+}
+
+test('key 1 after the whole summary saves through the normal path, then the goodbye plays and the stream closes', async () => {
+  const state = await fixture({ toolResult: keypadResult });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'to-summary');
+    await playPrompt(state, connection, 'Mock summary');
+    dtmf(connection.socket, '1');
+    await waitFor(() => state.requests.some((request) => request.body?.name === 'keypad_confirm'));
+    const body = state.requests.find((request) => request.body?.name === 'keypad_confirm').body;
+    assert.deepEqual({ keypad: body.keypad, heardSummary: body.heardSummary, heardSummaryId: body.heardSummaryId, args: body.args, spoke: body.userSpokeSinceLastTool },
+      { keypad: true, heardSummary: true, heardSummaryId: 'revision-1', args: {}, spoke: true });
+    assert.equal(state.providerEvents.filter((event) => event.item?.type === 'function_call_output').some((event) => event.item.call_id === body.toolCallId), false);
+    await finishGoodbye(state, connection);
+  } finally { await state.close(); }
+});
+
+test('a spoken save ends the same way: goodbye played, then the stream closes', async () => {
+  const state = await fixture({ toolResult: (body) => body.name === 'confirm_report'
+    ? { output: '{"status":"saved"}', awaitingConfirmation: false, end: 'hangup', goodbye: SAVED_GOODBYE }
+    : keypadResult({ name: 'other' }) });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'to-summary');
+    await playPrompt(state, connection, 'Mock summary');
+    await workerTool(state, 'spoken-save', 'confirm_report', 'إيه', { confirmed: true });
+    await finishGoodbye(state, connection);
+  } finally { await state.close(); }
+});
+
+for (const scenario of [
+  { name: 'key 1 before the summary is heard', digit: '1', summary: false },
+  { name: 'key 1 while the summary is still playing', digit: '1', summary: true, acknowledge: false },
+  { name: 'another key after the summary', digit: '2', summary: true },
+  { name: 'star after the summary', digit: '*', summary: true },
+]) {
+  test(`${scenario.name} is ignored and keeps the stream`, async () => {
+    const state = await fixture({ toolResult: keypadResult });
+    try {
+      const connection = await state.connect();
+      await state.ready(connection.socket);
+      await playPrompt(state, connection);
+      if (scenario.summary) {
+        await workerTool(state, 'to-summary');
+        await playPrompt(state, connection, 'Mock summary', scenario.acknowledge !== false);
+      }
+      dtmf(connection.socket, scenario.digit);
+      await delay(30);
+      assert.equal(state.requests.some((request) => request.body?.name === 'keypad_confirm'), false);
+      assert.equal(connection.socket.readyState, WebSocket.OPEN);
+      assert.ok(!state.logs.some((record) => /invalid|fail/i.test(record.event)));
+    } finally { await state.close(); }
+  });
+}
 
 for (const repromptText of [null, 1, false, {}]) {
   test(`session rejects non-string repromptText: ${JSON.stringify(repromptText)}`, async () => {
@@ -1189,7 +1310,7 @@ for (const repromptText of [null, 1, false, {}]) {
       const { socket } = await state.connect();
       start(socket);
       await closed(socket);
-      assert.equal(state.provider, undefined);
+      assert.deepEqual(state.providerEvents, []);
       assert.ok(state.logs.some((record) => record.event === 'session_failed'));
     } finally { await state.close(); }
   });

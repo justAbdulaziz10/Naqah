@@ -296,16 +296,18 @@ class CallStream {
     } else if (message.event === 'stop') {
       if (!this.started || message.streamSid !== this.streamSid) throw new Error('Invalid stop');
       this.finish('twilio_stopped');
+    } else if (message.event === 'dtmf') {
+      if (!this.started || message.streamSid !== this.streamSid) throw new Error('Invalid dtmf');
+      // Pressing 1 confirms only after the whole summary was heard; every other key is ignored.
+      if (message.dtmf?.digit === '1' && this.summaryPlayback?.heard === true && !this.ending && !this.toolPending) this.queueKeypadConfirm();
     } else throw new Error('Unknown message');
   }
 
   async start() {
     try {
-      this.session = await this.internal('/api/voice/realtime/session', { ticket: this.ticket, callSid: this.callSid });
-      if (this.closed) return;
-      if (!validSession(this.session)) throw new Error('Invalid session');
-      this.timer('maximum', this.session.maxSeconds * 1000, () => this.finish('maximum_timeout'));
-      this.activity();
+      // The greeting waits on both of these, so they run side by side.
+      const opening = this.internal('/api/voice/realtime/session', { ticket: this.ticket, callSid: this.callSid });
+      opening.catch(() => this.finish('session_failed'));
       this.provider = new WebSocket(this.config.providerUrl, {
         headers: { Authorization: `Bearer ${this.config.apiKey}` },
         handshakeTimeout: this.limits.connectMs,
@@ -314,9 +316,18 @@ class CallStream {
         perMessageDeflate: false,
       });
       this.timer('ready', this.limits.connectMs + this.limits.readyMs, () => this.finish('provider_ready_timeout'));
-      this.provider.on('open', () => {
+      this.provider.on('open', async () => {
         if (this.closed) return;
         this.timer('ready', this.limits.readyMs, () => this.finish('provider_ready_timeout'));
+        try {
+          this.session = await opening;
+        } catch {
+          return;
+        }
+        if (this.closed) return;
+        if (!validSession(this.session)) return this.finish('session_failed');
+        this.timer('maximum', this.session.maxSeconds * 1000, () => this.finish('maximum_timeout'));
+        this.activity();
         this.send(this.provider, {
           type: 'session.update',
           session: {
@@ -326,10 +337,10 @@ class CallStream {
             audio: {
               input: {
                 format: { type: 'audio/pcmu' },
-                transcription: { model: 'gpt-4o-mini-transcribe', language: this.session.locale },
+                transcription: { model: 'gpt-4o-transcribe', language: this.session.locale, ...(this.session.transcriptionPrompt ? { prompt: this.session.transcriptionPrompt } : {}) },
                 turn_detection: {
                   type: 'server_vad', threshold: 0.5, prefix_padding_ms: 300,
-                  silence_duration_ms: 500, create_response: false, interrupt_response: false,
+                  silence_duration_ms: 700, create_response: false, interrupt_response: false,
                 },
               },
               output: { format: { type: 'audio/pcmu' }, voice: 'marin' },
@@ -642,8 +653,7 @@ class CallStream {
     this.toolQueue = this.toolQueue.then(async () => {
       if (this.closed || this.ending) return;
       const confirmation = event.name === 'confirm_report' && args.confirmed === true;
-      const needsUtterance = event.name !== 'end_call';
-      if (needsUtterance && spoke && turn && !turn.settled) {
+      if (spoke && turn && !turn.settled) {
         this.timer('transcription', this.limits.transcriptionMs, () => turn.settle(''));
         await turn.promise;
         this.clearTimer('transcription');
@@ -653,11 +663,42 @@ class CallStream {
       const result = await this.internal('/api/voice/realtime/tool', {
         ticket: this.ticket, callSid: this.callSid, toolCallId: event.call_id,
         name: event.name, args, userSpokeSinceLastTool: spoke && this.userSpoke && current,
-        ...(needsUtterance ? { workerUtterance: current ? turn?.transcript ?? '' : '' } : {}),
+        workerUtterance: current ? turn?.transcript ?? '' : '',
         ...(confirmation ? { heardSummary: current && turn?.heardSummary === true } : {}),
         ...(current && turn?.heardSummary && turn.heardSummaryId !== undefined ? { heardSummaryId: turn.heardSummaryId } : {}),
       });
       if (this.closed) return;
+      if (this.workerTurn === turn) {
+        this.userSpoke = false;
+        turn?.settle('');
+        if (turn) turn.transcript = '';
+      }
+      this.applyToolResult(result, event.call_id);
+    }).catch(() => this.finish('tool_failed')).finally(() => {
+      this.toolPending -= 1;
+      this.flushResponse();
+      this.activity();
+    });
+  }
+
+  /** Key 1 at the summary: the same save path as a spoken yes, with no model turn to wait for. */
+  queueKeypadConfirm() {
+    const heardSummaryId = this.summaryPlayback.id;
+    this.toolPending += 1;
+    this.toolQueue = this.toolQueue.then(async () => {
+      if (this.closed || this.ending) return;
+      this.applyToolResult(await this.internal('/api/voice/realtime/tool', {
+        ticket: this.ticket, callSid: this.callSid, toolCallId: `keypad-${++this.markCount}`, name: 'keypad_confirm', args: {},
+        userSpokeSinceLastTool: true, heardSummary: true, keypad: true, ...(heardSummaryId !== undefined ? { heardSummaryId } : {}),
+      }));
+    }).catch(() => this.finish('tool_failed')).finally(() => {
+      this.toolPending -= 1;
+      this.flushResponse();
+    });
+  }
+
+  applyToolResult(result, callId = null) {
+    if (this.closed) return;
       if (!isObject(result) || typeof result.output !== 'string' || typeof result.awaitingConfirmation !== 'boolean'
         || ![null, 'hangup', 'fallback'].includes(result.end)
         || !(result.goodbye === null || typeof result.goodbye === 'string')
@@ -669,17 +710,14 @@ class CallStream {
       if (!result.end && (actions.length !== 1 || (!summary && !question && result.silent !== true))) {
         throw new Error('Invalid tool result');
       }
-      if (this.workerTurn === turn) {
-        this.userSpoke = false;
-        turn?.settle('');
-        if (turn) turn.transcript = '';
-      }
       // Only a summary the server speaks word for word counts as heard: a model reply could say anything.
       if (summary) this.summaryPlayback = null;
-      this.send(this.provider, {
-        type: 'conversation.item.create',
-        item: { type: 'function_call_output', call_id: event.call_id, output: result.output },
-      });
+      if (callId) {
+        this.send(this.provider, {
+          type: 'conversation.item.create',
+          item: { type: 'function_call_output', call_id: callId, output: result.output },
+        });
+      }
       this.log('tool_completed');
       if (result.end) {
         this.ending = true;
@@ -695,11 +733,6 @@ class CallStream {
         this.log('tool_silent');
         if (this.lastPrompt?.cutOff) this.requestResponse(this.lastPrompt.kind, this.lastPrompt.text, { prompt: this.lastPrompt });
       }
-    }).catch(() => this.finish('tool_failed')).finally(() => {
-      this.toolPending -= 1;
-      this.flushResponse();
-      this.activity();
-    });
   }
 }
 

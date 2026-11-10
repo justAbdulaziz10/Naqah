@@ -186,7 +186,7 @@ export const copy = (en: string, ar: string): LocalizedText => ({ en, ar });
 
 export const UNKNOWN_ANSWER = copy("I don’t know", "ما أدري");
 
-export const HERD_COUNT_QUESTION = copy("How many camels are there in total today?", "كم عدد الحلال كله اليوم؟");
+export const HERD_COUNT_QUESTION = copy("How many camels are there today?", "كم عدد الحلال؟");
 
 export const REPORT_CALL_ATTEMPTS = REPORT_CALL_RETRIES + 1;
 

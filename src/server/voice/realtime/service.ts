@@ -35,6 +35,14 @@ const ENDED: Record<Locale, string> = {
 const OWNER_ENDED: Record<Locale, string> = { ar: "ما انحفظ شيء. يعطيك العافية. مع السلامة.", en: "Nothing was saved. Thank you. Goodbye." };
 const stringify = (value: object) => JSON.stringify(value);
 
+/** Words a Saudi ranch call is full of, so the recogniser expects them. */
+function transcriptionHint(locale: Locale, camels: string[]): string {
+  const names = camels.slice(0, 20).join("، ");
+  return locale === "ar"
+    ? `مكالمة هاتف عن عزبة إبل باللهجة السعودية. كلمات متوقعة: الحلال، ناقة، النوق، علف، شعير، ماء، خزان، وايت، شبك، بيطري، زين، بخير، الحمد لله، كافي، خلص، باقي، إيه، صح، تمام، احفظ، ما أدري${names ? `، ${names}` : ""}.`
+    : `A phone call about a camel ranch. Expected words: camels, feed, water, tank, fence, vet, fine, enough, yes, save${names ? `, ${names}` : ""}.`;
+}
+
 function logTool(callSid: string, name: unknown, result: string, tookMs: number): void {
   const tool = typeof name === "string" && /^[a-z_]+$/.test(name) ? name : "invalid";
   console.info(`[NAQAH] realtime tool call=${callSid.slice(-6)} name=${tool} result=${result} ms=${tookMs}`);
@@ -63,6 +71,7 @@ export type OpenedSession = {
   tools: typeof REALTIME_TOOLS | typeof OWNER_TOOLS;
   opening: string;
   repromptText: string;
+  transcriptionPrompt: string;
   locale: Locale;
   maxSeconds: number;
 };
@@ -93,21 +102,23 @@ export async function openRealtimeSession(client: SupabaseClient, body: Record<s
     opening: realtime.opening,
     repromptText: spoken.join(" ") || realtime.opening,
     locale: row.locale,
+    transcriptionPrompt: transcriptionHint(row.locale, (await farmOf(client, row, now)).camels.map((camel) => camel.name)),
     maxSeconds: REALTIME_MAX_SECONDS,
   };
 }
 
-export type ToolBody = { ticket: unknown; callSid: string; toolCallId: string; name: unknown; args: unknown; userSpokeSinceLastTool: boolean; workerUtterance?: string; heardSummary?: boolean; heardSummaryId?: string };
+export type ToolBody = { ticket: unknown; callSid: string; toolCallId: string; name: unknown; args: unknown; userSpokeSinceLastTool: boolean; workerUtterance?: string; heardSummary?: boolean; heardSummaryId?: string; keypad?: boolean };
 
 export function parseToolBody(body: Record<string, unknown>): ToolBody | null {
-  const { ticket, callSid, toolCallId, name, args, userSpokeSinceLastTool, workerUtterance, heardSummary, heardSummaryId } = body;
+  const { ticket, callSid, toolCallId, name, args, userSpokeSinceLastTool, workerUtterance, heardSummary, heardSummaryId, keypad } = body;
   if (typeof callSid !== "string" || !CALL_SID.test(callSid)) return null;
   if (typeof toolCallId !== "string" || !TOOL_CALL_ID.test(toolCallId)) return null;
   if (typeof userSpokeSinceLastTool !== "boolean") return null;
   if (workerUtterance !== undefined && (typeof workerUtterance !== "string" || workerUtterance.length > 1000 || /[\u0000-\u001f\u007f]/u.test(workerUtterance))) return null;
   if (heardSummary !== undefined && typeof heardSummary !== "boolean") return null;
   if (heardSummaryId !== undefined && (typeof heardSummaryId !== "string" || heardSummaryId.length > 200)) return null;
-  return { ticket, callSid, toolCallId, name, args, userSpokeSinceLastTool, workerUtterance, heardSummary, heardSummaryId };
+  if (keypad !== undefined && typeof keypad !== "boolean") return null;
+  return { ticket, callSid, toolCallId, name, args, userSpokeSinceLastTool, workerUtterance, heardSummary, heardSummaryId, keypad };
 }
 
 /** The script can't sort free speech, so what it resumes must never wait on an open update. */
@@ -156,7 +167,10 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
     if (realtime.closed) return fallbackResult();
     const workspace = await farmOf(client, row, now);
     const owner = ticket.p === "owner";
-    const toolTurn = { session: row.session, counters: realtime, workspace, locale: row.locale, name: body.name, args: body.args, spoke: body.userSpokeSinceLastTool, heard: body.workerUtterance ?? "", heardSummaryId: body.heardSummaryId , now };
+    const keypad = body.keypad === true && body.name === "keypad_confirm";
+    const toolName = keypad ? (owner ? "confirm_instructions" : "confirm_report") : body.name;
+    const toolArgs = keypad ? { confirmed: true } : body.args;
+    const toolTurn = { session: row.session, counters: realtime, workspace, locale: row.locale, name: toolName, args: toolArgs, keypad, spoke: body.userSpokeSinceLastTool, heard: body.workerUtterance ?? "", heardSummaryId: body.heardSummaryId , now };
     const decision = owner ? decideOwnerTool(toolTurn) : decideTool(toolTurn);
     const nextRealtime = { ...realtime, ...decision.counters };
     const keep = async (result: ToolResponse) => {

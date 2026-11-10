@@ -5,8 +5,8 @@
  *   ws   /v1/realtime                  the OpenAI Realtime socket (scripts/mocks/realtime-provider.mjs)
  *
  * An accepted call then runs like a real one: signed status callbacks, the signed TwiML fetch, a Media Stream to the
- * real bridge, a scripted model answering every question, the read-back and confirmation, then `completed`. Everything
- * observed is kept as evidence for scripts/verify-test-call.mjs.
+ * real bridge, a scripted model that only classifies with tools while the server speaks every line, the read-back and
+ * confirmation, then `completed`. Everything observed is kept as evidence for scripts/verify-test-call.mjs.
  *
  *   GET  /__test/state     { requests, calls, control }
  *   POST /__test/control   { outcome?: "full" | "no-answer" | "hold", twilioError?: number | null, dwellMs?: number, reset?: true }
@@ -40,18 +40,17 @@ export function twilioSignature(url, fields, token = FAKE_AUTH_TOKEN) {
   return createHmac("sha1", token).update(value, "utf8").digest("base64");
 }
 
-/** What a worker says at each step of the call, with the structured answer a good model would extract from it. */
+/**
+ * What a worker says at each question, with the classification a good model would make from it. The words travel as
+ * the input transcription, because the server refuses an answer the worker's words don't support.
+ */
 const ANSWER_PLAN = [
-  { when: (s) => s.step === "report_question" && s.q?.startsWith("herd_health"), say: "والله كلها بخير الحمد لله يا طويل العمر", args: { value: "yes" } },
-  { when: (s) => s.step === "report_question" && s.q === "herd_count", say: "عشرين راس تقريبا", args: { text: "20" } },
-  { when: (s) => s.step === "herd_count_confirm", say: "ايه صح عشرين", args: { value: "yes" } },
-  { when: (s) => s.step === "report_question" && s.q === "feed_level", say: "العلف باقي منه شوي", args: { value: "low" } },
-  { when: (s) => s.step === "quantity_input" && s.q === "feed_level", say: "خمسة وعشرين كيس", args: { text: "25" } },
-  { when: (s) => s.step === "quantity_confirm", say: "ايه تمام", args: { value: "yes" } },
-  { when: (s) => s.step === "report_question" && s.q === "water_level", say: "الموية كافية ما عليها", args: { value: "good" } },
-  { when: (s) => s.step === "quantity_input" && s.q === "water_level", say: "حوالي ميه لتر", args: { text: "100" } },
-  { when: (s) => s.step === "report_question" && s.q === "fences_condition", say: "السياج سليم ما فيه شي", args: { value: "good" } },
-  { when: (s) => s.step === "report_question" && /^[0-9a-f-]{36}$/.test(s.q ?? ""), say: "لا والله ما جا أحد اليوم", args: { text: "لا ما جا" } },
+  { when: (s) => s.q === "herd_health", say: "كلها بخير", args: { value: "yes", topic: "herd" } },
+  { when: (s) => s.q === "herd_count", say: "عشرين راس", args: { text: "20", topic: "herd" } },
+  { when: (s) => s.q === "feed_level", say: "العلف باقي منه شوي", args: { value: "low", topic: "feed" } },
+  { when: (s) => s.q === "water_level", say: "الموية كافية", args: { value: "good", topic: "water" } },
+  { when: (s) => s.q === "fences_condition", say: "الشبك سليم", args: { value: "good", topic: "fences" } },
+  { when: (s) => /^[0-9a-f-]{36}$/.test(s.q ?? ""), say: "لا والله ما جا أحد اليوم", args: { text: "لا ما جا", topic: "other" } },
 ];
 
 const CONFIRMATION = "إيه احفظه";
@@ -132,7 +131,9 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
     call.provider.sessionUpdate = update.session;
     const openingCreate = await upstream.waitForEvent((event) => event.type === "response.create" && typeof event.response?.instructions === "string", 10_000, "opening line");
     call.provider.openingToolChoice = openingCreate.response?.tool_choice ?? null;
-    await waitUntil(() => upstream.spoken.length >= 1 && stream.sent("media").length >= 1, "opening played");
+    const marks = (prefix) => stream.sent("mark").filter((event) => event.mark?.name?.startsWith(prefix)).length;
+    await waitUntil(() => upstream.spoken.length >= 1 && marks("prompt-") >= 1, "opening played");
+    await sleep(50);
     call.provider.opening = upstream.spoken[0];
 
     for (let frame = 0; frame < CALLER_FRAMES; frame += 1) stream.media(VOICED);
@@ -148,22 +149,26 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
       const state = engineState(call.sid);
       if (!state) throw new Error("The voice session row disappeared mid-call");
       if (state.step === "report_summary") break;
-      const plan = ANSWER_PLAN.find((entry) => entry.when(state));
+      const plan = state.step === "report_question" ? ANSWER_PLAN.find((entry) => entry.when(state)) : null;
       if (!plan) throw new Error(`The scripted worker has no answer for ${state.step}/${state.q}`);
       call.questions.push({ step: state.step, q: state.q });
+      const [spoken, prompts] = [upstream.spoken.length, marks("prompt-")];
       upstream.workerSays(plan.say);
       const output = await upstream.toolCall("answer_question", plan.args);
       if (output === null) throw new Error(`No tool output at ${state.step}/${state.q}`);
       lastOutput = output;
       call.toolResults.push({ name: "answer_question", output });
-      const next = engineState(call.sid);
-      if (next && next.step !== "report_summary") await upstream.speak(JSON.parse(output).question ?? "السؤال التالي");
+      const parsed = JSON.parse(output);
+      if (parsed.status !== "ok") throw new Error(`The server refused the answer at ${state.step}/${state.q}: ${output.slice(0, 300)}`);
+      // The server chooses the next line; the model never speaks it. Wait until the caller has really heard it.
+      await waitUntil(() => upstream.spoken.length > spoken && marks("prompt-") > prompts, `the line after ${state.q}`, 20_000);
+      call.linesAfterAnswers.push({ expected: parsed.question, spoken: upstream.spoken.at(-1) });
     }
     if (engineState(call.sid)?.step !== "report_summary") throw new Error("The call never reached the summary");
 
     const parsed = JSON.parse(lastOutput ?? "{}");
-    call.summary = { text: parsed.summary ?? null, flagged: parsed.isSummary === true };
-    await waitUntil(() => stream.sent("mark").some((event) => event.mark?.name?.startsWith("summary-")), "summary playback boundary", 20_000);
+    call.summary = { text: parsed.summary ?? null, flagged: parsed.isSummary === true, replies: parsed.replies?.map((reply) => reply.value) ?? [] };
+    await waitUntil(() => marks("summary-") >= 1, "summary playback boundary", 20_000);
     await sleep(100);
     call.summary.readInFull = upstream.spoken.includes(call.summary.text);
     call.reportsBeforeConfirm = reportCount(farm);
@@ -177,7 +182,7 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
     call.streamClosed = closed !== null;
     call.provider.spoken = [...upstream.spoken];
     call.provider.responseCreates = upstream.of("response.create").length;
-    call.provider.toolChoices = upstream.of("response.create").map((event) => event.response?.tool_choice ?? null);
+    call.provider.responses = upstream.of("response.create").map((event) => ({ toolChoice: event.response?.tool_choice ?? null, verbatim: typeof event.response?.instructions === "string", instructions: event.response?.instructions ?? null }));
     call.audio = {
       callerFramesSent: CALLER_FRAMES,
       callerFramesAtProvider: upstream.audioIn.filter((event) => event.audio === VOICED).length,
@@ -261,7 +266,7 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
     record.sid = sid;
     const call = {
       sid, to: fields.To, from: fields.From, url: fields.Url, statusCallback: fields.StatusCallback, record: fields.Record,
-      requestedEvents: form.getAll("StatusCallbackEvent"), outcome: control.outcome, statuses: [], questions: [], toolResults: [],
+      requestedEvents: form.getAll("StatusCallbackEvent"), outcome: control.outcome, statuses: [], questions: [], toolResults: [], linesAfterAnswers: [],
       provider: {}, finished: false,
     };
     calls.push(call);

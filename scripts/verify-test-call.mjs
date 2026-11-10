@@ -187,6 +187,7 @@ const answersOf = (farm) => JSON.parse(sql(`select coalesce(json_agg(row_to_json
 /* ─────────────────── what every completed mock call must show ─────────────────── */
 
 const ARABIC = /[؀-ۿ]/g;
+const CALL_TOOLS = ["answer_question", "choose_mode", "confirm_report", "correct_report", "end_call", "finish_update", "flag_urgent", "record_facts", "repeat_or_clarify"];
 
 function assertCallEvidence(call, farm, destination) {
   check("the mock call finished without an error", call.finished === true && !call.error, call.error);
@@ -203,16 +204,29 @@ function assertCallEvidence(call, farm, destination) {
 
   const session = call.provider.sessionUpdate ?? {};
   const instructions = session.instructions ?? "";
-  check("session.update requires Saudi Arabic", /لهجة سعودية/.test(instructions), instructions.slice(0, 200));
-  check("session.update requires one question at a time", /سؤال واحد في كل مرة/.test(instructions), instructions.slice(0, 200));
-  check("session.update requires the full summary, read unchanged", /اقرأ summary كما هو بدون تغيير/.test(instructions), instructions.length);
-  check("session.update requires confirmation before saving", /ثم اسأله إذا تحفظه/.test(instructions) && /نادِ confirm_report/.test(instructions) && /لا تقول «انحفظ» أو «تم» قبل ما ترجع الأداة status بقيمة saved/.test(instructions), instructions.length);
-  check("the provider gets exactly the three call tools", ["answer_question", "confirm_report", "end_call"].every((name) => session.tools?.some((tool) => tool.name === name)) && session.tools?.length === 3, session.tools?.map((tool) => tool.name));
+  check("session.update makes the model call tools only: tool_choice is required", session.tool_choice === "required", session.tool_choice);
+  check("session.update limits the model to listening and classifying", /دورك الاستماع والتصنيف فقط/.test(instructions) && /لا تتكلم بنفسك أبداً/.test(instructions), instructions.slice(0, 300));
+  check("session.update requires one tool per worker turn", /في كل دور للعامل نادِ أداة واحدة بالضبط/.test(instructions), instructions.slice(0, 300));
+  check("session.update has the server choose every word and read questions verbatim", /الخادم يختار كل الكلام ويقرأ السؤال حرفياً/.test(instructions), instructions.slice(0, 300));
+  check("session.update requires a topic and forbids guessing", /answer_question للجواب مع topic المطابق/.test(instructions) && /لا تخمن جواباً أو رقماً/.test(instructions), instructions.length);
+  check("session.update requires the whole summary and clear agreement before saving", /confirm_report\(true\) فقط بعد سماع الملخص كاملاً والموافقة الواضحة/.test(instructions) && /ولا تخترع حقائق أو تدعي الحفظ/.test(instructions), instructions.length);
+  check("the provider gets exactly the current call tools", JSON.stringify((session.tools ?? []).map((tool) => tool.name).sort()) === JSON.stringify(CALL_TOOLS), session.tools?.map((tool) => tool.name));
+  const answerTool = session.tools?.find((tool) => tool.name === "answer_question");
+  check("answer_question requires a topic", answerTool?.parameters?.required?.includes("topic"), answerTool?.parameters);
   check("input transcription is Arabic and audio is G.711", session.audio?.input?.transcription?.language === "ar" && /pcmu/i.test(JSON.stringify(session.audio ?? {})), session.audio);
   const opening = call.provider.opening ?? "";
   const letters = opening.match(/\p{L}/gu)?.length ?? 0;
   check("the opening is Arabic, spoken verbatim with tools disabled", letters > 10 && (opening.match(ARABIC)?.length ?? 0) >= letters * 0.8 && call.provider.openingToolChoice === "none", { opening, toolChoice: call.provider.openingToolChoice });
   check("the opening says it is an automated assistant", /آلي/.test(opening), opening);
+
+  const responses = call.provider.responses ?? [];
+  const verbatim = responses.filter((entry) => entry.verbatim);
+  check("every line the caller heard was the server's, verbatim, with tools disabled", verbatim.length > 0 && verbatim.length === call.provider.spoken?.length && verbatim.every((entry) => entry.toolChoice === "none" && entry.instructions.startsWith("Say only the following text verbatim")), verbatim.map((entry) => entry.toolChoice));
+  check("the model's own turns only classify: they carry no words to say", responses.some((entry) => !entry.verbatim) && responses.filter((entry) => !entry.verbatim).every((entry) => entry.toolChoice !== "none"), responses.map((entry) => entry.toolChoice));
+  const arabicShare = (line) => (line.match(ARABIC)?.length ?? 0) / Math.max(1, line.match(/\p{L}/gu)?.length ?? 0);
+  check("every spoken line is Arabic", (call.provider.spoken ?? []).length > 0 && call.provider.spoken.every((line) => arabicShare(line) >= 0.8), call.provider.spoken);
+  check("the caller hears the ranch's Saudi wording", (call.provider.spoken ?? []).some((line) => /الحلال/.test(line)) && (call.provider.spoken ?? []).some((line) => /العزبة|عزبة/.test(line) || /وش|زين|ولا فيه/.test(line)), call.provider.spoken);
+  check("each answer is followed by exactly the server's next line", (call.linesAfterAnswers ?? []).length === call.questions.length && call.linesAfterAnswers.every((entry) => entry.expected && entry.spoken === entry.expected), call.linesAfterAnswers);
 
   const answers = answersOf(farm);
   const answered = new Set(answers.map((row) => row.question_id));
@@ -222,6 +236,7 @@ function assertCallEvidence(call, farm, destination) {
   check("the model never skipped to a save: one tool call per step, then the confirmation", call.toolResults.filter((entry) => entry.name === "confirm_report").length === 1 && call.toolResults.at(-1).name === "confirm_report" && call.toolResults.length === call.questions.length + 1, call.toolResults.map((entry) => entry.name));
 
   check("the engine flagged the summary", call.summary?.flagged === true && Boolean(call.summary?.text), call.summary);
+  check("the summary offers exactly save, correct and end without saving", JSON.stringify([...(call.summary?.replies ?? [])].sort()) === JSON.stringify(["confirm_save", "correct", "end_without_save"]), call.summary?.replies);
   check("the complete summary was read to the caller, word for word", call.summary?.readInFull === true, call.summary);
   check("the summary covers the herd, feed and water answers", /20/.test(call.summary?.text ?? "") && /(العلف|الأعلاف)/.test(call.summary?.text ?? "") && /(الماء|الموية)/.test(call.summary?.text ?? ""), call.summary?.text);
   check("no report exists before confirm_report", call.reportsBeforeConfirm === 0, call.reportsBeforeConfirm);
@@ -436,6 +451,8 @@ async function phaseRoute() {
     for (const [status, pattern] of Object.entries(UI.statuses)) check(`the screen showed text for ${status}`, pattern.test(seen), status);
     check("the screen shows the report was saved", UI.saved.test(await page.locator("body").innerText()));
     check("no uncaught browser errors", errors.length === 0, errors);
+    const testRun = JSON.parse(sql(`select coalesce(json_agg(json_build_object('state', r.state, 'attempts', jsonb_array_length(r.attempts), 'next', r.next_attempt_at, 'linked', r.report_id is not null)), '[]') from report_call_runs r where r.farm_id = ${q(TEST_FARM)}`));
+    check("a test run is one attempt with no retry due, and it holds the report", testRun.length === 1 && testRun[0].attempts === 1 && testRun[0].next === null && testRun[0].state === "completed" && testRun[0].linked === true, testRun);
     check("ISOLATION: the only Twilio request went to the entered number", finished.requests.length === 1 && finished.requests[0].To === ALLOWED_NUMBER, finished.requests.map((request) => request.To));
     check("ISOLATION: the worker's placeholder number was never dialled", !finished.requests.some((request) => request.To === WORKER_PLACEHOLDER), finished.requests.map((request) => request.To));
     check("ISOLATION: the control ranch is byte-identical", snapshotFarm(CONTROL_FARM) === controlBeforeCall);
@@ -464,7 +481,9 @@ async function phaseRoute() {
     await waitFor(async () => (await get()).json?.call?.status === "failed", "GET to report failed", 15_000).catch(() => {});
     const unanswered = await get();
     check("an unanswered call ends as failed", unanswered.json?.call?.status === "failed", unanswered);
-    check("no retry is due after a no-answer", Number(sql(`select count(*) from report_call_runs where farm_id = ${q(TEST_FARM)} and state = 'calling' and next_attempt_at is not null`)) === 0, sql(`select state, next_attempt_at from report_call_runs where farm_id = ${q(TEST_FARM)}`));
+    check("no retry is due after a no-answer", Number(sql(`select count(*) from report_call_runs where farm_id = ${q(TEST_FARM)} and (state = 'calling' or next_attempt_at is not null)`)) === 0 && Number(sql(`select coalesce(sum(jsonb_array_length(attempts)), 0) from report_call_runs where farm_id = ${q(TEST_FARM)}`)) === 1, sql(`select state, next_attempt_at, attempts from report_call_runs where farm_id = ${q(TEST_FARM)}`));
+    await sleep(1500);
+    check("an unanswered test call stays at one Twilio request", (await mockState()).requests.length === 1, (await mockState()).requests.length);
     await assertCronRefuses((await mockState()).requests.length);
 
     resetTestRanch();

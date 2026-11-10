@@ -68,9 +68,8 @@ describe("answers captured on a real call", () => {
     const { ws, session } = answeredCall();
     let current = reply(session, ws, { value: "no" });
     current = reply(current, ws, { value: current.replies[0].value });
-    current = reply(current, ws, { value: "sick" });
-    expect(current.step).toBe("health_note");
-    current = reply(current, ws, { text: said });
+    expect(current.step).toBe("health_status");
+    current = reply(current, ws, { value: "sick", text: said });
     expect(current.step).toBe("health_more");
     expect(current.draft.camelUpdates.at(-1)?.note).toBeNull();
   });
@@ -79,8 +78,7 @@ describe("answers captured on a real call", () => {
     const { ws, session } = answeredCall();
     let current = reply(session, ws, { value: "no" });
     current = reply(current, ws, { value: current.replies[0].value });
-    current = reply(current, ws, { value: "sick" });
-    current = reply(current, ws, { text: "ما تاكل من أمس" });
+    current = reply(current, ws, { value: "sick", text: "ما تاكل من أمس" });
     expect(current.step).toBe("health_more");
     expect(current.draft.camelUpdates.at(-1)?.note).toBe("ما تاكل من أمس");
   });

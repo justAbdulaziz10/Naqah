@@ -17,7 +17,7 @@ import { promptFor, SUMMARY_STEP } from "@/server/voice/realtime/tools";
 export const LAB_RUN_ID = "00000000-0000-4000-8000-00000000f001";
 const LAB_CALL_ID = "voice-lab";
 
-const SAVED: Record<Locale, string> = { ar: "تم حفظ التحديث، شكراً لك. مع السلامة.", en: "Your update is saved. Thank you. Goodbye." };
+const SAVED: Record<Locale, string> = { ar: "انحفظ التحديث. يعطيك العافية، مع السلامة.", en: "Your update is saved. Thank you, goodbye." };
 const ENDED: Record<Locale, string> = { ar: "ما انحفظ التحديث. يعطيك العافية. مع السلامة.", en: "The update wasn't saved. Thank you. Goodbye." };
 const FAILED: Record<Locale, string> = { ar: "صار خلل وما قدرت أتأكد من حفظ شيء.", en: "Something went wrong and I couldn't confirm that anything was saved." };
 
@@ -29,7 +29,7 @@ export type LabVerdict =
   | { kind: "would_reject"; reason: string }
   | { kind: "declined" }
   | { kind: "ended" }
-  /** Two failed confirmations: a real call stops the AI and continues on the keypad script. */
+  /** Three failed confirmations: a real call stops the AI and continues on the keypad script. */
   | { kind: "fallback" };
 
 export interface LabFact {

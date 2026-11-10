@@ -413,7 +413,7 @@ describe("Call Lab conversation engine", () => {
     const { ws, session: first } = reportCall(createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0)));
     let session = answer(first, ws, NOW, { value: "yes" }).session;
     expect(session.data.currentQuestionId).toBe("herd_count");
-    expect(session.turns.at(-1)?.text.en).toBe("How many camels are there in total today?");
+    expect(session.turns.at(-1)?.text.en).toBe("How many camels are there today?");
     expect(session.inputMode).toBe("number");
     session = answer(session, ws, NOW, { text: "lots" }).session;
     expect(session.turns.at(-1)?.text.en).toContain("for example 42");

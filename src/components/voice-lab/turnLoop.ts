@@ -464,9 +464,8 @@ export class TurnLoop {
     this.toolQueue = this.toolQueue
       .then(async () => {
         if (this.closed || this.ending) return;
-        // Every tool but hanging up is checked against the worker's words, so it waits for them.
-        const needsUtterance = name !== "end_call";
-        if (needsUtterance && spoke && turn && !turn.settled) {
+        // Every tool is checked against the worker's words, so it waits for them.
+        if (spoke && turn && !turn.settled) {
           this.timer("transcription", TRANSCRIPTION_MS, () => turn.settle(""));
           await turn.promise;
           this.clearTimer("transcription");
@@ -477,7 +476,7 @@ export class TurnLoop {
           name,
           args: input,
           spoke: spoke && this.userSpoke && current,
-          ...(needsUtterance ? { workerUtterance: current ? turn?.transcript ?? "" : "" } : {}),
+          workerUtterance: current ? turn?.transcript ?? "" : "",
           ...(current && turn?.heardSummaryId !== undefined ? { heardSummaryId: turn.heardSummaryId } : {}),
         });
         if (this.closed) return;

@@ -426,7 +426,7 @@ describe("confirming a summary", () => {
     expect(lastCall(kit).heardSummaryId).toBeUndefined();
   });
 
-  it("waits for the transcript on every tool except hanging up", async () => {
+  it("waits for the transcript on every tool, hanging up included", async () => {
     const kit = await spokenAnswer();
     kit.host.runTool.mockClear();
     const next = setup();
@@ -451,8 +451,11 @@ describe("confirming a summary", () => {
     ending.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "end_call", arguments: '{"reason":"worker_ended"}' });
     ending.done("r1");
     await flush();
+    expect(ending.host.runTool).not.toHaveBeenCalled();
+    ending.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w3", content_index: 0, transcript: "مع السلامة" });
+    await flush();
     expect(ending.host.runTool).toHaveBeenCalledTimes(1);
-    expect(ending.host.runTool.mock.calls[0][0].workerUtterance).toBeUndefined();
+    expect(ending.host.runTool.mock.calls[0][0].workerUtterance).toBe("مع السلامة");
   });
 
   it("does not count a model's own reply as the summary", async () => {

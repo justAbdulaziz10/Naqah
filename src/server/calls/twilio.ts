@@ -45,6 +45,8 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
         StatusCallback: request.statusCallback,
         StatusCallbackMethod: "POST",
         Timeout: String(request.timeoutSeconds ?? 30),
+        // A hard ceiling on a call's length, for local real-phone tests only. Unset everywhere else.
+        ...(/^\d{2,4}$/.test(process.env.NAQAH_CALL_TIME_LIMIT_SECONDS ?? "") ? { TimeLimit: process.env.NAQAH_CALL_TIME_LIMIT_SECONDS! } : {}),
         Record: "false",
       });
       for (const event of request.statusEvents ?? []) body.append("StatusCallbackEvent", event);

@@ -214,7 +214,7 @@ const CONCEPTS: Record<Concept, readonly string[]> = {
   ],
   watch: ["متابعه", "ملاحظه", "مراقبه", "نراقبها", "watch", "observation"],
   damaged: ["خربان", "خربانه", "مكسور", "مكسوره", "broken", "damaged"],
-  enough: ["كافي", "كافيه", "يكفي", "تكفي", "يكفون", "كفايه", "متوفر", "متوفره", "موجود", "موجوده", "وايد", "كثير", "enough", "plenty", "sufficient", "full"],
+  enough: ["مليان", "مليانه", "متروس", "فل", "كافي", "كافيه", "يكفي", "تكفي", "يكفون", "كفايه", "متوفر", "متوفره", "موجود", "موجوده", "وايد", "كثير", "enough", "plenty", "sufficient", "full"],
   low: ["ناقص", "ناقصه", "نقص", "نقصت", "قليل", "قليله", "شوي", "شويه", "low", "short", "little"],
   medium: ["متوسط", "متوسطه", "نص", "نصه", "النص", "نصف", "النصف", "half", "medium", "average"],
   finished: ["خلص", "خلصت", "خلصان", "خلصانه", "خلصتها", "خالص", "انتهيت", "انتهى", "انتهت", "نفد", "نفذ", "سويتها", "سويته", "سويناها", "سويناه", "انجزتها", "انجزته", "صلحتها", "صلحته", "done", "finished", "complete", "completed", "empty"],
@@ -343,12 +343,14 @@ function intentReply(session: CallSession, reading: Reading): string | null {
   if (item?.kind === "predefined" && item.answerKind === "herd-health" && values.has("yes") && values.has("no")) {
     const sick = has(reading, "sick") || has(reading, "healthy", true) || has(reading, "watch");
     const well = reading.wellbeing || has(reading, "healthy") || has(reading, "sick", true) || has(reading, "thing", true);
-    return oneSide(well, sick, "yes", "no") ?? (reading.deny && !reading.affirm ? "yes" : reading.affirm && !reading.deny ? "no" : null);
+    // "How are the camels?": a bare yes or no says nothing, so it is asked again.
+    return oneSide(well, sick, "yes", "no");
   }
-  if (item?.kind === "predefined" && item.id === "fences_condition") {
-    const intact = has(reading, "healthy") || has(reading, "damaged", true);
-    const damaged = has(reading, "damaged") || has(reading, "healthy", true);
-    const condition = oneSide(intact, damaged, "yes", "no");
+  // "Are the fences intact?" and the like: yes and no are real answers here.
+  if (item?.kind === "predefined" && ["fences_condition", "shelter_condition", "medicine_stock"].includes(item.id) && values.has("good")) {
+    const fine = reading.affirm || has(reading, "healthy") || has(reading, "enough") || has(reading, "damaged", true);
+    const bad = reading.deny || reading.bareNegation || has(reading, "damaged") || has(reading, "low") || has(reading, "healthy", true);
+    const condition = oneSide(fine, bad, "good", "low");
     if (condition) return condition;
   }
   if (values.has("not_enough")) {
@@ -359,7 +361,7 @@ function intentReply(session: CallSession, reading: Reading): string | null {
   if (values.has("good") && values.has("low") && values.has("critical")) {
     if ((has(reading, "finished") || has(reading, "thing", true)) && !has(reading, "finished", true)) return "critical";
     const low = has(reading, "low") || has(reading, "enough", true);
-    const good = has(reading, "enough") || has(reading, "healthy") || has(reading, "low", true);
+    const good = reading.wellbeing || has(reading, "enough") || has(reading, "healthy") || has(reading, "low", true);
     if (low && !good) return "low";
     if (has(reading, "medium") && !low) return "medium";
     if (good && !low) return "good";
@@ -437,7 +439,9 @@ function pickedPosition(normalized: string): number | null {
 
 function choiceInput(session: CallSession, transcript: string, locale: Locale): AnswerInput | null {
   const normalized = compact(transcript);
-  const exact = session.replies.find((item) => [item.value, item.label.ar, item.label.en].some((text) => compact(text) === normalized));
+  const herdItem = currentItem(session);
+  const bareYesNo = herdItem?.kind === "predefined" && herdItem.answerKind === "herd-health"; // The reply values are "yes" and "no".
+  const exact = session.replies.find((item) => [...(bareYesNo ? [] : [item.value]), item.label.ar, item.label.en].some((text) => compact(text) === normalized));
   if (exact) return { value: exact.value };
   if (session.step === "health_pick" || session.step === "open_clarify") {
     const nameKey = (text: string) => compact(text).split(" ").map((word) => word.startsWith("ال") && word.length > 3 ? word.slice(2) : word).join(" ");
@@ -451,6 +455,8 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   if (needsClearAnswer(session) && reading.affirm && (reading.deny || reading.bareNegation)) return null;
   const intended = intentReply(session, reading);
   if (intended) return { value: intended };
+  // «كيف الحلال اليوم؟» takes a real answer: a bare yes or no would have to be guessed at.
+  if (bareYesNo) return null;
   if (reading.unknown) return null;
   if (session.step === "report_summary" || session.step === "instruction_review") return null;
   if (session.replies.some((reply) => reply.value === "good") && session.replies.some((reply) => reply.value === "critical")) return null;

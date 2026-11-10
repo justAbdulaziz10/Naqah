@@ -69,6 +69,7 @@ Answers need supporting words in the worker's transcript. After three refusals a
 unknown, never switched to another value. Free text and urgent notes are stored from the transcript, not the model's wording.
 Open-mode facts must be supported by the transcript (`realtime/facts.ts`); a fact with the right topic but unclear value is
 kept as a note instead of guessed. Two 10-second reprompts follow silence, then the call continues by script.
+Transcription is `gpt-4o-transcribe` with a hint of expected ranch words and the camels' names. Key 1 confirms once the whole summary was heard. A fixed choice needs words that map to it, a garbled transcript is asked again, and only words asking to stop can end a call.
 
 ## Bridge behaviour
 

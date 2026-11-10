@@ -77,6 +77,11 @@ export function parseArgs(argv) {
     else if (name === "--skip-build") options.skipBuild = true;
     else if (name === "--report-path") options.reportPath = true;
     else if (name === "--trace-transcripts") options.traceTranscripts = true;
+    else if (name === "--max-call-seconds") {
+      options.maxCallSeconds = takeValue(index, name);
+      if (!/^\d{2,4}$/.test(options.maxCallSeconds)) throw new UsageError("--max-call-seconds needs a number of seconds");
+      index += 1;
+    }
     else if (name === "--secrets") { options.secrets = takeValue(index, name); index += 1; }
     else if (name === "--public-url") { options.publicUrl = takeValue(index, name); index += 1; }
     else if (name === "--allow") { options.allow.push(...takeValue(index, name).split(",").map((item) => item.trim())); index += 1; }
@@ -178,6 +183,7 @@ export function buildEnvironments(options, stack, secrets = null) {
     NAQAH_VOICE_MODE: "farm", NAQAH_VOICE_LOCALE: "ar", NAQAH_VOICE_ENGINE: "realtime",
     NAQAH_BRIDGE_PUBLIC_URL: bridgePublic, NAQAH_PUBLIC_BASE_URL: publicBase,
   };
+  if (options.maxCallSeconds) next.NAQAH_CALL_TIME_LIMIT_SECONDS = options.maxCallSeconds;
   if (options.traceTranscripts) next.NAQAH_CALL_TRACE_DIR = join(tmpdir(), "naqah-call-transcripts");
   const bridge = {
     NODE_ENV: "production", PORT: String(ports.bridge),

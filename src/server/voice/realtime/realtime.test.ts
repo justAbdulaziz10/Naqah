@@ -830,7 +830,7 @@ describe("tool calls on a live call", () => {
 
     expect(done.result).toMatchObject({ end: "hangup", awaitingConfirmation: false });
     expect(done.output.status).toBe("saved");
-    expect(done.result.goodbye).toContain("تم حفظ");
+    expect(done.result.goodbye).toBe("انحفظ التحديث. يعطيك العافية، مع السلامة.");
     const reports = mock.save.mock.calls.filter((call) => call[3].type === "worker_report");
     expect(reports).toHaveLength(1);
     const [, farmId, context, event] = reports[0];
@@ -861,7 +861,7 @@ describe("tool calls on a live call", () => {
   it("confirmed false offers correction without discarding the report", async () => {
     const { ticket, opened } = await open();
     await reachSummary(ticket, firstPrompt(opened));
-    const done = await tool(ticket, "confirm_report", { confirmed: false }, { userSpokeSinceLastTool: false });
+    const done = await tool(ticket, "confirm_report", { confirmed: false }, { workerUtterance: "لا، فيه غلط" });
     expect(done.output.status).toBe("ok");
     expect(done.result.end).toBeNull();
     expect(row().session.step).toBe("report_correct_pick");
@@ -873,7 +873,7 @@ describe("tool calls on a live call", () => {
   it("ends a call early without saving anything", async () => {
     const { ticket } = await open();
     const saves = mock.save.mock.calls.length;
-    const done = await tool(ticket, "end_call", { reason: "worker_ended" });
+    const done = await tool(ticket, "end_call", { reason: "worker_ended" }, { workerUtterance: "مع السلامة" });
     expect(done.output.status).toBe("ended_without_saving");
     expect(done.result.goodbye).toContain("ما انحفظ");
     expect(mock.save.mock.calls).toHaveLength(saves);
@@ -926,6 +926,83 @@ describe("tool calls on a live call", () => {
   });
 });
 
+describe("the worker's own words decide", () => {
+  async function reachQuestion(ticket: string, first: Prompt, questionId: string) {
+    let prompt = first;
+    for (let turn = 0; turn < 80 && row().session.data.currentQuestionId !== questionId; turn += 1) {
+      const args = prompt.numberExpected ? { text: "٤٢" } : prompt.replies.length ? { value: prompt.replies[0].value } : { text: "تمام" };
+      const step = await tool(ticket, "answer_question", args, { workerUtterance: "text" in args ? args.text : prompt.replies[0].label ?? "إيه تمام" });
+      expect(step.output.status).toBe("ok");
+      prompt = step.output;
+    }
+    expect(row().session.data.currentQuestionId).toBe(questionId);
+    return prompt;
+  }
+
+  it("keeps the call going on end_call without words asking to stop", async () => {
+    const { ticket } = await open();
+    const silent = await tool(ticket, "end_call", { reason: "worker_ended" }, { workerUtterance: "" });
+    expect(silent.result).toMatchObject({ end: null, silent: true });
+    const words = await tool(ticket, "end_call", { reason: "worker_ended" }, { workerUtterance: "العلف زين" });
+    expect(words.result.end).toBeNull();
+    expect(words.output.error).toBe("worker_has_not_asked_to_stop");
+    expect(words.result.sayText).toBeTruthy();
+    expect(row().session.done).toBe(false);
+  });
+
+  it.each(["مع السلامة", "وقف", "ما ابي اكمل", "مشغول", "stop", "goodbye"])("ends the call on «%s»", async (workerUtterance) => {
+    const { ticket } = await open();
+    const done = await tool(ticket, "end_call", { reason: "worker_ended" }, { workerUtterance });
+    expect(done.result.end).toBe("hangup");
+    expect(row().session.done).toBe(true);
+  });
+
+  it("re-asks on a garbled transcript and records nothing", async () => {
+    const { ticket, opened } = await open();
+    await reachQuestion(ticket, firstPrompt(opened), "feed_level");
+    const before = row().session.draft.answers.length;
+    const garbled = await tool(ticket, "answer_question", { value: "good" }, { workerUtterance: "أقدراشgba" });
+    expect(garbled.output.error).toBe("answer_unclear");
+    expect(garbled.result.sayText).toBeTruthy();
+    expect(row().session.data.currentQuestionId).toBe("feed_level");
+    expect(row().session.draft.answers).toHaveLength(before);
+  });
+
+  it("re-asks when the words don't map to the chosen level", async () => {
+    const { ticket, opened } = await open();
+    await reachQuestion(ticket, firstPrompt(opened), "water_level");
+    const result = await tool(ticket, "answer_question", { value: "good" }, { workerUtterance: "كاسييا" });
+    expect(result.output.error).toBe("answer_unclear");
+    expect(row().session.data.currentQuestionId).toBe("water_level");
+    expect(row().session.draft.resourceUpdates.some((update: { kind: string }) => update.kind === "water")).toBe(false);
+  });
+
+  it("re-asks on a garbled answer to a custom question", async () => {
+    const farm = answeredFarm();
+    farm.settings.customQuestions = [{ id: "custom-1", text: "وش سويت اليوم؟", createdAt: NOW.toISOString() }];
+    mock.load.mockResolvedValue({ workspace: farm });
+    const { ticket, opened } = await open();
+    await reachQuestion(ticket, firstPrompt(opened), "custom-1");
+    const result = await tool(ticket, "answer_question", { text: "damarja." }, { workerUtterance: "damarja." });
+    expect(result.output.error).toBe("answer_unclear");
+    expect(row().session.data.currentQuestionId).toBe("custom-1");
+    expect(row().session.draft.answers.some((item: { questionId: string }) => item.questionId === "custom-1")).toBe(false);
+  });
+
+  it("saves from the keypad only after the current summary was heard", async () => {
+    const { ticket, opened } = await open();
+    await reachSummary(ticket, firstPrompt(opened));
+    const keypad = { workerUtterance: undefined, keypad: true, heardSummary: true };
+    const stale = await tool(ticket, "keypad_confirm", {}, { ...keypad, heardSummaryId: "0:stale" });
+    expect(stale.output.error).toBe("summary_not_finished");
+    expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
+    const saved = await tool(ticket, "keypad_confirm", {}, { ...keypad, heardSummaryId: reportSummaryId(row().session, "ar") });
+    expect(saved.output.status).toBe("saved");
+    expect(saved.result).toMatchObject({ end: "hangup", goodbye: "انحفظ التحديث. يعطيك العافية، مع السلامة." });
+    expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(1);
+  });
+});
+
 describe("verified realtime confirmation", () => {
   it.each(["", "ضجيج", "لا", "إيه بس العلف غلط", "صح لكن", "yes but change the feed", "لا تحفظه", "إيه لا", "صح مو صحيح", "yes if the owner agrees", "إيه إذا وافق المالك", "yes maybe", "ب، احفض", "إيه والله مدري", "صح يمكن", "he said yes", "قال صح", "is that correct?", "صح؟"])("refuses %j without changing the engine or saving", async (workerUtterance) => {
     const { ticket, opened } = await open();
@@ -933,7 +1010,8 @@ describe("verified realtime confirmation", () => {
     const before = JSON.stringify({ data: row().session.data, seq: row().seq, misses: row().misses, turns: row().session.turns });
     const result = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance });
     expect(result.output.error).toBe("worker_has_not_confirmed");
-    expect(result.result.summaryText).toContain(result.output.question);
+    expect(result.result.sayText).toBe("ما سمعتك زين. أحفظه؟ قل إيه، أو اضغط واحد.");
+    expect(result.result.summaryText).toBeUndefined();
     expect(result.result.end).toBeNull();
     expect(JSON.stringify({ data: row().session.data, seq: row().seq, misses: row().misses, turns: row().session.turns })).toBe(before);
     expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
@@ -944,7 +1022,7 @@ describe("verified realtime confirmation", () => {
     await reachSummary(ticket, firstPrompt(opened));
     const result = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance });
     expect(result.output.error).toBe("worker_has_not_confirmed");
-    expect(result.result.summaryText).toContain(result.output.question);
+    expect(result.result.sayText).toBe("ما سمعتك زين. أحفظه؟ قل إيه، أو اضغط واحد.");
     expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
   });
 
@@ -961,7 +1039,7 @@ describe("verified realtime confirmation", () => {
     expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(1);
   });
 
-  it("falls back after two unique failures, replays retries, and the script can still confirm by keypad", async () => {
+  it("falls back at the third unique failure, replays retries, and the script can still confirm by keypad", async () => {
     const { ticket, opened } = await open();
     await reachSummary(ticket, firstPrompt(opened));
     const first = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: undefined });
@@ -969,22 +1047,24 @@ describe("verified realtime confirmation", () => {
     const repeat = await tool(ticket, "confirm_report", { confirmed: true }, { toolCallId: firstId, workerUtterance: "yes" });
     expect(repeat.result).toEqual(first.result);
     const second = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "لا" });
-    expect(second.result).toMatchObject({ end: "fallback", goodbye: null });
+    expect(second.result).toMatchObject({ end: null, sayText: "ما سمعتك زين. أحفظه؟ قل إيه، أو اضغط واحد." });
+    expect(row().session.realtime.closed).toBe(false);
+    const third = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "لا" });
+    expect(third.result).toMatchObject({ end: "fallback", goodbye: null });
     expect(row().session.done).toBe(false);
     expect(row().session.step).toBe("report_summary");
     expect(row().session.realtime.closed).toBe(true);
     expect((await tool(ticket, "confirm_report", { confirmed: true })).result.end).toBe("fallback");
     expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
     const xml = await answerFarmCall(db.client, { callSid: CALL, seq: row().seq, speech: "", digits: "1", confidence: null, now: new Date() });
-    expect(xml).toContain("تم حفظ");
+    expect(xml).toContain("انحفظ التحديث. يعطيك العافية، مع السلامة.");
     expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(1);
   });
 
   it.each(["yes if the owner agrees", "he said yes", "قال صح", "صح؟"])("keeps the same confirmation gate after scripted fallback: %s", async (speech) => {
     const { ticket, opened } = await open();
     await reachSummary(ticket, firstPrompt(opened));
-    await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "لا" });
-    await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "لا" });
+    for (let failure = 0; failure < 3; failure += 1) await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "لا" });
     expect(row().session.realtime.closed).toBe(true);
     const response = await answerFarmCall(db.client, { callSid: CALL, seq: row().seq, speech, digits: null, now: new Date() });
     expect(response).toContain("<Gather");
@@ -992,7 +1072,7 @@ describe("verified realtime confirmation", () => {
     expect(mock.save.mock.calls.filter((call) => call[3].type === "worker_report")).toHaveLength(0);
   });
 
-  it.each(["إيه", "صح", "تمام", "احفظه", "إيه صح", "نعم صحيح", "تمام احفظه", "yes", "yes save it", "that is correct", "إيه تمام", "تأكيد وحفظ", "confirm and save", "إيه صح، احفظه.", "إيه، صح.", "تمام، احفظه", "حفظ", "اعتمد"])("accepts the existing parser's clear confirmation %s exactly once", async (workerUtterance) => {
+  it.each(["إيه", "صح", "تمام", "احفظ", "احفظه", "إيه صح", "نعم صحيح", "تمام احفظه", "yes", "yes save it", "that is correct", "إيه تمام", "تأكيد وحفظ", "confirm and save", "إيه صح، احفظه.", "إيه، صح.", "تمام، احفظه", "حفظ", "اعتمد"])("accepts the existing parser's clear confirmation %s exactly once", async (workerUtterance) => {
     const { ticket, opened } = await open();
     await reachSummary(ticket, firstPrompt(opened));
     const result = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance });
@@ -1080,7 +1160,7 @@ describe("after the stream", () => {
 
   it("replays the not-saved goodbye rather than hanging up silently", async () => {
     const { ticket } = await open();
-    await tool(ticket, "end_call", { reason: "worker_ended" });
+    await tool(ticket, "end_call", { reason: "worker_ended" }, { workerUtterance: "مع السلامة" });
     const xml = await (await afterRoute(twilio(afterUrl(), { CallSid: CALL }))).text();
     expect(xml).toBe(row().last_response);
     expect(xml).toContain("ما انحفظ");
@@ -1117,7 +1197,8 @@ describe("after the stream", () => {
   it("hangs up on a finished call without repeating the bridge's goodbye", async () => {
     const { ticket, opened } = await open();
     await reachSummary(ticket, firstPrompt(opened));
-    await tool(ticket, "confirm_report", { confirmed: true });
+    const saved = await tool(ticket, "confirm_report", { confirmed: true });
+    expect(saved.result).toMatchObject({ end: "hangup", goodbye: "انحفظ التحديث. يعطيك العافية، مع السلامة." });
     const xml = await (await afterRoute(twilio(afterUrl(), { CallSid: CALL }))).text();
     expect(xml).toBe("<Response><Hangup/></Response>");
   });

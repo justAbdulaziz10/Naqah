@@ -6,7 +6,7 @@ import { reportSummaryId, type AnswerInput, type CallSession } from "@/domain/co
 import type { Locale, Workspace } from "@/domain/types";
 import type { VoiceCallSession } from "../farm-call";
 import { mapSpeechToInput } from "../speech";
-import { evidenceWords } from "./answer-check";
+import { askedToStop, evidenceWords } from "./answer-check";
 import { isVerifiedConfirmation } from "./confirmation";
 import { fallbackResult, spokenFrom, type ToolCounters, type ToolDecision, type ToolTurn } from "./decide";
 import { validateCorrection, validateProposals } from "./owner-facts";
@@ -41,7 +41,7 @@ export function ownerPromptResult(session: CallSession, workspace: Workspace, lo
   };
 }
 
-export function decideOwnerTool({ session: current, counters, workspace, locale, name, args, spoke, heard, heardSummaryId, now }: ToolTurn): ToolDecision {
+export function decideOwnerTool({ session: current, counters, workspace, locale, name, args, spoke, heard, heardSummaryId, now, keypad = false }: ToolTurn): ToolDecision {
   const position = positionOf(current);
   let next: ToolCounters = {};
   const reply = (result: ToolResponse, refused: string | null = null, checkError: string | null = null): ToolDecision => ({ kind: "reply", result, refused, counters: next, checkError });
@@ -65,7 +65,7 @@ export function decideOwnerTool({ session: current, counters, workspace, locale,
   const confirming = name === "confirm_instructions" && typeof args === "object" && args !== null && "confirmed" in args && args.confirmed === true;
   if (confirming && current.step === REVIEW_STEP) {
     const stale = heardSummaryId !== reportSummaryId(current, locale);
-    if (stale || !spoke || !heard || !isVerifiedConfirmation(heard, current, locale)) {
+    if (stale || (!keypad && (!spoke || !heard || !isVerifiedConfirmation(heard, current, locale)))) {
       const error = stale ? "summary_not_finished" : "owner_has_not_confirmed";
       const failures = (counters.confirmationFailures ?? 0) + 1;
       next = { ...next, confirmationFailures: failures, closed: failures >= 2 };
@@ -73,6 +73,9 @@ export function decideOwnerTool({ session: current, counters, workspace, locale,
     }
   }
 
+  if (name === "end_call" && !askedToStop(heard)) {
+    return reply(ownerPromptResult(current, workspace, locale, "invalid", "owner_has_not_asked_to_stop", evidenceWords(heard) ? PREFIXES.unclear[locale] : "", undefined, !evidenceWords(heard)), "owner_has_not_asked_to_stop");
+  }
   if (!check.ok) return refuse(check.error);
   const { action } = check;
   if (action.kind === "repeat") return reply(ownerPromptResult(current, workspace, locale, "ok", undefined, PREFIXES[action.reason][locale], action.reason));

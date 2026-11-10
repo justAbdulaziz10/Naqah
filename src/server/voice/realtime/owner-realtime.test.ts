@@ -423,7 +423,7 @@ describe("the review", () => {
   it("saves nothing when the owner cancels, and that still answers the call", async () => {
     const { ticket } = await open();
     await atReview(ticket);
-    const step = await tool(ticket, "end_call", { reason: "owner_ended" }, "ألغها");
+    const step = await tool(ticket, "end_call", { reason: "owner_ended" }, "مع السلامة");
     expect(step.result.end).toBe("hangup");
     expect(events().map((event) => event.type)).toEqual(["owner_call_attempt"]);
   });
@@ -431,10 +431,22 @@ describe("the review", () => {
   it("leaves the attempt open when the call cannot continue", async () => {
     const { ticket } = await open();
     await atReview(ticket);
-    const step = await tool(ticket, "end_call", { reason: "cannot_continue" }, "");
+    const step = await tool(ticket, "end_call", { reason: "cannot_continue" }, "مو فاضي");
     expect(step.result.end).toBe("hangup");
     expect(events()).toEqual([]);
     expect(step.result.goodbye).toContain("ما انحفظ");
+  });
+
+  it("keeps the review going when the model ends the call without words asking to stop", async () => {
+    const { ticket } = await open();
+    await atReview(ticket);
+    const silent = await tool(ticket, "end_call", { reason: "owner_ended" }, "");
+    expect(silent.result.end).toBeNull();
+    expect(silent.result.silent).toBe(true);
+    const words = await tool(ticket, "end_call", { reason: "owner_ended" }, "إيه كملت");
+    expect(words.result.end).toBeNull();
+    expect(words.output.error).toBe("owner_has_not_asked_to_stop");
+    expect(events()).toEqual([]);
   });
 });
 

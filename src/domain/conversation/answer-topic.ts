@@ -52,7 +52,7 @@ export function topicsInWords(normalizedWords: string): Set<Topic> {
 }
 
 export function isOffTopicAnswer(session: CallSession, normalizedWords: string, camelNames: readonly string[] = []): boolean {
-  if (!["report_question", "health_pick", "health_status", "health_note", "health_more", "herd_count_detail"].includes(session.step)) return false;
+  if (!["report_question", "health_pick", "health_status", "health_more", "herd_count_detail"].includes(session.step)) return false;
   const asked = askedTopic(session);
   if (asked === "other" || asked === "task") return false;
   const words = normalizedWords.match(/[\p{L}\p{N}]+/gu) ?? [];
