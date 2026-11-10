@@ -18,7 +18,13 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const ROOT = "/tmp/naqah-test-call";
+/**
+ * NAQAH_TEST_CALL_ISOLATED=1: a second, separate stack (its own folder and ports +100) for mock checks, so they
+ * never touch the running demo's kept database.
+ */
+const ISOLATED = process.env.NAQAH_TEST_CALL_ISOLATED === "1";
+const SHIFT = ISOLATED ? 100 : 0;
+export const ROOT = ISOLATED ? "/tmp/naqah-test-call-iso" : "/tmp/naqah-test-call";
 const LOGS = join(ROOT, "logs");
 const PGDATA = join(ROOT, "pg");
 /** Approved numbers, read by the app on every call: approving one needs no restart (see scripts/demo/approve-number.mjs). */
@@ -29,13 +35,13 @@ export const READY_FILE = join(ROOT, "ready.json");
 const PG_BIN = "/opt/homebrew/opt/postgresql@17/bin";
 const POSTGREST_BIN = "/opt/homebrew/bin/postgrest";
 const DB = "naqah_test_call";
-const PG_PORT = 54350;
-const REST_PORT = 54351;
-const GATEWAY_PORT = 54352;
-const PROVIDER_PORT = 3313;
+export const PG_PORT = 54350 + SHIFT;
+const REST_PORT = 54351 + SHIFT;
+const GATEWAY_PORT = 54352 + SHIFT;
+const PROVIDER_PORT = 3313 + SHIFT;
 export const GATEWAY = `http://127.0.0.1:${GATEWAY_PORT}`;
 export const PORTS = {
-  mock: { next: 3311, bridge: 3310 },
+  mock: { next: 3311 + SHIFT, bridge: 3310 + SHIFT },
   live: { next: 3301, bridge: 3300 },
 };
 

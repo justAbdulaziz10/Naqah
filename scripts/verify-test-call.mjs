@@ -20,7 +20,7 @@ import { connect as tcpConnect } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { CONTROL_FARM, GATEWAY, MOCK_ALLOWED, READY_FILE, REPORT_PATH_WORKER, TEST_FARM, TESTER, WORKER_PLACEHOLDER } from "./test-call-local.mjs";
+import { CONTROL_FARM, GATEWAY, ROOT, MOCK_ALLOWED, READY_FILE, REPORT_PATH_WORKER, TEST_FARM, TESTER, WORKER_PLACEHOLDER } from "./test-call-local.mjs";
 
 const arg = (name, fallback) => {
   const index = process.argv.indexOf(`--${name}`);
@@ -33,7 +33,7 @@ const NATURAL = flag("natural");
 const ACKNOWLEDGED = /^(?:تمام|زين|طيب|ما عليه|الحمد لله|سلامتها|سلامته|سلامتهم|الله يعطيك العافية|عدلتها)\. $/u;
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const OUT = "/tmp/naqah-test-call/verify";
+const OUT = join(ROOT, "verify");
 const PHASE = arg("phase", "all");
 const ATTACH = flag("attach");
 const PG_BIN = "/opt/homebrew/opt/postgresql@17/bin";
@@ -43,12 +43,13 @@ const SECOND_ALLOWED = MOCK_ALLOWED[1];
 const OUTSIDE_ALLOWLIST = "+966500000003";
 const NON_SAUDI_ALLOWED = MOCK_ALLOWED[2];
 const CONTROL_REPORT = "22222222-2222-4222-8222-2222222222dd";
-const STOP_PORTS = [54350, 54351, 54352, 3310, 3311, 3313];
+const SHIFT = process.env.NAQAH_TEST_CALL_ISOLATED === "1" ? 100 : 0;
+const STOP_PORTS = [54350, 54351, 54352, 3310, 3311, 3313].map((port) => port + SHIFT);
 if (!["all", "report", "route"].includes(PHASE)) throw new Error("--phase must be all, report or route");
 mkdirSync(OUT, { recursive: true });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const pgEnv = { PATH: `${PG_BIN}:${process.env.PATH}`, LC_ALL: "en_US.UTF-8", PGHOST: "127.0.0.1", PGPORT: "54350", PGUSER: "postgres" };
+const pgEnv = { PATH: `${PG_BIN}:${process.env.PATH}`, LC_ALL: "en_US.UTF-8", PGHOST: "127.0.0.1", PGPORT: String(54350 + SHIFT), PGUSER: "postgres" };
 const sql = (query) => execFileSync(join(PG_BIN, "psql"), ["-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", DB], { input: query, encoding: "utf8", env: pgEnv, maxBuffer: 1 << 26 }).trim();
 const q = (value) => `'${String(value).replaceAll("'", "''")}'`;
 const postJson = async (url, body, headers = {}) => {
