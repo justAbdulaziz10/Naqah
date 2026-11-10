@@ -11,8 +11,16 @@ import { decideTool } from "./decide";
 
 export const NOW = fromRiyadh(2026, 11, 11, 11, 0);
 
-export function freshCall() {
+/** The demo ranch with every standard question on, as these phrasing cases were written for (the demo itself asks five). */
+export function fullDemo() {
   const base = demoHistory(demoSettings(NOW), NOW, { endYesterday: true });
+  base.settings.customQuestions = base.settings.customQuestions.slice(0, 2);
+  base.settings.questionPlan = [];
+  return base;
+}
+
+export function freshCall() {
+  const base = fullDemo();
   const opened = startReportCall(base, NOW, "manual");
   const ws = resolveReportCallAttempt(placeReportCallAttempt(opened.ws, NOW, opened.run!.id).ws, NOW, opened.run!.id, true).ws;
   return { ws, session: start(ws, NOW, "report_call", { reportCallId: opened.run!.id }).session as VoiceCallSession };

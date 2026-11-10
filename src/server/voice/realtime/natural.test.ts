@@ -14,21 +14,16 @@ function base() {
 
 const ids = (session: ReturnType<typeof base>["session"]) => (session.data.queue ?? []).map((item) => item.id);
 
-/** What a natural conversation hands over after the worker's free answers on the demo ranch. */
+/** What a natural conversation hands over after the worker's free answers on the demo ranch's short call. */
 function answers(session: ReturnType<typeof base>["session"]) {
-  const [herd, count, feed, water, fences, shelter, medicine, milk, visitor, task] = ids(session);
-  return [
-    { question_id: herd, value: "no", rest_well: true, camels: [{ name: "مزون", status: "sick", note: "مزون للحين تعبانة" }, { name: "وضحة", status: "watch", note: "وضحة ما تاكل زين" }] },
-    { question_id: count, number: 20 },
-    { question_id: feed, number: 25 },
-    { question_id: water, value: "good" },
-    { question_id: fences, value: "good" },
-    { question_id: shelter, value: "good" },
-    { question_id: medicine, value: "low" },
-    { question_id: milk, text: "يمكن ثلاثين لتر" },
-    { question_id: visitor, value: "unknown" },
-    { question_id: task, value: "yes" },
-  ];
+  return ids(session).map((id) => {
+    if (id === "herd_health") return { question_id: id, value: "no", rest_well: true, camels: [{ name: "مزون", status: "sick", note: "مزون للحين تعبانة" }, { name: "وضحة", status: "watch", note: "وضحة ما تاكل زين" }] };
+    if (id === "feed_level") return { question_id: id, number: 25 };
+    if (id === "water_level") return { question_id: id, value: "good" };
+    if (id === "fences_condition") return { question_id: id, value: "good" };
+    if (id.startsWith("task_")) return { question_id: id, value: "yes" };
+    return { question_id: id, text: "الماسورة تسرب شوي" };
+  });
 }
 
 describe("the natural call", () => {
@@ -41,7 +36,11 @@ describe("the natural call", () => {
     const { ws, session } = base();
     const text = buildNaturalInstructions(session, ws, "ar");
     for (const id of ids(session)) expect(text).toContain(`[${id}]`);
-    expect(text).toContain("كم لتر حليب تقريباً اليوم؟");
+    for (const asked of ["بشّر، كيف الحلال اليوم؟", "فيه ناقة تعبانة أو تحتاج متابعة؟", "كيف العلف، يكفي ولا ناقص؟", "كيف وضع الماي؟", "فيه شي خربان أو يحتاج تصليح؟", "فيه شي ثاني تبي تبلغ عنه؟"]) expect(text).toContain(asked);
+    // The demo's short call: the older questions are switched off for this ranch only.
+    for (const dropped of ["كم لتر حليب", "فيه أحد زار", "[herd_count]", "[shelter_condition]", "[medicine_stock]"]) expect(text).not.toContain(dropped);
+    expect(ids(session)).toHaveLength(6);
+    expect(text.indexOf("«فيه شي ثاني تبي تبلغ عنه؟»")).toBeGreaterThan(text.indexOf("[task_"));
     expect(text).toContain("مزون");
     expect(naturalTools(session, ws).map((entry) => entry.name)).toEqual(["submit_report", "confirm_report", "flag_urgent", "end_call"]);
   });
@@ -53,7 +52,7 @@ describe("the natural call", () => {
     if (!replayed.ok) return;
     expect(replayed.session.step).toBe("report_summary");
     const summary = replayed.session.turns.at(-1)!.text.ar;
-    for (const fact of ["مزون للحين تعبانة", "وضحة ما تاكل زين", "الباقي بخير", "20 من الحلال", "العلف: 25 كيس", "الماء: كافٍ", "قارب على النفاد", "قلت: يمكن ثلاثين لتر", "أحفظه، ولا تبي تعدل شي؟"]) expect(summary).toContain(fact);
+    for (const fact of ["مزون للحين تعبانة", "وضحة ما تاكل زين", "الباقي بخير", "العلف: 25 كيس", "الماء: كافٍ", "الشبك والسياج: سليم", "فيه شي ثاني تبي تبلغ عنه، قلت: الماسورة تسرب شوي", "أحفظه، ولا تبي تعدل شي؟"]) expect(summary).toContain(fact);
     const health = Object.fromEntries(replayed.session.draft.camelUpdates.map((update) => [ws.camels.find((camel) => camel.id === update.camelId)?.name, update.health]));
     expect(health).toMatchObject({ مزون: "sick", وضحة: "watch", شيخة: "healthy" });
   });
@@ -74,13 +73,14 @@ describe("the natural call", () => {
     const replayed = replayAnswers(session, ws, NOW, { answers: answers(session).slice(0, 3) });
     expect(replayed).toMatchObject({ ok: false, error: "questions_not_answered" });
     if (replayed.ok) return;
-    expect(replayed.questions).toContain("water_level");
+    expect(replayed.questions).toContain("fences_condition");
   });
 
   it("refuses a value the question doesn't offer", () => {
     const { ws, session } = base();
     const given = answers(session);
-    given[4] = { question_id: given[4].question_id, value: "excellent" } as (typeof given)[number];
+    const at = given.findIndex((entry) => entry.question_id === "fences_condition");
+    given[at] = { question_id: "fences_condition", value: "excellent" } as (typeof given)[number];
     expect(replayAnswers(session, ws, NOW, { answers: given })).toMatchObject({ ok: false, error: "values_not_allowed", questions: ["fences_condition"] });
   });
 
@@ -93,16 +93,6 @@ describe("the natural call", () => {
     if (!second.ok) return;
     expect(second.session.turns.at(-1)!.text.ar).toContain("العلف: 30 كيس");
     expect(second.session.turns.at(-1)!.text.ar).not.toContain("25 كيس");
-  });
-
-  it("asks which camels are missing when the count is short, in the worker's words", () => {
-    const { ws, session } = base();
-    const given = answers(session).map((entry) => (entry.question_id === "herd_count" ? { question_id: "herd_count", number: 18, missing: "صيتة وطرفة ما شفتهم" } : entry));
-    const replayed = replayAnswers(session, ws, NOW, { answers: given });
-    expect(replayed.ok).toBe(true);
-    if (!replayed.ok) return;
-    expect(replayed.session.draft.herdAccountedFor).toBe(false);
-    expect(replayed.session.turns.at(-1)!.text.ar).toContain("الحلال غير مكتمل العدد");
   });
 
   it("keeps an urgent concern in the read-back", () => {

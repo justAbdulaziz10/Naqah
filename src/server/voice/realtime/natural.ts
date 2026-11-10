@@ -31,6 +31,20 @@ export function naturalOpening(ws: Workspace, locale: Locale): string {
   return `السلام عليكم يا ${worker}، معك ناقة، المساعد الآلي${ranch ? " ل" + ranch : ""}. بتطمن على الحلال اليوم. بشّر، كيف الحلال؟`;
 }
 
+/**
+ * How a natural call says the standard questions: short, everyday Saudi words. The catalog wording stays for
+ * guided calls and the read-back; a ranch's own questions are said as the owner wrote them.
+ */
+const NATURAL_WORDING: Record<string, string> = {
+  herd_health: "بشّر، كيف الحلال اليوم؟ (وإذا ما وضح، اسأل: فيه ناقة تعبانة أو تحتاج متابعة؟)",
+  herd_count: "كم راس الحلال اليوم؟",
+  feed_level: "كيف العلف، يكفي ولا ناقص؟",
+  water_level: "كيف وضع الماي؟",
+  fences_condition: "فيه شي خربان أو يحتاج تصليح؟",
+  shelter_condition: "المظلات سليمة؟",
+  medicine_stock: "الأدوية تكفي؟",
+};
+
 /** What the model may record for one question, in words it can match the worker's answer to. */
 function expects(item: Item, locale: Locale): string {
   const ar = locale === "ar";
@@ -53,8 +67,12 @@ function expects(item: Item, locale: Locale): string {
 
 export function buildNaturalInstructions(base: CallSession, ws: Workspace, locale: Locale): string {
   const personalize = makePersonalizer(ws);
-  const queue = (base.data.queue ?? []).filter((item) => !item.id.startsWith("open_note_"));
-  const questions = queue.map((item, index) => `${index + 1}. [${item.id}] «${personalize(item.question[locale])}» → ${expects(item, locale)}`).join("\n");
+  // The owner's own questions («فيه شي ثاني؟») close the call, after the checks and any task.
+  const rank = (item: Item) => (item.kind === "custom" ? 2 : item.kind === "task" ? 1 : 0);
+  const queue = (base.data.queue ?? []).filter((item) => !item.id.startsWith("open_note_")).map((item, index) => ({ item, index }))
+    .sort((a, b) => rank(a.item) - rank(b.item) || a.index - b.index).map(({ item }) => item);
+  const wording = (item: Item) => (locale === "ar" && item.kind === "predefined" && NATURAL_WORDING[item.id]) || personalize(item.question[locale]);
+  const questions = queue.map((item, index) => `${index + 1}. [${item.id}] «${wording(item)}» → ${expects(item, locale)}`).join("\n");
   const camels = ws.camels.map((camel) => camel.name).join("، ");
   const worker = ws.settings.worker.name;
   const owner = ws.settings.owner.name;
@@ -81,6 +99,10 @@ export function buildNaturalInstructions(base: CallSession, ws: Workspace, local
     "افهم المعنى مو الكلمات. الرد الواحد ممكن يجاوب أكثر من سؤال: لا تعيد سؤال انجاوب بوضوح. اسأل توضيح قصير بس إذا الجواب فعلاً مو واضح.",
     "لا تخمّن أبداً. «ما أدري» و«مدري» تعني unknown. لا تسجّل ناقة إنها بخير إذا العامل ما قال. لا تشخّص ولا تنصح بعلاج. إذا فيه شي عاجل نادِ flag_urgent وقل له يتصل على صاحب العزبة مباشرة الحين.",
     "انطق أسماء النوق والأرقام بوضوح، وقل الأرقام بالعربي.",
+    "اسأل الأسئلة بنفس الكلمات القصيرة اللي تحت، بدون شرح أو خيارات إلا إذا ما فهم.",
+    "«يكفي» و«كافي» = good. «ناقص شوي» و«قليل» = low. «خلص» و«ما بقى شي» = critical. ما تعرف الكمية = unknown.",
+    "«فيه شي خربان؟» عن الشبك: إذا قال ما فيه شي خربان = good. إذا الخربان هو الشبك = low (أو critical إذا كبير). إذا الخربان شي ثاني غير الشبك، سجّل الشبك unknown واذكر الشي الخربان في جواب «فيه شي ثاني» بكلامه.",
+    "«سلامتها» بس لناقة تعبانة، مو للعلف أو الماي.",
     `الأسئلة بالترتيب:\n${questions}`,
     `أسماء النوق في العزبة: ${camels}. استخدم هالأسماء فقط.`,
     "إذا انجاوبت كل الأسئلة، نادِ submit_report بكل الأجوبة بدون ما تقول شي. النظام بعدها يقرأ الملخص.",

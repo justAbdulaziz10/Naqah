@@ -8,8 +8,7 @@ import { placeReportCallAttempt, resolveReportCallAttempt, startReportCall } fro
 import type { Workspace } from "@/domain/types";
 import type { VoiceCallSession } from "../farm-call";
 import { decideTool, spokenFrom, type ToolCounters } from "./decide";
-import { at, freshCall, NOW } from "./saudi-cases";
-import { demoHistory, demoSettings } from "../../../../scripts/demo/presentation-ranch";
+import { at, freshCall, fullDemo, NOW } from "./saudi-cases";
 
 function live(first: { ws: Workspace; session: VoiceCallSession }) {
   let session = first.session;
@@ -191,7 +190,7 @@ describe("the presentation call, start to finish", () => {
 
 describe("the opening on a live call", () => {
   function opening() {
-    const ws = demoHistory(demoSettings(NOW), NOW, { endYesterday: true });
+    const ws = fullDemo();
     const opened = startReportCall(ws, NOW, "manual");
     const live0 = resolveReportCallAttempt(placeReportCallAttempt(opened.ws, NOW, opened.run!.id).ws, NOW, opened.run!.id, true).ws;
     live0.settings.reportMode = "guided";

@@ -80,6 +80,9 @@ for (const r of ws.resources) {
 for (const c of s.criteria) sql(`insert into criteria (id, farm_id, kind, label, enabled) values (${quote(id(c.id))}, ${quote(farmId)}, ${quote(c.kind)}, ${quote(c.label)}, ${c.enabled})`);
 for (const e of s.emergencies) sql(`insert into emergency_categories (id, farm_id, kind, label) values (${quote(id(e.id))}, ${quote(farmId)}, ${quote(e.kind)}, ${quote(e.label)})`);
 for (const q of s.customQuestions) sql(`insert into custom_questions (id, farm_id, text, created_at) values (${quote(id(q.id))}, ${quote(farmId)}, ${quote(q.text)}, ${quote(q.createdAt)})`);
+// The demo ranch's own question plan; custom questions are stored under their database ids.
+const plan = (s.questionPlan ?? []).map((entry) => (s.customQuestions.some((q) => q.id === entry.id) ? { ...entry, id: id(entry.id) } : entry));
+sql(`update farms set question_plan = ${quote(JSON.stringify(plan))}::jsonb where id = ${quote(farmId)}`);
 
 // History through the same path the voice service uses.
 const history = demoHistory(ws, now, { endYesterday: process.argv.includes("--end-yesterday") });

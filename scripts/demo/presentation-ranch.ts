@@ -52,6 +52,15 @@ export function demoSettings(now: Date, options: { workerPhone?: string } = {}):
   ws.settings.customQuestions = [
     { id: uid("cq"), text: "كم لتر حليب تقريباً اليوم؟", createdAt: created },
     { id: uid("cq"), text: "فيه أحد زار العزبة اليوم؟", createdAt: created },
+    { id: uid("cq"), text: "فيه شي ثاني تبي تبلغ عنه؟", createdAt: created },
+  ];
+  // The demo's short daily call: herd, feed, water, anything broken, anything else. The two older questions stay
+  // for the history's answers but are no longer asked. Real ranches keep their own plan.
+  ws.settings.questionPlan = [
+    ...["herd_health", "feed_level", "water_level", "fences_condition"].map((id) => ({ id, enabled: true, required: true })),
+    { id: ws.settings.customQuestions[2].id, enabled: true, required: true },
+    ...["herd_count", "shelter_condition", "medicine_stock"].map((id) => ({ id, enabled: false, required: true })),
+    ...ws.settings.customQuestions.slice(0, 2).map((question) => ({ id: question.id, enabled: false, required: true })),
   ];
   ws.settings.herdCount = 20;
   ws.settings.window = null;
