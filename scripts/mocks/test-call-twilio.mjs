@@ -9,7 +9,8 @@
  * confirmation, then `completed`. Everything observed is kept as evidence for scripts/verify-test-call.mjs.
  *
  *   GET  /__test/state     { requests, calls, control }
- *   POST /__test/control   { outcome?: "full" | "no-answer" | "hold", twilioError?: number | null, dwellMs?: number, reset?: true }
+ *   POST /__test/control   { outcome?: "full" | "no-answer" | "hold", twilioError?: number | null, dwellMs?: number, reset?: true,
+ *                            natural?: NaturalScenario | null }   (natural: see runNaturalScenario; used by verify-natural-report.mjs)
  *   POST /__test/release   { status?: "completed" | "no-answer" }  ends the call being held
  *
  * This proves wiring. A scripted model and a fake phone network say nothing about real Arabic quality or carriers.
@@ -17,6 +18,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { startMockRealtime } from "./realtime-provider.mjs";
 import { connectStream, FRAME_BYTES, VOICED } from "./twilio-media.mjs";
+import { internalHeaders } from "../../services/voice-bridge/security.mjs";
 
 export const FAKE_ACCOUNT_SID = `AC${"0".repeat(32)}`;
 export const FAKE_AUTH_TOKEN = "local-test-auth-token";
@@ -147,7 +149,10 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
     let lastOutput = null;
     // A natural call: the worker answers freely and the model hands the whole report over once.
     call.natural = call.provider.sessionUpdate?.tool_choice === "auto";
-    if (call.natural) {
+    if (call.natural && call.scenario) {
+      // A scripted natural scenario from verify-natural-report.mjs: answers, corrections, the confirmation timing.
+      await runNaturalScenario(call, { upstream, stream, connect, farm, queue: first?.data?.queue ?? [] });
+    } else if (call.natural) {
       const answers = (first?.data?.queue ?? []).map((item) => {
         const plan = ANSWER_PLAN.find((entry) => entry.when({ step: "report_question", q: item.id }));
         if (!plan) throw new Error(`The scripted worker has no answer for ${item.id}`);
@@ -189,6 +194,7 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
       await waitUntil(() => upstream.spoken.length > spoken && marks("prompt-") > prompts, `the line after ${state.q}`, 20_000);
       call.linesAfterAnswers.push({ expected: parsed.question, spoken: upstream.spoken.at(-1) });
     }
+    if (!call.scenario) {
     if (engineState(call.sid)?.step !== "report_summary") throw new Error("The call never reached the summary");
 
     const parsed = JSON.parse(lastOutput ?? "{}");
@@ -202,6 +208,7 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
     const confirmed = await upstream.toolCall("confirm_report", { confirmed: true });
     call.toolResults.push({ name: "confirm_report", output: confirmed });
     call.confirm = { output: confirmed === null ? null : JSON.parse(confirmed) };
+    }
 
     const closed = await stream.waitClosed(20_000);
     call.streamClosed = closed !== null;
@@ -219,9 +226,111 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
     call.reportsAfterConfirm = reportCount(farm);
 
     const after = await webhook(connect.action, fieldsFor(call));
-    call.after = { http: after.status, hangup: /<Hangup/.test(after.xml), speaks: /<Say|<Gather/.test(after.xml) };
+    call.after = { http: after.status, hangup: /<Hangup/.test(after.xml), speaks: /<Say|<Gather/.test(after.xml), say: decode(after.xml.match(/<Say\b[^>]*>([\s\S]*?)<\/Say>/)?.[1] ?? "") || undefined };
     await sendStatus(call, "completed", { CallDuration: "42" });
     call.finished = true;
+  }
+
+  /**
+   * Added for scripts/verify-natural-report.mjs. A natural call driven by a JSON scenario:
+   *   answers      { [question id | "custom" | "task" | "weather_heat_day"]: submit_report answer fields }
+   *   say          the worker's free answer before the hand-over
+   *   corrections  [{ say, answers }]  after a summary, the worker corrects; the model hands everything over again
+   *   confirm      { say, earlyMs }    the worker's yes; with earlyMs, speech starts that long before the summary's
+   *                                   playback mark comes back, as on the real call (VAD prefix padding, late marks)
+   *   duplicates   { inResponse, direct, voiceSecret }  after the yes: the same confirm_report twice and a new id in
+   *                                   the model's turn, and signed bridge retries straight to the tool route
+   */
+  async function runNaturalScenario(call, { upstream, stream, connect, farm, queue }) {
+    const scenario = call.scenario;
+    const marks = (prefix) => stream.sent("mark").filter((event) => event.mark?.name?.startsWith(prefix)).length;
+    const build = (overrides = {}) => queue.filter((item) => !item.id.startsWith("open_note_")).map((item) => {
+      const given = overrides[item.id] ?? overrides[item.kind] ?? scenario.answers[item.id] ?? scenario.answers[item.kind];
+      if (!given) throw new Error(`The scenario has no answer for ${item.id} (${item.kind})`);
+      return { question_id: item.id, ...given };
+    });
+    call.scenarioLog = { asked: queue.map((item) => ({ id: item.id, kind: item.kind })), summaries: [], submits: [] };
+    const corrections = scenario.corrections ?? [];
+    let answers = build();
+    let summaryMarks = marks("summary-");
+    for (let round = 0; round <= corrections.length; round += 1) {
+      const last = round === corrections.length;
+      // The final summary's playback marks are held, so the worker's yes can start before they come back.
+      if (last && scenario.confirm?.earlyMs !== undefined) stream.autoMark = false;
+      upstream.workerSays(round === 0 ? scenario.say : corrections[round - 1].say);
+      const output = await upstream.toolCall("submit_report", { answers });
+      if (output === null) throw new Error("No output for submit_report");
+      call.toolResults.push({ name: "submit_report", output });
+      call.scenarioLog.submits.push(answers);
+      const parsed = JSON.parse(output);
+      if (parsed.status !== "ok") throw new Error(`The server refused the hand-over: ${output.slice(0, 300)}`);
+      const summary = { text: parsed.summary ?? null, flagged: parsed.isSummary === true, replies: parsed.replies?.map((reply) => reply.value) ?? [] };
+      if (last && stream.autoMark === false) {
+        await waitUntil(() => stream.pendingMarks.some((name) => name.startsWith("summary-")), "the summary's playback mark", 20_000);
+      } else {
+        await waitUntil(() => marks("summary-") > summaryMarks, "summary playback boundary", 20_000);
+        await sleep(100);
+      }
+      summaryMarks = marks("summary-");
+      summary.readInFull = upstream.spoken.includes(summary.text);
+      call.scenarioLog.summaries.push(summary);
+      call.summary = summary;
+      if (!last) answers = build(corrections[round].answers);
+    }
+    call.reportsBeforeConfirm = reportCount(farm);
+
+    const confirmSay = scenario.confirm?.say ?? CONFIRMATION;
+    if (scenario.confirm?.earlyMs !== undefined) {
+      // Half a second of the worker's line while the summary's last audio plays, then speech starts before the mark.
+      const before = upstream.audioIn.length;
+      for (let frame = 0; frame < 25; frame += 1) stream.media(VOICED);
+      await waitUntil(() => upstream.audioIn.length >= before + 25, "caller audio during the summary");
+      const inputMs = (upstream.audioIn.length * FRAME_BYTES) / 8;
+      const speechStartMs = inputMs - scenario.confirm.earlyMs;
+      upstream.speechStarted(speechStartMs);
+      await sleep(40);
+      const held = [...stream.pendingMarks];
+      stream.ackAll();
+      await sleep(40);
+      call.immediate = { inputMs, speechStartMs, marksAckedAfterSpeech: held };
+      if (!scenario.duplicates) stream.autoMark = true;
+      upstream.workerFinishes(confirmSay);
+    } else {
+      if (scenario.duplicates) stream.autoMark = false;
+      upstream.workerSays(confirmSay);
+    }
+
+    let confirmed;
+    if (scenario.duplicates?.inResponse) {
+      const first = `call_dup_${randomBytes(4).toString("hex")}`;
+      const second = `call_dup_${randomBytes(4).toString("hex")}`;
+      const turn = await upstream.toolCalls([
+        { name: "confirm_report", args: { confirmed: true }, callId: first },
+        { name: "confirm_report", args: { confirmed: true }, callId: first },
+        { name: "confirm_report", args: { confirmed: true }, callId: second },
+      ], { waitMs: 4000 });
+      confirmed = turn.outputs[first];
+      call.duplicates = { inResponse: { first, second, outputs: turn.outputs } };
+    } else {
+      confirmed = await upstream.toolCall("confirm_report", { confirmed: true });
+    }
+    call.toolResults.push({ name: "confirm_report", output: confirmed });
+    call.confirm = { output: confirmed === null ? null : JSON.parse(confirmed) };
+
+    if (scenario.duplicates?.direct) {
+      // What a retrying bridge would send: signed, same ticket, once with the saved call's id and once with a new one.
+      const retry = async (toolCallId) => {
+        const body = JSON.stringify({ ticket: connect.ticket, callSid: call.sid, toolCallId, name: "confirm_report", args: { confirmed: true }, userSpokeSinceLastTool: true, workerUtterance: confirmSay, heardSummary: true });
+        const response = await fetch(`${appOrigin}/api/voice/realtime/tool`, { method: "POST", headers: internalHeaders(body, scenario.duplicates.voiceSecret), body });
+        const text = await response.text();
+        let json = null;
+        try { json = JSON.parse(text); } catch { /* not json */ }
+        return { http: response.status, output: json?.output ? JSON.parse(json.output) : null, end: json?.end ?? null, goodbye: json?.goodbye ?? null };
+      };
+      const savedId = call.duplicates?.inResponse?.first ?? null;
+      call.duplicates = { ...(call.duplicates ?? {}), direct: { same: savedId ? await retry(savedId) : null, fresh: await retry(`call_retry_${randomBytes(4).toString("hex")}`) } };
+    }
+    if (stream.autoMark === false) { stream.ackAll(); stream.autoMark = true; }
   }
 
   function waitUntil(probe, label, timeoutMs = 10_000) {
@@ -291,7 +400,7 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
     record.sid = sid;
     const call = {
       sid, to: fields.To, from: fields.From, url: fields.Url, statusCallback: fields.StatusCallback, record: fields.Record,
-      requestedEvents: form.getAll("StatusCallbackEvent"), outcome: control.outcome, statuses: [], questions: [], toolResults: [], linesAfterAnswers: [],
+      requestedEvents: form.getAll("StatusCallbackEvent"), outcome: control.outcome, scenario: control.natural ?? null, statuses: [], questions: [], toolResults: [], linesAfterAnswers: [],
       provider: {}, finished: false,
     };
     calls.push(call);
@@ -311,6 +420,7 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
         if (input.outcome !== undefined) control.outcome = input.outcome;
         if (input.twilioError !== undefined) control.twilioError = input.twilioError;
         if (input.dwellMs !== undefined) control.dwellMs = input.dwellMs;
+        if (input.natural !== undefined) control.natural = input.natural;
         return sendJson(response, 200, control);
       }
       if (url.pathname === "/__test/release" && request.method === "POST") {
