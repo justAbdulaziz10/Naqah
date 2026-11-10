@@ -20,7 +20,7 @@ export interface OutboundCallRequest {
 
 export type OutboundCallResult =
   | { placed: true; sid: string }
-  | { placed: false; reason: "not_configured" | "invalid_number" | "not_allowed" | "rejected" | "network_error"; status?: number };
+  | { placed: false; reason: "not_configured" | "invalid_number" | "not_allowed" | "rejected" | "network_error"; status?: number; code?: number };
 
 export interface OutboundCaller {
   place(request: OutboundCallRequest): Promise<OutboundCallResult>;
@@ -45,6 +45,8 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
         StatusCallback: request.statusCallback,
         StatusCallbackMethod: "POST",
         Timeout: String(request.timeoutSeconds ?? 30),
+        // A hard ceiling on a call's length, for local real-phone tests only. Unset everywhere else.
+        ...(/^\d{2,4}$/.test(process.env.NAQAH_CALL_TIME_LIMIT_SECONDS ?? "") ? { TimeLimit: process.env.NAQAH_CALL_TIME_LIMIT_SECONDS! } : {}),
         Record: "false",
       });
       for (const event of request.statusEvents ?? []) body.append("StatusCallbackEvent", event);
@@ -66,7 +68,9 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
         });
         if (!response.ok) {
           console.info(`[NAQAH] Twilio outbound call refused (${response.status})`);
-          return { placed: false, reason: "rejected", status: response.status };
+          const body = await response.json().catch(() => null) as { code?: unknown } | null;
+          const code = typeof body?.code === "number" && Number.isSafeInteger(body.code) ? body.code : undefined;
+          return { placed: false, reason: "rejected", status: response.status, ...(code === undefined ? {} : { code }) };
         }
         const sid = ((await response.json()) as { sid?: unknown }).sid;
         if (typeof sid !== "string" || !CALL_SID.test(sid)) return { placed: false, reason: "rejected", status: response.status };

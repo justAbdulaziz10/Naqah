@@ -1,34 +1,35 @@
 /**
- * The real report agent with its writes taken away. Tool checks, instructions, the engine and the
+ * The real report agent with its writes taken away. Tool decisions, instructions, the engine and the
  * report contract are the calling code's own. Nothing here receives a database client: the
  * workspace a confirmed report produces is computed for the verdict and then dropped.
  */
-import { answer, start, type AnswerInput, type CallSession } from "@/domain/conversation/engine";
+import { answer, start, type CallSession } from "@/domain/conversation/engine";
 import { makePersonalizer } from "@/domain/conversation/personalize";
 import { HEALTH_LABELS, levelLabel, RESOURCE_LABELS } from "@/domain/catalog";
 import { evaluateFindings, type ReportDraft } from "@/domain/findings";
 import type { Certainty, Locale, Workspace } from "@/domain/types";
 import { eventAllowed, parseVoiceEvent, voiceStep, type VoiceEvent } from "@/server/voice/contract";
+import { decideTool, promptResult, spokenFrom, type ToolCounters } from "@/server/voice/realtime/decide";
 import { buildInstructions } from "@/server/voice/realtime/instructions";
-import { checkTool, promptFor, SUMMARY_STEP } from "@/server/voice/realtime/tools";
-import { spokenWording } from "@/server/voice/twiml";
-import { isVerifiedConfirmation } from "@/server/voice/realtime/confirmation";
-import { herdAnswerFromWords } from "@/server/voice/realtime/answer-check";
-import { reviewAnswer, type LabSession } from "./answer-guards";
+import type { ToolResponse } from "@/server/voice/realtime/state";
+import { promptFor, SUMMARY_STEP } from "@/server/voice/realtime/tools";
 
 export const LAB_RUN_ID = "00000000-0000-4000-8000-00000000f001";
 const LAB_CALL_ID = "voice-lab";
 
-const SAVED: Record<Locale, string> = { ar: "تم حفظ التحديث، شكراً لك. مع السلامة.", en: "Your update is saved. Thank you. Goodbye." };
+const SAVED: Record<Locale, string> = { ar: "انحفظ التحديث. يعطيك العافية، مع السلامة.", en: "Your update is saved. Thank you, goodbye." };
 const ENDED: Record<Locale, string> = { ar: "ما انحفظ التحديث. يعطيك العافية. مع السلامة.", en: "The update wasn't saved. Thank you. Goodbye." };
 const FAILED: Record<Locale, string> = { ar: "صار خلل وما قدرت أتأكد من حفظ شيء.", en: "Something went wrong and I couldn't confirm that anything was saved." };
+
+/** The session, plus the counts a real call keeps on its row. */
+export type LabSession = CallSession & { counters?: ToolCounters };
 
 export type LabVerdict =
   | { kind: "would_save" }
   | { kind: "would_reject"; reason: string }
   | { kind: "declined" }
   | { kind: "ended" }
-  /** Two failed confirmations: a real call stops the AI and continues on the keypad script. */
+  /** Three failed confirmations: a real call stops the AI and continues on the keypad script. */
   | { kind: "fallback" };
 
 export interface LabFact {
@@ -44,30 +45,28 @@ export interface LabView {
   step: string;
   done: boolean;
   isSummary: boolean;
+  /** Null until the worker has chosen. */
+  mode: "guided" | "open" | null;
   /** The report's questions in order, and how many are behind us. */
   queue: string[];
   answered: number;
   question: string;
   summary: string | null;
   facts: LabFact[];
+  /** Topics saved as not reported. Known once the summary is ready. */
+  notReported: string[];
   findings: string[];
   contract: { valid: true } | { valid: false; field: string };
   verdict: LabVerdict | null;
 }
 
-export interface LabToolResult {
-  /** The JSON the model receives, in the shape a real call returns. */
-  output: string;
-  awaitingConfirmation: boolean;
-  end: null | "hangup" | "fallback";
-  goodbye: string | null;
-  /** The summary to speak word for word: only this counts as the worker having heard it. */
-  summaryText?: string;
-  session: CallSession;
-  /** Null when the tool call was accepted; otherwise why the checks refused it. */
+/** A real call's tool result, plus what the Lab shows about it. */
+export type LabToolResult = ToolResponse & {
+  session: LabSession;
+  /** Null when the tool call was accepted; otherwise why nothing moved. */
   refused: string | null;
   view: LabView;
-}
+};
 
 /** A copy that always holds an answered run and no report yet, so any farm can be tried at any hour. */
 export function labWorkspace(base: Workspace, now: Date): Workspace {
@@ -78,11 +77,6 @@ export function labWorkspace(base: Workspace, now: Date): Workspace {
     reportCalls: [{ id: LAB_RUN_ID, occurrence: at, trigger: "manual", attempts: [{ at, result: "answered" }], nextAttemptAt: null, state: "answered", reportId: null }],
   };
 }
-
-const lines = (session: CallSession, from: number, ws: Workspace, locale: Locale) => {
-  const personalize = makePersonalizer(ws);
-  return session.turns.slice(from).filter((turn) => turn.speaker === "agent").map((turn) => personalize(turn.text[locale]));
-};
 
 const stringify = (value: object) => JSON.stringify(value);
 
@@ -138,8 +132,18 @@ function factsOf(session: CallSession, ws: Workspace, locale: Locale): LabFact[]
   return facts;
 }
 
-export function viewOf(session: CallSession, ws: Workspace, locale: Locale, verdict: LabVerdict | null): LabView {
-  const prompt = promptFor(session, lines(session, session.turns.length - 1, ws, locale), ws, locale);
+/** Coverage is the engine's to work out and it only does so on saving, so a read-back asks it what saving would store. */
+function notReportedTopics(session: CallSession, ws: Workspace, locale: Locale, now: Date): string[] {
+  const coverage = session.draft.coverage ?? (session.step === SUMMARY_STEP && !session.done ? answer(session, ws, now, { value: "confirm_save" }).session.draft.coverage : undefined);
+  const personalize = makePersonalizer(ws);
+  return (coverage ?? []).filter((entry) => entry.status === "not_reported").flatMap((entry) => {
+    const item = session.data.queue?.find((candidate) => candidate.id === entry.questionId);
+    return item ? [personalize(item.question[locale])] : [];
+  });
+}
+
+export function viewOf(session: CallSession, ws: Workspace, locale: Locale, verdict: LabVerdict | null, now: Date): LabView {
+  const prompt = promptFor(session, spokenFrom(session, Math.max(0, session.turns.length - 1), ws, locale), ws, locale);
   const personalize = makePersonalizer(ws);
   const queue = (session.data.queue ?? []).map((item) => personalize(item.question[locale]));
   const isSummary = session.step === SUMMARY_STEP;
@@ -148,95 +152,71 @@ export function viewOf(session: CallSession, ws: Workspace, locale: Locale, verd
     step: session.step,
     done: session.done,
     isSummary,
+    mode: session.data.reportMode ?? null,
     queue,
     answered: isSummary || session.done ? queue.length : Math.min(session.data.reportIndex ?? 0, queue.length),
     question: prompt.question,
     summary: isSummary ? prompt.question : null,
     facts: factsOf(session, ws, locale),
+    notReported: notReportedTopics(session, ws, locale, now),
     findings: evaluateFindings(ws, session.draft).map((finding) => personalize(finding.text[locale])),
     contract: "event" in contract ? { valid: true } : { valid: false, field: contract.field },
     verdict,
   };
 }
 
+/** As on a real call: the owner's settings pick guided, open or the worker's choice. */
 export function openLabAgent(ws: Workspace, now: Date, locale: Locale) {
-  const { session } = start(ws, now, "report_call", { reportCallId: LAB_RUN_ID });
-  const opening = spokenWording(lines(session, 0, ws, locale).join(" "), locale);
-  const current = promptFor(session, lines(session, session.turns.length - 1, ws, locale), ws, locale);
-  const instructions = buildInstructions(locale, { worker: ws.settings.worker.name, owner: ws.settings.owner.name }, current);
-  return { session, opening, instructions, view: viewOf(session, ws, locale, null) };
+  const { session } = start(ws, now, "report_call", { reportCallId: LAB_RUN_ID, modesAvailable: true });
+  const opening = spokenFrom(session, 0, ws, locale).join(" ");
+  const firstStep = promptFor(session, spokenFrom(session, Math.max(0, session.turns.length - 1), ws, locale), ws, locale);
+  const instructions = buildInstructions(locale, { worker: ws.settings.worker.name, owner: ws.settings.owner.name }, firstStep);
+  return { session, opening, repromptText: firstStep.question, instructions, view: viewOf(session, ws, locale, null, now) };
 }
 
+/** A real call stores only the agent's latest line, which also keeps the signed token small enough for a request. */
+const latestLineOnly = (session: LabSession): LabSession => ({ ...session, turns: session.turns.filter((turn) => turn.speaker === "agent").slice(-1) });
+
 /**
- * `heard` is what the worker last said, when the Lab has it as final text. `workerUtterance` and
- * `heardSummary` are the turn's evidence for a confirmation, as the bridge reports them on a call.
+ * One tool call, decided exactly as on a real call. `workerUtterance` is the final transcript of the
+ * worker's turn and `heardSummaryId` the summary they heard to the end, as the bridge reports them.
  */
-export function runLabTool(input: { session: LabSession; ws: Workspace; locale: Locale; name: unknown; args: unknown; spoke: boolean; heard?: string | null; workerUtterance?: string | null; heardSummary?: boolean; now: Date }): LabToolResult {
-  const { ws, locale, name, args, spoke, heard = null, workerUtterance = null, heardSummary, now } = input;
-  const { session } = input;
-  const reply = (fields: Pick<LabToolResult, "output" | "end" | "goodbye" | "session" | "refused" | "summaryText">, verdict: LabVerdict | null = null): LabToolResult => ({
-    ...fields,
-    awaitingConfirmation: !fields.session.done && fields.session.step === SUMMARY_STEP,
-    view: viewOf(fields.session, ws, locale, verdict),
+export function runLabTool(input: { session: LabSession; ws: Workspace; locale: Locale; name: unknown; args: unknown; spoke: boolean; workerUtterance?: string | null; heardSummaryId?: string; now: Date }): LabToolResult {
+  const { session, ws, locale, name, args, spoke, workerUtterance = null, heardSummaryId, now } = input;
+  const reply = (result: ToolResponse, next: LabSession, refused: string | null, verdict: LabVerdict | null = null): LabToolResult => ({
+    ...result,
+    session: latestLineOnly(next),
+    refused,
+    view: viewOf(next, ws, locale, verdict, now),
   });
-  const closing = (ended: CallSession, status: string, goodbye: string, verdict: LabVerdict) =>
-    reply({ output: stringify({ status, message: "The call is ending. Do not ask any more questions." }), end: "hangup", goodbye, session: ended, refused: null }, verdict);
+  const closing = (ended: LabSession, status: string, goodbye: string, verdict: LabVerdict) =>
+    reply({ output: stringify({ status, message: "The call is ending. Do not ask any more questions." }), awaitingConfirmation: false, end: "hangup", goodbye }, ended, null, verdict);
 
-  if (session.done) return reply({ output: stringify({ status: "call_ended" }), end: "hangup", goodbye: ENDED[locale], session, refused: "call_ended" });
+  if (session.done) return reply({ output: stringify({ status: "call_ended" }), awaitingConfirmation: false, end: "hangup", goodbye: ENDED[locale] }, session, "call_ended");
 
-  const confirming = name === "confirm_report" && typeof args === "object" && args !== null && "confirmed" in args && args.confirmed === true;
-  const verified = confirming ? spoke && isVerifiedConfirmation(workerUtterance ?? "", session, locale) : spoke;
-  const check = checkTool(name, args, verified, session, locale);
-  if (confirming && session.step === SUMMARY_STEP && (!verified || heardSummary !== true)) {
-    const error = heardSummary !== true ? "summary_not_finished" : "worker_has_not_confirmed";
-    const failures = (session.confirmationFailures ?? 0) + 1;
-    const fallback = failures >= 2;
-    const counted: LabSession = { ...session, confirmationFailures: failures, done: fallback };
-    const prompt = promptFor(session, lines(session, session.turns.length - 1, ws, locale), ws, locale);
-    const output = {
-      status: "invalid",
-      error,
-      ...prompt,
-      message: error === "summary_not_finished"
-        ? "The worker did not hear the complete summary. It is being read again now. Wait for their answer. Nothing was saved."
-        : "The worker has not clearly confirmed. Ask the worker to confirm clearly or use the keypad fallback. Nothing was saved.",
-    };
-    return reply({ output: stringify(output), end: fallback ? "fallback" : null, goodbye: null, session: counted, refused: error, ...(error === "summary_not_finished" && prompt.summary ? { summaryText: prompt.summary } : {}) }, fallback ? { kind: "fallback" } : null);
+  const decision = decideTool({ session, counters: session.counters ?? {}, workspace: ws, locale, name, args, spoke, heard: workerUtterance ?? "", heardSummaryId, now });
+  const counted = (next: CallSession): LabSession => ({ ...next, counters: { ...session.counters, ...decision.counters } });
+  const inReview = session.step === SUMMARY_STEP || session.step === "report_correct_pick";
+
+  if (decision.kind === "reply") {
+    const fallback = decision.result.end === "fallback";
+    return reply(decision.result, counted(fallback ? { ...session, done: true } : session), decision.refused, fallback ? { kind: "fallback" } : null);
   }
-  if (!check.ok) {
-    return reply({ output: stringify({ status: "invalid", error: check.error, replies: session.replies.map((item) => item.value) }), end: null, goodbye: null, session, refused: check.error });
-  }
-
-  const atSummary = session.step === SUMMARY_STEP;
-  if (check.action.kind === "answer") {
-    check.action.input = herdAnswerFromWords(session, check.action.input, heard, locale);
-    const review = reviewAnswer({ session, input: check.action.input, heard, locale, camelNames: ws.camels.map((camel) => camel.name) });
-    if (review) {
-      const output = { status: "invalid", error: review.error, message: "Nothing was recorded. Ask the worker this, in your own words, then wait for their answer.", clarify: review.clarify };
-      return reply({ output: stringify(output), end: null, goodbye: null, session: review.session, refused: review.error });
-    }
-  }
-
-  const chosen: AnswerInput | null =
-    check.action.kind === "answer" ? check.action.input
-    : check.action.kind === "confirm" ? { value: check.action.confirmed ? "confirm_save" : "end_without_save" }
-    : atSummary ? { value: "end_without_save" } : null;
-  if (!chosen) return closing({ ...session, done: true }, "ended_without_saving", ENDED[locale], { kind: "ended" });
+  if (decision.kind === "stay") return reply(decision.result, counted(decision.session), decision.refused ?? null);
+  if (decision.kind === "end") return closing(counted({ ...decision.session, done: true }), "ended_without_saving", ENDED[locale], { kind: inReview ? "declined" : "ended" });
 
   // `commit` is deliberately ignored, as on a real call: it only signals which event applies.
-  const next = answer(session, ws, now, chosen).session;
+  const next = counted(answer(decision.session, ws, now, decision.chosen).session);
 
-  if (atSummary && chosen.value === "confirm_save") {
-    const contract = checkContract(session.draft);
+  if (session.step === SUMMARY_STEP && decision.chosen.value === "confirm_save") {
+    const contract = checkContract(next.draft);
     if (!("event" in contract)) return closing({ ...next, done: true }, "save_failed", FAILED[locale], { kind: "would_reject", reason: contract.field });
     if (!eventAllowed({ party: "worker" }, contract.event)) return closing({ ...next, done: true }, "not_saved", ENDED[locale], { kind: "would_reject", reason: "not_allowed" });
     const { result } = voiceStep(ws, now, contract.event);
     if (result.status === "rejected") return closing({ ...next, done: true }, "not_saved", ENDED[locale], { kind: "would_reject", reason: result.reason });
     return closing(next, "saved", SAVED[locale], { kind: "would_save" });
   }
-  if (next.done) return closing(next, "ended_without_saving", lines(next, session.turns.length, ws, locale).join(" ") || ENDED[locale], { kind: atSummary ? "declined" : "ended" });
+  if (next.done) return closing(next, "ended_without_saving", spokenFrom(next, session.turns.length, ws, locale).join(" ") || ENDED[locale], { kind: inReview ? "declined" : "ended" });
 
-  const spoken = lines(next, session.turns.length, ws, locale);
-  const prompt = promptFor(next, spoken, ws, locale);
-  return reply({ output: stringify({ status: "ok", ...prompt }), end: null, goodbye: null, session: next, refused: null, ...(prompt.summary ? { summaryText: prompt.summary } : {}) });
+  return reply(promptResult(next, ws, locale, "ok", undefined, decision.prefix, undefined, false, spokenFrom(next, session.turns.length, ws, locale)), next, null);
 }

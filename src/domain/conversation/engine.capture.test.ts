@@ -29,7 +29,6 @@ function advanceTo(session: CallSession, ws: Workspace, questionId: string) {
   let current = session;
   while (current.data.currentQuestionId !== questionId || current.step !== "report_question") {
     const input = current.step === "report_question" && current.data.currentQuestionId === "herd_count" ? { text: "42" }
-      : current.step === "quantity_input" ? { value: "quantity_skip" }
       : current.inputMode === "text" ? { text: "x" }
       : { value: current.replies[0].value };
     current = reply(current, ws, input);
@@ -51,9 +50,8 @@ describe("answers captured on a real call", () => {
   it("keeps a spoken number given to a how-much question, without inventing a level", () => {
     const { ws, session } = answeredCall();
     const atFeed = advanceTo(session, ws, "feed_level");
-    const confirm = reply(atFeed, ws, { text: "20" });
-    expect(confirm.step).toBe("quantity_confirm");
-    const next = reply(confirm, ws, { value: "yes" });
+    const next = reply(atFeed, ws, { text: "20" });
+    expect(next.data.currentQuestionId).not.toBe("feed_level");
     expect(next.draft.resourceUpdates.at(-1)).toMatchObject({ kind: "feed", level: "unknown", quantity: "20 كيس", certainty: "approximate" });
   });
 
@@ -70,10 +68,9 @@ describe("answers captured on a real call", () => {
     const { ws, session } = answeredCall();
     let current = reply(session, ws, { value: "no" });
     current = reply(current, ws, { value: current.replies[0].value });
-    current = reply(current, ws, { value: "sick" });
-    expect(current.step).toBe("health_note");
-    current = reply(current, ws, { text: said });
-    current = reply(current, ws, { value: "yes" });
+    expect(current.step).toBe("health_status");
+    current = reply(current, ws, { value: "sick", text: said });
+    expect(current.step).toBe("health_more");
     expect(current.draft.camelUpdates.at(-1)?.note).toBeNull();
   });
 
@@ -81,9 +78,8 @@ describe("answers captured on a real call", () => {
     const { ws, session } = answeredCall();
     let current = reply(session, ws, { value: "no" });
     current = reply(current, ws, { value: current.replies[0].value });
-    current = reply(current, ws, { value: "sick" });
-    current = reply(current, ws, { text: "ما تاكل من أمس" });
-    current = reply(current, ws, { value: "yes" });
+    current = reply(current, ws, { value: "sick", text: "ما تاكل من أمس" });
+    expect(current.step).toBe("health_more");
     expect(current.draft.camelUpdates.at(-1)?.note).toBe("ما تاكل من أمس");
   });
 
@@ -91,7 +87,6 @@ describe("answers captured on a real call", () => {
     const { ws, session } = answeredCall((farm) => { farm.settings.herdCount = 50; });
     let current = advanceTo(session, ws, "herd_count");
     current = reply(current, ws, { text: "40" });
-    current = reply(current, ws, { value: "yes" });
     expect(current.step).toBe("herd_count_detail");
     current = reply(current, ws, { text: "لا" });
     const saved = current.draft.answers.at(-1);
@@ -102,9 +97,7 @@ describe("answers captured on a real call", () => {
   it("speaks and saves the unit in Arabic for an Arabic worker", () => {
     const { ws, session } = answeredCall();
     let current = advanceTo(session, ws, "feed_level");
-    current = reply(current, ws, { value: "low" });
     current = reply(current, ws, { text: "20" });
-    current = reply(current, ws, { value: "yes" });
     const feed = current.draft.answers.find((item) => item.questionId === "feed_level");
     expect(feed?.answerText).toMatchObject({ ar: expect.stringContaining("20 كيس"), en: expect.stringContaining("20 bags") });
     expect(current.draft.resourceUpdates.at(-1)?.quantity).toBe("20 كيس");
@@ -137,7 +130,6 @@ describe("answers captured on a real call", () => {
     let current = session;
     while (current.step !== "report_summary") {
       const input = current.data.currentQuestionId === "herd_count" && current.step === "report_question" ? { text: "42" }
-        : current.step === "quantity_input" ? { value: "quantity_skip" }
         : current.inputMode === "text" ? { text: "x" }
         : { value: current.replies[0].value };
       current = reply(current, ws, input);
@@ -164,17 +156,18 @@ describe("answers that can't both be true", () => {
     return { ws, current };
   };
 
-  it("asks once about zero after enough, and accepts a real number", () => {
-    const { ws, current } = atStep("quantity_input");
-    const asked = reply(current, ws, { text: "0" });
-    expect(asked.step).toBe("quantity_input");
-    expect(asked.draft.resourceUpdates).toEqual(current.draft.resourceUpdates);
-    expect(reply(asked, ws, { text: "10" }).step).toBe("quantity_confirm");
+  it("goes straight on after a level, with no quantity and no invented number", () => {
+    const { ws, session } = answeredCall();
+    const next = reply(advanceTo(session, ws, "feed_level"), ws, { value: "good" });
+    expect(next.step).toBe("report_question");
+    expect(next.data.currentQuestionId).not.toBe("feed_level");
+    expect(next.draft.resourceUpdates.at(-1)).toMatchObject({ kind: "feed", level: "good", quantity: null, certainty: "reported" });
   });
 
-  it("drops the level when the worker repeats zero", () => {
-    const { ws, current } = atStep("quantity_input");
-    expect(reply(reply(current, ws, { text: "0" }), ws, { text: "0" }).data.tempLevel).toBe("unknown");
+  it("records a spoken zero as a number, without a level", () => {
+    const { ws, session } = answeredCall();
+    const next = reply(advanceTo(session, ws, "feed_level"), ws, { text: "0" });
+    expect(next.draft.resourceUpdates.at(-1)).toMatchObject({ kind: "feed", level: "unknown", quantity: "0 كيس", certainty: "approximate" });
   });
 
   it("keeps an Arabic herd detail in Arabic", () => {

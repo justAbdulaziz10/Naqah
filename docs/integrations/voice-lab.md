@@ -8,11 +8,12 @@ Off unless `NAQAH_VOICE_LAB=1`.
 | Part | In the Lab |
 |---|---|
 | Model and voice | Same: `REALTIME_MODEL` from `services/voice-bridge/config.mjs`, voice `marin` |
-| Instructions, tool schemas, tool checks | Same code: `realtime/instructions.ts`, `realtime/tools.ts` |
-| Conversation state | Same engine: `start` / `answer` |
+| Instructions (with `firstStep`), tool schemas, `tool_choice: "required"` | Same code: `realtime/instructions.ts`, `realtime/tools.ts` |
+| What each tool call means, and every spoken word | Same code: `decideTool` in `realtime/decide.ts`, which `service.ts` also calls |
+| Conversation state | Same engine: `start` / `answer`, with `modesAvailable`, so guided, open and worker choice all follow the ranch's settings |
 | Report validation | Same code: `parseVoiceEvent`, `eventAllowed`, `voiceStep` |
 | VAD settings | Same values |
-| Turn rules | **Ported** to `src/components/voice-lab/turnLoop.ts` from the bridge's `CallStream` |
+| Turn rules, `sayText`, `silent`, reprompts | **Ported** to `src/components/voice-lab/turnLoop.ts` from the bridge's `CallStream` |
 | Audio | Different: browser Opus over WebRTC, not 8 kHz G.711 from a phone |
 | Saving | None. `voiceStep`'s resulting workspace is discarded |
 
@@ -41,8 +42,8 @@ turn reloads the ranch.
 | `op` | Body | Returns |
 |---|---|---|
 | `status` | `locale` | `model`, `configured`, `source`, `ranch`, `worker`, `queue` |
-| `open` | `mode` (`voice`/`text`), `locale`, `sdp` | `answer`, `state`, `opening`, `view`, `source`, `model`, `pricing`, `maxSeconds` |
-| `tool` | `state`, `name`, `args`, `spoke` | `output`, `awaitingConfirmation`, `end`, `goodbye`, `refused`, `view`, `state` |
+| `open` | `mode` (`voice`/`text`), `locale`, `sdp` | `answer`, `state`, `opening`, `repromptText`, `view`, `source`, `model`, `pricing`, `maxSeconds` |
+| `tool` | `state`, `name`, `args`, `spoke`, `workerUtterance`, `heardSummaryId` | The real call's tool result (`output`, `awaitingConfirmation`, `end`, `goodbye`, and one of `summaryText`, `sayText`, `silent`, with `summaryId`, `repromptText`), plus `refused`, `view`, `state` |
 | `close` | `state` | Hangs up the OpenAI call |
 
 ## Environment
@@ -60,25 +61,29 @@ The Lab needs no Twilio, cron or `SUPABASE_SECRET_KEY` variable.
 
 The Lab imports these and needs their signatures kept:
 
-- `realtime/tools`: `REALTIME_TOOLS`, `checkTool(name, args, spoke, session, locale)`, `promptFor(session, spoken, ws, locale)`, `SUMMARY_STEP`
-- `realtime/instructions`: `buildInstructions(locale, names, current)`
+- `realtime/decide`: `decideTool(turn)`, `promptResult(...)`, `spokenFrom(...)`, `ToolCounters`
+- `realtime/tools`: `REALTIME_TOOLS`, `promptFor(session, spoken, ws, locale)`, `SUMMARY_STEP`
+- `realtime/instructions`: `buildInstructions(locale, names, firstStep)`
 - `contract`: `parseVoiceEvent`, `eventAllowed`, `voiceStep`
 - `twiml`: `spokenWording`
 - `services/voice-bridge/config.mjs`: `REALTIME_MODEL`
-- engine: `start`, `answer`
+- engine: `start`, `answer`, `reportSummaryId`
+
+`realtime/decide.ts` must stay free of the write paths. It imports `farm-call` for a type only, and `agent.test.ts` fails
+if that changes.
 
 ## Confirmation
 
-The Lab calls the calling team's `isVerifiedConfirmation` (`realtime/confirmation.ts`), and their engine fixes for Saudi
-quantities and Arabic herd answers run unchanged. The Lab follows the rest of their confirmation flow:
+`decideTool` applies the real call's confirmation rules, so the Lab can't be stricter or looser:
 
-- `confirm_report` with `confirmed: true` needs the worker's latest final transcript.
-- Only a summary spoken word for word from `summaryText` counts as heard, and it must play or display to the end. An
-  interrupted one is refused with `summary_not_finished` and read again.
+- `confirm_report` with `confirmed: true` needs the worker's latest final transcript, and `heardSummaryId` must equal the
+  current `reportSummaryId`. An unfinished or outdated summary is refused with `summary_not_finished` and read again.
+- `confirmed: false` means correct, not end. After a correction the whole summary is read again under a new id.
 - The second failed confirmation ends the test with a `fallback` verdict. A real call moves to the keypad script.
 
-`turnLoop.ts` still mirrors the bridge's `heardSummary`, turn staleness, 2.5 s transcript wait and 10 s speech recovery,
-tracked per response. `agent.test.ts` fails if those limits drift.
+`turnLoop.ts` mirrors the bridge's summary check (spoken as written and played to the end), turn staleness, 2.5 s
+transcript wait, 10 s speech recovery and 10 s reprompts (two, then `silence_timeout`). `agent.test.ts` fails if those
+limits drift.
 
 ## Known differences from a real call
 
@@ -86,10 +91,10 @@ tracked per response. `agent.test.ts` fails if those limits drift.
 |---|---|---|
 | Audio | Browser Opus over WebRTC | 8 kHz G.711 through Twilio |
 | "Summary heard" | `output_audio_buffer.stopped` for that response | Twilio playback marks |
+| Silence | Reprompts in voice tests only; typing has no timer | Reprompts, then the script takes over |
 | Failure of the AI stream | Test stops | Continues on the keypad script |
-| Word check on ordinary answers (`number_not_in_answer`, `answer_conflicts_with_words`) | Keeps asking when the final transcript disagrees | No check |
-| Off-topic check (`refuseAnswer`) | Every answer waits up to 2.5 s for the final transcript. An empty one can't record a healthy herd | Not reached: `service.ts` doesn't call it and the bridge sends no transcript with `answer_question` |
 | Typing during a voice test | Counts as a final transcript | Not possible |
+| Prompt read back when silent at the start | Personalized question | Unpersonalized engine text (`openRealtimeSession`) |
 | A report already saved this period | Ignored, so any ranch can be tested | Refused as `daily_done` / `weekly_done` |
 | Saving | Verdict only | Writes through `applyVoiceEvent` |
 
@@ -103,4 +108,5 @@ None of these block the Lab:
 1. Move `CallStream`'s turn rules into a transport-free module that the Lab can import in place of `turnLoop.ts`.
 2. Move `wireDraft`, `eventFor` and the closing lines (`SAVED`, `ENDED`) out of `farm-call.ts` and `service.ts` into a
    module with no I/O. The Lab copies them because importing `farm-call.ts` would bring in the Twilio and write paths.
+   `spokenLines` in `farm-call.ts` can become a re-export of `spokenFrom` in `realtime/decide.ts`.
 3. If the bridge's `session.update` changes (VAD, voice, model parameters), export it so `labSession` can use it.

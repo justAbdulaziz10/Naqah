@@ -30,6 +30,13 @@ describe("owner actions", () => {
     expect(mock.client).not.toHaveBeenCalled();
     expect(mock.repository).not.toHaveBeenCalled();
   });
+  it.each([undefined, "", "0", "true"])("gates retryUndelivered with a well-formed id and flag %s", async (flag) => {
+    vi.stubEnv("NEXT_PUBLIC_NAQAH_ACCOUNT_DATA", flag);
+    expect(await actions.retryUndelivered("11111111-1111-4111-8111-111111111111")).toEqual({ ok: false, error: "unavailable" });
+    expect(mock.getOwner).not.toHaveBeenCalled();
+    expect(mock.client).not.toHaveBeenCalled();
+    expect(mock.repository).not.toHaveBeenCalled();
+  });
   it("refuses without a validated session", async () => {
     mock.getOwner.mockResolvedValue({ user: null, unavailable: false });
     expect(await addCamel({ name: "Wadha" })).toEqual({ ok: false, error: "unauthenticated" });

@@ -1,6 +1,6 @@
 import type {
   CallKind, CallOutcome, Camel, Certainty, CriterionKind, EmergencyKind, EventTone, HealthStatus, Level,
-  Plan, ResourceKind, WorkerLanguage,
+  Plan, ReportMode, ResourceKind, WorkerLanguage,
 } from "@/domain/types";
 
 /**
@@ -31,9 +31,17 @@ export interface FarmRow {
   /** Report call schedule (0006), Asia/Riyadh. Basic: day + time weekly. Ultimate: time daily. */
   call_day: number | null;
   call_time: string | null;
+  /** Owner summary schedule. Optional so rows loaded before that migration still type-check. */
+  owner_call_day?: number | null;
+  owner_call_time?: string | null;
+  /** The current or latest owner call (20261110090000). Undefined until that migration runs. */
+  owner_call_run?: unknown;
   herd_count: number | null;
   herd_count_reviewed_at: string | null;
   primary_worker_id: string | null;
+  /** Report mode and question plan (20261109140000). Absent until that migration runs. */
+  report_mode?: ReportMode;
+  question_plan?: unknown;
   created_at: string;
   revision: number;
 }
@@ -83,7 +91,11 @@ export interface FindingRow {
   text_ar: string;
   text_en: string;
 }
-export interface ReportRow { id: string; farm_id: string; call_id: string | null; at: string; herd_count_reported: number | null }
+export interface ReportRow {
+  id: string; farm_id: string; call_id: string | null; at: string; herd_count_reported: number | null;
+  mode?: "guided" | "open" | null;
+  coverage?: { questionId: string; status: "reported" | "unknown" | "not_reported" }[];
+}
 export interface ReportWithFacts extends ReportRow { report_answers: ReportAnswerRow[]; findings: FindingRow[] }
 export interface CallRow {
   id: string;
@@ -132,6 +144,7 @@ export interface PendingWorkerCallRow {
   state: "pending" | "delivered" | "no_answer_ticket";
   batch_id?: string | null;
   task_links_explicit?: boolean;
+  retry_base?: number | null;
 }
 export interface PendingWorkerCallTaskRow {
   farm_id: string;

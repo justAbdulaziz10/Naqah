@@ -137,7 +137,7 @@ const commands = {
 
       const tasksBeforeOwner = ws.taskTickets.length;
       await page.getByRole("button", { name: /Continue to owner call|متابعة اتصال المالك/ }).click();
-      await driveCall(page, /^Answer$|^رد$|Yes, I do|نعم|A task|مهمة/, transcript);
+      await driveCall(page, /^Answer$|^رد$|Yes, I do|نعم، عندي|No, that's all|لا، خلاص|Yes, save them|إيه، احفظها|A task|مهمة|Any time|في أي وقت/, transcript);
       ws = await readWs(page);
       const newTask = ws.taskTickets.length === tasksBeforeOwner + 1 ? ws.taskTickets.find((t) => t.status === "open" && /Wadha|وضحة/.test(t.instruction ?? t.message ?? "")) : null;
       check("owner instruction opened a task ticket", newTask, `tickets ${tasksBeforeOwner} → ${ws.taskTickets.length}`);
@@ -149,22 +149,14 @@ const commands = {
       await driveCall(page, /^No answer$|^ما رد$|^Skip 20 minutes$|^تجاوز 20 دقيقة$/, transcript);
       ws = await readWs(page);
       const tickets = ws.noAnswerTickets.filter((t) => t.status !== "closed").length;
-      check("4 missed attempts open a No Answer ticket", tickets > 0, `open no-answer tickets ${tickets}`);
-      check("call marked no_answer_ticket", ws.pendingWorkerCalls.some((c) => c.state === "no_answer_ticket"));
+      const exhausted = ws.pendingWorkerCalls.find((c) => c.state === "no_answer_ticket");
+      check("three missed attempts do not open a No Answer ticket", tickets === 0, `open no-answer tickets ${tickets}`);
+      check("call marked no_answer_ticket", Boolean(exhausted));
+      check("exactly three attempts", exhausted?.attempts?.length === 3, exhausted?.attempts?.length);
       const text = await page.locator("main").innerText();
-      check("transcript states the ticket", /No Answer Ticket|تذكرة/.test(text));
+      check("transcript says calls stopped", /stopped|توقفت/.test(text));
+      check("the task stays open", ws.taskTickets.some((t) => t.status === "open"));
       await page.screenshot({ path: `${dir}/3-no-answer.png`, fullPage: true });
-
-      // Worker returns the missed call: delivers the message, closes the ticket, is not a farm update.
-      const reportsBefore = ws.reports.length;
-      await page.goto(`${BASE}/${LOCALE}/app/lab`, { waitUntil: "networkidle" });
-      await page.getByRole("button", { name: LOCALE === "ar" ? "أحمد يتصل بناقة" : "Ahmed calls NAQAH" }).click();
-      await page.getByRole("button", { name: LOCALE === "ar" ? "بدء التجربة" : "Start preview" }).click();
-      await driveCall(page, /Yes|إيه|نعم|^Completed$|تم/, transcript);
-      ws = await readWs(page);
-      check("callback closes the No Answer ticket", ws.noAnswerTickets.every((t) => t.status === "closed"), ws.noAnswerTickets.map((t) => t.status));
-      check("callback is not a farm update", ws.reports.length === reportsBefore, `${reportsBefore} → ${ws.reports.length}`);
-      await page.screenshot({ path: `${dir}/4-callback.png`, fullPage: true });
     } catch (e) {
       check("drive completed", false, String(e.message ?? e).split("\n")[0]);
     }
@@ -195,6 +187,8 @@ const commands = {
       steps.push(await page.locator("#current-step-title").innerText());
       await page.getByLabel(ar ? "اليوم" : "Day", { exact: true }).selectOption("4");
       await page.getByLabel(ar ? "الوقت" : "Time", { exact: true }).fill("17:00");
+      await page.getByLabel(ar ? "يومك" : "Your day", { exact: true }).selectOption("4");
+      await page.getByLabel(ar ? "وقتك" : "Your time", { exact: true }).fill("19:00");
       await page.getByLabel(ar ? "أضف سؤال" : "Add a question").fill(ar ? "هل الماء متوفر؟" : "Is water available?");
       await page.getByRole("button", { name: ar ? "إضافة" : "Add", exact: true }).click();
       await next().click();
@@ -202,12 +196,23 @@ const commands = {
       await page.getByRole("button", { name: ar ? "افتح لوحة العزبة" : "Open dashboard" }).click();
       await page.waitForURL(/\/app$/, { timeout: 5000 });
       await page.reload();
+      await page.goto(`${BASE}/${LOCALE}/app/settings`, { waitUntil: "networkidle" });
+      const ownerTime = await page.getByLabel(ar ? "وقتك" : "Your time", { exact: true }).inputValue();
+      if (ownerTime !== "19:00") throw new Error(`owner summary time after refresh was ${ownerTime}`);
+      const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+      if (mobileOverflow) throw new Error("settings page overflows on a phone-width screen");
+      await page.screenshot({ path: `${dir}/settings-mobile.png`, fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      const desktopOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+      if (desktopOverflow) throw new Error("settings page overflows on a desktop screen");
+      await page.screenshot({ path: `${dir}/settings-desktop.png`, fullPage: true });
       await page.screenshot({ path: `${dir}/dashboard.png`, fullPage: true });
     } catch (e) { reason ??= String(e.message ?? e).split("\n")[0]; }
     const ws = await readWs(page).catch(() => null);
     await b.close();
     const question = LOCALE === "ar" ? "هل الماء متوفر؟" : "Is water available?";
-    const ok = !reason && ws?.setupComplete === true && steps.length === 4 && ws.settings.worker.name === "Verify Worker" && ws.settings.customQuestions.some((item) => item.text === question);
+    const ownerSchedule = ws?.settings.ownerCallSchedule;
+    const ok = !reason && ws?.setupComplete === true && steps.length === 4 && ws.settings.worker.name === "Verify Worker" && ws.settings.customQuestions.some((item) => item.text === question) && ownerSchedule?.day === 4 && ownerSchedule?.time === "19:00";
     out({ ok, cmd, evidence: dir, steps: steps.length, setupComplete: ws?.setupComplete ?? null, workerSaved: ws?.settings.worker.name === "Verify Worker", questionSaved: ws?.settings.customQuestions.some((item) => item.text === question), reason: ok ? undefined : reason ?? `expected 4 Basic steps + saved worker/question, got ${steps.length}` });
   },
   // This completes a real worker report against the configured voice server.
@@ -357,6 +362,8 @@ const commands = {
       await page.goto(`${BASE}/${LOCALE}`, { waitUntil: "networkidle" });
       await page.getByRole("button", { name: ar ? "استكشف العرض التجريبي" : "Explore the demo", exact: true }).first().click();
       await page.waitForURL(new RegExp(`/${LOCALE}/app$`), { timeout: 10000 });
+      // The store persists after the navigation starts; read it once it has.
+      await page.waitForFunction(() => !!localStorage.getItem("naqah-workspace-v1")?.includes('"setupComplete":true'), null, { timeout: 10_000 });
       check("Explore the demo opens the sample ranch", (await readWs(page))?.settings?.plan === "ultimate");
     });
     // Locale switch keeps the path.
@@ -417,14 +424,6 @@ const commands = {
       const after = (await readWs(page)).clockOffsetMs;
       check("clock +20 min", after - before === 20 * 60 * 1000, `${before} → ${after}`);
     });
-    // Owner inquiry: a finished call is logged.
-    await step("lab-owner-inquiry", async () => {
-      const before = (await readWs(page)).calls.length;
-      await pickScenario("Owner calls NAQAH", "المالك يتصل بناقة");
-      await driveCall(page, /^No|^لا/, transcript);
-      const after = (await readWs(page)).calls.length;
-      check("owner inquiry logs a call", after === before + 1, `${before} → ${after}`);
-    });
     // Emergency: info only, nothing saved.
     await step("lab-emergency", async () => {
       const before = JSON.stringify((await readWs(page)).calls);
@@ -462,9 +461,9 @@ if (!commands[cmd] || args.includes("--help")) {
   launch [--no-build]  build, start next on --port, record pid (refuses if the port is busy)
   doctor               read-only: our server answers, same build, Chromium available
   screens              32 screenshots (ar/en × 375/1440 × 8 pages); fails on overflow or console errors
-  call-lab             worker report → owner call → task → 4 missed calls → No Answer ticket → callback closes it (asserted)
+  call-lab             worker report → owner call → task → 3 missed calls → stop, no new No Answer ticket (asserted)
   wizard               Basic onboarding, 4 steps, lands on /app with setupComplete
-  features             landing plan CTA, locale switch, settings sample load, herd add, heat day, clock, owner inquiry, emergency, reset
+  features             landing plan CTA, locale switch, settings sample load, herd add, heat day, clock, emergency, reset
   voice                complete a real report, then verify save + tamper rejection [--worker-phone E.164] [--locale ar|en] [--dry-run] [--allow-paid]
                        dry-run is the default and refuses paid summary env vars; --allow-paid permits side effects
   stop                 stop only the server this tool launched`);

@@ -6,7 +6,7 @@ import type { Workspace } from "@/domain/types";
 
 const mock = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("./queries", async (original) => ({ ...(await original<typeof import("./queries")>()), loadFarm: mock.load }));
-import { findCaller, runFarmAction } from "./service-repository";
+import { findCaller, listScheduledFarmIds, runFarmAction } from "./service-repository";
 
 const farmId = "11111111-1111-4111-8111-111111111111";
 const now = new Date("2026-11-08T09:00:00.000Z");
@@ -112,5 +112,32 @@ describe("findCaller", () => {
   });
   it("treats an unreadable or hidden number as unknown", async () => {
     expect(await findCaller(lookups([], []), "anonymous")).toEqual({ kind: "unknown" });
+  });
+});
+
+describe("listScheduledFarmIds", () => {
+  function db(results: { error?: { code: string }; rows?: object[] }[]) {
+    const queue = [...results];
+    const query = () => {
+      const result = queue.shift()!;
+      const chain = {
+        select: () => chain, eq: () => chain, not: () => chain, in: () => chain,
+        limit: async () => ({ data: result.rows ?? null, error: result.error ?? null }),
+      };
+      return chain;
+    };
+    return { from: query } as unknown as SupabaseClient;
+  }
+  const farm = (id: string) => ({ id });
+
+  it("includes farms with an owner call time or a live owner run, without repeats", async () => {
+    expect(await listScheduledFarmIds(db([{ rows: [farm("a")] }, { rows: [{ farm_id: "b" }] }, { rows: [farm("c"), farm("a")] }, { rows: [farm("d")] }, { rows: [{ farm_id: "e" }] }])))
+      .toEqual(["a", "b", "c", "d", "e"]);
+  });
+  it("still lists every other farm before the owner-run column exists", async () => {
+    expect(await listScheduledFarmIds(db([{ rows: [farm("a")] }, { rows: [] }, { rows: [farm("c")] }, { error: { code: "42703" } }, { rows: [] }]))).toEqual(["a", "c"]);
+  });
+  it("does not hide any other failure", async () => {
+    await expect(listScheduledFarmIds(db([{ rows: [] }, { rows: [] }, { rows: [] }, { error: { code: "57014" } }, { rows: [] }]))).rejects.toThrow();
   });
 });

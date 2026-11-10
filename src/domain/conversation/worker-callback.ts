@@ -19,11 +19,7 @@ export function startWorkerCallback(ws: Workspace, now: Date): EngineResult {
   const tickets = openNoAnswerTickets(ws).filter((ticket) => route.ticketIds.includes(ticket.id));
   const messagesEn = tickets.map((ticket) => ticket.message).join("; ");
   const messagesAr = tickets.map((ticket) => ticket.message).join("؛ ");
-  const callbackTaskIds = tasksToConfirm(ws, now).map((task) => task.id);
-  const session = {
-    ...blank("worker_callback", now),
-    data: { callbackTaskIds, callbackTaskIndex: 0 },
-  };
+  const session = blank("worker_callback", now);
   const text = copy(
     "You missed our call. Message from the owner: " + (messagesEn || "Please call Abdullah back.") + " This is a message delivery call, not a farm update.",
     "فاتتك مكالمتنا. رسالة المالك: " + (messagesAr || "فضلاً تواصل مع عبدالله.") + " هذا اتصال لتسليم رسالة، مو تحديث للعزبة.",
@@ -43,8 +39,10 @@ export function handleWorkerCallback(session: CallSession, ws: Workspace, now: D
   const current = workerTurn(session, input, now);
   if (session.step === "callback_acknowledge") {
     const updated = completeWorkerCallback(ws, now);
+    // Asked after the message lands: an instruction this call delivered makes its task askable.
+    const callbackTaskIds = tasksToConfirm(updated, now).map((task) => task.id);
     const delivered = say(
-      current.session,
+      { ...current.session, data: { ...current.session.data, callbackTaskIds, callbackTaskIndex: 0 } },
       copy("Thank you. The missed message has been delivered.", "شكراً لك. وصلت رسالة المالك."),
       now,
     );

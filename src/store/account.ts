@@ -8,11 +8,11 @@ import { accountLink, useSaveStatus } from "./workspace";
 
 const TIMEOUT_MS = 15_000;
 
-async function call<T>(op: string, changes?: OwnerChange[], farm?: string): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+async function call<T>(op: string, changes?: OwnerChange[], farm?: string, id?: string): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
   const response = await fetch("/api/account", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ op, changes, farm }),
+    body: JSON.stringify({ op, changes, farm, id }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   return response.json();
@@ -22,6 +22,7 @@ async function call<T>(op: string, changes?: OwnerChange[], farm?: string): Prom
 export const reportCallNow = {
   available: () => call<boolean>("callNowAvailable"),
   call: () => call<CallNowResult>("callNow"),
+  retryUndelivered: (id: string) => call<boolean>("retryUndelivered", undefined, undefined, id),
 };
 
 export const accountSync = createAccountSync({

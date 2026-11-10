@@ -14,6 +14,6 @@ export async function POST(request: Request): Promise<Response> {
   const hook = await farmWebhook(request);
   if (hook instanceof Response) return hook;
   const token = verifyCallToken(new URL(request.url).searchParams.get("s"));
-  if (token?.k !== "report") return twimlResponse(twimlGoodbye(locale), 403);
+  if (token?.k !== "report" && token?.k !== "owner") return twimlResponse(twimlGoodbye(locale), 403);
   return farmResponse(afterRealtimeCall(hook.client, { token, callSid: hook.callSid }));
 }

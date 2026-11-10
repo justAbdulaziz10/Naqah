@@ -1,7 +1,8 @@
 /**
  * The bridge's turn rules (services/voice-bridge/server.mjs), for a browser connection: one response
- * at a time, tools in order, the worker talking over audible replies only, dropped calls answered.
- * Kept apart from React so it can be tested against provider events.
+ * at a time, tools in order, the worker talking over audible replies only, dropped calls answered,
+ * and every word the agent says chosen by the server. Kept apart from React so it can be tested
+ * against provider events.
  */
 export type ProviderEvent = Record<string, unknown> & { type: string };
 
@@ -11,6 +12,12 @@ export interface ToolReply {
   goodbye: string | null;
   /** Spoken word for word. Only this counts as the worker having heard the summary. */
   summaryText?: string;
+  summaryId?: string;
+  /** Spoken word for word. */
+  sayText?: string;
+  /** Say nothing, unless the current prompt was cut off. */
+  silent?: true;
+  repromptText?: string;
 }
 
 /** What a tool call knows about the worker's turn, reported as the bridge reports it. */
@@ -18,21 +25,22 @@ export interface ToolCall {
   name: string;
   args: Record<string, unknown>;
   spoke: boolean;
-  heard: string | null;
   workerUtterance?: string;
-  heardSummary?: boolean;
+  heardSummaryId?: string;
 }
 
 interface WorkerTurn {
   id: string | null;
-  heardSummary: boolean;
+  heardSummaryId?: string;
   settled: boolean;
   transcript: string;
   settle(transcript: string): void;
   promise: Promise<string>;
 }
 
-interface SummaryPlayback { heard: boolean; cancelled: boolean; responseId?: string }
+interface SummaryPlayback { heard: boolean; cancelled: boolean; id?: string; text: string; transcripts: Map<string, string>; responseId?: string }
+interface Prompt { kind: Kind; text: string; summaryId?: string; repromptText: string | null; played: boolean; cutOff: boolean }
+type NextResponse = { kind: Kind; text?: string; summaryId?: string; repromptText?: string; prompt?: Prompt };
 
 export interface LoopHost {
   send(event: object): void;
@@ -44,11 +52,12 @@ export interface LoopHost {
   finished(reason: string): void;
 }
 
-type Kind = "opening" | "turn" | "summary" | "goodbye";
+type Kind = "opening" | "turn" | "question" | "summary" | "reprompt" | "goodbye";
 
 const RESPONSE_MS = 45_000;
 const GOODBYE_MS = 15_000;
-const SILENCE_MS = 45_000;
+const REPROMPT_MS = 10_000;
+const MAX_REPROMPTS = 2;
 const SPEECH_MS = 10_000;
 const TRANSCRIPTION_MS = 2_500;
 const SPEECH_COMMIT_MS = 5_000;
@@ -57,10 +66,14 @@ const HARMLESS = new Set(["response_cancel_not_active", "conversation_already_ha
 
 const TRUNCATE = "lab-truncate-";
 const CONTROL = /[\u0000-\u001f\u007f]/u;
-const CLARIFYING = new Set(["worker_has_not_answered", "answer_conflicts_with_words", "number_not_in_answer", "answer_off_topic", "answer_unclear", "summary_not_finished", "worker_has_not_confirmed"]);
+const CLARIFYING = new Set(["noise", "facts_not_supported", "worker_has_not_answered", "answer_conflicts_with_words", "number_not_in_answer", "answer_off_topic", "answer_unclear", "summary_not_finished", "worker_has_not_confirmed"]);
 
 /** A refusal that recorded nothing and sends the agent back to the worker, as opposed to a bad tool call. */
 export const asksToClarify = (refused: string | null) => refused !== null && CLARIFYING.has(refused);
+
+/** Spelling a transcript may vary never counts as a changed summary. The bridge's own comparison. */
+const summaryWords = (value: string) => value.normalize("NFKC").toLowerCase().replace(/\p{M}/gu, "").replace(/[أإآٱ]/gu, "ا").replace(/ى/gu, "ي").replace(/ة/gu, "ه")
+  .replace(/[٠-٩]/gu, (digit) => String(digit.charCodeAt(0) - 0x0660)).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -77,7 +90,7 @@ export class TurnLoop {
   private responseKind: Kind | null = null;
   private responseAudible = false;
   private cancelSent = false;
-  private nextResponse: { kind: Kind; text?: string } | null = null;
+  private nextResponse: NextResponse | null = null;
   private ignored = new Set<string>();
   private toolIds = new Set<string>();
   private toolQueue: Promise<void> = Promise.resolve();
@@ -87,18 +100,22 @@ export class TurnLoop {
   private goodbyeHeard = false;
   private workerTurn: WorkerTurn | null = null;
   private speechEpoch = 0;
-  private turnHeardSummary: boolean | undefined;
+  private turnHeardSummaryId: string | undefined;
   private recoveryCommit: string | null = null;
-  private summaryNext = false;
   private responseSummary: SummaryPlayback | null = null;
   private summaryPlayback: SummaryPlayback | null = null;
   /** The summary finished generating; it counts as heard once its audio has played out. */
   private summaryPlaying: SummaryPlayback | null = null;
+  private lastPrompt: Prompt | null = null;
+  private responsePrompt: Prompt | null = null;
+  /** The prompt finished generating; it counts as played once its audio has. */
+  private promptPlaying: { prompt: Prompt; responseId: string } | null = null;
+  private reprompts = 0;
   private lastStopped: string | null = null;
   private truncates = 0;
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  constructor(private host: LoopHost, private mode: "voice" | "text", private opening: string) {}
+  constructor(private host: LoopHost, private mode: "voice" | "text", private opening: string, private openingReprompt?: string) {}
 
   /** Something is playing or showing right now. A reply still being prepared can't be cut off. */
   get canInterrupt(): boolean {
@@ -130,12 +147,16 @@ export class TurnLoop {
     this.timers.delete(name);
   }
 
-  /** A quiet phone call hangs up after this long; the Lab does the same when talking. */
+  /** Once a prompt has played and nothing is pending, a quiet worker hears it again, then the call stops. Typing takes as long as it takes. */
   private activity() {
-    if (this.mode !== "voice" || this.closed || this.ending) return;
-    this.timer("silence", SILENCE_MS, () => {
-      if (this.speaking || this.audio) this.activity();
-      else this.finish("silence_timeout");
+    this.clearTimer("silence");
+    if (this.mode !== "voice" || this.closed || this.ending || !this.lastPrompt?.played || this.speaking || this.toolPending || this.responsePending || this.responseId || this.nextResponse || this.userSpoke) return;
+    this.timer("silence", REPROMPT_MS, () => {
+      const prompt = this.lastPrompt!;
+      if (this.reprompts >= MAX_REPROMPTS || !prompt.repromptText?.trim()) return this.finish("silence_timeout");
+      this.reprompts += 1;
+      this.host.log("reprompt", String(this.reprompts));
+      this.requestResponse("reprompt", prompt.repromptText, { prompt });
     });
   }
 
@@ -151,8 +172,8 @@ export class TurnLoop {
     this.host.finished(reason);
   }
 
-  private newTurn(id: string | null, heardSummary: boolean): WorkerTurn {
-    const turn = { id, heardSummary, settled: false, transcript: "" } as WorkerTurn;
+  private newTurn(id: string | null, heardSummaryId: string | undefined): WorkerTurn {
+    const turn = { id, heardSummaryId, settled: false, transcript: "" } as WorkerTurn;
     turn.promise = new Promise((resolve) => {
       turn.settle = (transcript) => {
         if (turn.settled) return;
@@ -170,15 +191,17 @@ export class TurnLoop {
     // Typed text is already final, so it is its own transcript.
     this.speechEpoch += 1;
     this.workerTurn?.settle("");
-    this.workerTurn = this.newTurn(null, this.summaryPlayback?.heard === true);
+    this.reprompts = 0;
+    this.workerTurn = this.newTurn(null, this.summaryPlayback?.heard ? this.summaryPlayback.id : undefined);
     this.workerTurn.settle(text);
     this.host.send({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text }] } });
     this.userSpoke = true;
     this.requestResponse("turn");
   }
 
-  private requestResponse(kind: Kind, text?: string) {
-    this.nextResponse = { kind, text };
+  private requestResponse(kind: Kind, text?: string, options: Omit<NextResponse, "kind" | "text"> = {}) {
+    this.nextResponse = { kind, text, ...options };
+    this.activity();
     this.flushResponse();
   }
 
@@ -189,9 +212,17 @@ export class TurnLoop {
     this.responsePending = true;
     this.responseKind = next.kind;
     this.responseAudible = false;
-    this.responseSummary = this.summaryNext ? { heard: false, cancelled: false } : null;
+    this.responsePrompt = null;
+    if (next.text && next.kind !== "goodbye") {
+      this.responsePrompt = next.prompt ?? { kind: next.kind, text: next.text, summaryId: next.summaryId, repromptText: next.repromptText ?? (next.kind === "summary" ? null : next.text), played: false, cutOff: false };
+      this.lastPrompt = this.responsePrompt;
+      this.responsePrompt.played = false;
+      this.responsePrompt.cutOff = false;
+    }
+    this.responseSummary = next.kind === "summary" && next.text && !(next.prompt && this.summaryPlayback?.heard)
+      ? { heard: false, cancelled: false, id: next.summaryId ?? next.prompt?.summaryId, text: next.text, transcripts: new Map() } : null;
     if (this.responseSummary) this.summaryPlayback = this.responseSummary;
-    this.summaryNext = false;
+    this.activity();
     const response: Record<string, unknown> = { output_modalities: [this.mode === "voice" ? "audio" : "text"] };
     if (next.text) {
       response.instructions = `Say only the following text verbatim, with no additions: ${JSON.stringify(next.text)}`;
@@ -204,6 +235,7 @@ export class TurnLoop {
   /** Only a reply the worker can hear is cut off; one still being prepared goes ahead. */
   interrupt(): void {
     if (this.closed || (!this.responseAudible && !this.audio)) return;
+    if (this.lastPrompt && !this.lastPrompt.played) this.lastPrompt.cutOff = true;
     if (this.summaryPlayback && !this.summaryPlayback.heard) this.summaryPlayback.cancelled = true;
     if (this.mode === "voice") this.host.send({ type: "output_audio_buffer.clear" });
     if (this.responseId && this.responseAudible) {
@@ -238,7 +270,7 @@ export class TurnLoop {
         this.ready = true;
         this.host.log("session_ready");
         this.activity();
-        return this.requestResponse("opening", this.opening);
+        return this.requestResponse("opening", this.opening, { repromptText: this.openingReprompt });
       case "response.created": {
         const id = asRecord(event.response)?.id;
         if (this.responseId || !this.responsePending || typeof id !== "string") return this.fail("provider_invalid", "unexpected_response");
@@ -270,22 +302,36 @@ export class TurnLoop {
           if (!playing.cancelled) playing.heard = true;
           this.summaryPlaying = null;
         }
+        const sounding = this.promptPlaying;
+        if (sounding && sounding.responseId === event.response_id) {
+          this.promptPlaying = null;
+          if (this.lastPrompt === sounding.prompt && !sounding.prompt.cutOff) sounding.prompt.played = true;
+        }
         if (this.ending && this.goodbyeHeard) return this.finish("goodbye_played");
         return this.activity();
       }
       case "output_audio_buffer.cleared":
         this.audio = null;
         this.summaryPlaying = null;
+        this.promptPlaying = null;
         if (this.ending && this.goodbyeHeard) return this.finish("goodbye_played");
         return this.activity();
       case "response.output_text.delta":
         if (event.response_id === this.responseId && !this.ignored.has(event.response_id as string)) this.responseAudible = true;
         return;
+      case "response.output_audio_transcript.done":
+      case "response.output_text.done": {
+        const words = event.type.endsWith("transcript.done") ? event.transcript : event.text;
+        const reading = this.responseSummary;
+        if (reading && reading.responseId === event.response_id && typeof words === "string" && typeof event.item_id === "string") reading.transcripts.set(event.item_id, words);
+        return;
+      }
       case "input_audio_buffer.speech_started":
         if (this.ending) return;
+        this.reprompts = 0;
         if (!this.speaking) {
           this.speechEpoch += 1;
-          this.turnHeardSummary = this.summaryPlayback?.heard === true;
+          this.turnHeardSummaryId = this.summaryPlayback?.heard ? this.summaryPlayback.id : undefined;
           this.timer("speech", SPEECH_MS, () => {
             if (!this.speaking || this.ending) return;
             this.recoveryCommit = `speech-recovery-${this.speechEpoch}`;
@@ -309,9 +355,10 @@ export class TurnLoop {
         this.clearTimer("speech_commit");
         this.recoveryCommit = null;
         this.speaking = false;
+        this.reprompts = 0;
         this.workerTurn?.settle("");
-        this.workerTurn = this.newTurn(typeof event.item_id === "string" ? event.item_id : null, this.turnHeardSummary ?? this.summaryPlayback?.heard === true);
-        this.turnHeardSummary = undefined;
+        this.workerTurn = this.newTurn(typeof event.item_id === "string" ? event.item_id : null, this.turnHeardSummaryId);
+        this.turnHeardSummaryId = undefined;
         this.activity();
         if (this.earlySpeech) {
           this.earlySpeech = false;
@@ -349,8 +396,16 @@ export class TurnLoop {
       return this.fail("response_failed", String(error?.code ?? details?.reason ?? status ?? "unknown"));
     }
     const kind = this.responseKind;
+    const prompt = this.responsePrompt;
+    if (prompt && !interrupted && this.responseAudible && !prompt.cutOff) {
+      if (this.mode === "text" || this.lastStopped === id) prompt.played = true;
+      else if (id) this.promptPlaying = { prompt, responseId: id };
+    }
+    this.responsePrompt = null;
     const summary = this.responseSummary;
-    if (summary && !interrupted && this.responseAudible && !summary.cancelled) {
+    // Only a summary spoken as written counts as heard: a model reply could say anything.
+    const asWritten = summary !== null && summary.transcripts.size > 0 && summaryWords([...summary.transcripts.values()].join(" ")) === summaryWords(summary.text);
+    if (summary && asWritten && !interrupted && this.responseAudible && !summary.cancelled) {
       // Text is read as it arrives. Audio still has to finish playing, unless it already has.
       if (this.mode === "text" || this.lastStopped === id) summary.heard = true;
       else this.summaryPlaying = summary;
@@ -368,6 +423,7 @@ export class TurnLoop {
     } else {
       this.flushResponse();
     }
+    this.activity();
   }
 
   /** A cancel can lose the race. The call then sits unanswered and the model waits forever. */
@@ -401,15 +457,15 @@ export class TurnLoop {
     const input = args;
     this.toolIds.add(callId);
     this.toolPending += 1;
+    this.activity();
     const turn = this.workerTurn;
     const epoch = this.speechEpoch;
     const spoke = this.userSpoke;
     this.toolQueue = this.toolQueue
       .then(async () => {
         if (this.closed || this.ending) return;
-        const confirmation = name === "confirm_report" && input.confirmed === true;
-        // An answer is checked against the worker's words, so like a confirmation it waits for them.
-        if ((confirmation || name === "answer_question") && spoke && turn && !turn.settled) {
+        // Every tool is checked against the worker's words, so it waits for them.
+        if (spoke && turn && !turn.settled) {
           this.timer("transcription", TRANSCRIPTION_MS, () => turn.settle(""));
           await turn.promise;
           this.clearTimer("transcription");
@@ -420,18 +476,21 @@ export class TurnLoop {
           name,
           args: input,
           spoke: spoke && this.userSpoke && current,
-          // Empty is speech recognition coming back with nothing, which the checks don't treat as no check.
-          heard: current && turn?.settled ? turn.transcript : null,
-          ...(confirmation ? { workerUtterance: current ? turn?.transcript ?? "" : "", heardSummary: current && turn?.heardSummary === true } : {}),
+          workerUtterance: current ? turn?.transcript ?? "" : "",
+          ...(current && turn?.heardSummaryId !== undefined ? { heardSummaryId: turn.heardSummaryId } : {}),
         });
         if (this.closed) return;
+        const summary = result.summaryText?.trim() ? result.summaryText : null;
+        const question = result.sayText?.trim() ? result.sayText : null;
+        const actions = [result.summaryText, result.sayText, result.silent].filter((value) => value !== undefined);
+        if (!result.end && (actions.length !== 1 || (!summary && !question && result.silent !== true))) return this.fail("tool_failed", "invalid_result");
         if (this.workerTurn === turn) {
           this.userSpoke = false;
           turn?.settle("");
           if (turn) turn.transcript = "";
         }
-        const summary = result.summaryText?.trim() ? result.summaryText : null;
-        this.summaryNext = Boolean(summary);
+        // Only a summary the server speaks word for word counts as heard.
+        if (summary) this.summaryPlayback = null;
         this.host.send({ type: "conversation.item.create", item: { type: "function_call_output", call_id: callId, output: result.output } });
         if (result.end) {
           this.ending = true;
@@ -442,15 +501,19 @@ export class TurnLoop {
           this.timer("goodbye", GOODBYE_MS, () => this.finish("goodbye_timeout"));
           this.requestResponse("goodbye", result.goodbye);
         } else if (summary) {
-          this.requestResponse("summary", summary);
+          this.requestResponse("summary", summary, { summaryId: result.summaryId, repromptText: result.repromptText });
+        } else if (question) {
+          this.requestResponse("question", question, { repromptText: result.repromptText });
         } else {
-          this.requestResponse("turn");
+          this.host.log("tool_silent");
+          if (this.lastPrompt?.cutOff) this.requestResponse(this.lastPrompt.kind, this.lastPrompt.text, { prompt: this.lastPrompt });
         }
       })
       .catch((error: unknown) => this.fail("tool_failed", error instanceof Error ? error.message : undefined))
       .finally(() => {
         this.toolPending -= 1;
         this.flushResponse();
+        this.activity();
       });
   }
 }

@@ -4,6 +4,7 @@
  * Twilio to place the call. A call Twilio never placed is undone, not logged as unanswered.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { claimDueWorkerCall, releaseWorkerCallClaim } from "@/domain/actions";
 import {
   abandonReportCallAttempt, claimDueReportCall, dialableWorkerPhone, placeReportCallAttempt, startReportCall,
   type ReportCallBlock,
@@ -13,8 +14,9 @@ import type { Locale } from "@/domain/types";
 import { DbError } from "@/server/db/errors";
 import { toDbId } from "@/server/db/ids";
 import { listScheduledFarmIds, runFarmAction } from "@/server/db/service-repository";
+import { dialDueOwnerCall } from "./owner-call";
 import { signCallToken } from "./token";
-import type { OutboundCaller } from "./twilio";
+import type { OutboundCaller, OutboundCallResult } from "./twilio";
 
 export interface SchedulerSummary {
   farms: number;
@@ -40,16 +42,79 @@ export async function runReportCallScheduler(
         const claimed = claimDueReportCall(ws, now);
         return { ws: claimed.ws, result: claimed.claim ? { ...claimed.claim, locale: workerLocale(ws) } : null };
       });
-      if (!claim) continue;
-      const placed = await dial(client, caller, farmId, claim, { baseUrl, now });
-      if (placed) summary.placed += 1;
-      else summary.failed += 1;
+      if (claim) {
+        const placed = await dial(client, caller, farmId, claim, { baseUrl, now });
+        if (placed.placed) summary.placed += 1;
+        else summary.failed += 1;
+      }
     } catch (error) {
       summary.errors += 1;
       console.error(`[NAQAH] report call scheduler failed for a farm (${error instanceof DbError ? error.code : error instanceof Error ? error.name : "unknown"})`);
     }
+    await dialDueWorkerCall(client, caller, farmId, summary, { baseUrl, now });
+    await dialOwner(client, caller, farmId, summary, now);
   }
   return summary;
+}
+
+/** One due instruction or verification call. The claim is saved before Twilio is asked. */
+async function dialDueWorkerCall(
+  client: SupabaseClient,
+  caller: OutboundCaller,
+  farmId: string,
+  summary: SchedulerSummary,
+  options: { baseUrl: string; now: Date },
+) {
+  try {
+    const { result: claim } = await runFarmAction(client, farmId, (ws) => {
+      const claimed = claimDueWorkerCall(ws, options.now);
+      const phone = dialableWorkerPhone(ws);
+      if (!claimed.pendingCallId) return { ws: claimed.ws, result: null };
+      if (!phone) return { ws: releaseWorkerCallClaim(claimed.ws, claimed.pendingCallId, options.now), result: null };
+      return {
+        ws: claimed.ws,
+        result: { pendingCallId: claimed.pendingCallId, attempt: claimed.attempt, phone, locale: workerLocale(ws) },
+      };
+    });
+    if (!claim) return;
+    const pendingId = toDbId(farmId, claim.pendingCallId);
+    const query = `s=${encodeURIComponent(signCallToken({ k: "worker", f: farmId, p: pendingId, n: claim.attempt, l: claim.locale, t: options.now.getTime() }))}`;
+    const placed = await caller.place({
+      to: claim.phone,
+      url: `${options.baseUrl}/api/voice/worker?${query}`,
+      statusCallback: `${options.baseUrl}/api/voice/worker/status?${query}`,
+      timeoutSeconds: REPORT_CALL_RING_SECONDS,
+      statusEvents: ["completed"],
+    });
+    if (placed.placed) {
+      summary.placed += 1;
+      return;
+    }
+    summary.failed += 1;
+    await runFarmAction(client, farmId, (ws) => ({ ws: releaseWorkerCallClaim(ws, pendingId, options.now), result: null }));
+  } catch (error) {
+    summary.errors += 1;
+    console.error(`[NAQAH] worker call scheduler failed for a farm (${error instanceof DbError ? error.code : error instanceof Error ? error.name : "unknown"})`);
+  }
+}
+
+/** The owner's due slot or due retry. A slot with no new report still calls, and says so. */
+async function dialOwner(
+  client: SupabaseClient,
+  caller: OutboundCaller,
+  farmId: string,
+  summary: SchedulerSummary,
+  now: Date,
+) {
+  try {
+    const placed = await dialDueOwnerCall(client, { farmId, now }, caller);
+    if (!placed) return;
+    if (placed.placed) summary.placed += 1;
+    else summary.failed += 1;
+  } catch (error) {
+    summary.errors += 1;
+    console.error(`[NAQAH] owner call scheduler failed for a farm (${error instanceof DbError ? error.code : error instanceof Error ? error.name : "unknown"})`);
+  }
 }
 
 type Claim = { runId: string; attempt: number; phone: string; locale: Locale };
@@ -79,41 +144,48 @@ async function dial(
     timeoutSeconds: REPORT_CALL_RING_SECONDS,
     statusEvents: ["initiated", "ringing", "answered", "completed"],
   });
-  if (placed.placed) return { sid: placed.sid };
+  if (placed.placed) return placed;
   await runFarmAction(client, farmId, (ws) => ({ ws: abandonReportCallAttempt(ws, now, runId, claim.attempt, retry), result: null }));
-  return null;
+  return placed;
 }
 
 export type CallNowResult =
   | { status: "placed" }
   | { status: "blocked"; reason: ReportCallBlock | "duplicate" | "not_allowed" }
-  | { status: "failed"; reason: "not_placed" };
+  | { status: "failed"; reason: "not_placed"; code?: number; failureReason?: Extract<OutboundCallResult, { placed: false }>["reason"] };
 
 /**
- * One report call now, asked for by the farm's owner. The number is the farm's saved primary
- * worker, never one from the request. Uses the same claim → dial path as the scheduler, so the
- * retries, duplicate guard and status handling are identical.
+ * One report call now, normally to the farm's saved primary worker. Controlled server callers
+ * may override the destination and await audit linking before dialing. Uses the scheduler's
+ * claim → dial path, but manual calls never retry automatically.
  */
 export async function requestReportCallNow(
   client: SupabaseClient,
   caller: OutboundCaller,
   farmId: string,
-  options: { baseUrl: string; now: Date; allowlist?: string[] | null },
+  options: { baseUrl: string; now: Date; allowlist?: string[] | null; to?: string; onRunOpened?: (runId: string) => Promise<void> },
 ): Promise<CallNowResult> {
   const { now, allowlist } = options;
   type Opened = { blocked: ReportCallBlock | "duplicate" | "not_allowed" } | { claim: Claim };
   const { result } = await runFarmAction<Opened>(client, farmId, (ws) => {
     // Checked before a run exists, so a number outside a controlled test leaves no trace and no retry.
-    const saved = dialableWorkerPhone(ws);
+    const saved = options.to ?? dialableWorkerPhone(ws);
     if (saved && allowlist && !allowlist.includes(saved)) return { ws, result: { blocked: "not_allowed" as const } };
-    const opened = startReportCall(ws, now, "manual");
+    const input = options.to ? { ...ws, settings: { ...ws.settings, worker: { ...ws.settings.worker, phone: options.to } } } : ws;
+    const opened = startReportCall(input, now, "manual");
     if (!opened.run) return { ws, result: { blocked: opened.blocked ?? ("duplicate" as const) } };
+    opened.ws.settings = ws.settings;
     const placed = placeReportCallAttempt(opened.ws, now, opened.run.id);
-    const phone = dialableWorkerPhone(opened.ws);
+    const phone = options.to ?? dialableWorkerPhone(opened.ws);
     if (placed.attempt === null || !phone) return { ws, result: { blocked: "duplicate" as const } };
     return { ws: placed.ws, result: { claim: { runId: opened.run.id, attempt: placed.attempt, phone, locale: workerLocale(ws) } } };
   });
   if ("blocked" in result) return { status: "blocked", reason: result.blocked };
+  await options.onRunOpened?.(toDbId(farmId, result.claim.runId));
   const placed = await dial(client, caller, farmId, result.claim, { ...options, retry: false });
-  return placed ? { status: "placed" } : { status: "failed", reason: "not_placed" };
+  return placed.placed ? { status: "placed" } : {
+    status: "failed", reason: "not_placed",
+    ...(placed.code === undefined ? {} : { code: placed.code }),
+    ...(options.to === undefined ? {} : { failureReason: placed.reason }),
+  };
 }

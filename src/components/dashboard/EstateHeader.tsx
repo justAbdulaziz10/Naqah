@@ -23,11 +23,13 @@ function ToneMark({ tone }: { tone: EstateTone }) {
  * alright" in one sentence with where it comes from, and the rhythm of report calls with the next
  * one. Every other fact lives once, further down the page.
  */
-export function EstateHeader({ name, answer, tone, provenance, rhythm, next }: {
+export function EstateHeader({ name, answer, tone, provenance, call, rhythm, next }: {
   name: string;
   answer: string;
   tone: EstateTone;
   provenance: ReactNode;
+  /** Who NAQAH calls and the call button, first after the answer so it is easy to find. */
+  call?: ReactNode;
   /** The report rhythm strip. */
   rhythm: ReactNode | null;
   /** The next report call, said plainly, with any real action beside it. */
@@ -55,6 +57,7 @@ export function EstateHeader({ name, answer, tone, provenance, rhythm, next }: {
   return (
     <section aria-labelledby="estate-name" className="overflow-hidden rounded-[var(--radius-card)] bg-espresso px-5 py-5 text-cream sm:px-9 sm:py-9">
       {title}
+      {call ? <div className="naqah-enter mt-4 sm:mt-7" style={step(4)}>{call}</div> : null}
       {rhythm ? <div className="mt-4 border-t border-cream/15 pt-3 sm:mt-8 sm:pt-6">{rhythm}</div> : null}
       <div className={cn("naqah-enter", rhythm ? "mt-3 sm:mt-5" : "mt-5 border-t border-cream/15 pt-4 sm:mt-7 sm:pt-5")} style={step(5)}>{next}</div>
     </section>

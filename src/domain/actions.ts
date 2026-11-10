@@ -3,8 +3,10 @@
  * The UI (Call Lab, dashboard) and — later — real telephony webhooks should go
  * through these functions so the rules live in exactly one place.
  */
+import { undeliveredCalls } from "./alerts";
 import { MAX_RETRIES, RETRY_DELAY_MS } from "./clock";
-import { evaluateFindings, type ReportDraft } from "./findings";
+import { coveredTasks, dueTaskVerifications, dueWorkerCalls, openCoveredTasks } from "./rules";
+import { coveredReportDraft, evaluateFindings, reportDraftIssue, type ReportDraft } from "./findings";
 import { uid } from "./id";
 import type {
   CallKind,
@@ -79,6 +81,9 @@ export function completeWorkerReport(
   /** The NAQAH → worker report call this conversation belongs to. Omit for a worker returning a missed call. */
   reportCallId?: string | null,
 ): { ws: Workspace; report: FarmReport } {
+  const issue = reportDraftIssue(draft);
+  if (issue) throw new Error(`Invalid report draft: ${issue}`);
+  draft = coveredReportDraft(draft);
   const ws = clone(input);
   const at = iso(now);
   const run = reportCallId ? ws.reportCalls?.find((r) => r.id === reportCallId) : undefined;
@@ -97,7 +102,9 @@ export function completeWorkerReport(
     Object.assign(r, { level: u.level, quantity: u.quantity, note: u.note, certainty: u.certainty, updatedAt: at });
   }
 
-  for (const t of draft.taskConfirmations) {
+  // Basic has no tasks to confirm, whatever a draft carries.
+  const confirmations = ws.settings.plan === "ultimate" ? draft.taskConfirmations : [];
+  for (const t of confirmations) {
     const ticket = ws.taskTickets.find((x) => x.id === t.taskId && x.status === "open");
     if (ticket && t.done) {
       Object.assign(ticket, { status: "closed", closedAt: at, closedVia: "worker_report" as CallKind });
@@ -120,6 +127,8 @@ export function completeWorkerReport(
     reportId: null,
   });
   const report: FarmReport = { id: uid("rep"), at, callId: call.id, answers: draft.answers, findings };
+  if (draft.mode !== undefined) report.mode = draft.mode;
+  if (draft.coverage !== undefined) report.coverage = structuredClone(draft.coverage);
   if (draft.herdCount !== undefined && draft.herdCount !== null) report.herdCountReported = draft.herdCount;
   call.reportId = report.id;
   // The report is in, whichever way it arrived: no open report call should ring again.
@@ -134,7 +143,7 @@ export function completeWorkerReport(
     ar: `حُفظ تحديث العزبة من ${ws.settings.worker.name} (${draft.answers.length} إجابة)`,
     en: `Farm update saved from ${ws.settings.worker.name} (${draft.answers.length} answers)`,
   });
-  const closed = draft.taskConfirmations.filter((t) => t.done).length;
+  const closed = confirmations.filter((t) => t.done).length;
   if (closed)
     pushEvent(ws, now, "success", {
       ar: `أُغلقت ${closed} مهمة بعد تأكيد العامل`,
@@ -183,7 +192,8 @@ export function rejectWorkerReport(input: Workspace, now: Date, reason: RejectRe
 
 // ───────────────────────── Owner calls (Phases 4–5) ─────────────────────────
 
-export function recordOwnerNotification(input: Workspace, now: Date, reportId: string, answered: boolean): Workspace {
+/** `reportId` null: the call told the owner that no verified report has arrived. */
+export function recordOwnerNotification(input: Workspace, now: Date, reportId: string | null, answered: boolean): Workspace {
   const ws = clone(input);
   pushCall(ws, {
     kind: "owner_notification",
@@ -193,14 +203,20 @@ export function recordOwnerNotification(input: Workspace, now: Date, reportId: s
     outcome: answered ? "completed" : "no_answer",
     attempt: null,
     summary: answered
-      ? { ar: "أُبلغ المالك بالتحديث", en: "Owner briefed on the update" }
-      : { ar: "مكالمة فائتة — تشير إلى وصول تحديث", en: "Missed call — signals that an update arrived" },
+      ? reportId
+        ? { ar: "أُبلغ المالك بالتحديث", en: "Owner briefed on the update" }
+        : { ar: "أُبلغ المالك أنه ما وصل تقرير مؤكد", en: "Owner told that no verified report has arrived" }
+      : reportId
+        ? { ar: "مكالمة فائتة — تشير إلى وصول تحديث", en: "Missed call — signals that an update arrived" }
+        : { ar: "مكالمة فائتة — ما وصل تقرير مؤكد", en: "Missed call — no verified report has arrived" },
     ticketId: null,
     reportId,
   });
   if (answered) {
     if (ws.settings.plan === "basic") ws.ownerAllowanceUsedAt = iso(now);
-    pushEvent(ws, now, "success", { ar: "اتصلت ناقة بالمالك وأبلغته بالتحديث", en: "NAQAH called the owner with the update" });
+    pushEvent(ws, now, "success", reportId
+      ? { ar: "اتصلت ناقة بالمالك وأبلغته بالتحديث", en: "NAQAH called the owner with the update" }
+      : { ar: "اتصلت ناقة بالمالك وأبلغته أنه ما وصل تقرير مؤكد", en: "NAQAH called the owner to say no verified report has arrived" });
   } else {
     ws.missedNotificationAt = iso(now);
     pushEvent(ws, now, "neutral", {
@@ -281,7 +297,8 @@ export function submitOwnerInstruction(
   input: Workspace,
   now: Date,
   instr: InstructionInput,
-): { ws: Workspace; pendingCallId: string; taskId: string | null } {
+): { ws: Workspace; pendingCallId: string | null; taskId: string | null } {
+  if (input.settings.plan !== "ultimate") return { ws: clone(input), pendingCallId: null, taskId: null };
   const ws = clone(input);
   const at = iso(now);
   let taskId: string | null = null;
@@ -327,7 +344,8 @@ export function submitOwnerInstruction(
 
 /**
  * Approved instructions from one owner conversation.
- * Each Ultimate actionable item gets its own Task Ticket. Basic relays them.
+ * Each Ultimate actionable item gets its own Task Ticket. Information is relayed on the same call.
+ * Basic does not collect instructions and creates nothing.
  * All of them go out on one worker call, and a repeated batchId changes nothing.
  */
 export function submitOwnerInstructionBatch(
@@ -337,6 +355,9 @@ export function submitOwnerInstructionBatch(
   batchId: string,
   deliveryMessage?: string,
 ): { ws: Workspace; pendingCallId: string | null; taskIds: string[]; created: boolean } {
+  if (input.settings.plan !== "ultimate") {
+    return { ws: clone(input), pendingCallId: null, taskIds: [], created: false };
+  }
   const existing = input.pendingWorkerCalls.find((call) => call.batchId === batchId);
   if (existing) {
     return { ws: clone(input), pendingCallId: existing.id, taskIds: existing.coveredTaskIds ?? [], created: false };
@@ -399,15 +420,38 @@ export function submitOwnerInstructionBatch(
 
 /**
  * Phase 7/8: at a task's scheduled time the AI calls the worker to verify completion.
- * One call record per task. A repeated call returns that record and does not add another.
+ * Tasks due at the same moment share one call. A task joins only before that call is first
+ * dialled; one whose instruction arrived later gets its own call, with its own three attempts.
+ * A repeated start returns the task's call and does not add another. Basic has no verification.
  */
-export function startTaskVerification(input: Workspace, now: Date, taskId: string): { ws: Workspace; pendingCallId: string } {
+export function startTaskVerification(input: Workspace, now: Date, taskId: string): { ws: Workspace; pendingCallId: string | null } {
+  if (input.settings.plan !== "ultimate") return { ws: clone(input), pendingCallId: null };
   const existing = input.pendingWorkerCalls.find(
-    (call) => call.purpose === "task_verification" && call.taskTicketId === taskId,
+    (call) => call.purpose === "task_verification" && coveredTasks(call).includes(taskId),
   );
   if (existing) return { ws: clone(input), pendingCallId: existing.id };
   const ws = clone(input);
   const task = ws.taskTickets.find((t) => t.id === taskId);
+  const dueAt = (id: string) => {
+    const scheduledFor = ws.taskTickets.find((t) => t.id === id)?.scheduledFor;
+    return scheduledFor ? Date.parse(scheduledFor) : null;
+  };
+  const group = ws.pendingWorkerCalls.find(
+    (call) =>
+      call.purpose === "task_verification" &&
+      call.state === "pending" &&
+      call.attempts.length === 0 &&
+      call.nextAttemptAt !== null &&
+      Date.parse(call.nextAttemptAt) <= now.getTime() &&
+      dueAt(taskId) !== null &&
+      coveredTasks(call).some((id) => dueAt(id) === dueAt(taskId)),
+  );
+  if (group) {
+    group.coveredTaskIds = [...coveredTasks(group), taskId];
+    group.taskTicketId = null;
+    group.message = `${group.message}\n${task?.instruction ?? ""}`;
+    return { ws, pendingCallId: group.id };
+  }
   const pending: PendingWorkerCall = {
     id: uid("pwc"),
     purpose: "task_verification",
@@ -417,32 +461,95 @@ export function startTaskVerification(input: Workspace, now: Date, taskId: strin
     attempts: [],
     nextAttemptAt: iso(now),
     state: "pending",
+    coveredTaskIds: [taskId],
   };
   ws.pendingWorkerCalls.push(pending);
   return { ws, pendingCallId: pending.id };
 }
 
+const WORKER_DIAL_LOCK_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Start due verifications, then reserve the next due worker call so a second scheduler pass cannot dial it.
+ * The reservation is not an attempt. Twilio's status callback records the attempt.
+ */
+export function claimDueWorkerCall(input: Workspace, now: Date): { ws: Workspace; pendingCallId: string | null; attempt: number } {
+  let ws = clone(input);
+  for (const task of dueTaskVerifications(ws, now)) ws = startTaskVerification(ws, now, task.id).ws;
+  // The worker's phone is one line: a second call now would ring busy and waste one of its three attempts.
+  const onTheLine = (ws.reportCalls ?? []).some((run) => run.state === "answered" || (run.state === "calling" && run.attempts.at(-1)?.result === "pending"));
+  if (onTheLine) return { ws, pendingCallId: null, attempt: 0 };
+  const call = dueWorkerCalls(ws, now)[0];
+  if (!call) return { ws, pendingCallId: null, attempt: 0 };
+  call.nextAttemptAt = new Date(now.getTime() + WORKER_DIAL_LOCK_MS).toISOString();
+  return { ws, pendingCallId: call.id, attempt: call.attempts.length + 1 };
+}
+
+/** Release a reservation when the provider never placed the call. */
+export function releaseWorkerCallClaim(input: Workspace, pendingCallId: string, now: Date): Workspace {
+  const ws = clone(input);
+  const call = ws.pendingWorkerCalls.find((item) => item.id === pendingCallId && item.state === "pending");
+  if (!call) return ws;
+  // The attempt never happened, so it isn't counted, but the provider isn't asked again on the very next tick.
+  call.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
+  pushEvent(ws, now, "attention", {
+    ar: `تعذر على ناقة الاتصال بـ${ws.settings.worker.name} — تحاول مرة ثانية بعد ٢٠ دقيقة`,
+    en: `NAQAH couldn't place the call to ${ws.settings.worker.name} — it will try again in 20 minutes`,
+  });
+  return ws;
+}
+
+/**
+ * The owner asks NAQAH to try an undelivered call again. The same call goes back in the queue, with
+ * its message and tasks, so nothing is created twice and pressing it twice changes nothing.
+ */
+export function retryUndeliveredCall(input: Workspace, now: Date, pendingCallId: string): Workspace {
+  if (!undeliveredCalls(input).some((call) => call.id === pendingCallId)) return input;
+  const ws = clone(input);
+  const call = ws.pendingWorkerCalls.find((item) => item.id === pendingCallId)!;
+  call.state = "pending";
+  call.retryBase = call.attempts.length;
+  call.nextAttemptAt = iso(now);
+  pushEvent(ws, now, "neutral", {
+    ar: `بتحاول ناقة توصل التعليمات لـ${ws.settings.worker.name} مرة ثانية`,
+    en: `NAQAH will try again to reach ${ws.settings.worker.name}`,
+  });
+  return ws;
+}
+
 export type AttemptOutcome = "delivered" | "retry_scheduled" | "no_answer_ticket";
 
 /**
- * Phase 7: record one AI → worker call attempt.
- * Unanswered → retry in 20 minutes, up to 3 retries → then OPEN No Answer Ticket.
+ * How a worker call ended.
+ * Picking up is not delivery. `interrupted` means the worker answered and the call ended
+ * before the instructions were confirmed or the verification question was answered.
+ */
+export type WorkerAttemptResult = "unanswered" | "interrupted" | "delivered";
+
+/**
+ * Record one AI → worker call attempt.
+ * An unsuccessful attempt, including a hang-up before the required outcome, waits 20 minutes.
+ * The third unsuccessful attempt stops. No new No Answer Ticket is created.
+ * Open tasks and undelivered instructions stay as they are.
+ * The stored state name `no_answer_ticket` is the existing database value for an exhausted call.
+ * It does not insert a ticket.
  */
 export function resolveWorkerCallAttempt(
   input: Workspace,
   now: Date,
   pendingCallId: string,
-  answered: boolean,
+  result: WorkerAttemptResult,
 ): { ws: Workspace; outcome: AttemptOutcome } {
   const ws = clone(input);
   const call = ws.pendingWorkerCalls.find((c) => c.id === pendingCallId);
   if (!call || call.state !== "pending") return { ws, outcome: "delivered" };
   const at = iso(now);
+  const answered = result !== "unanswered";
   call.attempts.push({ at, answered });
   const attempt = call.attempts.length;
   const kind: CallKind = call.purpose === "instruction" ? "worker_instruction" : "worker_task_verification";
 
-  if (answered) {
+  if (result === "delivered") {
     call.state = "delivered";
     call.nextAttemptAt = null;
     if (call.relayId) {
@@ -477,44 +584,42 @@ export function resolveWorkerCallAttempt(
     at,
     outcome: "no_answer",
     attempt,
-    summary: { ar: `لم يرد العامل (المحاولة ${attempt})`, en: `Worker didn't answer (attempt ${attempt})` },
+    summary: result === "interrupted"
+      ? { ar: `انقطع الاتصال قبل اكتمال التسليم (المحاولة ${attempt})`, en: `The call ended before delivery was confirmed (attempt ${attempt})` }
+      : { ar: `لم يرد العامل (المحاولة ${attempt})`, en: `Worker didn't answer (attempt ${attempt})` },
     ticketId: call.taskTicketId,
     reportId: null,
   });
 
-  if (attempt <= MAX_RETRIES) {
+  const inRound = attempt - (call.retryBase ?? 0);
+  if (inRound <= MAX_RETRIES) {
     call.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
-    pushEvent(ws, now, "neutral", {
-      ar: `لم يرد العامل — إعادة المحاولة بعد ٢٠ دقيقة (${attempt}/${MAX_RETRIES + 1})`,
-      en: `Worker didn't answer — retrying in 20 minutes (${attempt}/${MAX_RETRIES + 1})`,
-    });
+    pushEvent(ws, now, "neutral", result === "interrupted"
+      ? {
+          ar: `انقطع الاتصال — إعادة المحاولة بعد ٢٠ دقيقة (${inRound}/${MAX_RETRIES + 1})`,
+          en: `The call ended early — retrying in 20 minutes (${inRound}/${MAX_RETRIES + 1})`,
+        }
+      : {
+          ar: `لم يرد العامل — إعادة المحاولة بعد ٢٠ دقيقة (${inRound}/${MAX_RETRIES + 1})`,
+          en: `Worker didn't answer — retrying in 20 minutes (${inRound}/${MAX_RETRIES + 1})`,
+        });
     return { ws, outcome: "retry_scheduled" };
   }
 
   call.state = "no_answer_ticket";
   call.nextAttemptAt = null;
-  ws.noAnswerTickets.push({
-    id: uid("nat"),
-    createdAt: at,
-    purpose: call.purpose,
-    message: call.message,
-    taskTicketId: call.taskTicketId,
-    status: "open",
-    closedAt: null,
-  });
   pushEvent(ws, now, "attention", {
-    ar: "بعد ٣ محاولات إضافية فُتحت تذكرة «عدم رد» — بانتظار اتصال العامل",
-    en: "After 3 retries a No Answer Ticket was opened — waiting for the worker to call back",
+    ar: "توقفت إعادة الاتصال بعد ٣ محاولات. التعليمات لم تصل، والمهام المفتوحة تبقى مفتوحة.",
+    en: "Automatic calls stopped after 3 attempts. Instructions were not delivered, and open tasks stay open.",
   });
   return { ws, outcome: "no_answer_ticket" };
 }
 
-/** A closed task has nothing left to verify, so its retries stop and no No Answer Ticket follows. */
+/** A call with no open task left has nothing to verify, so its retries stop. */
 function stopVerificationRetries(ws: Workspace, taskId: string) {
   for (const call of ws.pendingWorkerCalls) {
-    if (call.purpose === "task_verification" && call.taskTicketId === taskId && call.state === "pending") {
-      Object.assign(call, { state: "delivered", nextAttemptAt: null });
-    }
+    if (call.purpose !== "task_verification" || call.state !== "pending" || !coveredTasks(call).includes(taskId)) continue;
+    if (openCoveredTasks(ws, call).length === 0) Object.assign(call, { state: "delivered", nextAttemptAt: null });
   }
 }
 
@@ -522,7 +627,7 @@ function stopVerificationRetries(ws: Workspace, taskId: string) {
 export function confirmTask(input: Workspace, now: Date, taskId: string, done: boolean, via: CallKind): Workspace {
   const ws = clone(input);
   const t = ws.taskTickets.find((x) => x.id === taskId);
-  if (!t || t.status !== "open") return ws;
+  if (!t || t.status !== "open" || ws.settings.plan !== "ultimate") return ws;
   if (done) {
     Object.assign(t, { status: "closed", closedAt: iso(now), closedVia: via });
     stopVerificationRetries(ws, t.id);

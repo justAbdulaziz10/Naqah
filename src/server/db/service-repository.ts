@@ -29,20 +29,32 @@ export async function findCaller(client: SupabaseClient, rawPhone: string): Prom
   return matches.length === 1 ? matches[0] : { kind: "unknown" };
 }
 
+const UNDEFINED_COLUMN = "42703";
+
 /**
- * Farms the report-call scheduler should look at: set up with a call time, or with a report call
- * still ringing or waiting for a retry. The domain decides what is actually due (reportCalls.ts).
+ * Farms the report-call scheduler should look at: set up with a worker or owner call time, or with
+ * a call still ringing or waiting for a retry. The domain decides what is actually due.
  */
 export async function listScheduledFarmIds(client: SupabaseClient): Promise<string[]> {
-  const [scheduled, active] = await Promise.all([
+  const [scheduled, active, ownerScheduled, ownerRuns, workerCalls] = await Promise.all([
     client.from("farms").select("id").eq("setup_complete", true).not("call_time", "is", null).limit(5000),
     client.from("report_call_runs").select("farm_id").in("state", ["calling", "answered"]).limit(5000),
+    client.from("farms").select("id").eq("setup_complete", true).not("owner_call_time", "is", null).limit(5000),
+    client.from("farms").select("id").in("owner_call_run->>state", ["calling", "answered"]).limit(5000),
+    client.from("pending_worker_calls").select("farm_id").eq("state", "pending").limit(5000),
   ]);
   if (scheduled.error) throw fromPostgrest(scheduled.error);
   if (active.error) throw fromPostgrest(active.error);
+  if (ownerScheduled.error) throw fromPostgrest(ownerScheduled.error);
+  // Before 20261110090000 the column doesn't exist, and no owner run can be live anyway.
+  if (ownerRuns.error && ownerRuns.error.code !== UNDEFINED_COLUMN) throw fromPostgrest(ownerRuns.error);
+  if (workerCalls.error) throw fromPostgrest(workerCalls.error);
   return [...new Set([
     ...(scheduled.data ?? []).map((row) => row.id as string),
     ...(active.data ?? []).map((row) => row.farm_id as string),
+    ...(ownerScheduled.data ?? []).map((row) => row.id as string),
+    ...(ownerRuns.data ?? []).map((row) => row.id as string),
+    ...(workerCalls.data ?? []).map((row) => row.farm_id as string),
   ])];
 }
 

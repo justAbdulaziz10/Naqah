@@ -63,6 +63,45 @@ describe("events are bound to who is on the call", () => {
 });
 
 describe("report details", () => {
+  it("parses and saves optional mode, coverage and an urgent note", () => {
+    const details = { mode: "open", coverage: [
+      { questionId: "feed_level", status: "not_reported" },
+      { questionId: "water_level", status: "unknown" },
+      { questionId: "herd_count", status: "reported" },
+    ], urgentNote: "Check the gate" };
+    const event = parseVoiceEvent({ ...base, type: "worker_report", reportCallId: runId, draft: { ...draft, ...details } });
+    expect(event).toMatchObject({ draft: details });
+    const report = voiceStep(answered(), now, event).ws.reports[0];
+    expect(report).toMatchObject({ mode: "open", coverage: details.coverage });
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0].text.en).toBe("Urgent concern reported by the worker: Check the gate");
+  });
+  it.each([
+    { mode: "worker_choice" }, { mode: null }, { coverage: null }, { coverage: {} },
+    { coverage: [{ questionId: "feed_level", status: "healthy" }] },
+    { coverage: [{ questionId: "", status: "reported" }] },
+    { coverage: [{ questionId: "x".repeat(101), status: "reported" }] },
+    { coverage: Array.from({ length: 201 }, () => ({ questionId: "feed_level", status: "reported" })) },
+    { urgentNote: "x".repeat(501) }, { urgentNote: 5 }, { urgentNote: " " },
+  ])("strictly rejects invalid report metadata %j", (metadata) => {
+    expect(() => parseVoiceEvent({ ...base, type: "worker_report", draft: { ...draft, ...metadata } })).toThrow();
+  });
+  it("accepts a null urgent note and a guided report", () => {
+    expect(parseVoiceEvent({ ...base, type: "worker_report", draft: { ...draft, mode: "guided", urgentNote: null } })).toMatchObject({ draft: { mode: "guided", urgentNote: null } });
+  });
+  it("rejects duplicate coverage at save time, including trusted typed events", () => {
+    const event: VoiceEvent = { ...base, version: 1, type: "worker_report", reportCallId: runId, draft: { ...draft, coverage: [
+      { questionId: "feed_level", status: "reported" }, { questionId: "feed_level", status: "unknown" },
+    ] } };
+    expect(() => voiceStep(answered(), now, event)).toThrow("coverage");
+  });
+  it("rejects contradictory duplicate resource updates at save time", () => {
+    const event = parseVoiceEvent({ ...base, type: "worker_report", reportCallId: runId, draft: { ...draft, resourceUpdates: [
+      { kind: "feed", level: "critical", certainty: "reported" },
+      { kind: "feed", level: "good", certainty: "reported" },
+    ] } });
+    expect(() => voiceStep(answered(), now, event)).toThrow("resourceUpdates");
+  });
   it("accepts a herd larger than one call's answers", () => {
     const camelUpdates = Array.from({ length: 1_000 }, () => ({ camelId: uuid, health: "healthy", certainty: "reported" }));
     expect(parseVoiceEvent({ ...base, type: "worker_report", draft: { ...draft, camelUpdates } }).type).toBe("worker_report");
@@ -126,7 +165,7 @@ describe("voice steps follow the domain rules", () => {
   it("refuses a report on a run that isn't in conversation", () => {
     const ws = answered();
     ws.reportCalls![0].state = "missed";
-    expect(voiceStep(ws, now, event({ type: "worker_report", reportCallId: runId, draft })).result).toEqual({ status: "rejected", reason: "call_not_active" });
+    expect(voiceStep(ws, new Date(now.getTime() + 60 * 60_000), event({ type: "worker_report", reportCallId: runId, draft })).result).toEqual({ status: "rejected", reason: "call_not_active" });
   });
   it("never turns a call refused at the start into an empty report", () => {
     const refused = event({ type: "worker_report", draft, refusedAtStart: true });
@@ -194,7 +233,8 @@ describe("report call status events", () => {
   });
   it("ends an answered call unsaved, and counts a completed call that never reached the questions as unanswered", () => {
     const ended = voiceStep(answered(), now, event({ type: "report_call_ended", reportCallId: runId, attempt: 1 }));
-    expect(ended.ws.reportCalls?.[0].state).toBe("missed");
+    expect(ended.ws.reportCalls?.[0]).toMatchObject({ state: "calling", attempts: [{ result: "answered" }] });
+    expect(ended.ws.reportCalls?.[0].nextAttemptAt).not.toBeNull();
     const never = voiceStep(ringing(), now, event({ type: "report_call_ended", reportCallId: runId, attempt: 1 }));
     expect(never.result).toEqual({ status: "saved", detail: "retry_scheduled" });
   });
@@ -203,4 +243,17 @@ describe("report call status events", () => {
     { type: "report_call_attempt", reportCallId: runId, attempt: 0, answered: true },
     { type: "worker_report", reportCallId: "x", draft },
   ])("rejects %j", (input) => expect(() => parseVoiceEvent({ ...base, ...input })).toThrow());
+});
+
+describe("a save that arrives just after the last attempt ended", () => {
+  it("is still accepted shortly afterwards, and refused later", () => {
+    const NOW = new Date("2026-11-05T14:00:00Z");
+    const base = createEmptyWorkspace("ultimate");
+    const run = { id: "run-1", occurrence: NOW.toISOString(), trigger: "schedule" as const, attempts: [{ at: NOW.toISOString(), result: "answered" as const }], nextAttemptAt: null, state: "missed" as const, reportId: null };
+    const ws = { ...base, reports: [], reportCalls: [run] };
+    const draft = { answers: [{ questionId: "herd_health", question: { ar: "س", en: "q" }, answer: "fine", certainty: "reported" as const, followUp: false }], camelUpdates: [], resourceUpdates: [], herdAccountedFor: null, taskConfirmations: [] };
+    const event = { version: 1 as const, eventId: "e1", providerCallId: "CA1", type: "worker_report" as const, draft, reportCallId: "run-1" };
+    expect(voiceStep(ws, new Date(NOW.getTime() + 60_000), event).result.status).toBe("saved");
+    expect(voiceStep(ws, new Date(NOW.getTime() + 60 * 60_000), event).result).toEqual({ status: "rejected", reason: "call_not_active" });
+  });
 });

@@ -6,10 +6,11 @@
  */
 import type { CallSession } from "./engine";
 
-type Topic = "herd" | "feed" | "water" | "fences" | "shelter" | "medicine";
+export type AnswerTopic = "herd" | "feed" | "water" | "fences" | "shelter" | "medicine" | "task" | "other";
+type Topic = Exclude<AnswerTopic, "task" | "other">;
 
 const WORDS: Record<Topic, readonly string[]> = {
-  herd: ["حلال", "ابل", "ناقه", "ناقتي", "نوق", "نياق", "بعير", "بعران", "جمل", "جمال", "حاشي", "حيشان", "قعود", "مريض", "مريضه", "تعبان", "تعبانه", "كلها", "كلهم", "camel", "camels", "herd"],
+  herd: ["حلال", "ابل", "ناقه", "ناقتي", "نوق", "نياق", "بعير", "بعران", "جمل", "جمال", "حاشي", "حيشان", "قعود", "مريض", "مريضه", "تعبان", "تعبانه", "صحه", "صحتها", "صحتهم", "جرح", "مجروح", "تعرج", "يعرج", "كلها", "كلهم", "camel", "camels", "herd", "sick", "ill", "injured", "limping", "health"],
   feed: ["علف", "اعلاف", "شعير", "برسيم", "تبن", "دريس", "قت", "feed", "fodder", "hay", "barley"],
   water: ["مويه", "مويا", "مياه", "ماء", "الما", "ماي", "خزان", "خزانات", "وايت", "حوض", "water", "tank", "trough"],
   fences: ["سور", "اسوار", "سياج", "شبك", "بوابه", "fence", "fences", "fencing", "gate"],
@@ -38,14 +39,24 @@ function topicOf(word: string): Topic | undefined {
   return TOPIC_OF_WORD.get(word) ?? TOPIC_OF_WORD.get(withoutAnd) ?? TOPIC_OF_WORD.get(withoutThe);
 }
 
-export function isOffTopicAnswer(session: CallSession, normalizedWords: string, camelNames: readonly string[] = []): boolean {
-  if (session.step !== "report_question") return false;
+export function askedTopic(session: CallSession): AnswerTopic {
+  if (session.step === "open_clarify") return "herd";
   const item = session.data.queue?.[session.data.reportIndex ?? 0];
-  if (item?.kind !== "predefined") return false;
-  const asked = TOPIC_OF_QUESTION[item.id];
-  if (!asked) return false;
+  if (item?.kind === "task") return "task";
+  if (item?.kind !== "predefined") return "other";
+  return TOPIC_OF_QUESTION[item.id] ?? "other";
+}
+
+export function topicsInWords(normalizedWords: string): Set<Topic> {
+  return new Set((normalizedWords.match(/[\p{L}\p{N}]+/gu) ?? []).map(topicOf).filter((topic): topic is Topic => Boolean(topic)));
+}
+
+export function isOffTopicAnswer(session: CallSession, normalizedWords: string, camelNames: readonly string[] = []): boolean {
+  if (!["report_question", "health_pick", "health_status", "health_more", "herd_count_detail"].includes(session.step)) return false;
+  const asked = askedTopic(session);
+  if (asked === "other" || asked === "task") return false;
   const words = normalizedWords.match(/[\p{L}\p{N}]+/gu) ?? [];
-  const topics = new Set(words.map(topicOf).filter((topic): topic is Topic => Boolean(topic)));
+  const topics = topicsInWords(normalizedWords);
   if (asked === "herd" && words.some((word) => camelNames.includes(word))) return false;
   return !topics.has(asked) && topics.size > 0;
 }

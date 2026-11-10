@@ -3,8 +3,9 @@
 import { WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { CertaintyBadge, HealthBadge, noAnswerAttemptInfo } from "@/components/dashboard/DashboardPrimitives";
-import type { NoAnswerTicket, Workspace } from "@/domain";
+import { CertaintyBadge, HealthBadge } from "@/components/dashboard/DashboardPrimitives";
+import type { Workspace } from "@/domain";
+import type { UndeliveredCall } from "@/domain/alerts";
 import { useI18n } from "@/i18n/client";
 import { AttemptDots } from "@/components/visuals/AttemptDots";
 import { isHerdFinding, type EstateMatter, type MatterInstruction } from "./matters";
@@ -23,7 +24,7 @@ export function Step({ title, detail, last = false, waiting = false, missed = fa
         {last ? null : <span className="absolute inset-y-0 start-1/2 top-3 w-px -translate-x-1/2 bg-stone md:inset-x-0 md:start-3 md:top-1/2 md:h-px md:w-auto md:translate-x-0" aria-hidden />}
       </span>
       <div className="min-w-0 md:mt-3">
-        <p className={`naqah-name font-semibold leading-snug ${missed ? "text-warn" : "text-espresso"}`}>{title}</p>
+        <p className={`naqah-name font-medium leading-snug ${missed ? "text-warn" : "text-espresso"}`}>{title}</p>
         {detail ? <p className="mt-1 text-sm leading-relaxed text-muted">{detail}</p> : null}
       </div>
     </li>
@@ -38,16 +39,21 @@ function instructionWaiting(item: MatterInstruction, worker: string, m: ReturnTy
   };
 }
 
-function MatterRow({ ws, matter, reportAt, worker, now, unanswered }: { ws: Workspace; matter: EstateMatter; reportAt: string | null; worker: string; now: Date; unanswered: NoAnswerTicket[] }) {
+function undeliveredDetail(call: UndeliveredCall, m: ReturnType<typeof useI18n>["m"], fmt: ReturnType<typeof useI18n>["fmt"]) {
+  const o = m.app.overview;
+  const count = fmt.number(call.attempts);
+  return [call.purpose === "instruction" ? o.calledTimes(count) : o.calledToCheck(count), call.taskIds.length ? o.taskStaysOpen : null].filter(Boolean).join(" ");
+}
+
+function MatterRow({ ws, matter, reportAt, worker, now, undelivered }: { ws: Workspace; matter: EstateMatter; reportAt: string | null; worker: string; now: Date; undelivered: UndeliveredCall[] }) {
   const { m, t, fmt, href } = useI18n();
   const { camel, findings, instructions } = matter;
   const reported = findings[0] ? t(findings[0].text) : camel?.healthNote ?? null;
   const instruction = instructions[0] ?? null;
-  // NAQAH called to check this task and got no answer: that is where it stands, so it is said here.
-  const missedCheck = instruction?.kind === "task" ? unanswered.find((ticket) => ticket.taskTicketId === instruction.id) ?? null : null;
-  const missedInfo = missedCheck ? noAnswerAttemptInfo(ws, missedCheck) : null;
-  const waiting = missedInfo
-    ? { title: m.app.overview.workerMissedAttempts(worker, fmt.number(missedInfo.count)), detail: m.app.overview.workerMayCallBack }
+  // NAQAH gave up reaching the worker about this: that is where it stands, so it is said here.
+  const stopped = instruction ? undelivered.find((call) => call.taskIds.includes(instruction.id) || call.relayId === instruction.id) ?? null : null;
+  const waiting = stopped
+    ? { title: m.app.overview.notDeliveredTo(worker), detail: undeliveredDetail(stopped, m, fmt) }
     : instruction ? instructionWaiting(instruction, worker, m) : null;
   const headline = camel?.name ?? (instruction && !reported ? instruction.text : reported);
   const at = camel?.updatedAt ?? reportAt;
@@ -66,9 +72,9 @@ function MatterRow({ ws, matter, reportAt, worker, now, unanswered }: { ws: Work
   const instructionText = instruction && instruction.text !== headline ? instruction.text : instructionTitle;
 
   return (
-    <li className="py-6 first:pt-0 last:pb-0">
+    <li className="py-5 first:pt-0 last:pb-0">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <p className="naqah-name text-xl font-semibold leading-snug text-espresso">
+        <p className="naqah-name text-lg font-semibold leading-snug text-espresso">
           {headlineHref ? <Link href={headlineHref} className={`${recordLink} ${target}`}>{headline}</Link> : headline}
         </p>
         {camel ? <HealthBadge health={camel.health} /> : null}
@@ -83,51 +89,50 @@ function MatterRow({ ws, matter, reportAt, worker, now, unanswered }: { ws: Work
             detail={instructionText === instructionTitle ? null : instructionTitle}
           />
         ) : null}
-        {waiting ? <Step title={waiting.title} detail={waiting.detail} last waiting missed={Boolean(missedInfo)} /> : null}
+        {waiting ? <Step title={waiting.title} detail={waiting.detail} last waiting missed={Boolean(stopped)} /> : null}
       </ol>
     </li>
   );
 }
 
-function UnansweredRow({ ws, ticket, worker }: { ws: Workspace; ticket: NoAnswerTicket; worker: string }) {
+function UndeliveredRow({ call, worker }: { call: UndeliveredCall; worker: string }) {
   const { m, fmt } = useI18n();
-  const info = noAnswerAttemptInfo(ws, ticket);
   return (
-    <li className="flex items-start gap-3 py-6 first:pt-0 last:pb-0">
+    <li className="flex items-start gap-3 py-5 first:pt-0 last:pb-0">
       <WarningCircle size={22} weight="fill" className="mt-0.5 shrink-0 text-danger" aria-hidden />
       <div className="min-w-0">
-        <p className="naqah-name text-xl font-semibold leading-snug text-espresso">{m.app.overview.workerMissedAttempts(worker, fmt.number(info.count))}</p>
-        <p className="mt-1 leading-relaxed text-espresso">{ticket.message}</p>
-        <AttemptDots count={info.count} label={m.visual.tasks.attempts(fmt.number(info.count))} className="mt-2" />
-        <p className="mt-1 text-sm text-muted">{m.app.overview.workerMayCallBack}</p>
+        <p className="naqah-name text-lg font-semibold leading-snug text-espresso">{m.app.overview.notDeliveredTo(worker)}</p>
+        <p className="mt-1 leading-relaxed text-espresso">{call.message}</p>
+        <AttemptDots count={call.attempts} label={m.visual.tasks.attempts(fmt.number(call.attempts))} className="mt-2" />
+        <p className="mt-1 text-sm text-muted">{undeliveredDetail(call, m, fmt)}</p>
       </div>
     </li>
   );
 }
 
 /** The one question after "is the estate alright": what is happening about it. */
-export function EstateMatters({ ws, matters, unanswered, reportAt, worker, now }: {
+export function EstateMatters({ ws, matters, undelivered, reportAt, worker, now }: {
   ws: Workspace;
   matters: EstateMatter[];
-  unanswered: NoAnswerTicket[];
+  undelivered: UndeliveredCall[];
   reportAt: string | null;
   worker: string;
   now: Date;
 }) {
   const { m, fmt, href } = useI18n();
-  const folded = new Set(matters.flatMap((matter) => matter.instructions.filter((item) => item.kind === "task").map((item) => item.id)));
-  const standalone = unanswered.filter((ticket) => !ticket.taskTicketId || !folded.has(ticket.taskTicketId));
-  const shownUnanswered = standalone.slice(0, ROW_LIMIT);
-  const shownMatters = matters.slice(0, ROW_LIMIT - shownUnanswered.length);
-  const hidden = standalone.length + matters.length - shownUnanswered.length - shownMatters.length;
+  const folded = new Set(matters.flatMap((matter) => matter.instructions.map((item) => item.id)));
+  const standalone = undelivered.filter((call) => !call.taskIds.some((id) => folded.has(id)) && !(call.relayId && folded.has(call.relayId)));
+  const shownUndelivered = standalone.slice(0, ROW_LIMIT);
+  const shownMatters = matters.slice(0, ROW_LIMIT - shownUndelivered.length);
+  const hidden = standalone.length + matters.length - shownUndelivered.length - shownMatters.length;
   // A calm day has no section at all: the estate header has already said so.
-  if (!shownUnanswered.length && !shownMatters.length) return null;
+  if (!shownUndelivered.length && !shownMatters.length) return null;
   return (
     <section aria-labelledby="estate-matters" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-5 sm:px-8 sm:py-7">
-      <h2 id="estate-matters" className="text-2xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{m.app.overview.attention}</h2>
-      <ul className="mt-6 divide-y divide-stone/70">
-        {shownUnanswered.map((ticket) => <UnansweredRow key={ticket.id} ws={ws} ticket={ticket} worker={worker} />)}
-        {shownMatters.map((matter) => <MatterRow key={matter.id} ws={ws} matter={matter} reportAt={reportAt} worker={worker} now={now} unanswered={unanswered} />)}
+      <h2 id="estate-matters" className="text-xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{m.app.overview.attention}</h2>
+      <ul className="mt-5 divide-y divide-stone/70">
+        {shownUndelivered.map((call) => <UndeliveredRow key={call.id} call={call} worker={worker} />)}
+        {shownMatters.map((matter) => <MatterRow key={matter.id} ws={ws} matter={matter} reportAt={reportAt} worker={worker} now={now} undelivered={undelivered} />)}
       </ul>
       {hidden > 0 ? (
         <Link href={href("/app/tickets")} className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">

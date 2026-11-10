@@ -43,6 +43,29 @@ describe("workspace rows", () => {
     taskTickets: [], noAnswerTickets: [], pendingWorkerCalls: [], reportCallRuns: [], relays: [], events: [],
   };
   const worker = (id: string, name: string, at: string) => ({ id, farm_id: farmId, name, phone: "", language: "ar" as const, created_at: at });
+  it("loads reports before the metadata columns exist and preserves them once present", () => {
+    const legacy = { id: "report", farm_id: farmId, call_id: null, at: now.toISOString(), herd_count_reported: null, report_answers: [], findings: [] };
+    const oldReport = workspaceFromRows({ ...empty, reports: [legacy] }).reports[0];
+    expect(oldReport).not.toHaveProperty("mode");
+    expect(oldReport).not.toHaveProperty("coverage");
+    const coverage = [{ questionId: "feed_level", status: "not_reported" as const }];
+    expect(workspaceFromRows({ ...empty, reports: [{ ...legacy, mode: "open", coverage }] }).reports[0]).toMatchObject({ mode: "open", coverage });
+  });
+  it("tells an absent owner-run column from an empty one, and drops a malformed run", () => {
+    expect(workspaceFromRows(empty)).not.toHaveProperty("ownerCallRun");
+    expect(workspaceFromRows({ ...empty, farm: { ...farm, owner_call_run: null } }).ownerCallRun).toBeNull();
+    expect(workspaceFromRows({ ...empty, farm: { ...farm, owner_call_run: { id: 1 } } }).ownerCallRun).toBeNull();
+    const run = { id: "r", occurrence: "2026-11-08T09:00:00+00:00", reportId: null, attempts: [{ at: "2026-11-08T09:00:00.000Z", result: "pending" }], nextAttemptAt: null, state: "calling" };
+    expect(workspaceFromRows({ ...empty, farm: { ...farm, owner_call_run: run } }).ownerCallRun).toEqual({ ...run, occurrence: "2026-11-08T09:00:00.000Z" });
+  });
+  it("defaults the report mode and plan before the columns exist, and drops a malformed plan", () => {
+    expect(workspaceFromRows(empty).settings).toMatchObject({ reportMode: "guided", questionPlan: [] });
+    const entry = { id: "herd_health", enabled: false, required: true };
+    expect(workspaceFromRows({ ...empty, farm: { ...farm, report_mode: "open", question_plan: [entry, { id: 1 }, null] } }).settings)
+      .toMatchObject({ reportMode: "open", questionPlan: [entry] });
+    expect(workspaceFromRows({ ...empty, farm: { ...farm, report_mode: "x" as never, question_plan: "x" } }).settings)
+      .toMatchObject({ reportMode: "guided", questionPlan: [] });
+  });
   it("reads the call schedule, herd count and the chosen primary worker", () => {
     const ws = workspaceFromRows({
       ...empty,
@@ -93,24 +116,41 @@ describe("workspace rows", () => {
 });
 
 describe("change sets", () => {
+  it("includes report metadata only when supplied, so old writes and rows stay valid", () => {
+    const ws = stored(createDemoWorkspace("en", "ultimate"));
+    const oldReport = completeWorkerReport(ws, now, draft).ws;
+    expect(diffWorkspace(ws, oldReport, farmId).reports![0]).not.toHaveProperty("mode");
+    expect(diffWorkspace(ws, oldReport, farmId).reports![0]).not.toHaveProperty("coverage");
+    const coverage = [{ questionId: "feed_level", status: "not_reported" as const }];
+    const next = completeWorkerReport(ws, now, { ...draft, mode: "open", coverage }).ws;
+    expect(diffWorkspace(ws, next, farmId).reports![0]).toMatchObject({ mode: "open", coverage });
+  });
   it("is empty when nothing changed", () => {
     const ws = stored(createDemoWorkspace("en", "ultimate"));
     expect(hasChanges(diffWorkspace(ws, ws, farmId))).toBe(false);
   });
   it("carries one report with its call, event and bookkeeping", () => {
     const ws = stored(createDemoWorkspace("en", "ultimate"));
-    const changes = diffWorkspace(ws, completeWorkerReport(ws, now, draft).ws, farmId, { providerCallId: "CA1" });
+    const saved = completeWorkerReport(ws, now, draft);
+    const changes = diffWorkspace(ws, saved.ws, farmId, { providerCallId: "CA1" });
     expect(changes.reports).toHaveLength(1);
     expect(changes.calls).toEqual([expect.objectContaining({ kind: "worker_report", provider_call_id: "CA1" })]);
     expect(changes.farm).toEqual({ last_update_at: now.toISOString() });
     expect(changes.events?.length).toBeGreaterThan(0);
   });
+  it("writes an owner run with database ids, and nothing when it didn't change", () => {
+    const ws = { ...stored(createDemoWorkspace("en", "ultimate")), ownerCallRun: null };
+    const reportId = toDbId(farmId, "rep_0123456789");
+    const run = { id: "ocr_0123456789", occurrence: now.toISOString(), reportId, attempts: [{ at: now.toISOString(), result: "pending" as const }], nextAttemptAt: null, state: "calling" as const };
+    expect(diffWorkspace(ws, { ...ws, ownerCallRun: run }, farmId).farm).toEqual({ owner_call_run: { ...run, id: toDbId(farmId, run.id), reportId } });
+    expect(hasChanges(diffWorkspace({ ...ws, ownerCallRun: run }, { ...ws, ownerCallRun: run }, farmId))).toBe(false);
+  });
   it("sends only new attempts", () => {
     const ws = stored(createEmptyWorkspace("ultimate"));
     const first = stored(submitOwnerInstruction(ws, now, { message: "m", actionable: true, scheduledFor: null }).ws);
     const pendingId = first.pendingWorkerCalls[0].id;
-    const once = resolveWorkerCallAttempt(first, now, pendingId, false).ws;
-    const twice = resolveWorkerCallAttempt(once, new Date(now.getTime() + 1_200_000), pendingId, false).ws;
+    const once = resolveWorkerCallAttempt(first, now, pendingId, "unanswered").ws;
+    const twice = resolveWorkerCallAttempt(once, new Date(now.getTime() + 1_200_000), pendingId, "unanswered").ws;
     expect(diffWorkspace(once, twice, farmId).worker_call_attempts).toHaveLength(1);
   });
   it("refuses an action that edits settings or the herd", () => {

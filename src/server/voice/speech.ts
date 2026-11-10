@@ -1,4 +1,4 @@
-import { isOffTopicAnswer } from "@/domain/conversation/answer-topic";
+import { askedTopic, isOffTopicAnswer, topicsInWords } from "@/domain/conversation/answer-topic";
 import type { AnswerInput, CallSession, Reply } from "@/domain/conversation/engine";
 import type { Locale } from "@/domain/types";
 
@@ -72,6 +72,9 @@ const HUNDREDS: Record<string, number> = {
 const ZERO = /(?:^|\s)(?:صفر|zero|none|nothing|nobody|not\s+(?:a\s+single(?:\s+one)?|one|any)|no\s+(?:camels?|bags?|one)|ولا\s+(?:وحده|واحده|واحد|ناقه|شي|شيء|كيس|حبه|لتر|نقطه)|ما\s*(?:في|فيه)\s+(?:شي|شيء|احد)|مافي\s+(?:شي|شيء|احد)|محد)(?:\s|$)/u;
 const EXCEPT = /(?:^|\s)(?:الا|غير|بس|only|just|except|but)(?:\s|$)/u;
 
+/** «نورة», «نوره», «نورا» and «النورة» are one name on the phone. */
+export const camelNameKey = (text: string) => compact(text).split(" ").map((word) => (word.startsWith("ال") && word.length > 3 ? word.slice(2) : word).replace(/[اهي]$/u, "")).join(" ");
+
 export function extractNumber(input: string): number | null {
   const normalized = normalizeSpeech(input).replaceAll("٫", ".");
   const plain = normalized.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -139,17 +142,17 @@ export function extractNumber(input: string): number | null {
 function formatTime(hour: number, minute: number, meridiem?: string): string | null {
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
   let normalizedHour = hour;
-  if (["pm", "مساء", "ليلا", "ليل"].includes(meridiem ?? "")) normalizedHour = hour % 12 + 12;
-  if (["am", "صباح", "صباحا", "فجرا"].includes(meridiem ?? "")) normalizedHour = hour % 12;
+  if (["pm", "مساء", "ليلا", "ليل", "العصر", "عصر", "المغرب", "مغرب", "العشاء", "العشا", "عشا", "الظهر", "ظهر"].includes(meridiem ?? "")) normalizedHour = hour % 12 + 12;
+  if (["am", "صباح", "صباحا", "الصبح", "صبح", "فجرا", "الفجر", "فجر"].includes(meridiem ?? "")) normalizedHour = hour % 12;
   return `${String(normalizedHour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 export function extractTime(input: string): string | null {
   const normalized = normalizeSpeech(input);
-  const digits = normalized.match(/(?:^|\s)(\d{1,2})(?:\s*[:٫.]\s*(\d{1,2}))?\s*(am|pm|صباحا|صباح|مساء|ليلا|ليل|فجرا)?(?=\s|$)/u);
+  const digits = normalized.match(/(?:^|\s)(\d{1,2})(?:\s*[:٫.]\s*(\d{1,2}))?\s*(am|pm|صباحا|صباح|الصبح|صبح|مساء|ليلا|ليل|فجرا|الفجر|فجر|العصر|عصر|المغرب|مغرب|العشاء|العشا|عشا|الظهر|ظهر)?(?=\s|$)/u);
   if (digits) return formatTime(Number(digits[1]), Number(digits[2] ?? 0), digits[3]);
 
-  const wordDaypart = normalized.match(/(?:الساعه\s+)?([\p{L} ]+?)\s*(am|pm|صباحا|صباح|مساء|ليلا|ليل|فجرا)$/u);
+  const wordDaypart = normalized.match(/(?:الساعه\s+)?([\p{L} ]+?)\s*(am|pm|صباحا|صباح|الصبح|صبح|مساء|ليلا|ليل|فجرا|الفجر|فجر|العصر|عصر|المغرب|مغرب|العشاء|العشا|عشا|الظهر|ظهر)$/u);
   if (wordDaypart) {
     const hour = extractNumber(wordDaypart[1]);
     const suffix = wordDaypart[2];
@@ -209,12 +212,13 @@ type Concept = "healthy" | "sick" | "watch" | "damaged" | "enough" | "low" | "me
 const CONCEPTS: Record<Concept, readonly string[]> = {
   healthy: ["بخير", "زين", "زينه", "زينين", "طيب", "طيبه", "طيبين", "سليم", "سليمه", "سالمه", "سالمين", "عال", "كويس", "كويسه", "كويسين", "جيد", "جيده", "healthy", "well", "fine", "good", "ok", "okay", "alright"],
   sick: [
+    "مسخنه", "مسخن", "سخنه", "حمى", "محموم", "محمومه",
     "مريض", "مريضه", "مرضى", "مريضات", "تعبان", "تعبانه", "تعبانين", "مصاب", "مصابه", "مصابين", "عيان", "عيانه",
-    "مشكله", "مشاكل", "تعرج", "sick", "ill", "injured", "hurt", "unwell", "limping", "wrong", "problem", "problems", "issue", "issues",
+    "مشكله", "مشاكل", "تعرج", "عرجا", "عرجاء", "يعرج", "طايح", "طايحه", "ضعيف", "ضعيفه", "هزيله", "هزيل", "متعب", "متعبه", "مسقوم", "مسقومه", "ميت", "ميته", "نافق", "نافقه", "جربانه", "جرب", "sick", "ill", "injured", "hurt", "unwell", "limping", "wrong", "problem", "problems", "issue", "issues",
   ],
-  watch: ["متابعه", "ملاحظه", "مراقبه", "نراقبها", "watch", "observation"],
-  damaged: ["خربان", "خربانه", "مكسور", "مكسوره", "broken", "damaged"],
-  enough: ["كافي", "كافيه", "يكفي", "تكفي", "يكفون", "كفايه", "متوفر", "متوفره", "موجود", "موجوده", "وايد", "كثير", "enough", "plenty", "sufficient", "full"],
+  watch: ["متابعه", "ملاحظه", "مراقبه", "نراقبها", "تابعنا", "نتابعها", "watch", "observation"],
+  damaged: ["خراب", "خرب", "منكسر", "خربان", "خربانه", "مكسور", "مكسوره", "broken", "damaged"],
+  enough: ["مليان", "مليانه", "متروس", "فل", "كافي", "كافيه", "يكفي", "تكفي", "يكفون", "كفايه", "متوفر", "متوفره", "موجود", "موجوده", "وايد", "كثير", "enough", "plenty", "sufficient", "full"],
   low: ["ناقص", "ناقصه", "نقص", "نقصت", "قليل", "قليله", "شوي", "شويه", "low", "short", "little"],
   medium: ["متوسط", "متوسطه", "نص", "نصه", "النص", "نصف", "النصف", "half", "medium", "average"],
   finished: ["خلص", "خلصت", "خلصان", "خلصانه", "خلصتها", "خالص", "انتهيت", "انتهى", "انتهت", "نفد", "نفذ", "سويتها", "سويته", "سويناها", "سويناه", "انجزتها", "انجزته", "صلحتها", "صلحته", "done", "finished", "complete", "completed", "empty"],
@@ -230,7 +234,7 @@ const WELLBEING = new Set(["تمام", "طيب", "اوكي", "ok", "okay"]);
 /** «لا» / "no" at the start of a clause answers the question; it doesn't negate what follows. */
 const INTERJECTIONS = new Set(["لا", "no", "nope", "nah"]);
 /** …unless it is a determiner: «لا يوجد», "no camel". */
-const DETERMINED = new Set(["يوجد", "احد", "شي", "شيء", "ناقه", "وحده", "camel", "camels", "one", "animal", "problem", "problems", "sign", "signs"]);
+export const DETERMINED = new Set(["يوجد", "احد", "شي", "شيء", "ناقه", "وحده", "camel", "camels", "one", "animal", "problem", "problems", "sign", "signs"]);
 const SCOPE_NEGATORS = new Set([
   "ما", "ماهو", "ماهي", "مهو", "مهي", "مهوب", "مهيب", "مهب", "مو", "مب", "مش", "ليس", "ليست", "لم", "لن", "لا", "ولا", "بدون", "غير", "مافي", "مافيه", "ماكو", "محد",
   "not", "never", "without", "no", "none", "nothing", "nobody", "neither", "nor",
@@ -258,7 +262,9 @@ function readSpeech(transcript: string): Reading {
   const text = normalizeSpeech(transcript).replace(/n['’]t\b/g, " not").replace(/\bcannot\b/g, "can not")
     .replace(/(?:قارب|قرب)\s+يخلص|بيخلص(?:ون)?|nearly\s+empty|almost\s+(?:gone|finished)/gu, " low ")
     .replace(/ما\s+(?:عليهم|عليها|عليه)\s+(?:خلاف|باس|شر)|الحمد\s+لله|ما\s*شاء\s+الله/gu, " بخير ")
-    .replace(/ما\s+تاكل/gu, " مريضه ");
+    .replace(/ما\s+تاكل/gu, " مريضه ")
+    // «كلهم تمام ما عدا وحدة تعبانة»: an exception, not a negation of what follows.
+    .replace(/\s(?:ما\s*عدا|الا)\s/gu, " بس ");
   const reading: Reading = { unknown: false, affirm: false, wellbeing: false, deny: false, bareNegation: false, said: new Set(), negated: new Set() };
   const plain = text.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   if (UNKNOWN_PHRASE.test(plain)) reading.unknown = true;
@@ -343,13 +349,15 @@ function intentReply(session: CallSession, reading: Reading): string | null {
   if (item?.kind === "predefined" && item.answerKind === "herd-health" && values.has("yes") && values.has("no")) {
     const sick = has(reading, "sick") || has(reading, "healthy", true) || has(reading, "watch");
     const well = reading.wellbeing || has(reading, "healthy") || has(reading, "sick", true) || has(reading, "thing", true);
-    return oneSide(well, sick, "yes", "no") ?? (reading.deny && !reading.affirm ? "yes" : reading.affirm && !reading.deny ? "no" : null);
+    // "How are the camels?": a bare yes or no says nothing. "All fine except one" means one isn't.
+    if (sick) return "no";
+    return well ? "yes" : null;
   }
-  if (item?.kind === "predefined" && item.id === "fences_condition") {
-    const intact = has(reading, "healthy") || has(reading, "damaged", true);
-    const damaged = has(reading, "damaged") || has(reading, "healthy", true);
-    const condition = oneSide(intact, damaged, "yes", "no");
-    if (condition) return condition;
+  // "Are the fences intact?" and the like: yes and no are real answers here.
+  if (item?.kind === "predefined" && ["fences_condition", "shelter_condition", "medicine_stock"].includes(item.id) && values.has("good")) {
+    const fine = reading.affirm || has(reading, "healthy") || has(reading, "enough") || has(reading, "damaged", true);
+    const bad = reading.deny || reading.bareNegation || has(reading, "damaged") || has(reading, "low") || has(reading, "healthy", true);
+    if (bad || fine) return bad ? "low" : "good";
   }
   if (values.has("not_enough")) {
     const short = has(reading, "low") || has(reading, "enough", true) || has(reading, "thing", true) || has(reading, "finished");
@@ -359,8 +367,8 @@ function intentReply(session: CallSession, reading: Reading): string | null {
   if (values.has("good") && values.has("low") && values.has("critical")) {
     if ((has(reading, "finished") || has(reading, "thing", true)) && !has(reading, "finished", true)) return "critical";
     const low = has(reading, "low") || has(reading, "enough", true);
-    const good = has(reading, "enough") || has(reading, "healthy") || has(reading, "low", true);
-    if (low && !good) return "low";
+    const good = reading.wellbeing || has(reading, "enough") || has(reading, "healthy") || has(reading, "low", true);
+    if (low) return "low"; // "Good, but nearly out": the exception is the answer.
     if (has(reading, "medium") && !low) return "medium";
     if (good && !low) return "good";
     return null;
@@ -369,15 +377,23 @@ function intentReply(session: CallSession, reading: Reading): string | null {
     if (has(reading, "watch") && values.has("watch")) return "watch";
     const sick = has(reading, "sick") || has(reading, "healthy", true);
     const well = reading.wellbeing || has(reading, "healthy") || has(reading, "sick", true) || has(reading, "thing", true);
-    return oneSide(well, sick, "healthy", "sick");
+    if (sick) return "sick";
+    return well ? "healthy" : null;
+  }
+  if (values.has("instructions_confirm") && values.has("instructions_cancel")) {
+    if (!has(reading, "save") && !has(reading, "save", true) && (reading.said.size > 0 || reading.negated.size > 0)) return null;
+    if (has(reading, "save", true)) return "instructions_cancel";
+    if (reading.deny || negatedSomething) return "instructions_correct";
+    return reading.affirm || has(reading, "save") ? "instructions_confirm" : null;
   }
   if (values.has("confirm_save") && values.has("end_without_save")) {
     if (!has(reading, "save") && !has(reading, "save", true) &&
       (reading.said.size > 0 || reading.negated.size > 0)) return null;
-    if (reading.deny || negatedSomething) return "end_without_save";
+    if (has(reading, "save", true)) return "end_without_save";
+    if (reading.deny || negatedSomething) return values.has("correct") ? "correct" : "end_without_save";
     return reading.affirm || has(reading, "save") ? "confirm_save" : null;
   }
-  const isTask = item?.kind === "task" || session.step === "callback_task_confirmation";
+  const isTask = item?.kind === "task" || session.step === "callback_task_confirmation" || session.step === "outbound_task_confirmation";
   if (isTask && values.has("yes") && values.has("no")) {
     const done = reading.affirm || has(reading, "finished");
     const notDone = reading.deny || has(reading, "finished", true) || has(reading, "pending") || reading.bareNegation;
@@ -393,7 +409,7 @@ function intentReply(session: CallSession, reading: Reading): string | null {
 
 /** These steps change the farm for good, so a near match is not enough: it takes a clear answer. */
 function needsClearAnswer(session: CallSession): boolean {
-  if (["report_summary", "callback_task_confirmation", "quantity_confirm", "herd_count_confirm", "health_name_confirm"].includes(session.step)) return true;
+  if (["report_summary", "instruction_review", "callback_task_confirmation", "outbound_task_confirmation", "outbound_receipt"].includes(session.step)) return true;
   return currentItem(session)?.kind === "task";
 }
 
@@ -420,13 +436,27 @@ function overlapReply(replies: Reply[], transcript: string, locale: Locale): Rep
   return best && best.score >= 0.32 ? best.reply : undefined;
 }
 
+const ORDINALS: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, "الاولي": 1, "الاول": 1, "الثانيه": 2, "الثاني": 2, "الثالثه": 3, "الثالث": 3, "الرابعه": 4, "الرابع": 4, "الخامسه": 5, "الخامس": 5 };
+
+/** "The second one": a position in the list being read, or null. */
+function pickedPosition(normalized: string): number | null {
+  for (const word of normalized.split(" ")) if (Object.hasOwn(ORDINALS, word)) return ORDINALS[word];
+  return extractNumber(normalized);
+}
+
 function choiceInput(session: CallSession, transcript: string, locale: Locale): AnswerInput | null {
   const normalized = compact(transcript);
-  const exact = session.replies.find((item) => [item.value, item.label.ar, item.label.en].some((text) => compact(text) === normalized));
+  const herdItem = currentItem(session);
+  const bareYesNo = herdItem?.kind === "predefined" && herdItem.answerKind === "herd-health"; // The reply values are "yes" and "no".
+  // «أنا بخير» is about the speaker and «لو بخير» is only an if: neither reports on the camels.
+  if (bareYesNo && (/(?:^| )(?:لو|اذا)(?: |$)/.test(normalized) || (/(?:^| )انا(?: |$)/.test(normalized) && !/حلال|ابل|ناق|نوق|نياق|بعير|جمل|جمال|كلهم|كلها/.test(normalized)))) return null;
+  const exact = session.replies.find((item) => [...(bareYesNo ? [] : [item.value]), item.label.ar, item.label.en].some((text) => compact(text) === normalized));
   if (exact) return { value: exact.value };
-  if (session.step === "health_pick") {
-    const nameKey = (text: string) => compact(text).split(" ").map((word) => word.startsWith("ال") && word.length > 3 ? word.slice(2) : word).join(" ");
-    const names = session.replies.filter((reply) => [reply.label.ar, reply.label.en].some((label) => nameKey(label) === nameKey(transcript)));
+  if (session.step === "health_pick" || session.step === "open_clarify") {
+    const camels = session.replies.filter((reply) => reply.value.startsWith("camel:"));
+    const exact = camels.filter((reply) => [reply.label.ar, reply.label.en].some((label) => camelNameKey(label) === camelNameKey(transcript)));
+    // «هي نورا»: the name inside a short sentence, when it names exactly one camel.
+    const names = exact.length ? exact : camels.filter((reply) => namedCamels(transcript, [{ name: reply.label.ar }, { name: reply.label.en }]).length > 0);
     if (names.length === 1) return { value: names[0].value };
     if (names.length > 1) return null;
   }
@@ -436,8 +466,10 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   if (needsClearAnswer(session) && reading.affirm && (reading.deny || reading.bareNegation)) return null;
   const intended = intentReply(session, reading);
   if (intended) return { value: intended };
+  // «كيف الحلال اليوم؟» takes a real answer: a bare yes or no would have to be guessed at.
+  if (bareYesNo) return null;
   if (reading.unknown) return null;
-  if (session.step === "report_summary") return null;
+  if (session.step === "report_summary" || session.step === "instruction_review") return null;
   if (session.replies.some((reply) => reply.value === "good") && session.replies.some((reply) => reply.value === "critical")) return null;
 
   const words = normalized.replaceAll(" ", "_");
@@ -457,6 +489,79 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   return negative ? { value: negative.value } : null;
 }
 
+/** A word NAQAH already reads as meaning («زين», «تمام», «مريضة») is never taken for a name that merely looks like it. */
+const isVocabulary = (word: string) => Boolean(lookup(CONCEPT_OF, word)) || AFFIRM.has(word) || SCOPE_NEGATORS.has(word) || topicsInWords(word).size > 0;
+
+/**
+ * The camels a sentence names, each once, in the order the herd lists them. An exact name always counts;
+ * a spelling variant («نورا» for نورة, «ونورة») counts only when the word isn't one NAQAH reads as meaning,
+ * so «الحلال زين» never names a camel called زينة.
+ */
+export function namedCamels<T extends { name: string }>(transcript: string, camels: readonly T[]): T[] {
+  const tokens = compact(transcript).split(" ").filter(Boolean);
+  const bare = (word: string) => (word.startsWith("و") && word.length > 3 ? word.slice(1) : word);
+  return camels.filter((camel) => {
+    const name = compact(camel.name);
+    const size = name.split(" ").length;
+    if (!name) return false;
+    for (let index = 0; index + size <= tokens.length; index += 1) {
+      const words = tokens.slice(index, index + size);
+      const said = words.join(" ");
+      const plain = words.map(bare).join(" ");
+      if (said === name || plain === name) return true;
+      if (!words.some((word) => isVocabulary(word) || isVocabulary(bare(word))) && (camelNameKey(said) === camelNameKey(name) || camelNameKey(plain) === camelNameKey(name))) return true;
+    }
+    return false;
+  });
+}
+
+const EVERYONE = /(?:^| )(?:كلهم|كلها|كلهن|الكل|الباقي|البقيه|الباقين|الباقيات|غيرها|الحلال|الابل|النوق|all|everyone|rest|others)(?: |$)/u;
+
+/** «كلهم بخير بس نورة تعبانة»: before the exception, the sentence says the rest are well. */
+export function saysRestAreWell(transcript: string): boolean {
+  const before = normalizeSpeech(transcript).replace(/ما\s*عدا|الا/gu, " بس ").split(/\s(?:بس|لكن|غير|but|except)\s/u);
+  if (before.length < 2) return false;
+  const words = compact(before[0]);
+  const reading = readSpeech(before[0]);
+  return EVERYONE.test(words) && (reading.wellbeing || has(reading, "healthy")) && !has(reading, "sick") && !has(reading, "healthy", true);
+}
+
+/** Words that open a new part of a sentence. */
+const JOINS = new Set(["بس", "لكن", "واما", "اما", "but", "and", "also", "و"]);
+
+/**
+ * A sentence split where it moves to another ranch topic: «العلف كافي والماي قليل» is two answers.
+ * Each part keeps the worker's own words and the topic it is about (null when it names none).
+ */
+export function topicSegments(transcript: string): { text: string; topic: ReturnType<typeof askedTopic> | null }[] {
+  const segments: { words: string[]; topic: ReturnType<typeof askedTopic> | null }[] = [];
+  let current: { words: string[]; topic: ReturnType<typeof askedTopic> | null } = { words: [], topic: null };
+  const close = () => { if (current.words.length) segments.push(current); current = { words: [], topic: null }; };
+  for (const raw of transcript.trim().split(/\s+/)) {
+    const word = compact(raw);
+    if (!word) { current.words.push(raw); continue; }
+    const topic = [...topicsInWords(word)][0] ?? null;
+    const joined = JOINS.has(word) || (word.startsWith("و") && topic !== null);
+    if (current.words.length && (joined || (topic && current.topic && topic !== current.topic))) close();
+    current.words.push(raw);
+    if (topic && !current.topic) current.topic = topic;
+    if (/[,،.;؛!?؟]$/u.test(raw)) close();
+  }
+  close();
+  return segments.map((segment) => ({ text: segment.words.join(" "), topic: segment.topic }));
+}
+
+/** The part of a sentence about the asked topic, or the whole sentence when it mentions no other. */
+function ownWords(session: CallSession, transcript: string): string {
+  if (session.step !== "report_question") return transcript;
+  const asked = askedTopic(session);
+  if (asked === "other" || asked === "task") return transcript;
+  const segments = topicSegments(transcript);
+  if (!segments.some((segment) => segment.topic && segment.topic !== asked)) return transcript;
+  const own = segments.filter((segment) => segment.topic === null || segment.topic === asked);
+  return own.length ? own.map((segment) => segment.text).join(" ") : transcript;
+}
+
 export function mapSpeechToInput(
   session: CallSession,
   transcript: string,
@@ -467,6 +572,10 @@ export function mapSpeechToInput(
   void confidence;
   if (session.inputMode === "none") return null;
   if (session.inputMode === "number" && digits && /^\d{1,6}$/.test(digits)) return { text: digits };
+  if (session.inputMode === "choices" && digits && /^\d{2}$/.test(digits)) {
+    const reply = session.replies[Number(digits) - 1];
+    return reply ? { value: reply.value } : null;
+  }
   if (digits && /^\d$/.test(digits)) {
     if (session.inputMode === "choices") {
       const reply = session.replies[Number(digits) - 1];
@@ -474,17 +583,55 @@ export function mapSpeechToInput(
     }
     if (session.inputMode === "number") return { text: digits };
     if (session.inputMode === "time") return { text: extractTime(digits) ?? digits };
-    return { text: digits };
+    return null;
   }
 
   if (digits) return null;
-  const raw = transcript.trim().slice(0, 300);
+  const raw = ownWords(session, transcript.trim().slice(0, 300));
+  const normalized = compact(raw);
+  if (["report_summary", "report_correct_pick"].includes(session.step) && session.replies.some((reply) => reply.value === "end_without_save") && /(?:^|\s)(?:لا\s+(?:تحفظ|تحفظه|تحفظها|تسجل|تسجله)|بدون\s+حفظ|don\s*t\s+save|do\s+not\s+save|save\s+nothing)(?:\s|$)/u.test(normalized)) return { value: "end_without_save" };
+  if (session.step === "instruction_review") {
+    if (/(?:^|\s)(?:الغ|الغها|الغيها|الغي|الغاء|cancel|لا\s+(?:تحفظ|تحفظها|ترسل|ترسلها)|don\s*t\s+save|do\s+not\s+save)(?:\s|$)/u.test(normalized)) return { value: "instructions_cancel" };
+    if (/(?:^|\s)(?:اضيف|اضف|زيد|ازيد|add)(?:\s|$)/u.test(normalized)) return { value: "instructions_add" };
+    if (/(?:^|\s)(?:اشيل|شيل|شيلها|احذف|احذفها|امسح|امسحها|remove|delete)(?:\s|$)/u.test(normalized)) return { value: "instructions_remove" };
+    if (/(?:^|\s)(?:عدل|عدلها|غير|غيرها|تعديل|change|edit|correct\s+one)(?:\s|$)/u.test(normalized)) return { value: "instructions_correct" };
+  }
+  if (session.step === "instruction_remove_pick") {
+    if (/^(?:ارجع|رجوع|القائمه|back|back to the list)$/.test(normalized)) return { value: "back_to_review" };
+    const position = pickedPosition(normalized);
+    const picked = position === null ? undefined : session.replies.find((reply) => reply.value === `remove:${position - 1}`);
+    if (picked) return { value: picked.value };
+  }
+  if (session.step === "instruction_correct_pick") {
+    if (/^(?:ارجع|رجوع|القائمه|back|back to the list)$/.test(normalized)) return { value: "back_to_review" };
+    const position = pickedPosition(normalized);
+    const picked = position === null ? undefined : session.replies.find((reply) => reply.value === `correct:${position - 1}`);
+    if (picked) return { value: picked.value };
+  }
+  if (session.step === "instruction_date") {
+    if (/(?:^|\s)(?:اي وقت|any ?time)(?:\s|$)/u.test(normalized)) return { value: "any_time" };
+    const days = /(?:^|\s)(?:يوم|ايام|يوما|days?)(?:\s|$)/u.test(normalized) ? extractNumber(raw.replace(/(?:^|\s)(?:يوم|أيام|ايام|يوماً|يوما|days?)(?:\s|$)/gu, " ")) : null;
+    if (days !== null) return { text: `in ${days} days` };
+  }
+  if (session.step === "open_more" && /^(?:لا|لاء|لا والله|بس|خلاص|ما عندي شي|ما عندي شيء|ما فيه شي|مافيه شي|no|nothing|nothing else|that s all|done)$/.test(normalized)) return { value: "open_done" };
+  if (session.step === "report_mode_choice") {
+    if (/(?:^|\s)(?:مفتوح|مفتوحه|open|freely)(?:\s|$)/u.test(normalized)) return { value: "mode_open" };
+    if (/(?:^|\s)(?:اسئله|سوال|guided|questions)(?:\s|$)/u.test(normalized)) return { value: "mode_guided" };
+  }
+  if (session.step === "report_correct_pick") {
+    if (/^(?:ارجع|رجوع|الملخص|back|summary|back to summary)$/.test(normalized)) return { value: "back_to_summary" };
+    if (/^(?:لا تحفظ|لا تحفظه|لا تحفظ التقرير|لا تحفظ التحديث|don t save|do not save|don t save it|do not save it)$/.test(normalized)) return { value: "end_without_save" };
+    const correction = overlapReply(session.replies.filter((reply) => reply.value.startsWith("correct:")), raw, locale);
+    if (correction) return { value: correction.value };
+    return null;
+  }
   // Spelling varies by recogniser, and «ما ادري» saved as free text would read as a reported fact.
   if (session.inputMode !== "choices" && ((session.inputMode === "number" && UNKNOWN_PHRASE.test(compact(raw))) || UNKNOWN_WORDS.has(compact(raw)) ||
     /^(?:والله\s+)?(?:ما\s*ادري|ما\s*اعرف|لا\s*اعرف|مدري|i\s*don\s*t\s*know|i\s*do\s*not\s*know|not\s*sure)(?:\s+(?:والله|honestly))?$/.test(compact(raw)))) {
     const reply = unknownReply(session.replies);
     if (reply) return { value: reply.value };
   }
+  if (session.replies.some((reply) => reply.value === "skip_question") && /^(?:تخطي|تخطاه|تخطى|skip|skip it)$/.test(compact(raw))) return { value: "skip_question" };
   if (isOffTopicAnswer(session, compact(raw))) return null;
   if (session.inputMode === "text") return raw ? { text: raw } : null;
   if (session.inputMode === "number") {
@@ -500,5 +647,7 @@ export function mapSpeechToInput(
     const quantity = extractNumber(raw);
     if (quantity !== null) return { text: String(quantity) };
   }
-  return choiceInput(session, raw, locale);
+  const choice = choiceInput(session, raw, locale);
+  // «مريضة، رجلها اليسار وارمة»: the words describe the camel, and the engine keeps them as her note.
+  return choice?.value !== undefined && session.step === "health_status" ? { ...choice, text: transcript.trim().slice(0, 300) } : choice;
 }

@@ -549,12 +549,8 @@ async function scenarioA() {
 const PLAN = [
   { key: "health", when: (s) => s.step === "report_question" && s.q?.startsWith("herd_health"), say: "إيه كلها بخير الحمد لله", again: "كلها بخير" },
   { key: "herd", when: (s) => s.step === "report_question" && s.q === "herd_count", say: "عشرين ناقة", again: "عشرين" },
-  { key: "herd_confirm", when: (s) => s.step === "herd_count_confirm", say: "إيه صح", again: "إيه صح عشرين" },
   { key: "feed", when: (s) => s.step === "report_question" && s.q === "feed_level", clarify: "ايش تقصد بالعلف؟", say: "باقي شوي", again: "باقي شوي من العلف" },
-  { key: "feed_qty", when: (s) => s.step === "quantity_input" && s.q === "feed_level", say: "ما أدري", again: "والله ما أدري كم" },
-  { key: "qty_confirm", when: (s) => s.step === "quantity_confirm", say: "إيه صح", again: "إيه" },
   { key: "water", when: (s) => s.step === "report_question" && s.q === "water_level", interrupt: "لحظة، الموية كافية الحمد لله", say: "الموية كافية", again: "كافية" },
-  { key: "water_qty", when: (s) => s.step === "quantity_input" && s.q === "water_level", say: "حوالي مية لتر", again: "مية لتر" },
   { key: "custom", when: (s) => s.step === "report_question" && /^[0-9a-f-]{36}$/.test(s.q ?? ""), say: "لا والله ما جا أحد اليوم", again: "لا ما جا" },
   { key: "summary", when: (s) => s.step === "report_summary", say: "إيه صح، احفظه", again: "إيه احفظه" },
 ];

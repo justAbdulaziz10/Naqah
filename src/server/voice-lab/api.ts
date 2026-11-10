@@ -22,6 +22,7 @@ export type VoiceLabOpenSuccessBody = {
   state: string;
   closeState: string;
   opening: string;
+  repromptText: string;
   view: LabView;
   source: LabSource;
   model: string;

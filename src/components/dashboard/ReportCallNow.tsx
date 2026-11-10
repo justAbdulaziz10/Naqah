@@ -1,27 +1,24 @@
 "use client";
 
+import { Phone } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { formatSaudiMobile } from "@/components/setup/phone";
 import { ConfirmDialog } from "@/components/ui";
 import { dialableWorkerPhone, latestReportCall, reportCallIsLive } from "@/domain/reportCalls";
-import { REPORT_CALL_RETRIES } from "@/domain/clock";
 import type { Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { accountSync, reportCallNow } from "@/store/account";
 import { useIsAccount } from "@/store/workspace";
 
-const RECENT_MS = 24 * 60 * 60 * 1000;
-const time = { hour: "numeric", minute: "2-digit" } as const;
-
 /**
- * The latest report call, as it really stands, and, where this deployment allows it, the owner's
- * "Call now" for one controlled call. Real accounts only: the demo's calls live in the Call Lab.
+ * Where this deployment allows it, the owner's "Call now" for one controlled call. Real accounts
+ * only: the demo's calls live in the Call Lab. How the latest call stands is in the estate header.
  */
 export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: string; now: Date }) {
-  const { m, fmt } = useI18n();
+  const { m } = useI18n();
   const d = m.setup.dashboard;
   const account = useIsAccount();
-  const [available, setAvailable] = useState(false);
+  const [available, setAvailable] = useState<boolean | null>(null); // null while checking
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -37,7 +34,7 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   useEffect(() => {
     if (!account) return;
     let live = true;
-    void reportCallNow.available().then((result) => { if (live) setAvailable(result.ok && result.data === true); }).catch(() => undefined);
+    void reportCallNow.available().then((result) => { if (live) setAvailable(result.ok && result.data === true); }).catch(() => { if (live) setAvailable(false); });
     return () => { live = false; };
   }, [account]);
 
@@ -49,15 +46,6 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   }, [account, active]);
 
   if (!account) return null;
-
-  let status: string | null = null;
-  if (run && now.getTime() - new Date(run.occurrence).getTime() < RECENT_MS) {
-    const last = run.attempts.at(-1);
-    if (run.state === "answered") status = d.run.answered(worker);
-    else if (run.state === "calling" && last?.result === "pending") status = d.run.ringing(worker);
-    else if (run.state === "calling" && run.nextAttemptAt) status = d.run.retry(fmt.dateTime(run.nextAttemptAt, time), run.attempts.length + 1, REPORT_CALL_RETRIES + 1);
-    else if (run.state === "missed") status = last?.result === "answered" ? d.run.unsaved(worker) : d.run.missed(worker);
-  }
 
   async function call() {
     if (sending.current) return;
@@ -82,20 +70,25 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
 
   const placedNotice = placedAfter && (active || (run?.id ?? null) === placedAfter.runId) ? d.callNowResult.placed(worker) : null;
   const message = notice ?? placedNotice;
-  if (!status && !available && !message) return null;
+  if (!phone) return null; // The call bar offers to add the number instead.
+  // Always shown in an account, so the owner can find it; it only calls where this site allows it.
+  const off = available !== true;
+  const reason = available === null ? m.app.overview.callBar.checking : available === false ? m.app.overview.callBar.callOff : null;
   return (
-    <div className="mt-3 space-y-2">
-      {status ? <p className="text-sm font-medium text-cream" role="status">{status}</p> : null}
-      {available && !active && phone ? (
+    <div className="space-y-2">
+      {!active ? (
         <button
           type="button"
           onClick={() => setConfirming(true)}
-          disabled={pending}
-          className="min-h-11 rounded-full border border-cream/40 px-4 text-sm font-semibold text-cream transition hover:bg-cream/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:opacity-60"
+          disabled={pending || off}
+          aria-describedby={reason ? "call-now-reason" : undefined}
+          className="inline-flex min-h-11 items-center gap-2 rounded-full bg-cream px-5 text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:cursor-not-allowed disabled:bg-cream/25 disabled:text-cream/80 disabled:active:scale-100"
         >
-          {pending ? d.calling : d.callNow(worker)}
+          <Phone size={16} weight="fill" aria-hidden />
+          {pending ? d.calling : d.callNow}
         </button>
       ) : null}
+      {reason && !active ? <p id="call-now-reason" className="text-sm text-cream/75">{reason}</p> : null}
       {message ? <p className="text-sm text-cream/80" role="status">{message}</p> : null}
       {confirming && phone ? (
         <ConfirmDialog

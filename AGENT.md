@@ -13,7 +13,7 @@ their code being present does not mean the live project has been migrated or act
 
 NAQAH is private camel-ranch operations management for **one owner, one farm**, with up to 3 registered workers (Basic)
 or 10 (Ultimate). At the time the owner chooses, **NAQAH calls the primary worker** on an ordinary phone (no app); the AI
-voice agent asks the owner-configured questions, records structured facts (never audio), and updates the farm. Right after a successful update the AI **calls the owner** with only what matters.
+voice agent asks the owner-configured questions, records structured facts (never audio), and updates the farm. At the owner's own scheduled time the AI **calls the owner** with only what matters from the latest verified report (or says plainly that none arrived).
 The **owner** uses a website (this app) to set up the farm, see the latest state, and track tickets.
 Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. Personality: *The Quiet Steward*.
 
@@ -22,23 +22,25 @@ Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. P
 | Area | Basic | Ultimate |
 |---|---|---|
 | Custom questions (owner-written) | up to **5** | unlimited |
-| Predefined questions (NAQAH team) | mandatory when applicable; skipped if the resource is absent | same |
+| Predefined questions (NAQAH team) | the owner can switch any question off, reorder it or make it optional; skipped if the resource is absent. At least one enabled question or follow-up task is required | same |
+| How the report is taken | owner chooses: worker chooses, guided only, or open only. Open and worker-choice need a realtime call; a scripted call is always guided | same |
 | Report call (NAQAH → primary worker) | **one per week**, on the weekday and exact time the owner sets (Asia/Riyadh) | **one per day**, at the exact time the owner sets |
-| Report call unanswered | retry after **20 min**, up to **2 retries**, then the run is *missed*; the worker may call back that period to report | same |
+| Report call not completed | unanswered or interrupted (including a worker ending without saving) uses an attempt: **3 attempts total, 20 min apart**, then the run is *missed*. A saved report stops the retries. "Call now" stays one attempt; the worker may call back that period to report | same |
 | Registered workers / herd | up to **3** workers; the owner keeps the official herd count, a worker's count is a proposal | up to **10** workers; same |
-| Owner calls the AI | **one call per week** (an answered notification call consumes it) | unlimited |
-| Missed notification | owner may call back **once** (this MVP counts it as the weekly call — *open decision*) | unlimited anyway |
-| Owner instructions during post-update call | relayed to the worker, **no ticket** | actionable → **Task Ticket** (OPEN) with a time or "any time"; information-only → no ticket |
+| Owner calls the AI | **not available**: NAQAH always places the call | same |
+| Owner summary call | weekly, at the owner's own day and time, always placed even when no verified report exists (the owner is told so). **3 attempts total, 20 min apart**; interrupted counts. Summary, then the call ends. No instructions, no tickets | daily, at the owner's own time; same retries. Summary, then spoken instructions: AI proposes task or information, and the owner can add, remove or correct items during the read-back. The complete list is read again and nothing saves without an explicit yes. Tasks create tickets, information does not, one worker call |
 | Task tickets | — | close **only** when the worker explicitly confirms; deadlines never close them; closed → History |
 | Task verification | — | scheduled time → AI calls the worker; "any time" → asked during later worker interactions |
-| AI → worker no answer | retry after **20 min**, up to **3 retries**, then **No Answer Ticket** | same |
-| Worker returns missed call | always answered (even outside the window); delivers missed messages; closes the No Answer Ticket; **not** a farm update and does not consume the report | same |
+| Worker instruction or verification call | Ultimate only | **3 attempts total**, 20 min apart; interrupted counts; delivered only after explicit receipt or explicit answers. No No Answer Ticket. After three failures the batch shows as *Not delivered* and the owner can try again; the same call is requeued, so nothing is duplicated |
+| Worker returns missed call | always answered (even outside the window); delivers missed messages; closes a **historical** No Answer Ticket if one is still open. No new ticket is created. **Not** a farm update and does not consume the report | same |
 | Emergency | worker calls the owner **directly** — never through the AI | same |
 
 Agent behavior (from `NAQAH_AI_Agent_Identity_DRAFT_v0.1`): identifies itself as automated; one question at a time;
 accepts «ما أدري» / "I don't know"; confirms quantities and camel names; never diagnoses; never claims
 "saved/notified/created" before the system confirms; labels facts as *reported / approximate / unknown / verified*;
 never presents old data as new; stores extracted facts only (**no recordings**).
+
+**Report modes (Nov 2026).** *Guided* asks the owner's enabled questions in order, one at a time. *Open* lets the worker say what happened; facts land in their topics and anything unmentioned is saved as **not reported**, never healthy or unchanged, and is not asked about. Due tasks are still asked after an open update, because a task closes only on an explicit yes. Both modes read back every recorded detail, allow corrections, and save one report only after an explicit yes to the summary the worker actually heard. The model listens and classifies; the server chooses every spoken word. Calls stay short: one question at a time, options read aloud only on the keypad or after an answer was not understood, and no per-item confirmations, because the final read-back confirms everything. Words about another topic are kept as a note and read back, never dropped. Task verifications due at the same time share one worker call.
 
 The old Basic From/To *reporting window* (worker calls in) is **retired** (Nov 2026): columns remain only so old rows load.
 
@@ -163,13 +165,13 @@ action plugs into a webhook.
 ## 7. Open decisions (do NOT treat as approved)
 
 Copied from the specs — the MVP picks a placeholder behavior and marks it in code with `OPEN DECISION`:
-1. Basic missed-notification callback: does it consume the weekly owner call? (MVP: yes)
-2. Can Basic relay instructions without tickets? (MVP: yes, per diagram f3)
-3. Exact response when Basic's owner allowance is used. (MVP: polite refusal + "details are on the website")
+1. Basic missed-notification callback. **Settled:** owners cannot call NAQAH; NAQAH always places the call.
+2. Can Basic relay instructions without tickets? **No.** Basic does not ask for or relay instructions. (Supersedes diagram f3.)
+3. Owner phoning in. **Settled:** a short closed line, on every plan.
 4. Unregistered caller handling. (MVP: Call Lab only simulates the registered worker)
 5. Ultimate second daily report attempt. (MVP: politely rejected)
-6. Whether tasks can be created during owner-initiated inquiry calls. (MVP: no)
-7. Retry scope/exhaustion beyond the No Answer Ticket. (MVP: ticket stays open until callback)
+6. Tasks on owner-initiated calls. **Settled:** owner-initiated calls do not exist.
+7. Retry exhaustion. **Settled:** three worker attempts, 20 minutes apart, then stop. No new No Answer Ticket. Open tasks stay open. Historical tickets still close when the worker calls back.
 8. How emergency categories are used during calls. (MVP: shown to the owner; worker calls owner directly)
 9. Predefined question categories and wording. (MVP: DRAFT in `catalog.ts`)
 10. AI model, voice/telephony provider and payment processing. (MVP: none — simulated; display-only plan prices are set below)
@@ -182,7 +184,7 @@ the same functions and swaps only the storage and the "who triggers it" layer.
 ### 8.1 Database — Supabase (free tier is enough to start)
 - Schema, applied in order: `0001_init.sql`, `0002_backend_foundation.sql`, `0003_voice_call_sessions.sql`,
   `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql`, `20261107213717_owner_flow.sql`,
-  `20261108000000_pending_worker_call_tasks.sql` under `supabase/migrations/` (Postgres 15+).
+  `20261108000000_pending_worker_call_tasks.sql`, `20261109120000_test_calls.sql`, `20261109130000_report_mode_coverage.sql`, `20261109140000_report_mode_settings.sql`, `20261109182526_owner_summary_schedule.sql`, `20261110090000_mvp_owner_runs.sql` under `supabase/migrations/` (Postgres 15+).
   Local validation uses stand-in Supabase roles/Auth; it does not prove live activation. The existing Supabase project
   contains Auth test users; migrations 0001–0005 and both timestamped migrations are applied. The latter adds durable
   links from a pending worker call to multiple task tickets while retaining the legacy single-task field.
@@ -216,7 +218,7 @@ are recognised by caller ID (`workers.phone`) — an identification signal only,
   scripted engine in `src/domain/conversation/` is the **reference behaviour**: question order, follow-ups,
   confirmations, "I don't know", certainty labels. Use it as the tool/state layer and let the model only phrase the
   turns. The model must call tools (below) and may say "saved" only after the tool returns success.
-- **No recordings**: disable Twilio recording and transcription storage; persist only extracted facts.
+- **No recordings**: disable Twilio recording and transcription storage; persist only extracted facts. The one exception is the opt-in local debug trace (`NAQAH_CALL_TRACE_DIR`, `--trace-transcripts` on the local test stack) for consenting test participants: temp directory only, deleted after 24 hours, refused on Vercel or with a non-loopback database.
 
 ### 8.4 Webhook → domain action map
 The implemented contract is `docs/integrations/voice-data-contract.md`.
@@ -227,10 +229,10 @@ The implemented contract is `docs/integrations/voice-data-contract.md`.
 | Report call answered / ended (built) | `POST /api/voice/outbound`, `/api/voice/outbound/status` (signed token, not caller ID) | report conversation, `resolveReportCallAttempt` (20 min × 2 retries → missed), `endReportCallWithoutReport` |
 | Worker calls in | `POST /api/voice/inbound` (caller = worker) | `routeWorkerInboundCall` → callback / returned missed report call / "NAQAH will call you" |
 | Report finished | tool `save_report` | `evaluateFindings`, `completeWorkerReport` |
-| Notify owner | outbound call right after save | `ownerBriefing`, `recordOwnerNotification(answered)` |
-| Owner gives instruction | tool `submit_instruction` | `submitOwnerInstruction` (Ultimate actionable → task ticket) |
-| Instruction retries (not dialled yet) | a future cron | `dueWorkerCalls`, `resolveWorkerCallAttempt` (20 min × 3 → No Answer ticket) |
-| Scheduled task check (not dialled yet) | a future cron | `dueTaskVerifications`, `startTaskVerification`, `confirmTask` |
+| Owner summary call | same cron, at the owner's slot, whether or not a report exists. Never inside the report webhook | `claimDueOwnerCall`, `ownerSummaryText`, `/api/voice/owner`, `resolveOwnerCallAttempt` |
+| Owner gives instruction | spoken on the Ultimate summary call; AI proposes, owner verifies the read-back | realtime `propose_instructions`, `confirm_instructions` (scripted fallback asks the owner), `submitOwnerInstructionBatch` |
+| Instruction or verification call | same cron. Answering is not delivery | `claimDueWorkerCall`, `/api/voice/worker`, `resolveWorkerCallAttempt` (`delivered` only when `completed`) |
+| Scheduled task check | the same worker call, after the instruction was delivered | `dueTaskVerifications`, `startTaskVerification`, `confirmTask` on an explicit yes |
 | Worker returns missed call | `POST /api/voice/inbound` | `completeWorkerCallback` (not a farm update) |
 | Owner calls in | `POST /api/voice/inbound` (caller = owner) | `routeOwnerInboundCall` → `recordOwnerInquiry` / `rejectOwnerInquiry` |
 | Emergency | none: the worker calls the owner directly | — |
@@ -271,7 +273,7 @@ exception here.
 - Espresso fill is reserved for the estate header and the "your ranch's week" card in onboarding and Settings.
 - Soft tints are allowed only for: findings inside a report, an unanswered check inside its task, the emergency strip (sand), and a warning that would lose unsaved work. Never tint whole cards to call attention.
 - The herd count may sit large beside the herd mark field; other numbers stay inline with their label.
-- The dashboard has no call control unless "Call now" is genuinely available (account mode, `ReportCallNow`). Copy distinguishes three states: no call time yet, a time saved but report calls not switched on, and "Call now" available. No `tel:` links on the dashboard: the demo's numbers are samples. Simulation lives only in the demo strip and the Call Lab, and always says it is a simulation.
+- The dashboard's call row sits in the estate header right under the answer, before the week strip (`CallBar`): «ناقة تتصل على …», the worker's number with «تغيير الرقم» (opens Settings → workers), and one call button. In an account it is the existing "Call now" (`ReportCallNow`, with its confirmation), always visible: disabled with a plain reason where this site has calling off. In the demo it is «اتصل على … الآن · محاكاة», which opens the Call Lab on the report call and says it is a simulation. «مواعيد المكالمات» sits with the next-call times (exception recorded Nov 2026 at the owner's request: calling must be one obvious step).
 - The landing is one photographic story: hero with the sample evening rail, the scroll-led `CallStory` (worker's call → report → owner's call → dashboard), principles with the retry rail, `PlanWeeks` with "Compare every detail", and the closing invitation. Dark scrims under text on photos are allowed for contrast. Times above story steps are timeline markers, not eyebrows. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`. Photos and their credits are tracked in `docs/design/asset-ledger.md`.
 - Arabic pages lead with Alexandria (`--font-arabic`). next/font's "Montserrat Fallback" covers every codepoint, so with Montserrat first, Arabic renders in Arial.
 - Motion is subtle and meaningful (entrances, state changes, sheets), never hides content, and stops under `prefers-reduced-motion`.

@@ -4,7 +4,7 @@
  * an owner signs in and sets up a farm, mocked signed Twilio webhooks run a worker call, and the
  * report appears on that owner's dashboard. Only Twilio and the Auth server are stand-ins.
  *
- *   node scripts/verify-account.mjs --base http://127.0.0.1:3460 --gateway http://127.0.0.1:54352 --token <test auth token>
+ *   node scripts/verify-account.mjs --base http://127.0.0.1:3460 --gateway http://127.0.0.1:54352 --token <test auth token> [--public-base <NAQAH_PUBLIC_BASE_URL>]
  */
 import { execFileSync } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
@@ -20,6 +20,8 @@ const GATEWAY = arg("gateway", "http://127.0.0.1:54352");
 const TOKEN = arg("token", "local-test-auth-token");
 const DB = arg("db", "naqah_live");
 const SHOTS = arg("shots", "/tmp/naqah-live-tools/shots");
+// Twilio signs the public address it called. When the app sets NAQAH_PUBLIC_BASE_URL, pass the same value.
+const PUBLIC_BASE = arg("public-base", process.env.NAQAH_PUBLIC_BASE_URL || BASE);
 if (!/^https?:\/\/(127\.0\.0\.1|localhost)/.test(BASE) || !/127\.0\.0\.1|localhost/.test(GATEWAY)) throw new Error("local addresses only");
 mkdirSync(SHOTS, { recursive: true });
 
@@ -59,10 +61,12 @@ const signature = (url, fields) => {
   return createHmac("sha1", TOKEN).update(value, "utf8").digest("base64");
 };
 async function webhook(path, fields) {
-  const url = new URL(path, BASE).toString();
+  const target = new URL(path, BASE);
+  const url = new URL(`${target.pathname}${target.search}`, BASE).toString();
+  const signed = new URL(`${target.pathname}${target.search}`, PUBLIC_BASE).toString();
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Twilio-Signature": signature(url, fields) },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Twilio-Signature": signature(signed, fields) },
     body: new URLSearchParams(fields),
   });
   return { status: response.status, xml: await response.text() };
@@ -81,11 +85,14 @@ async function workerCall(from, answers) {
   const script = [say(reply.xml)];
   for (let turn = 0; turn < 25 && action(reply.xml); turn += 1) {
     const text = say(reply.xml);
-    const custom = Object.entries(answers).find(([question]) => text.includes(question.replace(/مزرعة/g, "عزبة")));
+    // Choice prompts (including the closing summary, which repeats every question) list "Press 1 for …":
+    // take the first choice. Owner questions are spoken answers; numbers are said aloud.
+    const choice = /اضغط 1 |Press 1 /.test(text);
+    const custom = Object.entries(answers).find(([question]) => text.includes(question) || text.includes(question.replace(/مزرعة/g, "عزبة")));
     const fields = { CallSid, From: from };
-    if (custom) fields.SpeechResult = custom[1];
-    else if (!/اضغط|Press/.test(text)) fields.SpeechResult = "12";
-    else fields.Digits = "1";
+    if (choice) fields.Digits = "1";
+    else if (custom) fields.SpeechResult = custom[1];
+    else fields.SpeechResult = "12";
     reply = await webhook(action(reply.xml), fields);
     script.push(say(reply.xml));
   }
@@ -106,7 +113,7 @@ async function runWizard(page, locale, { ownerId, plan = "basic", simulatePlanFa
   check(`${locale}: no farm exists before an owner confirms a plan`, sql(`select count(*) from farms where owner_id = ${q(ownerId)}`) === "0");
   const choose = page.getByRole("button", { name: locale === "ar" ? "كمّل على هذي الباقة" : "Continue with this plan", exact: true });
   check(`${locale}: cannot continue before a plan choice`, await choose.isDisabled());
-  await radios.nth(plan === "basic" ? 0 : 1).check();
+  await radios.nth(plan === "basic" ? 0 : 1).locator("xpath=ancestor::label").click();
   check(`${locale}: selecting a card alone does not create or confirm a farm`, sql(`select count(*) from farms where owner_id = ${q(ownerId)}`) === "0");
   if (simulatePlanFailure) {
     let blocked = false;
@@ -117,13 +124,13 @@ async function runWizard(page, locale, { ownerId, plan = "basic", simulatePlanFa
       } else await route.continue();
     });
     await choose.click();
-    await page.getByRole("alert").waitFor({ timeout: 8_000 });
+    await page.getByRole("alert").filter({ hasText: /\S/ }).first().waitFor({ timeout: 8_000 });
     check(`${locale}: a failed plan save does not advance or create a farm`, blocked && page.url().includes(`/${locale}/choose-plan`) && sql(`select count(*) from farms where owner_id = ${q(ownerId)}`) === "0");
     await page.unroute("**/*");
     await page.reload();
     await page.waitForURL(`**/${locale}/choose-plan*`, { timeout: 15_000 });
     check(`${locale}: reloading after a failed plan save preserves the unconfirmed state`, sql(`select count(*) from farms where owner_id = ${q(ownerId)}`) === "0");
-    await radios.nth(plan === "basic" ? 0 : 1).check();
+    await radios.nth(plan === "basic" ? 0 : 1).locator("xpath=ancestor::label").click();
   }
   await choose.click();
   await page.waitForURL(`**/${locale}/start`, { timeout: 15_000 });
@@ -144,6 +151,10 @@ async function runWizard(page, locale, { ownerId, plan = "basic", simulatePlanFa
   const day = page.getByLabel(locale === "ar" ? "اليوم" : "Day", { exact: true });
   if (await day.count()) await day.selectOption("4");
   await time.fill("17:00");
+  // The owner's summary call: Basic asks for a day too, Ultimate only a time.
+  const ownerDay = page.getByLabel(locale === "ar" ? "يومك" : "Your day", { exact: true });
+  if (await ownerDay.count()) await ownerDay.selectOption("4");
+  await page.getByLabel(locale === "ar" ? "وقتك" : "Your time", { exact: true }).fill("18:00");
   await next(page, go);
   const dashboard = page.getByRole("button", { name: locale === "ar" ? "افتح لوحة العزبة" : "Open dashboard" });
   await dashboard.waitFor({ timeout: 8_000 }).catch(async (error) => {
@@ -262,7 +273,7 @@ const ANSWER = "زارنا البيطري اليوم";
 await A.page.goto(`${BASE}/ar/app/calls`);
 await settled(A.page);
 const callA = await workerCall(workerA, { [QUESTION]: ANSWER, "سؤال لم يُحفظ": "لا شيء" });
-check("worker call saves", /تم حفظ التحديث/.test(callA.last), callA.script.join(" | "));
+check("worker call saves", /(?<!ما )انحفظ التحديث/.test(callA.last), callA.script.join(" | "));
 check("the farm's real names are spoken", callA.script[0].includes("يوسف"), callA.script[0]);
 check("one report in Supabase, on the right call", sql(`select count(*) from reports r join calls c on c.id = r.call_id where r.farm_id = ${q(farmA)} and c.provider_call_id = ${q(callA.CallSid)}`) === "1");
 await A.page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -336,12 +347,14 @@ await settled(B.page);
 await B.page.locator("main").getByText("Rawdah Farm").first().waitFor();
 check("overview updates after the call, on a phone screen", !/no update|not reported/i.test(await B.page.locator("main").innerText()), (await B.page.locator("main").innerText()).slice(0, 200));
 check("no sideways scroll on a phone", await B.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+await B.page.waitForTimeout(1_500); // let entrance motion finish before the picture
 await B.page.screenshot({ path: `${SHOTS}/en-overview-390.png`, fullPage: true });
 
 // ── A visitor stays in the demo ─────────────────────────────────────────────────────────
 const farmCountBeforeDemo = sql("select count(*) from farms");
 const V = await open();
-await V.page.goto(`${BASE}/en`);
+// A click before the landing hydrates does nothing, as for a person tapping too early: wait until it settles.
+await V.page.goto(`${BASE}/en`, { waitUntil: "networkidle" });
 await V.page.getByRole("button", { name: /explore the demo/i }).first().click();
 await V.page.waitForURL("**/en/app", { waitUntil: "domcontentloaded" }).catch(async (error) => {
   await V.page.screenshot({ path: `${SHOTS}/demo-failed.png`, fullPage: true });
@@ -349,7 +362,9 @@ await V.page.waitForURL("**/en/app", { waitUntil: "domcontentloaded" }).catch(as
   throw error;
 });
 await V.page.getByRole("note").first().waitFor();
-check("a signed-out visitor gets the browser demo with its notice", (await storedText(V.page)).includes("naqah-workspace-v1"));
+// The demo store coalesces writes (it saves after a short quiet moment), so wait for it.
+const demoStored = await V.page.waitForFunction(() => localStorage.getItem("naqah-workspace-v1") !== null, null, { timeout: 5_000 }).then(() => true, () => false);
+check("a signed-out visitor gets the browser demo with its notice", demoStored, await storedText(V.page));
 check("the demo keeps its Call Lab", await V.page.locator('a[href$="/app/lab"]').count() > 0);
 check("the demo wrote nothing to Supabase", sql("select count(*) from farms") === farmCountBeforeDemo);
 check("no uncaught browser errors", errors.length === 0, errors.join(" | "));

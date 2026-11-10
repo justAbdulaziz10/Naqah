@@ -57,8 +57,13 @@ describe("estate matters", () => {
     ws.taskTickets = [task("t", "Fix the gate")];
     expect(estateMatters(ws, null)).toEqual([]);
   });
-  it("includes undelivered instructions on Basic", () => {
+  it("shows no instructions on Basic, even from old rows", () => {
     const ws = createEmptyWorkspace("basic");
+    ws.relays = [{ id: "r1", at: "2026-11-05T15:00:00.000Z", message: "Guests arrive Friday", delivered: false }];
+    expect(estateMatters(ws, null)).toEqual([]);
+  });
+  it("includes undelivered instructions on Ultimate", () => {
+    const ws = createEmptyWorkspace("ultimate");
     ws.relays = [{ id: "r1", at: "2026-11-05T15:00:00.000Z", message: "Guests arrive Friday", delivered: false }];
     expect(estateMatters(ws, null)[0].instructions[0]).toMatchObject({ kind: "relay", id: "r1" });
   });

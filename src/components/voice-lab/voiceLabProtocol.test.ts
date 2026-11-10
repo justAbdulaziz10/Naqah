@@ -5,11 +5,13 @@ const view = {
   step: "report_question",
   done: false,
   isSummary: false,
+  mode: "guided",
   queue: ["Water level"],
   answered: 0,
   question: "How is the water?",
   summary: null,
   facts: [{ id: "water", group: "said", label: "Water", value: "Enough", certainty: "reported" }],
+  notReported: [],
   findings: [],
   contract: { valid: true },
   verdict: null,
@@ -33,6 +35,7 @@ describe("voice lab API response parser", () => {
       state: "state-token",
       closeState: "close-token",
       opening: "Hello",
+      repromptText: "Hello",
       view: { ...view, answered: -1 },
       pricing: null,
       maxSeconds: 600,
@@ -46,6 +49,7 @@ describe("voice lab API response parser", () => {
       state: "state-token",
       closeState: "close-token",
       opening: "Hello",
+      repromptText: "Hello",
       view,
       pricing: null,
       maxSeconds: 600,
@@ -57,8 +61,12 @@ describe("voice lab API response parser", () => {
       goodbye: null,
       state: "next-state",
       refused: null,
+      sayText: "How is the water?",
+      repromptText: "How is the water?",
       view,
-    })).toMatchObject({ ok: true, operation: "tool", tool: { output: "{}", refused: null } });
+    })).toMatchObject({ ok: true, operation: "tool", tool: { output: "{}", refused: null, sayText: "How is the water?" } });
+    expect(parseVoiceLabResponse("tool", { ok: true, output: "{}", end: null, goodbye: null, state: "x", refused: null, view, silent: "yes" })).toBeNull();
+    expect(parseVoiceLabResponse("open", { ok: true, answer: "v=0", state: "s", closeState: "c", opening: "Hello", repromptText: "Hello", view: { ...view, mode: "other" }, pricing: null, maxSeconds: 600 })).toBeNull();
     expect(parseVoiceLabResponse("tool", { ok: true, output: "{}", end: "continue", goodbye: null, state: "x", refused: null, view })).toBeNull();
   });
 

@@ -1,45 +1,56 @@
-/**
- * The worker's own words, checked against the answer the model chose. Shared by real calls and the
- * Voice Lab, so neither can record what the worker didn't say.
- */
-import { isOffTopicAnswer } from "@/domain/conversation/answer-topic";
+import { askedTopic, isOffTopicAnswer, topicsInWords } from "@/domain/conversation/answer-topic";
 import type { AnswerInput, CallSession } from "@/domain/conversation/engine";
 import type { Locale } from "@/domain/types";
-import { mapSpeechToInput, normalizeSpeech } from "../speech";
+import { camelNameKey, extractNumber, mapSpeechToInput, normalizeSpeech } from "../speech";
 
-export type AnswerRefusal = "answer_off_topic" | "answer_unclear";
+export type AnswerRefusal = "answer_off_topic" | "answer_unclear" | "number_not_in_answer" | "answer_conflicts_with_words";
+export const ANSWER_REFUSAL_MESSAGE = "Nothing was recorded. The worker's words did not support this answer. Do not change the answer to get past a refusal.";
+export const evidenceWords = (text: string) => normalizeSpeech(text).replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
 
-export const ANSWER_REFUSAL_MESSAGE =
-  "Nothing was recorded. The worker's words did not answer this question. Do not repeat what they said as an answer. Gently ask the current question again, then wait.";
+/** A recogniser can write its own context back on silence. It is never the worker speaking. */
+export const isLeakedHint = (heard: string) => /مكالمه هاتف/.test(normalizeSpeech(heard)) || (heard.match(/[،,]/g)?.length ?? 0) >= 4;
 
-/** "All camels well" rewrites every camel's status, and "done" closes a task: both need words that say so. */
-function yesNeedsWords(session: CallSession, input: AnswerInput): boolean {
-  if (session.step !== "report_question" || input.value !== "yes") return false;
-  const item = session.data.queue?.[session.data.reportIndex ?? 0];
-  return item?.kind === "task" || (item?.kind === "predefined" && item.answerKind === "herd-health");
+const FOREIGN_OK = new Set(["ok", "okay", "yes", "no", "sms"]);
+
+/** A recogniser that lost the thread returns the wrong script: «damarja», «أقدراشgba». */
+export function isGarbled(words: string, locale: Locale): boolean {
+  if (locale === "en") return /\p{Script=Arabic}/u.test(words);
+  return words.split(" ").some((word) => /[a-z]{2,}/.test(word) && !FOREIGN_OK.has(word));
 }
 
-/**
- * «لا ما فيه مريض» means every camel is fine, and the model reads it either way. On the herd-health
- * question the worker's clear words decide. A bare «لا» depends on how the question was put, so it stays with the model.
- */
-export function herdAnswerFromWords(session: CallSession, input: AnswerInput, heard: string | null, locale: Locale): AnswerInput {
-  if (!heard || session.step !== "report_question" || input.value === undefined) return input;
-  const item = session.data.queue?.[session.data.reportIndex ?? 0];
-  if (item?.kind !== "predefined" || item.answerKind !== "herd-health") return input;
-  if (normalizeSpeech(heard).replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(" ").length < 2) return input;
-  const value = mapSpeechToInput(session, heard, null, locale)?.value;
-  return value === "yes" || value === "no" ? { value } : input;
-}
+const STOP_WORDS = /(?:^| )(?:وقف|اوقف|اقفل|اقفلها|سكر|سكرها|مع السلامه|ما ابي اكمل|ما ابي احفظ|لا تحفظ|لا تحفظه|لا تحفظها|الغ|الغها|الغيها|بعدين|مشغول|مو فاضي|مب فاضي|stop|goodbye|bye|hang up|not now|later|busy)(?: |$)/;
 
-/**
- * Null lets the answer through. `heard` is the worker's final transcript: empty when speech
- * recognition failed, null when the caller has none.
- */
+/** Only the person on the line can end the call, in words that say so. */
+export const askedToStop = (heard: string) => STOP_WORDS.test(evidenceWords(heard));
+
 export function refuseAnswer(session: CallSession, input: AnswerInput, heard: string | null, locale: Locale, camelNames: readonly string[] = []): AnswerRefusal | null {
-  if (heard === null) return null;
-  const words = normalizeSpeech(heard).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-  if (words && isOffTopicAnswer(session, words, camelNames.map((name) => normalizeSpeech(name)))) return "answer_off_topic";
-  if (yesNeedsWords(session, input) && mapSpeechToInput(session, heard, null, locale)?.value !== "yes") return "answer_unclear";
+  const item = session.data.queue?.[session.data.reportIndex ?? 0];
+  const health = session.step === "report_question" && item?.kind === "predefined" && item.answerKind === "herd-health";
+  const closesTask = session.step === "report_question" && item?.kind === "task" && input.value === "yes";
+  const numeric = input.text !== undefined && /^\d+(?:\.\d+)?$/.test(input.text);
+  if (heard === null && !health && !closesTask && !numeric) return null;
+  const words = evidenceWords(heard ?? "");
+  if (words && isOffTopicAnswer(session, words, camelNames.map(evidenceWords))) return "answer_off_topic";
+  if (!words) return numeric ? "number_not_in_answer" : "answer_unclear";
+  if (isGarbled(words, locale)) return "answer_unclear";
+  const mapped = mapSpeechToInput(session, heard ?? "", null, locale);
+  // «تمام بس نورة تعبانة»: naming a camel says one needs attention, whatever else the sentence says.
+  const namesCamel = words.split(" ").some((word) => camelNames.some((name) => camelNameKey(word) === camelNameKey(name)));
+  if (health && input.value === "no" && namesCamel) return null;
+  if (closesTask && mapped?.value !== "yes") return "answer_unclear";
+  if (numeric && extractNumber(heard ?? "") !== Number(input.text)) return "number_not_in_answer";
+  if (input.value !== undefined) {
+    if (session.inputMode === "number" && extractNumber(heard ?? "") !== null) return "answer_conflicts_with_words";
+    // A clear contradiction, unless another topic in the sentence is what the words were about.
+    const asked = askedTopic(session);
+    const mixedTopics = [...topicsInWords(words)].some((topic) => topic !== asked);
+    if (mapped?.value !== undefined && session.replies.some((reply) => reply.value === mapped.value) && mapped.value !== input.value && !mixedTopics) return "answer_conflicts_with_words";
+  }
+  if (input.value === undefined || session.inputMode !== "choices" || mapped?.value === input.value) return null;
+  // The model reads the meaning. A herd-wide health answer changes every camel, so it needs health words or a camel's name;
+  // one unrecognised word is what a mishearing looks like.
+  // A plain yes/no follow-up has no meaning to read into: words must say yes or no.
+  const yesNo = session.replies.some((reply) => reply.value === "yes") && session.replies.some((reply) => reply.value === "no");
+  if (health || yesNo || words.split(" ").length < 2) return "answer_unclear";
   return null;
 }

@@ -4,6 +4,8 @@
  * actions. Only fields owners may write appear here, so a simulated report or ticket can never
  * reach a real farm: anything else in the document is ignored and replaced on the next load.
  */
+import { nowFor } from "@/domain/clock";
+import { reportModeOf, reportPlanHasContent } from "@/domain/rules";
 import type { Settings, Worker, Workspace } from "@/domain/types";
 import { normalizePhone } from "@/server/farm/input";
 
@@ -47,6 +49,13 @@ function windowChange(base: Workspace, next: Workspace): Input {
   return { window: value };
 }
 
+function ownerCallScheduleChange(base: Workspace, next: Workspace): Input {
+  const value = next.settings.ownerCallSchedule ?? null;
+  if (same(base.settings.ownerCallSchedule ?? null, value)) return {};
+  if (value?.time && !timeShape.test(value.time)) return {};
+  return { ownerCallSchedule: value };
+}
+
 function callScheduleChange(base: Workspace, next: Workspace): Input {
   const value = next.settings.callSchedule ?? null;
   if (same(base.settings.callSchedule ?? null, value)) return {};
@@ -61,6 +70,18 @@ function herdChange(base: Workspace, next: Workspace): Input {
   return {
     ...(same(from.herdCount ?? null, count) || (count !== null && (!Number.isInteger(count) || count < 0 || count > 100_000)) ? {} : { herdCount: count }),
     ...(same(from.herdCountReviewedAt ?? null, to.herdCountReviewedAt ?? null) ? {} : { herdCountReviewedAt: to.herdCountReviewedAt ?? null }),
+  };
+}
+
+const plansMatch = (base: Workspace, next: Workspace) => same(base.settings.questionPlan ?? [], next.settings.questionPlan ?? []);
+const hasContent = (ws: Workspace) => reportPlanHasContent(ws, nowFor(ws));
+
+/** A plan that leaves the call with nothing to ask stays on the screen, flagged, and is not sent. */
+function reportPlanChange(base: Workspace, next: Workspace): Input {
+  const mode = reportModeOf(next);
+  return {
+    ...(reportModeOf(base) === mode ? {} : { reportMode: mode }),
+    ...(plansMatch(base, next) || !hasContent(next) ? {} : { questionPlan: next.settings.questionPlan ?? [] }),
   };
 }
 
@@ -115,7 +136,8 @@ const timeShape = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
  * Edits on the screen that differ from the server but can't be sent yet: a half-typed mobile, a
- * cleared ranch name, a partly chosen call time or a herd count that isn't a whole number. They
+ * cleared ranch name, a partly chosen call time, a herd count that isn't a whole number or a
+ * question plan with nothing to ask. They
  * are what keeps a section from being "saved" and what a sign-out must not silently drop.
  */
 export function unsentDrafts(base: Workspace, next: Workspace): string[] {
@@ -133,8 +155,12 @@ export function unsentDrafts(base: Workspace, next: Workspace): string[] {
   if (!trimmed(to.farm.name) && trimmed(from.farm.name)) drafts.push("farmName");
   const schedule = to.callSchedule ?? null;
   if (!same(from.callSchedule ?? null, schedule) && schedule?.time && !timeShape.test(schedule.time)) drafts.push("callSchedule");
+  const ownerSchedule = to.ownerCallSchedule ?? null;
+  if (!same(from.ownerCallSchedule ?? null, ownerSchedule) && ownerSchedule?.time && !timeShape.test(ownerSchedule.time)) drafts.push("ownerCallSchedule");
   const count = to.herdCount ?? null;
   if (!same(from.herdCount ?? null, count) && count !== null && (!Number.isInteger(count) || count < 0 || count > 100_000)) drafts.push("herdCount");
+  // A farm already saved this way stays quiet until the owner touches it.
+  if (!hasContent(next) && (!plansMatch(base, next) || hasContent(base))) drafts.push("questionPlan");
   return drafts;
 }
 
@@ -151,6 +177,7 @@ export function ownerChanges(base: Workspace, next: Workspace): OwnerChange[] {
     ...phoneChange("supplierPhone", from.integrations?.supplierPhone, to.integrations?.supplierPhone),
     ...windowChange(base, next),
     ...callScheduleChange(base, next),
+    ...ownerCallScheduleChange(base, next),
     ...herdChange(base, next),
   };
 
@@ -193,6 +220,9 @@ export function ownerChanges(base: Workspace, next: Workspace): OwnerChange[] {
     const ready = Boolean(trimmed(to.worker.name) || normalizePhone(trimmed(to.worker.phone))) || workerList(from).some((w) => w.id === primary);
     if (ready) changes.push({ kind: "primaryWorker", id: primary });
   }
+  // After the questions, so the plan is checked against the questions this save leaves in place.
+  const reportPlan = reportPlanChange(base, next);
+  if (Object.keys(reportPlan).length) changes.push({ kind: "profile", input: reportPlan });
   // Last, so a farm is only marked ready once everything before it has been sent.
   if (base.setupComplete !== next.setupComplete) changes.push({ kind: "profile", input: { setupComplete: next.setupComplete } });
   return changes;
@@ -249,12 +279,15 @@ export function mergeEdits(before: Workspace, local: Workspace, fresh: Workspace
       farm: scalars((ws) => ws.settings.farm),
       ...mergeWorkers(before.settings, local.settings, fresh.settings),
       callSchedule: same(before.settings.callSchedule, local.settings.callSchedule) ? fresh.settings.callSchedule : local.settings.callSchedule,
+      ownerCallSchedule: same(before.settings.ownerCallSchedule, local.settings.ownerCallSchedule) ? fresh.settings.ownerCallSchedule : local.settings.ownerCallSchedule,
       herdCount: same(before.settings.herdCount, local.settings.herdCount) ? fresh.settings.herdCount : local.settings.herdCount,
       herdCountReviewedAt: same(before.settings.herdCountReviewedAt, local.settings.herdCountReviewedAt)
         ? fresh.settings.herdCountReviewedAt : local.settings.herdCountReviewedAt,
       window: same(before.settings.window, local.settings.window) ? fresh.settings.window : local.settings.window,
       integrations: same(before.settings.integrations, local.settings.integrations) ? fresh.settings.integrations : local.settings.integrations,
       customQuestions: mergeList(before.settings.customQuestions, local.settings.customQuestions, fresh.settings.customQuestions, byId),
+      reportMode: reportModeOf(before) === reportModeOf(local) ? fresh.settings.reportMode : local.settings.reportMode,
+      questionPlan: plansMatch(before, local) ? fresh.settings.questionPlan : local.settings.questionPlan,
       criteria: mergeList(before.settings.criteria, local.settings.criteria, fresh.settings.criteria, byId),
       emergencies: mergeList(before.settings.emergencies, local.settings.emergencies, fresh.settings.emergencies, byId),
     },
@@ -272,6 +305,7 @@ export function withServerIds(ws: Workspace, created: Record<string, string>): W
       worker: ws.settings.worker.id && created[ws.settings.worker.id] ? { ...ws.settings.worker, id: created[ws.settings.worker.id] } : ws.settings.worker,
       otherWorkers: ws.settings.otherWorkers && remap(ws.settings.otherWorkers as (Worker & { id: string })[]),
       customQuestions: remap(ws.settings.customQuestions),
+      questionPlan: ws.settings.questionPlan && remap(ws.settings.questionPlan),
       criteria: remap(ws.settings.criteria),
       emergencies: remap(ws.settings.emergencies),
     },

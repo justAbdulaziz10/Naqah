@@ -6,8 +6,11 @@
  * The bridge runs with a preloaded guard that refuses every non-loopback socket.
  *
  *   node scripts/verify-realtime-call.mjs [--label final] [--only R1,R6] [--skip-scripted] [--keep-src]
+ *     [--root /tmp/naqah-rm-rt] [--pg-port 54480] [--rest-port 54481] [--gateway-port 54482] [--app-port 3720]
+ *     [--bridge-port 3722] [--provider-port 3723] [--refuse-port 3724] [--proxy-port 3725] [--limits-port 3726]
  *
- * Results: /tmp/naqah-rt3/logs/<label>/ (result.json, summary.txt, next.log, bridge.log). Exit code 1 on any failure.
+ * The model only ever calls tools; the server chooses every spoken word, and the mock plays it back verbatim.
+ * Results: <root>/logs/<label>/ (result.json, summary.txt, next.log, bridge.log). Exit code 1 on any failure.
  */
 import { execFileSync, spawn } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
@@ -26,7 +29,7 @@ const arg = (name, fallback) => {
 const flag = (name) => process.argv.includes(`--${name}`);
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const ROOT = "/tmp/naqah-rt3";
+const ROOT = arg("root", "/tmp/naqah-rm-rt");
 const SRC = join(ROOT, "src");
 const BASE = join(ROOT, "base");
 const PGDATA = join(ROOT, "pg");
@@ -35,15 +38,15 @@ const LABEL = arg("label", "run");
 const LOGS = join(ROOT, "logs", LABEL);
 const ONLY = arg("only", "")?.split(",").filter(Boolean);
 const PG_BIN = "/opt/homebrew/opt/postgresql@17/bin";
-const PG_PORT = "54860";
-const REST_PORT = "54861";
-const GATEWAY_PORT = "54862";
-const APP_PORT = "3811";
-const BRIDGE_PORT = "3812";
-const PROVIDER_PORT = 3813;
-const REFUSE_BRIDGE_PORT = "3814";
-const REWRITE_PROXY_PORT = "3815";
-const LIMITS_BRIDGE_PORT = "3816";
+const PG_PORT = arg("pg-port", "54480");
+const REST_PORT = arg("rest-port", "54481");
+const GATEWAY_PORT = arg("gateway-port", "54482");
+const APP_PORT = arg("app-port", "3720");
+const BRIDGE_PORT = arg("bridge-port", "3722");
+const PROVIDER_PORT = Number(arg("provider-port", "3723"));
+const REFUSE_BRIDGE_PORT = arg("refuse-port", "3724");
+const REWRITE_PROXY_PORT = arg("proxy-port", "3725");
+const LIMITS_BRIDGE_PORT = arg("limits-port", "3726");
 const DB = "naqah_rt3";
 const GATEWAY = `http://127.0.0.1:${GATEWAY_PORT}`;
 const APP = `http://127.0.0.1:${APP_PORT}`;
@@ -64,6 +67,15 @@ const pgEnv = { PATH, LC_ALL: "en_US.UTF-8", PGHOST: "127.0.0.1", PGPORT: PG_POR
 const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(NAQAH_|TWILIO_|SUPABASE|NEXT_PUBLIC_|CRON_|PG|OPENAI)/.test(key)));
 const children = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Polls faster than waitFor: a call turn takes milliseconds. */
+async function until(probe, what, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (probe()) return;
+    await sleep(20);
+  }
+  throw new Error(`Timed out waiting for ${what}`);
+}
 
 /* ─────────────────── environment ─────────────────── */
 
@@ -250,7 +262,7 @@ const gather = (xml) => {
   const raw = xml.match(/<Gather\b[^>]*\baction="([^"]+)"/)?.[1];
   return raw ? decode(raw) : null;
 };
-const REALTIME_MODEL_TOOLS = ["answer_question", "confirm_report", "end_call"];
+const REALTIME_MODEL_TOOLS = ["answer_question", "record_facts", "finish_update", "choose_mode", "repeat_or_clarify", "confirm_report", "correct_report", "flag_urgent", "end_call"];
 const parseConnect = (xml) => {
   const action = xml.match(/<Connect\b[^>]*\baction="([^"]+)"/)?.[1];
   const url = xml.match(/<Stream\b[^>]*\burl="([^"]+)"/)?.[1];
@@ -328,6 +340,7 @@ async function makeOwner() {
 
 async function makeFarm({ camels = [], herd = null, resources = [], custom = [] } = {}) {
   const { user, account } = await makeOwner();
+  sql(`insert into farms (owner_id, plan, plan_selected_at) values (${q(user.id)}, 'basic', now()) on conflict (owner_id) do update set plan_selected_at = now()`);
   const opened = await account({ op: "open" });
   if (!opened.ok) throw new Error(`open failed: ${JSON.stringify(opened)}`);
   const farm = opened.data.farmId;
@@ -424,8 +437,8 @@ async function callNow(ranch) {
 }
 
 /** Answer the phone and bring up the stream: returns the Twilio side and the provider side. */
-async function placeCall(ranch, { startStream = true, bridgePort } = {}) {
-  const call = await callNow(ranch);
+async function placeCall(ranch, { startStream = true, bridgePort, placed } = {}) {
+  const call = placed ?? await callNow(ranch);
   await call.answer();
   if (!call.connect) throw new Error(`Answer TwiML has no <Connect>: ${call.xml.slice(0, 400)}`);
   const opened = await call.open({ bridgePort });
@@ -438,6 +451,7 @@ async function placeCall(ranch, { startStream = true, bridgePort } = {}) {
   await upstream.waitForEvent((event) => event.type === "session.update", 20_000, "session.update");
   await upstream.waitForEvent((event) => event.type === "response.create" && typeof event.response?.instructions === "string", 10_000, "opening line");
   await waitFor(() => upstream.spoken.length >= 1 && stream.sent("media").length >= 1, "opening played", 40);
+  await until(() => promptMarks(stream) >= 1, "the opening's playback mark");
   await sleep(50);
   return { call, stream, upstream };
 }
@@ -447,16 +461,53 @@ const output = (raw) => {
   try { return JSON.parse(raw); } catch { return raw; }
 };
 
+const promptMarks = (stream) => stream.sent("mark").filter((event) => event.mark?.name?.startsWith("prompt-")).length;
+const QUESTION_TOPIC = { herd_health: "herd", herd_count: "herd", feed_level: "feed", water_level: "water" };
+const topicOf = (s) => QUESTION_TOPIC[s.q] ?? "other";
+
+/** The worker talks and the model classifies with a tool. Returns the raw output once the server's next line has played. */
+async function workerTurn(stream, upstream, words, name, args, { speech = true, ...options } = {}) {
+  const spoken = upstream.spoken.length;
+  const prompts = promptMarks(stream);
+  upstream.workerSays(words);
+  const raw = await upstream.toolCall(name, args, options);
+  if (speech && raw !== null) await until(() => upstream.spoken.length > spoken && promptMarks(stream) > prompts, `the line after ${name}`);
+  return raw;
+}
+
+/** Leaves the next server line open after its audio, so the worker can talk over it. */
+function holdPlayback(upstream) {
+  const finish = upstream.finishSpeaking;
+  const held = {};
+  upstream.finishSpeaking = (response) => {
+    upstream.finishSpeaking = finish;
+    held.response = response;
+    return response;
+  };
+  return held;
+}
+
+/** One model response with several tool calls: the later ones arrive with no new worker speech. */
+function toolBurst(upstream, calls) {
+  return (async () => {
+    await until(() => upstream.responseSlots.length > 0, "a model turn");
+    upstream.responseSlots.shift();
+    const responseId = `resp_burst_${randomBytes(4).toString("hex")}`;
+    const items = calls.map(({ name, args }, index) => ({ id: `item_burst_${index}_${responseId}`, call_id: `call_burst_${index}_${responseId}`, name, arguments: JSON.stringify(args) }));
+    const outputs = items.map((item) => new Promise((resolve) => upstream.toolWaiters.set(item.call_id, resolve)));
+    upstream.emitEvent({ type: "response.created", response: { id: responseId, status: "in_progress", output: [] } });
+    for (const item of items) upstream.emitEvent({ type: "response.function_call_arguments.done", response_id: responseId, item_id: item.id, output_index: 0, call_id: item.call_id, name: item.name, arguments: item.arguments });
+    upstream.emitEvent({ type: "response.done", response: { id: responseId, status: "completed", output: items.map((item) => ({ ...item, type: "function_call", status: "completed" })) } });
+    return Promise.all(outputs);
+  })();
+}
+
 /** Saudi speech for each engine step, with the structured answer a good model extracts from it. */
 const FULL_PLAN = [
   { when: (s) => s.step === "report_question" && s.q?.startsWith("herd_health"), say: "والله كلها بخير الحمد لله يا طويل العمر", args: { value: "yes" } },
   { when: (s) => s.step === "report_question" && s.q === "herd_count", say: "عشرين راس تقريبا", args: { text: "20" } },
-  { when: (s) => s.step === "herd_count_confirm", say: "ايه صح عشرين", args: { value: "yes" } },
   { when: (s) => s.step === "report_question" && s.q === "feed_level", say: "العلف باقي منه شوي", args: { value: "low" } },
-  { when: (s) => s.step === "quantity_input" && s.q === "feed_level", say: "خمسة وعشرين كيس", args: { text: "25" } },
-  { when: (s) => s.step === "quantity_confirm", say: "ايه تمام", args: { value: "yes" } },
   { when: (s) => s.step === "report_question" && s.q === "water_level", say: "الموية كافية ما عليها", args: { value: "good" } },
-  { when: (s) => s.step === "quantity_input" && s.q === "water_level", say: "حوالي ميه لتر", args: { text: "100" } },
   { when: (s) => s.step === "report_question" && /^[0-9a-f-]{36}$/.test(s.q ?? ""), say: "لا والله ما جا أحد اليوم", args: { text: "لا ما جا" } },
 ];
 const SPOKEN_CANARIES = [...FULL_PLAN.map((step) => step.say), "إيه احفظه", "ايش تقصد بالعلف"];
@@ -464,20 +515,16 @@ const SPOKEN_CANARIES = [...FULL_PLAN.map((step) => step.say), "إيه احفظ�
 const planFor = (s) => FULL_PLAN.find((step) => step.when(s));
 
 /** Answers via tools until the engine reaches `until`. Returns the last tool output. */
-async function answerUntil(call, upstream, until = (s) => s.step === "report_summary", { max = 20 } = {}) {
+async function answerUntil(call, stream, upstream, reached = (s) => s.step === "report_summary", { max = 20 } = {}) {
   let last = null;
   for (let index = 0; index < max; index += 1) {
     const s = state(call.sid);
     if (!s) throw new Error("The voice session row disappeared mid-call");
-    if (until(s)) return last;
+    if (reached(s)) return last;
     const step = planFor(s);
     if (!step) throw new Error(`No plan for step ${s.step} / ${s.q}`);
-    upstream.workerSays(step.say);
-    last = await upstream.toolCall("answer_question", step.args);
+    last = await workerTurn(stream, upstream, step.say, "answer_question", { ...step.args, topic: topicOf(s) });
     if (last === null) throw new Error(`No tool output at ${s.step}/${s.q}`);
-    const next = state(call.sid);
-    // A model turn follows every tool result. The summary's is left to the caller, who may read it or cheat with it.
-    if (next && next.step !== "report_summary") await upstream.speak("السؤال التالي");
   }
   throw new Error("Too many turns");
 }
@@ -496,7 +543,14 @@ async function confirmAndFinish(call, stream, upstream) {
   return confirmed;
 }
 
-/** One saved report, its run linked, session gone, owner told, dashboard showing it. */
+/** The owner is called at the owner's own time by the scheduler, so saving a report never dials them. */
+async function assertOwnerNotDialled() {
+  await sleep(1200);
+  const dialled = (await outbound()).map((r) => r.To);
+  check("saving the report does not dial the owner", !dialled.includes(OWNER), dialled);
+}
+
+/** One saved report, its run linked, session gone, no call straight to the owner, dashboard showing it. */
 async function assertSaved(ranch, call, { expected = [], herd } = {}) {
   const status = await call.finalStatus("completed");
   check("final status callback is accepted", status.status === 204, status);
@@ -521,8 +575,7 @@ async function assertSaved(ranch, call, { expected = [], herd } = {}) {
   const last = ws.reports?.at?.(-1);
   check("the owner's dashboard reads the report", ws.reports?.length === 1 && Boolean(ws.lastUpdateAt) && last?.answers?.length === answers.length, { reports: ws.reports?.length, lastUpdateAt: ws.lastUpdateAt, answers: last?.answers?.length });
   check("the dashboard's run is completed", ws.reportCalls?.at?.(-1)?.state === "completed", ws.reportCalls?.at?.(-1));
-  await waitFor(async () => (await outbound()).some((r) => r.To === OWNER), "owner call", 20).catch(() => {});
-  check("the owner gets one update call", (await outbound()).filter((r) => r.To === OWNER).length === 1, (await outbound()).map((r) => r.To));
+  await assertOwnerNotDialled();
   return ws;
 }
 
@@ -531,12 +584,12 @@ function assertUnsaved(ranch, label = "no report") {
 }
 
 /** Scripted completion after a fallback: the same Gather route a call without realtime uses. */
-const Q = { health: /حال الحلال/, herdCount: /كم عدد الحلال/, feed: /كم باقي من العلف/, water: /كيف وضع الماء/, custom: /البيطري/, bags: /أكياس العلف/, litres: /الماء باللتر/, summary: /أحفظه/ };
+const Q = { health: /حال الحلال/, herdCount: /كم عدد الحلال/, feed: /كم باقي من العلف/, water: /كيف وضع الماء/, custom: /^(?![\s\S]*أحفظه)[\s\S]*البيطري/, summary: /أحفظه/ };
 
 async function driveScripted(call, how) {
   const speechPlan = [
-    [Q.health, speech("كلها بخير")], [Q.herdCount, speech("عشرين ناقة")], [Q.feed, speech("باقي شوي")], [Q.bags, speech("٢٥")],
-    [Q.water, speech("إيه كافي")], [Q.litres, speech("مية لتر")], [Q.custom, speech("لا ما جا")], [Q.summary, speech("إيه")],
+    [Q.health, speech("كلها بخير")], [Q.herdCount, speech("عشرين ناقة")], [Q.feed, speech("باقي شوي")],
+    [Q.water, speech("إيه كافي")], [Q.custom, speech("لا ما جا")], [Q.summary, speech("إيه")],
   ];
   for (let index = 0; index < 40 && !call.ended; index += 1) {
     const text = call.text;
@@ -554,6 +607,12 @@ async function driveScripted(call, how) {
 
 let provider;
 
+scenario("M0", "The migrations this verifier depends on are applied", async () => {
+  for (const file of ["20261109182526_owner_summary_schedule.sql", "20261110090000_mvp_owner_runs.sql"]) check(`${file} is in the tree`, existsSync(join(SRC, "supabase/migrations", file)));
+  const columns = sql("select string_agg(column_name, ',') from information_schema.columns where table_schema = 'public' and table_name = 'farms' and column_name in ('owner_call_day', 'owner_call_time', 'owner_call_run')");
+  check("the owner schedule and owner run columns exist", ["owner_call_day", "owner_call_time", "owner_call_run"].every((name) => columns.includes(name)), columns);
+});
+
 scenario("R1a", "Happy path: ranch with camels, resources and a custom question (natural Saudi speech)", async () => {
   const ranch = await makeFarm(FULL);
   const { call, stream, upstream } = await placeCall(ranch);
@@ -563,8 +622,10 @@ scenario("R1a", "Happy path: ranch with camels, resources and a custom question 
   check("the bridge authenticates to the provider with the server key", upstream.headers.authorization === `Bearer ${OPENAI_KEY}`, upstream.headers.authorization ? "wrong bearer" : "absent");
   const sessionUpdate = upstream.of("session.update")[0]?.session ?? {};
   current.sessionUpdate = sessionUpdate;
-  check("session.update carries Next's instructions and tools", typeof sessionUpdate.instructions === "string" && sessionUpdate.instructions.length > 20 && Array.isArray(sessionUpdate.tools) && sessionUpdate.tools.length === 3, { instructions: typeof sessionUpdate.instructions, tools: sessionUpdate.tools?.length });
-  check("session.update names the three tools", ["answer_question", "confirm_report", "end_call"].every((name) => sessionUpdate.tools?.some((tool) => tool.name === name)), sessionUpdate.tools?.map((tool) => tool.name));
+  check("session.update carries Next's instructions and tools", typeof sessionUpdate.instructions === "string" && sessionUpdate.instructions.length > 20 && Array.isArray(sessionUpdate.tools) && sessionUpdate.tools.length === REALTIME_MODEL_TOOLS.length, { instructions: typeof sessionUpdate.instructions, tools: sessionUpdate.tools?.length });
+  check("session.update names every model tool", REALTIME_MODEL_TOOLS.every((name) => sessionUpdate.tools?.some((tool) => tool.name === name)), sessionUpdate.tools?.map((tool) => tool.name));
+  check("the model must call a tool on every turn", sessionUpdate.tool_choice === "required", sessionUpdate.tool_choice);
+  check("answer_question requires the topic", sessionUpdate.tools?.find((tool) => tool.name === "answer_question")?.parameters?.required?.includes("topic"), sessionUpdate.tools?.find((tool) => tool.name === "answer_question")?.parameters);
   check("GA input transcription uses the worker language", sessionUpdate.audio?.input?.transcription?.model === "gpt-4o-mini-transcribe" && sessionUpdate.audio.input.transcription.language === "ar", sessionUpdate.audio?.input?.transcription);
   const formats = JSON.stringify(sessionUpdate);
   check("audio format is G.711 mu-law", /pcmu|g711_ulaw/i.test(formats), formats.slice(0, 400));
@@ -582,7 +643,7 @@ scenario("R1a", "Happy path: ranch with camels, resources and a custom question 
   const firstQuestion = state(call.sid);
   check("the run opens on the herd health question", firstQuestion?.step === "report_question" && firstQuestion.q?.startsWith("herd_health"), firstQuestion);
 
-  const last = await answerUntil(call, upstream);
+  const last = await answerUntil(call, stream, upstream);
   check("the last answer's tool output carries the summary to read", /أحفظه/.test(last ?? "") && output(last)?.isSummary === true, (last ?? "").slice(0, 300));
   const summaryState = state(call.sid);
   check("the engine is at the summary", summaryState.step === "report_summary", summaryState?.step);
@@ -602,13 +663,13 @@ scenario("R1b", "Happy path: empty ranch (no camels, no herd count, no resources
   const { call, stream, upstream } = await placeCall(ranch);
   const first = state(call.sid);
   check("the empty ranch starts on a question the engine asks", first?.step === "report_question", first);
-  await answerUntil(call, upstream);
+  await answerUntil(call, stream, upstream);
   check("no herd count step on an empty ranch", state(call.sid).step === "report_summary", state(call.sid)?.step);
   await confirmAndFinish(call, stream, upstream);
   await assertSaved(ranch, call);
 });
 
-scenario("R2", "Barge-in: worker speech during playback clears Twilio and cancels the response", async () => {
+scenario("R2", "Barge-in: worker speech during a server-spoken line clears Twilio and cancels the response", async () => {
   const ranch = await makeFarm(FULL);
   const { call, stream, upstream } = await placeCall(ranch);
   await sleep(200);
@@ -620,27 +681,29 @@ scenario("R2", "Barge-in: worker speech during playback clears Twilio and cancel
 
   stream.autoMark = false;
   upstream.deferCancelDone = true;
-  const speaking = await upstream.speak("سؤال طويل عن حال الحلال", { chunks: 20, gapMs: 2, hold: true });
-  await waitFor(() => stream.sent("media").filter((event) => event.media?.payload).length >= 20, "playback reaches Twilio", 20);
-  stream.ackSome(10);
-  await sleep(100);
+  const held = holdPlayback(upstream);
   const framesBefore = stream.sent("media").length;
+  await upstream.toolCall("repeat_or_clarify", { reason: "unclear" });
+  await until(() => held.response && stream.sent("media").length >= framesBefore + 2, "the repeated question reaches Twilio");
+  check("the server's line is spoken verbatim, with no tools", upstream.of("response.create").at(-1)?.response?.tool_choice === "none", upstream.of("response.create").at(-1));
+  stream.ackSome(1);
+  await sleep(100);
   upstream.speechStarted(1000);
   const clear = await stream.waitForEvent((event) => event.event === "clear" && stream.sent("clear").length > clearsBefore, 4000, "Twilio clear").catch(() => null);
   check("Twilio gets clear with the stream SID", clear?.streamSid === stream.streamSid, clear);
   const cancel = await upstream.waitForEvent((event) => event.type === "response.cancel", 4000, "response.cancel").catch(() => null);
-  check("the provider gets response.cancel naming the playing response", cancel?.response_id === speaking.responseId, cancel);
+  check("the provider gets response.cancel naming the playing response", cancel?.response_id === held.response.responseId, cancel);
   const truncate = await upstream.waitForEvent((event) => event.type === "conversation.item.truncate", 4000, "truncate").catch(() => null);
-  check("the provider gets conversation.item.truncate for the playing item", truncate?.item_id === speaking.itemId && truncate?.content_index === 0, truncate);
-  check("truncate lands where Twilio's marks say playback reached (1000 ms)", truncate?.audio_end_ms === 1000, truncate?.audio_end_ms);
-  upstream.emitEvent({ type: "response.output_audio.delta", response_id: speaking.responseId, item_id: speaking.itemId, output_index: 0, content_index: 0, delta: Buffer.alloc(800, 0x66).toString("base64") });
+  check("the provider gets conversation.item.truncate for the playing item", truncate?.item_id === held.response.itemId && truncate?.content_index === 0, truncate);
+  check("truncate lands where Twilio's marks say playback reached (100 ms)", truncate?.audio_end_ms === 100, truncate?.audio_end_ms);
+  const late = Buffer.alloc(800, 0x66).toString("base64");
+  upstream.emitEvent({ type: "response.output_audio.delta", response_id: held.response.responseId, item_id: held.response.itemId, output_index: 0, content_index: 0, delta: late });
   await sleep(300);
   upstream.completeCancel();
   await sleep(100);
-  const late = Buffer.alloc(800, 0x66).toString("base64");
   check("late audio from the cancelled response is not played", !stream.sent("media").some((event) => event.media?.payload === late), stream.sent("media").length - framesBefore);
   upstream.workerFinishes("والله كلها بخير");
-  await upstream.toolCall("answer_question", { value: "yes" });
+  await upstream.toolCall("answer_question", { value: "yes", topic: "herd" });
   check("the call continues after barge-in", state(call.sid)?.q === "herd_count", state(call.sid)?.q);
   stream.stop();
   stream.closeNormally();
@@ -656,9 +719,11 @@ scenario("R2b", "Worker speech lands between response.create and response.create
   await sleep(400);
   check("speech before the reply is audible cancels nothing", upstream.of("response.cancel").length === 0, upstream.of("response.cancel"));
   check("the realtime call stays up", !stream.closed);
+  upstream.workerFinishes("لحظة، وش قلت");
   const framesBefore = stream.sent("media").length;
-  await upstream.speak("أبشر، خذ راحتك", { chunks: 2 });
+  await upstream.toolCall("repeat_or_clarify", { reason: "asked_to_repeat" });
   await waitFor(() => stream.sent("media").length > framesBefore, "the reply reaches Twilio", 40);
+  check("the reply is the question again", Q.health.test(upstream.spoken.at(-1) ?? ""), upstream.spoken.at(-1));
   stream.stop();
   stream.closeNormally();
   await call.finalStatus("completed");
@@ -673,6 +738,7 @@ scenario("R2c", "An early hello can't cancel the greeting, and the next turn is 
   const upstream = await provider.next();
   await upstream.waitForEvent((event) => event.type === "response.create" && typeof event.response?.instructions === "string", 20_000, "the greeting request");
   await waitFor(() => upstream.spoken.length >= 1 && stream.sent("media").length >= 1, "the greeting reaches Twilio", 40);
+  await until(() => promptMarks(stream) >= 1, "the greeting's playback mark");
   await sleep(100);
   check("audio from before the session was ready never reaches the provider", upstream.audioIn.length === 0, upstream.audioIn.length);
   check("the greeting is not cancelled", upstream.of("response.cancel").length === 0, upstream.of("response.cancel"));
@@ -685,7 +751,7 @@ scenario("R2c", "An early hello can't cancel the greeting, and the next turn is 
   await sleep(200);
   upstream.workerFinishes("ألو تسمعني");
   const framesBefore = stream.sent("media").length;
-  await upstream.speak("هلا والله، معك مساعد ناقة", { chunks: 2 });
+  await upstream.toolCall("repeat_or_clarify", { reason: "unclear" });
   await waitFor(() => stream.sent("media").length > framesBefore, "the reply to the next turn reaches Twilio", 40);
   check("the reply plays without being cancelled", upstream.of("response.cancel").length === 0 && stream.sent("clear").length === clears, upstream.of("response.cancel"));
   stream.stop();
@@ -694,20 +760,16 @@ scenario("R2c", "An early hello can't cancel the greeting, and the next turn is 
   assertUnsaved(ranch);
 });
 
-scenario("R3", "Clarification question mid-call: no state change, then answered", async () => {
+scenario("R3", "Clarification question mid-call: the server explains, no state change, then answered", async () => {
   const ranch = await makeFarm(FULL);
   const { call, stream, upstream } = await placeCall(ranch);
-  await answerUntil(call, upstream, (s) => s.q === "feed_level" && s.step === "report_question");
+  await answerUntil(call, stream, upstream, (s) => s.q === "feed_level" && s.step === "report_question");
   const before = fingerprint(state(call.sid));
-  const toolsBefore = upstream.of("conversation.item.create").filter((event) => event.item?.type === "function_call_output").length;
-  upstream.workerSays("ايش تقصد بالعلف");
-  await upstream.speak("أقصد كم باقي من العلف عندك", { chunks: 2 });
-  await sleep(300);
-  check("the clarification added no tool call", upstream.of("conversation.item.create").filter((event) => event.item?.type === "function_call_output").length === toolsBefore && !stream.closed, { toolsBefore, closed: stream.closed });
+  await workerTurn(stream, upstream, "ايش تقصد بالعلف", "repeat_or_clarify", { reason: "asked_meaning" });
+  check("the server explains with the question and its choices", /المقصود/.test(upstream.spoken.at(-1) ?? "") && Q.feed.test(upstream.spoken.at(-1) ?? ""), upstream.spoken.at(-1));
   check("a clarification turn makes no state change", fingerprint(state(call.sid)) === before, state(call.sid));
-  upstream.workerSays("العلف باقي منه شوي");
-  const answered = await upstream.toolCall("answer_question", { value: "low" });
-  check("then the answer moves the call on", state(call.sid)?.step === "quantity_input", { step: state(call.sid)?.step, answered: answered?.slice(0, 200) });
+  const answered = await workerTurn(stream, upstream, "العلف باقي منه شوي", "answer_question", { value: "low", topic: "feed" });
+  check("then the answer moves the call on", state(call.sid)?.step === "report_question" && state(call.sid)?.q === "water_level", { step: state(call.sid)?.step, q: state(call.sid)?.q, answered: answered?.slice(0, 200) });
   stream.stop();
   stream.closeNormally();
   await call.finalStatus("completed");
@@ -725,20 +787,24 @@ scenario("R4", "A cheating model cannot change or save anything", async () => {
     check(`${label}: nothing saved`, count("reports", ranch.farm) === 0, reportOf(ranch.farm));
     if (allowed) check(`${label}: tells the model the allowed values`, allowed.every((value) => (raw ?? "").includes(value)), (raw ?? "").slice(0, 300));
   };
+  const say = (words, name, args) => workerTurn(stream, upstream, words, name, args);
 
+  await expectRefused("confirm_report true before the summary, after worker speech", () => say("إيه احفظه", "confirm_report", { confirmed: true }));
   upstream.workerSays("إيه احفظه");
-  await expectRefused("confirm_report true before the summary, after worker speech", () => upstream.toolCall("confirm_report", { confirmed: true }));
-  await expectRefused("confirm_report true before the summary, with no worker speech", () => upstream.toolCall("confirm_report", { confirmed: true }));
-  await expectRefused("an invalid value", () => upstream.toolCall("answer_question", { value: "banana" }), { allowed: ["yes", "no", "unknown"] });
-  await expectRefused("free text on a choice question", () => upstream.toolCall("answer_question", { text: "كلها بخير" }));
-  await expectRefused("an unknown tool", () => upstream.toolCall("delete_everything", {}));
-  await expectRefused("extra arguments", () => upstream.toolCall("answer_question", { value: "yes", herdCount: 999 }));
-  await expectRefused("arbitrary fields only", () => upstream.toolCall("answer_question", { report: { saved: true }, step: "report_summary" }));
-  await expectRefused("end_call with an invalid reason", () => upstream.toolCall("end_call", { reason: "because" }));
+  const [, unspoken] = await toolBurst(upstream, [{ name: "confirm_report", args: { confirmed: true } }, { name: "confirm_report", args: { confirmed: true } }]);
+  await expectRefused("confirm_report true before the summary, with no worker speech", async () => unspoken);
+  await sleep(300);
+  await expectRefused("an invalid value", () => say("كلها بخير", "answer_question", { value: "banana", topic: "herd" }), { allowed: ["yes", "no", "unknown"] });
+  await expectRefused("unreadable text on a choice question", () => say("كاسييا", "answer_question", { text: "كاسييا", topic: "herd" }));
+  await expectRefused("an unknown tool", () => say("كلها بخير", "delete_everything", {}));
+  await expectRefused("end_call with an invalid reason", () => say("كلها بخير", "end_call", { reason: "because" }));
+  await say("كلها بخير", "answer_question", { value: "yes", topic: "herd" });
+  check("the honest answer still moves the call on after refusals", state(call.sid)?.q === "herd_count", state(call.sid)?.q);
+  await expectRefused("extra arguments", () => say("عشرين", "answer_question", { text: "20", topic: "herd", herdCount: 999 }));
+  await expectRefused("arbitrary fields only", () => say("عشرين", "answer_question", { report: { saved: true }, step: "report_summary" }));
   check("the live call survives every refusal", !stream.closed && state(call.sid) !== null, { closed: stream.closed });
-  await upstream.speak("نرجع للسؤال");
 
-  await answerUntil(call, upstream);
+  await answerUntil(call, stream, upstream);
   check("reaches the summary", state(call.sid).step === "report_summary", state(call.sid)?.step);
   await confirmAndFinish(call, stream, upstream);
   await assertSaved(ranch, call, { herd: 20 });
@@ -763,25 +829,25 @@ scenario("R4b", "Malformed tool JSON: the call falls back, nothing changes", asy
 scenario("R5", "A duplicate toolCallId is applied once", async () => {
   const ranch = await makeFarm(FULL);
   const { call, stream, upstream } = await placeCall(ranch);
-  upstream.workerSays("كلها بخير");
   const callId = `call_duplicate_${randomBytes(3).toString("hex")}`;
-  const first = await upstream.toolCall("answer_question", { value: "yes" }, { callId });
+  const first = await workerTurn(stream, upstream, "كلها بخير", "answer_question", { value: "yes", topic: "herd" }, { callId });
   const afterFirst = fingerprint(state(call.sid));
   check("the first delivery is applied", output(first)?.status === "ok" && state(call.sid)?.q === "herd_count", first);
-  const second = await upstream.toolCall("answer_question", { value: "yes" }, { callId, waitMs: 2000 });
+  upstream.workerSays("كلها بخير");
+  const second = await upstream.toolCall("answer_question", { value: "yes", topic: "herd" }, { callId, waitMs: 2000 });
   check("the bridge does not forward a redelivered call id", second === null, second);
   check("state advanced once through the bridge", fingerprint(state(call.sid)) === afterFirst, state(call.sid)?.step);
 
   // The same guarantee in Next, concurrently, with a fresh id.
   const directId = `direct-${randomBytes(3).toString("hex")}`;
-  const body = { ticket: call.ticket, callSid: call.sid, toolCallId: directId, name: "answer_question", args: { text: "20" }, userSpokeSinceLastTool: true };
+  const body = { ticket: call.ticket, callSid: call.sid, toolCallId: directId, name: "answer_question", args: { text: "20", topic: "herd" }, userSpokeSinceLastTool: true, workerUtterance: "عشرين راس" };
   const [one, two] = await Promise.all([internal("tool", body), internal("tool", body)]);
   check("concurrent duplicates give the same output", one.status === 200 && two.status === 200 && one.json?.output === two.json?.output, { one: one.text.slice(0, 200), two: two.text.slice(0, 200) });
   const replayed = await internal("tool", body);
   check("a later replay gives the first output", replayed.json?.output === one.json?.output, replayed.text.slice(0, 200));
-  check("the concurrent duplicate advanced exactly one step", state(call.sid)?.step === "herd_count_confirm", state(call.sid)?.step);
+  check("the concurrent duplicate advanced exactly one step", state(call.sid)?.step === "report_question" && state(call.sid)?.q === "feed_level", { step: state(call.sid)?.step, q: state(call.sid)?.q });
 
-  await answerUntil(call, upstream);
+  await answerUntil(call, stream, upstream);
   await waitFor(() => stream.sent("mark").some((event) => event.mark?.name?.startsWith("summary-")), "summary playback boundary");
   await sleep(100);
   upstream.workerSays("إيه احفظه");
@@ -930,14 +996,14 @@ fallbackFlow("R7a", "Provider refuses at start: scripted Gather from question 1,
 
 fallbackFlow("R7b", "Provider error mid-call: resumes at the current question, speech completes", async (ranch) => {
   const { call, stream, upstream } = await placeCall(ranch);
-  await answerUntil(call, upstream, (s) => s.q === "feed_level" && s.step === "report_question");
+  await answerUntil(call, stream, upstream, (s) => s.q === "feed_level" && s.step === "report_question");
   upstream.errorMidCall();
   return { call, stream, upstream, expectQuestion: Q.feed };
 }, "speech");
 
 fallbackFlow("R7c", "Provider closes mid-call: resumes at the current question, keypad completes", async (ranch) => {
   const { call, stream, upstream } = await placeCall(ranch);
-  await answerUntil(call, upstream, (s) => s.q === "water_level" && s.step === "report_question");
+  await answerUntil(call, stream, upstream, (s) => s.q === "water_level" && s.step === "report_question");
   upstream.closeAbruptly();
   return { call, stream, upstream, expectQuestion: Q.water };
 }, "keypad");
@@ -945,7 +1011,7 @@ fallbackFlow("R7c", "Provider closes mid-call: resumes at the current question, 
 scenario("R7d", "Twilio socket closes while the call is up: /after resumes, no duplicate report", async () => {
   const ranch = await makeFarm(FULL);
   const { call, stream, upstream } = await placeCall(ranch);
-  await answerUntil(call, upstream, (s) => s.q === "feed_level" && s.step === "report_question");
+  await answerUntil(call, stream, upstream, (s) => s.q === "feed_level" && s.step === "report_question");
   stream.terminate();
   await waitFor(() => upstream.closed, "bridge closes provider", 40).catch(() => {});
   check("the bridge closes the provider socket", upstream.closed, upstream.closed);
@@ -958,7 +1024,7 @@ scenario("R7d", "Twilio socket closes while the call is up: /after resumes, no d
 scenario("R8", "Worker hangs up mid-call: nothing saved, run ends via the status callback", async () => {
   const ranch = await makeFarm(FULL);
   const { call, stream, upstream } = await placeCall(ranch);
-  await answerUntil(call, upstream, (s) => s.q === "feed_level" && s.step === "report_question");
+  await answerUntil(call, stream, upstream, (s) => s.q === "feed_level" && s.step === "report_question");
   stream.stop();
   stream.closeNormally();
   await waitFor(() => upstream.closed, "bridge closes provider", 40).catch(() => {});
@@ -972,6 +1038,31 @@ scenario("R8", "Worker hangs up mid-call: nothing saved, run ends via the status
   check("the owner receives no update call", !(await outbound()).some((r) => r.To === OWNER), (await outbound()).map((r) => r.To));
   const late = await post(call.afterUrl, callFields(call.sid));
   check("a late /after does not resume or claim a save", !/تم حفظ/.test(says(late.xml)) && !gather(late.xml), late.xml.slice(0, 300));
+});
+
+scenario("R8b", "Scheduled call: a worker hang-up uses the attempt, and the retry comes 20 minutes later", async () => {
+  const ranch = await makeFarm(FULL);
+  sql(`update farms set call_day = extract(dow from now() at time zone 'Asia/Riyadh' - interval '1 minute')::int,
+       call_time = (now() at time zone 'Asia/Riyadh' - interval '1 minute')::time where id = ${q(ranch.farm)}`);
+  await resetOutbound();
+  const cron = async () => (await fetch(`${APP}/api/cron/report-calls`, { headers: { Authorization: `Bearer ${CRON_SECRET}` } })).json();
+  check("the cron dials the due slot", (await cron()).placed === 1);
+  const first = new RealtimeCall((await outbound())[0]);
+  const { call, stream, upstream } = await placeCall(ranch, { placed: first });
+  await answerUntil(call, stream, upstream, (s) => s.q === "feed_level" && s.step === "report_question");
+  stream.stop();
+  stream.closeNormally();
+  await call.finalStatus("completed");
+  assertUnsaved(ranch, "the interrupted attempt");
+  let [latest] = run(ranch.farm);
+  check("the run keeps calling, 20 minutes out", latest.state === "calling" && latest.next_attempt_at && Math.abs(new Date(latest.next_attempt_at) - Date.now() - 20 * 60_000) < 120_000, latest);
+  check("no redial before the retry is due", (await cron()).placed === 0 && (await outbound()).length === 1);
+  sql(`update report_call_runs set next_attempt_at = now() - interval '1 second' where farm_id = ${q(ranch.farm)} and state = 'calling'`);
+  check("the retry is placed when due", (await cron()).placed === 1 && (await outbound()).length === 2);
+  [latest] = run(ranch.farm);
+  check("the retry is the second attempt", latest.attempts?.length === 2, latest.attempts);
+  check("no owner call came from the interruption", !(await outbound()).some((r) => r.To === OWNER), (await outbound()).map((r) => r.To));
+  await new RealtimeCall((await outbound())[1]).finalStatus("no-answer");
 });
 
 scenario("R9a", "No start message: the bridge closes within 10 s", async () => {
@@ -1013,8 +1104,8 @@ scenario("R9b", "maxSeconds: the bridge closes when the Next-supplied limit pass
   }
 });
 
-scenario("R9c", "Silence watchdog: no speech or marks closes the stream (limit shortened to 2 s, default 45 s)", async () => {
-  await startLimitedBridge({ silenceMs: 2000 });
+scenario("R9c", "Silence: two reprompts, then the stream ends and the call continues by script (limit shortened to 500 ms, default 10 s)", async () => {
+  await startLimitedBridge({ repromptMs: 500, maxReprompts: 2 });
   try {
     const ranch = await makeFarm(FULL);
     const { call, stream, upstream } = await placeCall(ranch, { bridgePort: LIMITS_BRIDGE_PORT });
@@ -1022,11 +1113,13 @@ scenario("R9c", "Silence watchdog: no speech or marks closes the stream (limit s
     for (let index = 0; index < 8; index += 1) { stream.media(SILENCE); await sleep(100); }
     const closed = await stream.waitClosed(6000);
     const elapsed = Date.now() - started;
-    check("the socket closes after sustained silence", closed !== null && elapsed < 6500, { closed, elapsed });
+    check("the socket closes after two reprompts and one more silent interval", closed !== null && elapsed >= 1000 && elapsed < 6500, { closed, elapsed });
+    check("the worker heard the opening and exactly two reprompts of the question", upstream.spoken.length === 3 && upstream.spoken.slice(1).every((line) => Q.health.test(line)), upstream.spoken);
     await waitFor(() => upstream.closed, "provider close", 20).catch(() => {});
     check("the provider socket closes too", upstream.closed, upstream.closed);
     await call.after();
-    check("/after resumes the question by script", Boolean(call.action), call.xml.slice(0, 300));
+    check("/after resumes the same question by script", Boolean(call.action) && Q.health.test(call.text), call.text);
+    check("/after says the call continues on the keypad", /بالأزرار/.test(call.text), call.text);
     await call.finalStatus("completed");
     assertUnsaved(ranch);
   } finally {
@@ -1156,7 +1249,7 @@ if (!flag("skip-scripted") && !ONLY?.length) {
   const fd = openSync(out, "w");
   let code = 0;
   try {
-    execFileSync(process.execPath, [join(REPO, "scripts/verify-call-scenarios.mjs"), "--label", "final"], { cwd: REPO, stdio: ["ignore", fd, fd], timeout: 1_500_000 });
+    execFileSync(process.execPath, [join(REPO, "scripts/verify-call-scenarios.mjs"), "--label", "final", "--root", join(ROOT, "s3"), "--pg-port", PG_PORT, "--rest-port", REST_PORT, "--gateway-port", GATEWAY_PORT, "--app-port", APP_PORT, "--cleanup"], { cwd: REPO, stdio: ["ignore", fd, fd], timeout: 1_500_000 });
   } catch (error) { code = error.status ?? 1; }
   closeSync(fd);
   const tail = readFileSync(out, "utf8").split("\n").slice(-40).join("\n");

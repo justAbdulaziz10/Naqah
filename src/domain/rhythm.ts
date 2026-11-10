@@ -97,7 +97,8 @@ export function reportRhythm(ws: Workspace, now: Date, size = 7, maxPast = 4): R
     if (report) state = "saved";
     else if (missed && !stillAhead) state = "missed";
     else if (future || stillAhead) state = scheduled ? "upcoming" : "quiet";
-    else state = isCurrent ? "open" : "quiet";
+    // A call time that passed before the ranch existed was never a call, so nothing is awaited.
+    else state = isCurrent && !(callAt && callAt.getTime() < Date.parse(ws.createdAt)) ? "open" : "quiet";
 
     if (state === "upcoming" && !nextGiven) {
       state = "next";

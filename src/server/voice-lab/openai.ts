@@ -6,7 +6,8 @@ import { REALTIME_MODEL } from "../../../services/voice-bridge/config.mjs";
 
 export const LAB_MODEL: string = REALTIME_MODEL;
 export const LAB_MAX_SECONDS = 10 * 60;
-const TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
+const TRANSCRIBE_MODEL = "gpt-4o-transcribe";
+/** The phone call's hint, without the farm's camel names. */
 const API = "https://api.openai.com/v1/realtime/calls";
 const CALL_ID = /^rtc_[\w-]{1,128}$/;
 
@@ -21,7 +22,7 @@ export type LabMode = "voice" | "text";
 
 /** The phone call's settings, except the audio format WebRTC negotiates and the transcript the Lab shows. */
 export function labSession(mode: LabMode, locale: Locale, instructions: string) {
-  const base = { type: "realtime", model: LAB_MODEL, instructions, tools: REALTIME_TOOLS, tool_choice: "auto", reasoning: { effort: "minimal" } };
+  const base = { type: "realtime", model: LAB_MODEL, instructions, tools: REALTIME_TOOLS, tool_choice: "required", reasoning: { effort: "minimal" } };
   if (mode === "text") return { ...base, output_modalities: ["text"], audio: { input: { turn_detection: null } } };
   return {
     ...base,
@@ -29,7 +30,7 @@ export function labSession(mode: LabMode, locale: Locale, instructions: string) 
     audio: {
       input: {
         transcription: { model: TRANSCRIBE_MODEL, language: locale },
-        turn_detection: { type: "server_vad", threshold: 0.5, prefix_padding_ms: 300, silence_duration_ms: 500, create_response: false, interrupt_response: false },
+        turn_detection: { type: "server_vad", threshold: 0.5, prefix_padding_ms: 300, silence_duration_ms: 700, create_response: false, interrupt_response: false },
       },
       output: { voice: "marin" },
     },

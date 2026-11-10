@@ -3,7 +3,7 @@ import { asksToClarify, TurnLoop, type LoopHost, type ToolReply } from "./turnLo
 import { addResponseUsage, estimateUsd, NO_USAGE } from "./usage";
 
 type Sent = Record<string, unknown> & { type: string };
-const OK: ToolReply = { output: '{"status":"ok"}', end: null, goodbye: null };
+const OK: ToolReply = { output: '{"status":"ok"}', end: null, goodbye: null, silent: true };
 
 function setup(mode: "voice" | "text" = "voice", reply: ToolReply = OK) {
   const sent: Sent[] = [];
@@ -106,16 +106,112 @@ describe("TurnLoop", () => {
     expect(types().filter((type) => type === "response.create")).toHaveLength(1);
   });
 
-  it("hangs up a silent voice call, as the phone does, but not while the worker talks", async () => {
-    const { loop, host, open } = setup();
-    open();
-    await vi.advanceTimersByTimeAsync(40_000);
-    loop.handle({ type: "input_audio_buffer.speech_started" });
-    await vi.advanceTimersByTimeAsync(9_000);
-    expect(host.finished).not.toHaveBeenCalled();
-    loop.handle({ type: "input_audio_buffer.speech_stopped" });
-    await vi.advanceTimersByTimeAsync(45_000);
-    expect(host.finished).toHaveBeenCalledWith("silence_timeout");
+  /** The opening or a later prompt, heard to the end. */
+  function played(kit: ReturnType<typeof setup>, id: string, item: string) {
+    kit.respond(id);
+    kit.loop.handle({ type: "response.output_item.added", item: { type: "message", id: item } });
+    kit.loop.handle({ type: "output_audio_buffer.started", response_id: id });
+    kit.done(id);
+    kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: id });
+  }
+
+  it("re-speaks a played prompt twice to a silent worker, then stops, as the bridge does", async () => {
+    const kit = setup();
+    kit.loop.handle({ type: "session.created" });
+    played(kit, "r0", "item0");
+    kit.sent.length = 0;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(JSON.stringify(kit.sent.at(-1))).toContain("hello");
+    expect((kit.sent.at(-1)!.response as { tool_choice: string }).tool_choice).toBe("none");
+    played(kit, "r1", "item1");
+    await vi.advanceTimersByTimeAsync(10_000);
+    played(kit, "r2", "item2");
+    expect(kit.sent.filter((event) => event.type === "response.create")).toHaveLength(2);
+    expect(kit.host.finished).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(kit.host.finished).toHaveBeenCalledWith("silence_timeout");
+  });
+
+  it("restarts the reprompt count when the worker speaks", async () => {
+    const kit = setup();
+    kit.loop.handle({ type: "session.created" });
+    played(kit, "r0", "item0");
+    await vi.advanceTimersByTimeAsync(10_000);
+    played(kit, "r1", "item1");
+    await vi.advanceTimersByTimeAsync(5_000);
+    kit.loop.handle({ type: "input_audio_buffer.speech_started" });
+    kit.loop.handle({ type: "input_audio_buffer.speech_stopped" });
+    expect(Reflect.get(kit.loop, "reprompts")).toBe(0);
+  });
+
+  it("does not hurry someone typing", async () => {
+    const kit = setup("text");
+    kit.loop.handle({ type: "session.created" });
+    kit.respond("r0");
+    kit.loop.handle({ type: "response.output_text.delta", item_id: "m0", response_id: "r0", delta: "hello" });
+    kit.done("r0");
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(kit.host.finished).not.toHaveBeenCalled();
+  });
+
+  it("speaks a server line word for word with tools off", async () => {
+    const kit = setup("voice", { output: "{}", end: null, goodbye: null, sayText: "كم عدد الحلال؟", repromptText: "كم؟" });
+    kit.open();
+    kit.respond("r1");
+    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "answer_question", arguments: "{}" });
+    kit.done("r1");
+    await flush();
+    const response = kit.sent.at(-1)!.response as { tool_choice: string; instructions: string };
+    expect(response.tool_choice).toBe("none");
+    expect(response.instructions).toContain("كم عدد الحلال؟");
+  });
+
+  it("says nothing on a silent result", async () => {
+    const kit = setup();
+    kit.open();
+    kit.respond("r1");
+    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "repeat_or_clarify", arguments: "{}" });
+    kit.done("r1");
+    kit.sent.length = 0;
+    await flush();
+    expect(kit.sent.filter((event) => event.type === "response.create")).toEqual([]);
+  });
+
+  it("re-speaks a prompt the worker cut off when the result is silent", async () => {
+    const kit = setup("voice", { output: "{}", end: null, goodbye: null, sayText: "السؤال الأول" });
+    kit.open();
+    kit.respond("r1");
+    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "answer_question", arguments: "{}" });
+    kit.done("r1");
+    await flush();
+    kit.respond("r2");
+    kit.loop.handle({ type: "response.output_item.added", item: { type: "message", id: "q" } });
+    kit.loop.handle({ type: "output_audio_buffer.started", response_id: "r2" });
+    kit.loop.handle({ type: "input_audio_buffer.speech_started" });
+    kit.done("r2", "cancelled");
+    kit.loop.handle({ type: "input_audio_buffer.speech_stopped" });
+    kit.loop.handle({ type: "input_audio_buffer.committed", item_id: "w1" });
+    kit.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w1", content_index: 0, transcript: "" });
+    kit.respond("r3");
+    kit.host.runTool.mockResolvedValueOnce(OK);
+    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r3", call_id: "c3", name: "repeat_or_clarify", arguments: "{}" });
+    kit.sent.length = 0;
+    kit.done("r3");
+    await flush();
+    expect(JSON.stringify(kit.sent.at(-1))).toContain("السؤال الأول");
+  });
+
+  it.each([
+    ["no action", { output: "{}", end: null, goodbye: null }],
+    ["two actions", { output: "{}", end: null, goodbye: null, sayText: "a", silent: true as const }],
+  ])("stops on a result with %s, as the bridge does", async (_label, bad) => {
+    const kit = setup("voice", bad as ToolReply);
+    kit.open();
+    kit.respond("r1");
+    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "answer_question", arguments: "{}" });
+    kit.done("r1");
+    await flush();
+    expect(kit.host.fail).toHaveBeenCalledWith("tool_failed", "invalid_result");
   });
 
   it("runs a repeated tool call only once", async () => {
@@ -184,8 +280,10 @@ describe("confirming a summary", () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  const SUMMARY: ToolReply = { output: "{}", end: null, goodbye: null, summaryText: "هذا الملخص" };
+  const SUMMARY: ToolReply = { output: "{}", end: null, goodbye: null, summaryText: "هذا الملخص", summaryId: "sum-1", repromptText: "أحفظ؟" };
   const confirmCall = (id: string, call: string) => ({ type: "response.function_call_arguments.done", response_id: id, call_id: call, name: "confirm_report", arguments: '{"confirmed":true}' });
+
+  const lastCall = (kit: { host: { runTool: { mock: { calls: Parameters<LoopHost["runTool"]>[] } } } }) => kit.host.runTool.mock.calls[0][0];
 
   /** Gets to the agent reading the summary, with the audio started. */
   async function reading(mode: "voice" | "text" = "voice") {
@@ -200,8 +298,10 @@ describe("confirming a summary", () => {
     if (mode === "voice") {
       kit.loop.handle({ type: "response.output_item.added", item: { type: "message", id: "sum" } });
       kit.loop.handle({ type: "output_audio_buffer.started", response_id: "r2" });
+      kit.loop.handle({ type: "response.output_audio_transcript.done", response_id: "r2", item_id: "sum", transcript: "هذا الملخص." });
     } else {
       kit.loop.handle({ type: "response.output_text.delta", item_id: "sum", response_id: "r2", delta: "ملخص" });
+      kit.loop.handle({ type: "response.output_text.done", response_id: "r2", item_id: "sum", text: '"هذا الملخص"' });
     }
     return kit;
   }
@@ -222,7 +322,7 @@ describe("confirming a summary", () => {
     kit.done("r2");
     kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r2" });
     await speakAndConfirm(kit, "إيه احفظه");
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, workerUtterance: "إيه احفظه", heardSummary: true });
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, workerUtterance: "إيه احفظه", heardSummaryId: "sum-1" });
   });
 
   it("counts a summary whose audio ended before the reply was marked done", async () => {
@@ -230,7 +330,7 @@ describe("confirming a summary", () => {
     kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r2" });
     kit.done("r2");
     await speakAndConfirm(kit, "إيه احفظه");
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ heardSummary: true });
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ heardSummaryId: "sum-1" });
   });
 
   it("ignores an estimate of heard audio that overshoots", async () => {
@@ -267,20 +367,20 @@ describe("confirming a summary", () => {
     expect(kit.host.runTool).not.toHaveBeenCalled();
     kit.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w1", content_index: 0, transcript: "العلف زين" });
     await flush();
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, heard: "العلف زين" });
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, workerUtterance: "العلف زين" });
   });
 
   it("reports a failed transcript as empty, not as nothing to check", async () => {
     const kit = await spokenAnswer();
     kit.loop.handle({ type: "conversation.item.input_audio_transcription.failed", item_id: "w1", content_index: 0 });
     await flush();
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, heard: "" });
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, workerUtterance: "" });
   });
 
   it("stops waiting for a transcript that never comes", async () => {
     const kit = await spokenAnswer();
     await vi.advanceTimersByTimeAsync(2_500);
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, heard: "" });
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, workerUtterance: "" });
   });
 
   it("gives a typed answer its own words at once", async () => {
@@ -291,7 +391,7 @@ describe("confirming a summary", () => {
     kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "answer_question", arguments: '{"value":"yes"}' });
     kit.done("r1");
     await flush();
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, heard: "العلف زين" });
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, workerUtterance: "العلف زين" });
   });
 
   it("shows an off-topic answer as asking again, not as a failed check", () => {
@@ -308,6 +408,56 @@ describe("confirming a summary", () => {
     expect(request.instructions).toContain("هذا الملخص");
   });
 
+  it("does not count a summary the model said in other words", async () => {
+    const kit = setup("voice", SUMMARY);
+    kit.open();
+    kit.respond("r1");
+    kit.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c0", name: "answer_question", arguments: "{}" });
+    kit.done("r1");
+    await flush();
+    kit.host.runTool.mockClear();
+    kit.respond("r2");
+    kit.loop.handle({ type: "response.output_item.added", item: { type: "message", id: "sum" } });
+    kit.loop.handle({ type: "output_audio_buffer.started", response_id: "r2" });
+    kit.loop.handle({ type: "response.output_audio_transcript.done", response_id: "r2", item_id: "sum", transcript: "كل شي تمام" });
+    kit.done("r2");
+    kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r2" });
+    await speakAndConfirm(kit, "إيه احفظه");
+    expect(lastCall(kit).heardSummaryId).toBeUndefined();
+  });
+
+  it("waits for the transcript on every tool, hanging up included", async () => {
+    const kit = await spokenAnswer();
+    kit.host.runTool.mockClear();
+    const next = setup();
+    next.open();
+    next.loop.handle({ type: "input_audio_buffer.speech_started" });
+    next.loop.handle({ type: "input_audio_buffer.speech_stopped" });
+    next.loop.handle({ type: "input_audio_buffer.committed", item_id: "w2" });
+    next.respond("r1");
+    next.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "record_facts", arguments: '{"facts":[]}' });
+    next.done("r1");
+    await flush();
+    expect(next.host.runTool).not.toHaveBeenCalled();
+    next.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w2", content_index: 0, transcript: "العلف قليل" });
+    await flush();
+    expect(next.host.runTool.mock.calls[0][0]).toMatchObject({ name: "record_facts", workerUtterance: "العلف قليل" });
+    const ending = setup();
+    ending.open();
+    ending.loop.handle({ type: "input_audio_buffer.speech_started" });
+    ending.loop.handle({ type: "input_audio_buffer.speech_stopped" });
+    ending.loop.handle({ type: "input_audio_buffer.committed", item_id: "w3" });
+    ending.respond("r1");
+    ending.loop.handle({ type: "response.function_call_arguments.done", response_id: "r1", call_id: "c1", name: "end_call", arguments: '{"reason":"worker_ended"}' });
+    ending.done("r1");
+    await flush();
+    expect(ending.host.runTool).not.toHaveBeenCalled();
+    ending.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w3", content_index: 0, transcript: "مع السلامة" });
+    await flush();
+    expect(ending.host.runTool).toHaveBeenCalledTimes(1);
+    expect(ending.host.runTool.mock.calls[0][0].workerUtterance).toBe("مع السلامة");
+  });
+
   it("does not count a model's own reply as the summary", async () => {
     const kit = setup("voice", OK);
     kit.open();
@@ -322,7 +472,7 @@ describe("confirming a summary", () => {
     kit.done("r2");
     kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r2" });
     await speakAndConfirm(kit, "إيه احفظه");
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ heardSummary: false });
+    expect(lastCall(kit).heardSummaryId).toBeUndefined();
   });
 
   it("does not let an earlier reply's audio ending count as hearing the summary", async () => {
@@ -330,7 +480,7 @@ describe("confirming a summary", () => {
     kit.done("r2");
     kit.loop.handle({ type: "output_audio_buffer.stopped", response_id: "r1" });
     await speakAndConfirm(kit, "إيه احفظه");
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ heardSummary: false });
+    expect(lastCall(kit).heardSummaryId).toBeUndefined();
   });
 
   it("treats a summary as audible from its own transcript, with no new buffer start", async () => {
@@ -354,7 +504,7 @@ describe("confirming a summary", () => {
     const kit = await reading();
     kit.done("r2");
     await speakAndConfirm(kit, "إيه احفظه");
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ heardSummary: false });
+    expect(lastCall(kit).heardSummaryId).toBeUndefined();
   });
 
   it("does not count a summary cut off while it was being generated", async () => {
@@ -369,7 +519,7 @@ describe("confirming a summary", () => {
     kit.done("r3");
     kit.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w1", content_index: 0, transcript: "إيه احفظه" });
     await flush();
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ heardSummary: false });
+    expect(lastCall(kit).heardSummaryId).toBeUndefined();
   });
 
   it("does not count a typed interruption of the summary", async () => {
@@ -380,7 +530,8 @@ describe("confirming a summary", () => {
     kit.loop.handle(confirmCall("r3", "c3"));
     kit.done("r3");
     await flush();
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ workerUtterance: "إيه احفظه", heardSummary: false });
+    expect(lastCall(kit)).toMatchObject({ workerUtterance: "إيه احفظه" });
+    expect(lastCall(kit).heardSummaryId).toBeUndefined();
   });
 
   it("counts a text summary that finished, then a typed confirmation", async () => {
@@ -391,7 +542,7 @@ describe("confirming a summary", () => {
     kit.loop.handle(confirmCall("r3", "c3"));
     kit.done("r3");
     await flush();
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, workerUtterance: "إيه احفظه", heardSummary: true });
+    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: true, workerUtterance: "إيه احفظه", heardSummaryId: "sum-1" });
   });
 
   it("waits for the final transcript, and sends none if it never comes", async () => {
@@ -432,7 +583,8 @@ describe("confirming a summary", () => {
     kit.loop.handle({ type: "input_audio_buffer.speech_started" });
     kit.loop.handle({ type: "conversation.item.input_audio_transcription.completed", item_id: "w1", content_index: 0, transcript: "إيه احفظه" });
     await flush();
-    expect(kit.host.runTool.mock.calls[0][0]).toMatchObject({ spoke: false, workerUtterance: "", heardSummary: false });
+    expect(lastCall(kit)).toMatchObject({ spoke: false, workerUtterance: "" });
+    expect(lastCall(kit).heardSummaryId).toBeUndefined();
   });
 
   it("forces a commit when speech runs on, as the bridge does", async () => {

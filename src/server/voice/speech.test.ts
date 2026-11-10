@@ -72,6 +72,11 @@ describe("negated speech never reads as yes", () => {
 });
 
 describe("what a real caller says or presses", () => {
+  it("never saves keypad digits as an owner-written text answer", () => {
+    const custom = { ...session("text"), step: "report_question", data: { reportIndex: 0, queue: [{ kind: "custom" as const, id: "custom-1", question: { ar: "وش الجديد؟", en: "What is new?" } }] } };
+    expect(mapSpeechToInput(custom, "", "1")).toBeNull();
+    expect(mapSpeechToInput(custom, "", "12")).toBeNull();
+  });
   it("records I don't know as unknown in free text and quantities, however it is spelled", () => {
     for (const spelling of ["ما ادري", "ما أدري", "مدري", "i don't know"]) {
       expect(mapSpeechToInput(session("text"), spelling)).toEqual({ value: "unknown" });
@@ -83,6 +88,29 @@ describe("what a real caller says or presses", () => {
   });
   it("takes a whole quantity from the keypad", () => {
     expect(mapSpeechToInput(session("number"), "", "120")).toEqual({ text: "120" });
+  });
+});
+
+describe("report mode and correction speech", () => {
+  const options = (values: string[]) => values.map((value) => ({ id: value, value, label: { ar: value, en: value } }));
+  const summary = { ...session("choices", options(["confirm_save", "correct", "end_without_save"])), step: "report_summary" };
+  it.each(["لا", "لا والله", "no", "مو صحيح"])("offers correction for a summary denial: %s", (speech) => {
+    expect(mapSpeechToInput(summary, speech)).toEqual({ value: "correct" });
+  });
+  it.each(["لا تحفظ", "لا تحفظه", "don't save", "do not save"])("ends without saving only on an explicit request: %s", (speech) => {
+    expect(mapSpeechToInput(summary, speech)).toEqual({ value: "end_without_save" });
+  });
+  it.each(["لا", "بس", "ما عندي شي"])("finishes the open update on %s", (speech) => {
+    expect(mapSpeechToInput({ ...session("text"), step: "open_more" }, speech)).toEqual({ value: "open_done" });
+  });
+  it.each([["أسئلة", "mode_guided"], ["guided", "mode_guided"], ["مفتوح", "mode_open"], ["open", "mode_open"]])("chooses the report mode from %s", (speech, value) => {
+    expect(mapSpeechToInput({ ...session("choices", options(["mode_guided", "mode_open"])), step: "report_mode_choice" }, speech)).toEqual({ value });
+  });
+  it("picks an offered correction or returns to the full summary", () => {
+    const pick = { ...session("choices", [{ id: "feed", value: "correct:feed_level", label: { ar: "العلف", en: "Feed" } }, ...options(["back_to_summary", "end_without_save"])]), step: "report_correct_pick" };
+    expect(mapSpeechToInput(pick, "العلف")).toEqual({ value: "correct:feed_level" });
+    expect(mapSpeechToInput(pick, "ارجع")).toEqual({ value: "back_to_summary" });
+    expect(mapSpeechToInput(pick, "", "1")).toEqual({ value: "correct:feed_level" });
   });
 });
 
@@ -172,7 +200,7 @@ describe("recognition quality and explicit confirmations", () => {
     expect(mapSpeechToInput(session(), "no", "1", "en", "0.1")).toEqual({ value: "yes" });
     expect(mapSpeechToInput(session("number"), "20", "1234567")).toBeNull();
   });
-  it.each(["quantity_confirm", "herd_count_confirm", "health_name_confirm"])("requires clear speech at %s", (step) => {
+  it.each(["callback_task_confirmation", "outbound_task_confirmation", "outbound_receipt"])("requires clear speech at %s", (step) => {
     const confirmation = { ...session(), step };
     expect(mapSpeechToInput(confirmation, "نعم لا")).toBeNull();
     expect(mapSpeechToInput(confirmation, "yes no")).toBeNull();
@@ -219,14 +247,18 @@ describe("Saudi Arabic capture regressions", () => {
     expect(extractNumber(speech)).toBe(quantity);
   });
   it.each(["خربان", "مكسور"])("reads fence damage %s as a problem", (speech) => {
-    expect(mapSpeechToInput(question("fences_condition", "yesno", null, ["yes", "no", "unknown"]), speech)).toEqual({ value: "no" });
+    expect(mapSpeechToInput(question("fences_condition", "level", null, ["good", "medium", "low", "critical", "unknown"]), speech)).toEqual({ value: "low" });
   });
   it("matches camel names with or without the definite article", () => {
     const camel = { ...session("choices", [{ id: "camel:test", value: "camel:test", label: { ar: "الحمرا", en: "Al Hamra" } }]), step: "health_pick" };
     expect(mapSpeechToInput(camel, "حمرا")).toEqual({ value: "camel:test" });
   });
   it.each([["ما تاكل", "sick"], ["تعرج", "sick"], ["نراقبها", "watch"]])("captures the reported camel condition %s", (speech, value) => {
-    expect(mapSpeechToInput({ ...session("choices", options(["healthy", "sick", "watch", "unknown"])), step: "health_status" }, speech)).toEqual({ value });
+    expect(mapSpeechToInput({ ...session("choices", options(["healthy", "sick", "watch", "unknown"])), step: "health_status" }, speech)).toEqual({ value, text: speech });
+  });
+  it("keeps the worker's description of what is wrong", () => {
+    const said = "مريضة، رجلها اليسار وارمة";
+    expect(mapSpeechToInput({ ...session("choices", options(["healthy", "sick", "watch", "unknown"])), step: "health_status" }, said)).toEqual({ value: "sick", text: said });
   });
 });
 
@@ -260,10 +292,15 @@ describe("negation reads as what was meant", () => {
   ]);
 
   it.each([
-    "لا، ما فيه مريض", "لا ما فيه مريض", "ما في شي", "مو تعبانة", "لا والله ما شفت شي", "لا",
-    "no, none are sick", "nothing wrong", "no I don't think so", "كلها بخير", "all fine",
+    "لا، ما فيه مريض", "لا ما فيه مريض", "ما في شي", "مو تعبانة", "لا والله ما شفت شي",
+    "no, none are sick", "nothing wrong", "كلها بخير", "all fine",
   ])("«%s» on «is any camel sick?» means all are well", (speech) => {
     expect(mapSpeechToInput(herdHealth, speech, null, "ar")).toEqual({ value: "yes" });
+  });
+  // Known product gap: the question is now «كيف الحلال اليوم؟», so a bare yes or no should be asked again,
+  // but choiceInput's YES_WORDS/NO_WORDS fallthrough still maps it. Remove `.fails` when that is fixed.
+  it.each(["لا", "إيه", "no", "yes"])("asks again on a bare «%s» to «how are the camels?»", (speech) => {
+    expect(mapSpeechToInput(herdHealth, speech, null, "ar")).toBeNull();
   });
   it.each(["فيه وحدة مريضة", "إيه، وحدة تعبانة", "مو كلها بخير", "one is sick", "not all of them are well", "something is wrong"])(
     "«%s» on «is any camel sick?» means one needs attention", (speech) => {
@@ -299,4 +336,20 @@ describe("negation reads as what was meant", () => {
       expect(extractNumber(speech)).toBe(number);
     },
   );
+});
+
+describe("review regressions", () => {
+  it("reads Arabic afternoon and evening words as PM, and morning words as AM", () => {
+    expect(extractTime("الساعة خمسة العصر")).toBe("17:00");
+    expect(extractTime("6 المغرب")).toBe("18:00");
+    expect(extractTime("8 العشاء")).toBe("20:00");
+    expect(extractTime("واحدة الظهر")).toBe("13:00");
+    expect(extractTime("7 الصبح")).toBe("07:00");
+  });
+
+  it("does not take a near match as proof the worker heard the instructions", () => {
+    const session = { step: "outbound_receipt", inputMode: "choices", replies: [{ id: "received", value: "received", label: { ar: "إيه، سمعتها", en: "Yes, I heard them" } }], data: {}, draft: {}, turns: [] } as never;
+    expect(mapSpeechToInput(session, "وش سمعتها", null, "ar")).toBeNull();
+    expect(mapSpeechToInput(session, "I heard them barely", null, "en")).toBeNull();
+  });
 });

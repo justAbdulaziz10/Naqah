@@ -109,10 +109,10 @@ export function PlanWeeks({ locale }: { locale: Locale }) {
                   <dt className={daily ? "text-cream/75" : "text-muted"}>{p.yourCalls}</dt>
                   <dd className="text-end font-semibold">{copy.rows.calls}</dd>
                 </div>
-                <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-6 gap-y-2">
-                  <dt className={daily ? "text-cream/75" : "text-muted"}>{p.tasks}</dt>
-                  <dd className={cn("text-end font-semibold", !daily && "text-muted")}>{copy.rows.tickets}</dd>
-                  {daily ? (
+                {daily ? (
+                  <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-6 gap-y-2">
+                    <dt className="text-cream/75">{p.tasks}</dt>
+                    <dd className="text-end font-semibold">{copy.rows.tickets}</dd>
                     <dd className="col-span-2 flex items-center gap-3 bg-cream/10 px-4 py-3 text-[0.9375rem]">
                       <span aria-hidden className="size-3 shrink-0 rounded-full border-2 border-gold" />
                       <span>
@@ -120,8 +120,8 @@ export function PlanWeeks({ locale }: { locale: Locale }) {
                         <span className="text-cream/70"> · {p.taskOpen}</span>
                       </span>
                     </dd>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
               </dl>
             </section>
           );
@@ -156,7 +156,14 @@ export function PlanWeeks({ locale }: { locale: Locale }) {
                   </th>
                   {plans.map((plan) => (
                     <td key={plan} className="p-4 text-[0.9375rem] font-semibold">
-                      {p[plan].rows[row]}
+                      {row === "tickets" && plan === "basic" ? (
+                        <>
+                          <span aria-hidden>{p[plan].rows[row]}</span>
+                          <span className="sr-only">{p.notIncluded}</span>
+                        </>
+                      ) : (
+                        p[plan].rows[row]
+                      )}
                     </td>
                   ))}
                 </tr>

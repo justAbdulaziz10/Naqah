@@ -1,9 +1,9 @@
 import { advanceClock, confirmTask, resolveWorkerCallAttempt, startTaskVerification } from "../actions";
 import { MAX_RETRIES, RETRY_DELAY_MS } from "../clock";
-import { dueTaskVerifications, dueWorkerCalls } from "../rules";
+import { dueTaskVerifications, dueWorkerCalls, openCoveredTasks, taskTicketsEnabled, workerDeliveryResult } from "../rules";
 import type { Workspace } from "../types";
 
-import { copy, reply, blank, ask, say, addNotice, commitTo, workerTurn, atRiyadh } from './shared';
+import { copy, reply, blank, ask, status, say, addNotice, commitTo, workerTurn, atRiyadh } from './shared';
 import type { CallSession, EngineResult, AnswerInput } from './shared';
 
 export function startWorkerOutbound(ws: Workspace, now: Date): EngineResult {
@@ -15,11 +15,11 @@ export function startWorkerOutbound(ws: Workspace, now: Date): EngineResult {
     const result = startTaskVerification(prepared, now, task.id);
     prepared = result.ws;
     startedVerification = true;
-    startedVerificationCallIds.push(result.pendingCallId);
+    if (result.pendingCallId && !startedVerificationCallIds.includes(result.pendingCallId)) startedVerificationCallIds.push(result.pendingCallId);
   }
 
   const pendingIds = prepared.pendingWorkerCalls
-    .filter((call) => call.state === "pending")
+    .filter((call) => call.state === "pending" && taskTicketsEnabled(prepared))
     .slice()
     .sort((a, b) => (a.nextAttemptAt ?? "").localeCompare(b.nextAttemptAt ?? ""))
     .map((call) => call.id);
@@ -48,10 +48,13 @@ function beginOutboundAttempt(session: CallSession, ws: Workspace, now: Date): C
   const callId = session.data.pendingCallIds?.[index];
   const call = ws.pendingWorkerCalls.find((item) => item.id === callId && item.state === "pending");
   if (!call) {
-    return say(
+    // A status line: the worker on a real call has already heard their goodbye.
+    return status(
       { ...session, data: { ...session.data, currentCallId: undefined } },
       copy("There are no more worker calls waiting right now.", "ما فيه مكالمات أخرى معلّقة للعامل الآن."),
       now,
+      "outbound_done",
+      [],
       true,
     );
   }
@@ -104,13 +107,13 @@ export function handleWorkerOutbound(session: CallSession, ws: Workspace, now: D
     const call = ws.pendingWorkerCalls.find((item) => item.id === callId && item.state === "pending");
     if (!call || !callId) return { session: say(current.session, copy("This call is no longer waiting.", "هذه المكالمة لم تعد معلّقة."), now, true) };
     if (current.value === "no_answer") {
-      const result = resolveWorkerCallAttempt(ws, now, callId, false);
+      const result = resolveWorkerCallAttempt(ws, now, callId, "unanswered");
       if (result.outcome === "retry_scheduled") {
         const nextAttempt = (result.ws.pendingWorkerCalls.find((item) => item.id === callId)?.attempts.length ?? 1) + 1;
         const retryAt = new Date(now.getTime() + RETRY_DELAY_MS);
         const text = copy(
-          "Ahmed did not answer. Retry " + Math.max(1, nextAttempt - 1) + " of " + MAX_RETRIES + " is scheduled for " + atRiyadh(retryAt, "en", true) + " Riyadh time.",
-          "ما رد أحمد. أُعيدت المحاولة " + Math.max(1, nextAttempt - 1) + " من " + MAX_RETRIES + " في " + atRiyadh(retryAt, "ar", true) + " بتوقيت الرياض.",
+          "Ahmed did not answer. Attempt " + nextAttempt + " of " + (MAX_RETRIES + 1) + " is scheduled for " + atRiyadh(retryAt, "en", true) + " Riyadh time.",
+          "ما رد أحمد. المحاولة " + nextAttempt + " من " + (MAX_RETRIES + 1) + " في " + atRiyadh(retryAt, "ar", true) + " بتوقيت الرياض.",
         );
         const waiting = ask(
           addNotice(current.session, text),
@@ -122,58 +125,98 @@ export function handleWorkerOutbound(session: CallSession, ws: Workspace, now: D
         return { session: waiting, commit: commitTo(result.ws) };
       }
       const ticketText = copy(
-        "Ahmed did not answer after four attempts. A No Answer Ticket is open. He can call NAQAH back to receive the message.",
-        "ما رد أحمد بعد أربع محاولات. فُتحت تذكرة عدم رد، ويقدر يتصل بنا عشان توصله الرسالة.",
+        "Ahmed did not answer after three attempts. Automatic calls have stopped. The instructions were not delivered.",
+        "ما رد أحمد بعد ثلاث محاولات. توقفت المكالمات التلقائية، والتعليمات ما وصلت.",
       );
       const next = addNotice(say(current.session, ticketText, now), ticketText);
       return { session: advanceOutboundIndex(next, result.ws, now), commit: commitTo(result.ws) };
     }
 
-    const result = resolveWorkerCallAttempt(ws, now, callId, true);
-    const message = call.purpose === "instruction"
-      ? copy("Message from Abdullah: " + call.message, "رسالة من عبدالله: " + call.message)
-      : copy("Ahmed has the scheduled task: " + call.message + ". Did he finish it?", "المهمة المجدولة لأحمد: " + call.message + ". هل خلصها؟");
-    const delivered = say(current.session, message, now);
     if (call.purpose === "task_verification") {
-      return {
-        session: ask(
-          { ...delivered, data: { ...delivered.data, currentCallId: callId } },
-          copy("Did Ahmed explicitly confirm the task is complete?", "هل أكد أحمد بشكل واضح إن المهمة خلصت؟"),
-          now,
-          "outbound_task_confirmation",
-          [reply("yes", "Yes, complete", "إيه، خلصت"), reply("no", "No, not yet", "لا، باقي"), reply("unknown", "I don’t know", "ما أدري")],
-        ),
-        commit: commitTo(result.ws),
+      const verifying = {
+        ...current.session,
+        data: { ...current.session.data, currentCallId: callId, verificationTaskIds: openCoveredTasks(ws, call), answeredTaskIds: [] },
       };
+      return { session: askVerificationTask(verifying, ws, now, 0) };
     }
+    const owner = ws.settings.owner.name;
+    const spoken = say(current.session, copy("Message from " + owner + ": " + call.message, "رسالة من " + owner + ": " + call.message), now, false, true);
+    return {
+      session: ask(
+        { ...spoken, data: { ...spoken.data, currentCallId: callId } },
+        copy("Did you hear every instruction?", "سمعت كل التعليمات؟"),
+        now,
+        "outbound_receipt",
+        [reply("received", "Yes, I heard them", "إيه، سمعتها")],
+      ),
+    };
+  }
+
+  if (session.step === "outbound_receipt") {
+    const callId = session.data.currentCallId;
+    if (!callId || current.value !== "received") {
+      return { session: say(current.session, copy("The instructions were not confirmed.", "ما تأكد وصول التعليمات."), now, true) };
+    }
+    const result = resolveWorkerCallAttempt(ws, now, callId, "delivered");
+    const delivered = { ...current.session, data: { ...current.session.data, deliveryCompleted: true } };
     return { session: advanceOutboundIndex(delivered, result.ws, now), commit: commitTo(result.ws) };
   }
 
-  if (session.step === "outbound_task_confirmation") {
-    const callId = session.data.currentCallId;
-    const call = ws.pendingWorkerCalls.find((item) => item.id === callId);
-    if (!call?.taskTicketId) return { session: say(current.session, copy("No task ticket is attached to this call.", "ما فيه تذكرة مهمة مرتبطة بهذا الاتصال."), now, true) };
-    if (current.value !== "yes" && current.value !== "no") {
-      return {
-        session: advanceOutboundIndex(
-          say(
-            current.session,
-            copy("Ahmed could not confirm this task. It stays open.", "ما قدر أحمد يؤكد المهمة. تبقى مفتوحة."),
-            now,
-          ),
-          ws,
-          now,
-        ),
-      };
-    }
-    const done = current.value === "yes";
-    const updated = confirmTask(ws, now, call.taskTicketId, done, "worker_task_verification");
-    const response = done
-      ? copy("Thank you. The task is marked complete.", "شكراً لك. تم تأكيد إنجاز المهمة.")
-      : copy("Understood. The task stays open until Ahmed confirms it is complete.", "واضح. تبقى المهمة مفتوحة إلى أن يؤكد أحمد إنجازها.");
-    return { session: advanceOutboundIndex(say(current.session, response, now), updated, now), commit: commitTo(updated) };
-  }
+  if (session.step === "outbound_task_confirmation") return handleVerificationAnswer(session, current, ws, now);
   return { session: current.session };
+}
+
+/** Ask the task at `index`, skipping any closed since the call began. Null when none is left. */
+function nextVerificationTask(session: CallSession, ws: Workspace, index: number): { id: string; instruction: string } | null {
+  for (const id of (session.data.verificationTaskIds ?? []).slice(index)) {
+    const task = ws.taskTickets.find((item) => item.id === id && item.status === "open");
+    if (task) return { id: task.id, instruction: task.instruction };
+  }
+  return null;
+}
+
+function askVerificationTask(session: CallSession, ws: Workspace, now: Date, index: number): CallSession {
+  const task = nextVerificationTask(session, ws, index);
+  if (!task) return advanceOutboundIndex(session, ws, now);
+  return ask(
+    { ...session, data: { ...session.data, currentTaskId: task.id } },
+    copy("Did you finish: " + task.instruction + "?", "خلصت المهمة: " + task.instruction + "؟"),
+    now,
+    "outbound_task_confirmation",
+    [reply("yes", "Yes, complete", "إيه، خلصت"), reply("no", "No, not yet", "لا، باقي"), reply("unknown", "I don’t know", "ما أدري")],
+    "choices",
+    true,
+  );
+}
+
+/** An explicit yes or no is saved as given; anything else leaves that task open. The last open task settles the attempt. */
+function handleVerificationAnswer(session: CallSession, current: { session: CallSession; value: string }, ws: Workspace, now: Date): EngineResult {
+  const callId = session.data.currentCallId;
+  const taskId = session.data.currentTaskId;
+  const call = ws.pendingWorkerCalls.find((item) => item.id === callId && item.state === "pending");
+  if (!call || !callId || !taskId) return { session: say(current.session, copy("This call is no longer waiting.", "هذه المكالمة لم تعد معلّقة."), now, true) };
+  const explicit = current.value === "yes" || current.value === "no";
+  const done = current.value === "yes";
+  const answeredTaskIds = [...(session.data.answeredTaskIds ?? []), ...(explicit ? [taskId] : [])];
+  const response = done
+    ? copy("Thank you. The task is marked complete.", "شكراً لك. تم تأكيد إنجاز المهمة.")
+    : explicit
+      ? copy("Understood. The task stays open until you confirm it is complete.", "واضح. تبقى المهمة مفتوحة إلى أن تأكد إنجازها.")
+      : copy("All right. This task stays open.", "طيب. تبقى هذه المهمة مفتوحة.");
+  const spoken = say({ ...current.session, data: { ...current.session.data, answeredTaskIds } }, response, now);
+  const index = (session.data.verificationTaskIds ?? []).indexOf(taskId) + 1;
+  if (nextVerificationTask(session, ws, index)) {
+    const updated = explicit ? confirmTask(ws, now, taskId, done, "worker_task_verification") : ws;
+    return { session: askVerificationTask(spoken, updated, now, index), ...(explicit ? { commit: commitTo(updated) } : {}) };
+  }
+  const result = workerDeliveryResult(ws, call, answeredTaskIds);
+  const heard = resolveWorkerCallAttempt(ws, now, callId, result);
+  const updated = explicit ? confirmTask(heard.ws, now, taskId, done, "worker_task_verification") : heard.ws;
+  const settled = { ...spoken, data: { ...spoken.data, attemptResolved: true, ...(result === "delivered" ? { deliveryCompleted: true } : {}) } };
+  const closing = heard.outcome === "retry_scheduled"
+    ? say(settled, copy("I’ll call again in 20 minutes about what’s left.", "بتصل عليك بعد ٢٠ دقيقة عشان الباقي."), now)
+    : settled;
+  return { session: advanceOutboundIndex(closing, updated, now), commit: commitTo(updated) };
 }
 
 function advanceOutboundIndex(session: CallSession, ws: Workspace, now: Date): CallSession {
@@ -182,7 +225,27 @@ function advanceOutboundIndex(session: CallSession, ws: Workspace, now: Date): C
   return beginOutboundAttempt(next, ws, now);
 }
 
-export function hangUpWorkerOutbound(session: CallSession, ws: Workspace, ended: CallSession): EngineResult {
+/** The worker already picked up. Speak this claimed call; do not ask the lab whether they answer. */
+export function startLiveWorkerDelivery(ws: Workspace, now: Date, pendingCallId: string): EngineResult {
+  const call = ws.pendingWorkerCalls.find((item) => item.id === pendingCallId && item.state === "pending");
+  if (!call) {
+    return { session: say(blank("worker_outbound", now), copy("This call is no longer waiting.", "هذه المكالمة لم تعد معلّقة."), now, true) };
+  }
+  const waiting = {
+    ...blank("worker_outbound", now),
+    step: "outbound_answer",
+    data: { pendingCallIds: [call.id], pendingIndex: 0, currentCallId: call.id, currentTaskId: call.taskTicketId ?? undefined },
+  };
+  return handleWorkerOutbound(waiting, ws, now, { value: "answer" });
+}
+
+export function hangUpWorkerOutbound(session: CallSession, ws: Workspace, ended: CallSession, now: Date): EngineResult {
+  const delivering = session.step === "outbound_receipt" || session.step === "outbound_task_confirmation";
+  const callId = session.data.currentCallId;
+  if (delivering && callId && ws.pendingWorkerCalls.some((call) => call.id === callId && call.state === "pending")) {
+    const interrupted = resolveWorkerCallAttempt(ws, now, callId, "interrupted");
+    return { session: ended, commit: commitTo(interrupted.ws) };
+  }
   const startedIds = new Set(session.data.startedVerificationCallIds ?? []);
   if (!startedIds.size) return { session: ended };
   const pendingWorkerCalls = ws.pendingWorkerCalls.filter(

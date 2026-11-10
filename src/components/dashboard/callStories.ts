@@ -40,6 +40,9 @@ export type CallEntry = ReportStory | CallChain;
 
 const time = (iso: string) => Date.parse(iso);
 
+/** Calls only Ultimate makes. Old rows on a Basic ranch stay out of its call history. */
+const ULTIMATE_ONLY = new Set<CallKind>(["worker_instruction", "worker_task_verification", "worker_callback"]);
+
 /**
  * Groups the call log for reading, newest first. Retries join the call they repeat (same kind and
  * task, attempt numbers in sequence). A worker report gathers its owner briefing (by report id) and
@@ -47,7 +50,7 @@ const time = (iso: string) => Date.parse(iso);
  * record is changed, and anything that doesn't fit stays its own line.
  */
 export function callEntries(ws: Workspace): CallEntry[] {
-  const calls = [...ws.calls].sort((a, b) => time(a.at) - time(b.at));
+  const calls = ws.calls.filter((call) => ws.settings.plan === "ultimate" || !ULTIMATE_ONLY.has(call.kind)).sort((a, b) => time(a.at) - time(b.at));
   const chains: CallLog[][] = [];
   for (const call of calls) {
     const chain = call.attempt && call.attempt > 1

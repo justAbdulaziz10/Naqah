@@ -2,15 +2,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEmptyWorkspace } from "@/domain/seed";
 import type { VoiceSessionRow } from "@/server/db/voice-sessions";
-import { answerFarmCall, reportCallStatus } from "./farm-call";
+import { answerFarmCall, eventFor, OWNER_LINE_CLOSED, reportCallStatus, respond, startFarmCall, type VoiceCallSession } from "./farm-call";
 
-const mock = vi.hoisted(() => ({ read: vi.fn(), advance: vi.fn(), load: vi.fn(), save: vi.fn(), find: vi.fn(), remove: vi.fn() }));
+const mock = vi.hoisted(() => ({ read: vi.fn(), advance: vi.fn(), load: vi.fn(), save: vi.fn(), find: vi.fn(), remove: vi.fn(), caller: vi.fn(), create: vi.fn(), stale: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/server/db/voice-sessions", async (original) => ({
-  ...(await original<typeof import("@/server/db/voice-sessions")>()), readVoiceSession: mock.read, advanceVoiceSession: mock.advance, deleteVoiceSession: mock.remove,
+  ...(await original<typeof import("@/server/db/voice-sessions")>()), readVoiceSession: mock.read, advanceVoiceSession: mock.advance, deleteVoiceSession: mock.remove, createVoiceSession: mock.create, deleteStaleVoiceSessions: mock.stale,
 }));
 vi.mock("@/server/db/service-repository", async (original) => ({
-  ...(await original<typeof import("@/server/db/service-repository")>()), findReportCallRun: mock.find,
+  ...(await original<typeof import("@/server/db/service-repository")>()), findReportCallRun: mock.find, findCaller: mock.caller,
 }));
 vi.mock("@/server/db/queries", async (original) => ({
   ...(await original<typeof import("@/server/db/queries")>()), loadFarm: mock.load,
@@ -137,5 +137,52 @@ describe("farm capture retries", () => {
     expect(mock.save.mock.calls.map((call) => call[3].eventId)).toEqual([
       `${callSid}:final:no-answer`, `${callSid}:final:completed`, `${callSid}:final:completed`,
     ]);
+  });
+});
+
+describe("the owner's line", () => {
+  it("is closed on the farm path: nothing is loaded, stored or saved", async () => {
+    mock.read.mockResolvedValueOnce(null);
+    mock.caller.mockResolvedValue({ kind: "owner", farmId: "test-farm" });
+    vi.stubEnv("NAQAH_VOICE_LOCALE", "ar");
+    const xml = await startFarmCall(client, { from: "+966501234567", callSid, now });
+    vi.unstubAllEnvs();
+    expect(xml).toContain(OWNER_LINE_CLOSED.ar);
+    expect(xml).toContain("<Hangup/>");
+    expect(xml).not.toContain("<Gather");
+    expect(mock.load).not.toHaveBeenCalled();
+    expect(mock.create).not.toHaveBeenCalled();
+    expect(mock.save).not.toHaveBeenCalled();
+  });
+});
+
+describe("reading the options aloud", () => {
+  const twoChoices = (extra: Partial<VoiceCallSession> = {}): VoiceCallSession => ({ ...row.session, replies: [row.session.replies[0], { id: "yes", value: "yes", label: { ar: "إيه", en: "Yes" } }], ...extra });
+  const workspace = createEmptyWorkspace();
+
+  it("hides them on a first ask", () => {
+    expect(respond(twoChoices(), 0, workspace, "ar", 1)).not.toContain("اضغط");
+  });
+  it("shows them once the worker has used the keypad, or on a re-ask after a miss", () => {
+    expect(respond(twoChoices({ voiceKeypad: true }), 0, workspace, "ar", 1)).toContain("اضغط 1");
+    expect(respond(twoChoices(), 0, workspace, "ar", 1, "", true)).toContain("اضغط 1");
+  });
+  it("re-asks with the options after a silent turn, on the real path", async () => {
+    expect(await answerFarmCall(client, { callSid, seq: 0, speech: "", digits: null, confidence: null, now })).toContain("اضغط 1");
+    expect((row.session as VoiceCallSession).voiceKeypad).toBeUndefined();
+  });
+  it("remembers a keypad press for the rest of the call", async () => {
+    await answerFarmCall(client, { callSid, seq: 0, speech: "", digits: "1", confidence: null, now });
+    expect((row.session as VoiceCallSession).voiceKeypad).toBe(true);
+  });
+});
+
+describe("an empty report", () => {
+  it("is ended, never sent as a saved report", () => {
+    const before = { step: "report_summary", scenario: "report_call", data: { reportCallId: "run-1" } } as never;
+    const refused = { session: { done: true }, commit: (ws: never) => ws } as never;
+    const saved = { session: { done: true, next: { scenario: "owner_notification", reportId: "r" }, draft: { answers: [] } }, commit: (ws: never) => ws } as never;
+    expect(eventFor(before, refused, { value: "confirm_save" }, callSid)).toMatchObject({ type: "report_call_ended" });
+    expect(eventFor(before, saved, { value: "confirm_save" }, callSid)).toMatchObject({ type: "worker_report" });
   });
 });

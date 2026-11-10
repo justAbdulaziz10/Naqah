@@ -13,6 +13,7 @@ import {
   House,
   Microphone,
   PhoneList,
+  PhoneOutgoing,
   Waveform,
   type Icon,
 } from "@phosphor-icons/react";
@@ -24,7 +25,7 @@ import { EventNotifier } from "@/components/pwa/EventNotifier";
 import { Logo } from "@/components/brand/Logo";
 import { hasOwnSetupData } from "@/components/setup/draft";
 import { Button, ButtonLink, ConfirmDialog, Toaster } from "@/components/ui";
-import { openNoAnswerTickets, openTaskTickets } from "@/domain";
+import { openTaskTickets } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useIsAccount, useNow, useWorkspaceStore } from "@/store/workspace";
@@ -33,6 +34,8 @@ import { getStartedPath } from "@/components/entry/paths";
 
 /** Only hides the link. The route itself checks the session and the owner allowlist. */
 const VOICE_LAB = process.env.NEXT_PUBLIC_NAQAH_VOICE_LAB === "1";
+/** Only hides the link. The API decides who may place a test call. */
+const TEST_CALL = process.env.NEXT_PUBLIC_NAQAH_TEST_CALL === "1";
 
 type NavKey = "overview" | "herd" | "tickets" | "calls" | "settings";
 
@@ -60,7 +63,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const account = useIsAccount();
   // The Voice Lab needs a signed-in owner, so demo visitors are not shown a door they can't open.
   const voiceLab = VOICE_LAB && account;
-  const nav = NAV;
+  const testCall = TEST_CALL && account;
+  // Tasks are an Ultimate feature, so Basic has no such place.
+  const nav = NAV.filter((item) => item.key !== "tickets" || ws?.settings.plan === "ultimate");
   const [confirmingDemo, setConfirmingDemo] = useState(false);
 
   const isActive = (path: string) => {
@@ -110,7 +115,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const openTasks = (ws.settings.plan === "ultimate" ? openTaskTickets(ws).length : 0) + openNoAnswerTickets(ws).length;
+  const openTasks = ws.settings.plan === "ultimate" ? openTaskTickets(ws).length : 0;
 
   return (
     <div className="naqah-app min-h-dvh lg:grid lg:grid-cols-[260px_1fr]">
@@ -192,6 +197,20 @@ export function AppShell({ children }: { children: ReactNode }) {
             {m.voiceLab.nav}
           </Link>
         ) : null}
+        {testCall ? (
+          <Link
+            href={href("/app/lab")}
+            prefetch={false}
+            aria-current={isActive("/app/lab") ? "page" : undefined}
+            className={cn(
+              "mt-2 flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-[0.95rem] font-semibold transition-colors duration-200",
+              isActive("/app/lab") ? "bg-espresso/[0.07] text-espresso" : "text-muted hover:bg-espresso/5 hover:text-espresso",
+            )}
+          >
+            <span className="flex w-6 justify-center"><PhoneOutgoing size={22} weight={isActive("/app/lab") ? "fill" : "regular"} aria-hidden /></span>
+            {m.lab.testCall.nav}
+          </Link>
+        ) : null}
         <div className="mt-auto space-y-3 px-2">
           <div className="border-t border-stone/70 pt-4">
             {ws.settings.owner.name.trim() ? <p className="truncate text-sm font-semibold">{ws.settings.owner.name}</p> : null}
@@ -205,13 +224,18 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Top bar */}
         <header className="sticky top-0 z-30 border-b border-stone/60 bg-ivory">
           {/* Phones only: on desktop the sidebar names the product and the estate. */}
-          <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:px-6 lg:hidden">
+          <div className={cn("mx-auto flex h-14 max-w-6xl items-center px-4 sm:px-6 lg:hidden", voiceLab && testCall ? "gap-1" : "gap-3")}>
             <Logo locale={locale} href={href("/")} className="min-h-11" />
-            <div className="ms-auto flex items-center gap-1">
+            <div className={cn("ms-auto flex items-center", !(voiceLab && testCall) && "gap-1")}>
               <LocaleSwitcher />
               {voiceLab ? (
                 <Link href={href("/app/voice-lab")} prefetch={false} aria-label={m.voiceLab.nav} className="inline-flex size-11 items-center justify-center rounded-full hover:bg-espresso/5">
                   <Microphone size={22} aria-hidden />
+                </Link>
+              ) : null}
+              {testCall ? (
+                <Link href={href("/app/lab")} prefetch={false} aria-label={m.lab.testCall.nav} className="inline-flex size-11 items-center justify-center rounded-full hover:bg-espresso/5">
+                  <PhoneOutgoing size={22} aria-hidden />
                 </Link>
               ) : null}
               <Link
@@ -223,7 +247,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
             </div>
           </div>
-          {account ? null : <DemoNotice showSimulate={!isActive("/app/lab")} labHref={href("/app/lab")} />}
+          {account ? null : <DemoNotice showSimulate={!isActive("/app/lab") && !isActive("/app")} labHref={href("/app/lab")} />}
         </header>
 
         <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-6 focus:outline-none sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">{children}</main>
@@ -234,7 +258,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-label={m.common.nav.main}
         className="fixed inset-x-0 bottom-0 z-40 border-t border-stone/70 bg-cream pb-[env(safe-area-inset-bottom)] lg:hidden"
       >
-        <div className="mx-auto grid max-w-lg grid-cols-4">
+        <div className={cn("mx-auto grid max-w-lg", nav.length > 4 ? "grid-cols-4" : "grid-cols-3")}>
           {nav.filter((n) => n.key !== "settings").map((item) => {
             const active = isActive(item.path);
             return (

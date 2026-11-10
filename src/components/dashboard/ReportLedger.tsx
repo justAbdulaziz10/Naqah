@@ -4,13 +4,14 @@ import { ArrowRight, CheckCircle, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { SupplyGauges } from "@/components/visuals/SupplyGauges";
-import { RESOURCE_LABELS } from "@/domain";
 import type { FarmReport, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { CertaintyBadge } from "./DashboardPrimitives";
 import { callEntries } from "./callStories";
 import { mentions } from "./matters";
+import { ReportCoverage } from "./ReportCoverage";
+import { reportResources } from "./reportCoverageFacts";
 
 const row = "grid grid-cols-1 py-4 sm:grid-cols-[4.5rem_6.5rem_minmax(0,1fr)] sm:gap-x-5";
 
@@ -43,11 +44,10 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
   const c = m.app.calls;
   const story = callEntries(ws).find((entry) => entry.type === "report" && entry.report?.id === report.id);
   const briefing = story?.type === "report" ? story.briefings.find((call) => call.outcome === "completed") ?? story.briefings.at(-1) ?? null : null;
-  const delivery = story?.type === "report" ? story.deliveries.at(-1)?.find((call) => call.outcome === "completed") ?? null : null;
+  const delivery = story?.type === "report" && ws.settings.plan === "ultimate" ? story.deliveries.at(-1)?.find((call) => call.outcome === "completed") ?? null : null;
   const custom = new Set(ws.settings.customQuestions.map((question) => question.id));
-  const answers = report.answers.filter((answer) => custom.has(answer.questionId) && !answer.followUp);
-  const supplies = ws.resources.filter((resource) => resource.present);
-  const absent = ws.resources.filter((resource) => !resource.present);
+  const answers = report.answers.filter((answer) => custom.has(answer.questionId) && !answer.followUp && report.coverage?.find((entry) => entry.questionId === answer.questionId)?.status !== "not_reported");
+  const supplies = reportResources(ws, report);
   // Findings are told in full under "Needs your attention"; here they are indexed by camel where one is named.
   const flagged = report.findings.map((finding) => {
     const camel = ws.camels.find((item) => mentions(finding.text.ar, item.name) || mentions(finding.text.en, item.name));
@@ -56,17 +56,18 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
   let index = 0;
 
   return (
-    <section aria-labelledby="report-ledger" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 pb-3 pt-6 sm:px-8 sm:pt-7">
-      <figure className="border-t-2 border-espresso">
-        <figcaption className="flex flex-wrap items-end justify-between gap-x-6 gap-y-1 pb-3 pt-4">
+    <section aria-labelledby="report-ledger" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 pb-3 pt-5 sm:px-8 sm:pt-7">
+      <figure>
+        <figcaption className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 pb-4">
           <div className="min-w-0">
-            <h2 id="report-ledger" className="naqah-name text-2xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{o.reportTitle(worker)}</h2>
-            <p className="mt-1 text-sm text-muted">{o.reportNote}</p>
+            <h2 id="report-ledger" className="naqah-name text-xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{o.reportTitle(worker)}</h2>
           </div>
-          <p className="text-sm font-medium text-espresso">
+          <p className="text-sm text-muted">
             <time className="ltr-nums" dateTime={report.at}>{fmt.dateTime(report.at, { weekday: "long", day: "numeric", month: "short", hour: undefined, minute: undefined })}</time>
+            {report.mode ? <span> · {o.reportMode[report.mode]}</span> : null}
           </p>
         </figcaption>
+        <ReportCoverage ws={ws} report={report} />
         <ol className="border-t border-stone/70">
           {answers.length ? (
             <Line at={report.at} who={worker} index={index++}>
@@ -74,7 +75,7 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
                 {answers.map((answer, i) => (
                   <div key={`${answer.questionId}-${i}`}>
                     <dt className="text-sm leading-relaxed text-muted">{t(answer.question)}</dt>
-                    <dd className="text-[1.0625rem] font-semibold leading-relaxed text-espresso">
+                    <dd className="font-semibold leading-relaxed text-espresso">
                       {answer.answerText ? t(answer.answerText) : answer.answer}
                       {answer.certainty !== "reported" ? <span className="ms-2 font-normal"><CertaintyBadge certainty={answer.certainty} /></span> : null}
                     </dd>
@@ -106,12 +107,11 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
           </Line>
           {supplies.length ? (
             <Line who={o.resources} index={index++}>
-              <SupplyGauges resources={ws.resources} />
-              {absent.length ? <p className="mt-3 text-[0.8125rem] text-muted">{o.absentResources(absent.map((resource) => t(RESOURCE_LABELS[resource.kind])).join("، "))}</p> : null}
+              <SupplyGauges resources={supplies} />
             </Line>
           ) : null}
           <Line at={briefing?.at ?? null} who={m.visual.calls.naqah} whoTone="text-brown" index={index++}>
-            <p className={cn("flex items-center gap-2.5 font-semibold", briefing?.outcome === "completed" ? "text-brown" : briefing ? "text-warn" : "text-muted")}>
+            <p className={cn("flex items-center gap-2.5 font-medium", briefing?.outcome === "completed" ? "text-brown" : briefing ? "text-warn" : "text-muted")}>
               <span aria-hidden className={cn("size-2.5 shrink-0 rounded-full", briefing?.outcome === "completed" ? "bg-brown" : briefing ? "border-2 border-warn" : "border-2 border-stone")} />
               {briefing?.outcome === "completed" ? o.briefedYou : briefing ? o.briefMissed : o.briefPending}
             </p>

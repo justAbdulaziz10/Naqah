@@ -116,7 +116,7 @@ export type QuestionCategory =
 /** How the agent interprets the answer to a predefined question. */
 export type AnswerKind = "level" | "yesno" | "herd-health" | "text";
 
-/** Prepared by the NAQAH team. Mandatory when applicable. Wording is a DRAFT. */
+/** Prepared by the NAQAH team. Asked when applicable, unless the owner switches it off. Wording is a DRAFT. */
 export interface PredefinedQuestion {
   id: string;
   category: QuestionCategory;
@@ -131,6 +131,17 @@ export interface CustomQuestion {
   id: string;
   text: string;
   createdAt: string;
+}
+
+/** How the worker gives the report. "worker_choice" lets them pick guided or open on each call. */
+export type ReportMode = "worker_choice" | "guided" | "open";
+
+/** One question in the owner's plan. `id` is a predefined id or a custom question id; array order is ask order. */
+export interface QuestionPlanEntry {
+  id: string;
+  enabled: boolean;
+  /** Required: answered, or marked unknown. Optional: the worker can skip it. */
+  required: boolean;
 }
 
 export type CriterionKind =
@@ -214,6 +225,8 @@ export interface FarmReport {
   id: string;
   at: string;
   callId: string;
+  mode?: "guided" | "open";
+  coverage?: { questionId: string; status: "reported" | "unknown" | "not_reported" }[];
   answers: ReportAnswer[];
   findings: Finding[];
   /**
@@ -278,7 +291,7 @@ export interface NoAnswerTicket {
 
 /**
  * An AI → worker call that may need retries
- * (initial attempt + up to 3 retries, 20 minutes apart, then a No Answer Ticket).
+ * (3 attempts total, 20 minutes apart, then stop; no new No Answer Ticket).
  */
 export interface PendingWorkerCall {
   id: string;
@@ -290,6 +303,8 @@ export interface PendingWorkerCall {
   /** When the next attempt is due; null when finished. */
   nextAttemptAt: string | null;
   state: "pending" | "delivered" | "no_answer_ticket";
+  /** Attempts already used when the owner asked for another try; only later attempts count toward the three. */
+  retryBase?: number;
   /** Task C's approved conversation batch/event identity; optional for legacy calls. */
   batchId?: string;
   /** Ordered Task C associations. Absent preserves legacy storage; [] means no grouped tasks. */
@@ -315,6 +330,25 @@ export interface ReportCallRun {
   /** calling: attempts remain · answered: the worker picked up · completed: report saved · missed: no answer after retries. */
   state: "calling" | "answered" | "completed" | "missed";
   reportId: string | null;
+}
+
+/** Result of one placed owner-call attempt. "pending" while the phone rings or the call runs. */
+export type OwnerAttemptResult = "pending" | "unanswered" | "interrupted" | "completed";
+
+/**
+ * One scheduled NAQAH → owner call: 3 attempts, 20 minutes apart, then "missed".
+ * Only the current or latest run is kept; the call log is the history.
+ */
+export interface OwnerCallRun {
+  id: string;
+  /** ISO time of the owner's scheduled slot. */
+  occurrence: string;
+  /** The report summarized on this run. null: the owner is told no verified report has arrived. */
+  reportId: string | null;
+  attempts: { at: string; result: OwnerAttemptResult }[];
+  /** When the next attempt should be placed; null while ringing or when finished. */
+  nextAttemptAt: string | null;
+  state: "calling" | "answered" | "completed" | "missed";
 }
 
 /** A message relayed to the worker (Basic relays without a ticket). */
@@ -348,12 +382,18 @@ export interface Settings {
   /** Reports at or before this time have had their reported count reviewed by the owner. */
   herdCountReviewedAt?: string | null;
   customQuestions: CustomQuestion[];
+  /** Older stored demo workspaces lack it: read as "guided". */
+  reportMode: ReportMode;
+  /** What the call asks and in what order. Empty, or missing on older stored demo workspaces: everything on and required, in today's order. */
+  questionPlan: QuestionPlanEntry[];
   criteria: Criterion[];
   emergencies: EmergencyCategory[];
   /** RETIRED worker-calls-in window. Never read by rules or screens; kept for stored data. */
   window: ReportingWindow | null;
   /** NAQAH → worker report call time. Optional: older workspaces lack it. */
   callSchedule?: CallSchedule | null;
+  /** When NAQAH calls the owner with the saved report. Separate from the worker's report time. */
+  ownerCallSchedule?: CallSchedule | null;
   integrations?: Integrations;
 }
 
@@ -368,6 +408,8 @@ export interface Workspace {
   /** Time of the latest successful farm update. */
   lastUpdateAt: string | null;
   reports: FarmReport[];
+  /** The current or latest scheduled owner call. Undefined until a farm's store can hold it. */
+  ownerCallRun?: OwnerCallRun | null;
   calls: CallLog[];
   taskTickets: TaskTicket[];
   noAnswerTickets: NoAnswerTicket[];

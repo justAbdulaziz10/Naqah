@@ -208,8 +208,8 @@ export function useVoiceLab(locale: Locale) {
           const id = itemId ?? (responseId ? responseItems.get(responseId) : undefined);
           if (id) setTranscript((list) => list.map((entry) => entry.id === id && entry.role === "agent" ? { ...entry, interrupted: true, pending: false } : entry));
         },
-        runTool: async ({ name, args, spoke, heard, workerUtterance, heardSummary }): Promise<ToolReply> => {
-          const { data, status: code } = await voiceLabRequest("tool", { op: "tool", state: run.state, name, args, spoke, heard, workerUtterance, heardSummary });
+        runTool: async ({ name, args, spoke, workerUtterance, heardSummaryId }): Promise<ToolReply> => {
+          const { data, status: code } = await voiceLabRequest("tool", { op: "tool", state: run.state, name, args, spoke, workerUtterance, heardSummaryId });
           // A reply from a call that was reset must not land in the next one.
           if (!current()) return { output: "{}", end: null, goodbye: null };
           if (!data) {
@@ -229,7 +229,7 @@ export function useVoiceLab(locale: Locale) {
           setTranscript((list) => [...list, toolEntry]);
           return result;
         },
-      }, nextMode, reply.opening);
+      }, nextMode, reply.opening, reply.repromptText);
       run.loop = loop;
 
       dc.onmessage = (message) => {

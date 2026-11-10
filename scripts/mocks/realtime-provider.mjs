@@ -8,7 +8,6 @@ import { EventEmitter } from "node:events";
 import { wsServer } from "./ws-lite.mjs";
 
 const id = (prefix) => `${prefix}_${randomBytes(6).toString("hex")}`;
-const AUDIO_DELTA_MS = 100;
 const AUDIO_BYTES = 800; // 100 ms of 8 kHz mu-law
 const audioChunk = () => Buffer.alloc(AUDIO_BYTES, 0x55).toString("base64");
 
@@ -232,13 +231,14 @@ export class Upstream extends EventEmitter {
   closeGracefully() { this.conn.close(1011, "mock server closing"); }
 }
 
-export async function startMockRealtime({ port }) {
+export async function startMockRealtime({ port, onRequest }) {
   const pending = [];
   const waiters = [];
   const options = { refuseStatus: null };
   const stats = { refused: 0, connections: 0 };
   const instance = await wsServer({
     port,
+    onRequest,
     onUpgrade: (request) => {
       if (options.refuseStatus) {
         stats.refused += 1;

@@ -1,5 +1,5 @@
 import { RESOURCE_KINDS } from "@/domain/catalog";
-import type { CallSchedule, Integrations, ReportCallRun, ReportingWindow, Weekday, Worker, Workspace } from "@/domain/types";
+import type { CallSchedule, Integrations, OwnerCallRun, QuestionPlanEntry, ReportCallRun, ReportMode, ReportingWindow, Weekday, Worker, Workspace } from "@/domain/types";
 import { toDbId } from "./ids";
 import type {
   CallRow, FarmRows, FindingRow, ReportAnswerRow, ReportCallRunRow, ReportRow, WorkerCallAttemptRow, WorkerRow,
@@ -20,6 +20,11 @@ function callScheduleFrom(row: FarmRows["farm"]): CallSchedule | null {
   return { day: row.call_day === null ? null : (row.call_day as Weekday), time: hhmm(row.call_time) };
 }
 
+function ownerCallScheduleFrom(row: FarmRows["farm"]): CallSchedule | null {
+  if ((row.owner_call_day ?? null) === null && (row.owner_call_time ?? null) === null) return null;
+  return { day: row.owner_call_day == null ? null : (row.owner_call_day as Weekday), time: hhmm(row.owner_call_time ?? null) };
+}
+
 const workerFrom = (row: WorkerRow): Worker => ({ id: row.id, name: row.name, phone: row.phone, language: row.language });
 
 /** The primary worker is the one NAQAH calls: the farm's choice, or the oldest when none is set. */
@@ -34,6 +39,33 @@ function workersFrom(rows: FarmRows): { worker: Worker; otherWorkers: Worker[] }
 function integrationsFrom(row: FarmRows["farm"]): Integrations | undefined {
   if (!row.supplier_name && !row.supplier_phone) return undefined;
   return { supplierName: row.supplier_name, supplierPhone: row.supplier_phone };
+}
+
+const REPORT_MODES: readonly ReportMode[] = ["worker_choice", "guided", "open"];
+
+/** Owners can write this column directly, so anything malformed is dropped. Missing until migrated: today's call. */
+function questionPlanFrom(value: unknown): QuestionPlanEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const entry = item as Partial<QuestionPlanEntry> | null;
+    if (typeof entry?.id !== "string" || typeof entry.enabled !== "boolean" || typeof entry.required !== "boolean") return [];
+    return [{ id: entry.id, enabled: entry.enabled, required: entry.required }];
+  });
+}
+
+/** Stored JSON, so anything malformed reads as no run. `undefined` stays: the column isn't there yet. */
+function ownerCallRunFrom(value: unknown): OwnerCallRun | null | undefined {
+  if (value === undefined) return undefined;
+  const run = value as Partial<OwnerCallRun> | null;
+  if (typeof run?.id !== "string" || typeof run.occurrence !== "string" || Number.isNaN(Date.parse(run.occurrence)) || !Array.isArray(run.attempts) || !run.state) return null;
+  return {
+    id: run.id,
+    occurrence: new Date(run.occurrence).toISOString(),
+    reportId: run.reportId ?? null,
+    attempts: run.attempts.map((a) => ({ at: a.at, result: a.result })),
+    nextAttemptAt: run.nextAttemptAt ?? null,
+    state: run.state,
+  };
 }
 
 /** Rows → the document every domain function works on. */
@@ -57,10 +89,13 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
       customQuestions: [...rows.customQuestions]
         .sort((a, b) => a.sort_order - b.sort_order)
         .map((q) => ({ id: q.id, text: q.text, createdAt: q.created_at })),
+      reportMode: REPORT_MODES.includes(farm.report_mode as ReportMode) ? (farm.report_mode as ReportMode) : "guided",
+      questionPlan: questionPlanFrom(farm.question_plan),
       criteria: rows.criteria.map((c) => ({ id: c.id, kind: c.kind, label: c.label, enabled: c.enabled })),
       emergencies: rows.emergencies.map((e) => ({ id: e.id, kind: e.kind, label: e.label })),
       window: windowFrom(farm),
       callSchedule: callScheduleFrom(farm),
+      ownerCallSchedule: ownerCallScheduleFrom(farm),
       integrations: integrationsFrom(farm),
     },
     camels: rows.camels.map((c) => ({
@@ -86,10 +121,13 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
         updatedAt: r.updated_at,
       })),
     lastUpdateAt: farm.last_update_at,
+    ...(farm.owner_call_run === undefined ? {} : { ownerCallRun: ownerCallRunFrom(farm.owner_call_run) }),
     reports: byTime(rows.reports, (r) => r.at).map((r) => ({
       id: r.id,
       at: r.at,
       callId: r.call_id ?? "",
+      ...(r.mode ? { mode: r.mode } : {}),
+      ...(r.coverage?.length ? { coverage: r.coverage } : {}),
       ...(r.herd_count_reported !== null && r.herd_count_reported !== undefined && { herdCountReported: r.herd_count_reported }),
       answers: [...r.report_answers]
         .sort((a, b) => a.sort_order - b.sort_order)
@@ -143,6 +181,7 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
       message: p.message,
       taskTicketId: p.task_ticket_id,
       ...(p.batch_id ? { batchId: p.batch_id } : {}),
+      ...(p.retry_base ? { retryBase: p.retry_base } : {}),
       ...(p.task_links_explicit ? { coveredTaskIds: (p.pending_worker_call_tasks ?? [])
         .filter((link) => link.covered_order !== null)
         .sort((a, b) => a.covered_order! - b.covered_order!)
@@ -186,6 +225,8 @@ export function historyRows(ws: Workspace, farmId: string) {
 
   const reports: ReportRow[] = ws.reports.map((r) => ({
     id: id(r.id), farm_id: farmId, call_id: optional(r.callId), at: r.at, herd_count_reported: r.herdCountReported ?? null,
+    ...(r.mode !== undefined ? { mode: r.mode } : {}),
+    ...(r.coverage !== undefined ? { coverage: r.coverage } : {}),
   }));
   const reportCallRuns: ReportCallRunRow[] = (ws.reportCalls ?? []).map((r) => ({
     id: id(r.id),
@@ -274,6 +315,7 @@ export function historyRows(ws: Workspace, farmId: string) {
       message: p.message,
       task_ticket_id: optional(p.taskTicketId),
       ...(p.batchId === undefined ? {} : { batch_id: p.batchId }),
+      ...(p.retryBase === undefined ? {} : { retry_base: p.retryBase }),
       ...(p.coveredTaskIds === undefined ? {} : { covered_task_ids: [...new Set(p.coveredTaskIds.map(id))] }),
       relay_id: optional(p.relayId),
       next_attempt_at: p.nextAttemptAt,

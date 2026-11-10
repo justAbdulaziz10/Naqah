@@ -16,9 +16,11 @@ const DEFAULT_LIMITS = Object.freeze({
   readyMs: 5_000,
   responseMs: 45_000,
   transcriptionMs: 2_500,
+  bargeInMs: 400,
   speechMs: 10_000,
   goodbyeMs: 15_000,
-  silenceMs: 45_000,
+  repromptMs: 10_000,
+  maxReprompts: 2,
   closeMs: 250,
   twilioMessageBytes: 64 * 1024,
   providerMessageBytes: 256 * 1024,
@@ -53,6 +55,7 @@ function summaryWords(value) {
 function validSession(session) {
   return isObject(session) && typeof session.instructions === 'string' && Array.isArray(session.tools)
     && typeof session.opening === 'string' && session.opening.trim().length > 0
+    && (session.repromptText === undefined || typeof session.repromptText === 'string')
     && ['ar', 'en'].includes(session.locale) && Number.isFinite(session.maxSeconds)
     && session.maxSeconds > 0 && session.maxSeconds <= 3600;
 }
@@ -117,9 +120,11 @@ class CallStream {
     this.userSpoke = false;
     this.workerTurn = null;
     this.speechEpoch = 0;
-    this.summaryNext = false;
     this.summaryPlayback = null;
     this.responseSummary = null;
+    this.lastPrompt = null;
+    this.responsePrompt = null;
+    this.reprompts = 0;
     this.responsePending = false;
     this.responseId = null;
     this.responseKind = null;
@@ -164,9 +169,16 @@ class CallStream {
   }
 
   activity() {
-    if (!this.closed && !this.ending) this.timer('silence', this.limits.silenceMs, () => {
-      if (this.speaking) this.activity();
-      else this.finish('silence_timeout');
+    this.clearTimer('silence');
+    if (this.closed || this.ending || !this.lastPrompt?.played || this.speaking || this.toolPending
+      || this.responsePending || this.responseId || this.nextResponse || this.userSpoke) return;
+    this.timer('silence', this.limits.repromptMs, () => {
+      if (this.reprompts >= this.limits.maxReprompts || !this.lastPrompt.repromptText?.trim()) {
+        return this.finish('silence_timeout');
+      }
+      this.reprompts += 1;
+      this.log('reprompt', { count: this.reprompts });
+      this.requestResponse('reprompt', this.lastPrompt.repromptText, { prompt: this.lastPrompt });
     });
   }
 
@@ -272,22 +284,31 @@ class CallStream {
         }
         return;
       }
+      if (mark.prompt) {
+        if (this.lastPrompt === mark.prompt && !mark.prompt.cutOff) {
+          mark.prompt.played = true;
+          this.activity();
+        }
+        return;
+      }
       mark.item.playedBytes = Math.max(mark.item.playedBytes, mark.endBytes);
       if (mark.item.done && mark.item.playedBytes === mark.item.sentBytes) this.items.delete(mark.item.key);
       this.activity();
     } else if (message.event === 'stop') {
       if (!this.started || message.streamSid !== this.streamSid) throw new Error('Invalid stop');
       this.finish('twilio_stopped');
+    } else if (message.event === 'dtmf') {
+      if (!this.started || message.streamSid !== this.streamSid) throw new Error('Invalid dtmf');
+      // Pressing 1 confirms only after the whole summary was heard; every other key is ignored.
+      if (message.dtmf?.digit === '1' && this.summaryPlayback?.heard === true && !this.ending && !this.toolPending) this.queueKeypadConfirm();
     } else throw new Error('Unknown message');
   }
 
   async start() {
     try {
-      this.session = await this.internal('/api/voice/realtime/session', { ticket: this.ticket, callSid: this.callSid });
-      if (this.closed) return;
-      if (!validSession(this.session)) throw new Error('Invalid session');
-      this.timer('maximum', this.session.maxSeconds * 1000, () => this.finish('maximum_timeout'));
-      this.activity();
+      // The greeting waits on both of these, so they run side by side.
+      const opening = this.internal('/api/voice/realtime/session', { ticket: this.ticket, callSid: this.callSid });
+      opening.catch(() => this.finish('session_failed'));
       this.provider = new WebSocket(this.config.providerUrl, {
         headers: { Authorization: `Bearer ${this.config.apiKey}` },
         handshakeTimeout: this.limits.connectMs,
@@ -296,22 +317,33 @@ class CallStream {
         perMessageDeflate: false,
       });
       this.timer('ready', this.limits.connectMs + this.limits.readyMs, () => this.finish('provider_ready_timeout'));
-      this.provider.on('open', () => {
+      this.provider.on('open', async () => {
         if (this.closed) return;
         this.timer('ready', this.limits.readyMs, () => this.finish('provider_ready_timeout'));
+        try {
+          this.session = await opening;
+        } catch {
+          return;
+        }
+        if (this.closed) return;
+        if (!validSession(this.session)) return this.finish('session_failed');
+        this.timer('maximum', this.session.maxSeconds * 1000, () => this.finish('maximum_timeout'));
+        this.activity();
         this.send(this.provider, {
           type: 'session.update',
           session: {
             type: 'realtime', model: REALTIME_MODEL, output_modalities: ['audio'],
-            instructions: this.session.instructions, tools: this.session.tools, tool_choice: 'auto',
+            instructions: this.session.instructions, tools: this.session.tools, tool_choice: 'required',
             reasoning: { effort: 'minimal' },
             audio: {
               input: {
                 format: { type: 'audio/pcmu' },
-                transcription: { model: 'gpt-4o-mini-transcribe', language: this.session.locale },
+                // A phone is held to the ear; filtering wind and animals before VAD keeps noise from becoming a "turn".
+                noise_reduction: { type: 'near_field' },
+                transcription: { model: 'gpt-4o-transcribe', language: this.session.locale },
                 turn_detection: {
                   type: 'server_vad', threshold: 0.5, prefix_padding_ms: 300,
-                  silence_duration_ms: 500, create_response: false, interrupt_response: false,
+                  silence_duration_ms: 700, create_response: false, interrupt_response: false,
                 },
               },
               output: { format: { type: 'audio/pcmu' }, voice: 'marin' },
@@ -335,8 +367,9 @@ class CallStream {
     }
   }
 
-  requestResponse(kind, text) {
-    this.nextResponse = { kind, text };
+  requestResponse(kind, text, options = {}) {
+    this.nextResponse = { kind, text, ...options };
+    this.activity();
     this.flushResponse();
   }
 
@@ -348,10 +381,20 @@ class CallStream {
     this.responsePending = true;
     this.responseKind = next.kind;
     this.responseAudible = false;
-    this.responseSummary = this.summaryNext && next.kind === 'summary' && next.text
-      ? { heard: false, cancelled: false, text: next.text, audioKeys: new Set(), transcripts: new Map() } : null;
+    this.responsePrompt = null;
+    if (next.text && next.kind !== 'goodbye') {
+      this.responsePrompt = next.prompt ?? {
+        kind: next.kind, text: next.text, summaryId: next.summaryId,
+        repromptText: next.repromptText ?? (next.kind === 'summary' ? null : next.text),
+      };
+      this.lastPrompt = this.responsePrompt;
+      this.responsePrompt.played = false;
+      this.responsePrompt.cutOff = false;
+    }
+    this.responseSummary = next.kind === 'summary' && next.text && !(next.prompt && this.summaryPlayback?.heard)
+      ? { heard: false, cancelled: false, text: next.text, id: next.summaryId ?? next.prompt?.summaryId, audioKeys: new Set(), transcripts: new Map() } : null;
     if (this.responseSummary) this.summaryPlayback = this.responseSummary;
-    this.summaryNext = false;
+    this.activity();
     this.log('response_requested', { kind: next.kind });
     const response = { output_modalities: ['audio'] };
     if (next.text) {
@@ -365,6 +408,7 @@ class CallStream {
   /** Speech only interrupts a reply the caller can hear; one still being prepared goes ahead. */
   interrupt() {
     if (!this.responseAudible && !this.items.size) return this.log('speech_before_audio', { kind: this.responseKind });
+    if (this.lastPrompt && !this.lastPrompt.played) this.lastPrompt.cutOff = true;
     if (this.summaryPlayback && !this.summaryPlayback.heard) this.summaryPlayback.cancelled = true;
     this.send(this.twilio, { event: 'clear', streamSid: this.streamSid });
     if (this.responseId && this.responseAudible) {
@@ -432,7 +476,7 @@ class CallStream {
       if (this.ready) throw new Error('Unexpected session update');
       this.ready = true;
       this.clearTimer('ready');
-      this.requestResponse('opening', this.session.opening);
+      this.requestResponse('opening', this.session.opening, { repromptText: this.session.repromptText });
       this.log('provider_ready', { droppedEarlyFrames: this.droppedEarlyFrames });
     } else if (!this.ready) {
       if (event.type !== 'session.created') throw new Error('Provider not ready');
@@ -458,10 +502,12 @@ class CallStream {
       }
     } else if (event.type === 'input_audio_buffer.speech_started') {
       if (this.ending) return;
+      this.reprompts = 0;
       if (!this.speaking) {
         this.speechEpoch += 1;
         this.turnHeardSummary = this.summaryPlayback?.heard === true && Number.isSafeInteger(event.audio_start_ms)
           && event.audio_start_ms >= this.summaryPlayback.inputAudioMs;
+        this.turnHeardSummaryId = this.turnHeardSummary ? this.summaryPlayback.id : undefined;
         this.timer('speech', this.limits.speechMs, () => {
           if (!this.speaking || this.ending) return;
           this.recoveryCommit = `speech-recovery-${this.speechEpoch}`;
@@ -476,8 +522,11 @@ class CallStream {
         && !this.responseAudible && !this.items.size;
       this.activity();
       this.log('speech_started');
-      this.interrupt();
+      // A cough or a line click shouldn't cut NAQAH off: only speech that keeps going interrupts.
+      if (this.limits.bargeInMs) this.timer('barge_in', this.limits.bargeInMs, () => { if (this.speaking) this.interrupt(); });
+      else this.interrupt();
     } else if (event.type === 'input_audio_buffer.speech_stopped') {
+      this.clearTimer('barge_in');
       this.speaking = false;
       this.clearTimer('speech');
       this.activity();
@@ -488,8 +537,12 @@ class CallStream {
       this.clearTimer('speech_commit');
       this.recoveryCommit = null;
       this.speaking = false;
+      this.reprompts = 0;
       this.workerTurn?.settle('');
-      const turn = { id: event.item_id, epoch: this.speechEpoch, heardSummary: this.turnHeardSummary === true, settled: false, transcript: '' };
+      const turn = {
+        id: event.item_id, epoch: this.speechEpoch, heardSummary: this.turnHeardSummary === true,
+        heardSummaryId: this.turnHeardSummaryId, settled: false, transcript: '',
+      };
       turn.promise = new Promise((resolve) => {
         turn.settle = (transcript) => {
           if (turn.settled) return;
@@ -500,6 +553,7 @@ class CallStream {
       });
       this.workerTurn = turn;
       this.turnHeardSummary = undefined;
+      this.turnHeardSummaryId = undefined;
       this.activity();
       if (this.earlySpeech) {
         this.earlySpeech = false;
@@ -507,6 +561,12 @@ class CallStream {
       }
       this.userSpoke = true;
       this.log('input_committed');
+      // Words said while the server's next line was waiting must not replace it: that question was never heard.
+      if (this.nextResponse?.text) {
+        this.userSpoke = false;
+        this.log('turn_discarded_for_prompt');
+        return this.flushResponse();
+      }
       this.requestResponse('turn');
     } else if (event.type === 'conversation.item.input_audio_transcription.completed'
       || event.type === 'conversation.item.input_audio_transcription.failed') {
@@ -528,6 +588,12 @@ class CallStream {
         return this.finish('provider_response_failed');
       }
       const kind = this.responseKind;
+      if (this.responsePrompt && !interrupted && this.responseAudible && !this.responsePrompt.cutOff) {
+        const name = `prompt-${++this.markCount}`;
+        this.marks.set(name, { prompt: this.responsePrompt });
+        this.send(this.twilio, { event: 'mark', streamSid: this.streamSid, mark: { name } });
+      }
+      this.responsePrompt = null;
       const summaryKeys = [...(this.responseSummary?.audioKeys ?? [])];
       const summaryMatches = summaryKeys.length > 0 && summaryKeys.every((key) => this.responseSummary.transcripts.has(key))
         && summaryWords(summaryKeys.map((key) => this.responseSummary.transcripts.get(key)).join(' ')) === summaryWords(this.responseSummary.text);
@@ -548,6 +614,7 @@ class CallStream {
         this.marks.set(name, { final: true });
         this.send(this.twilio, { event: 'mark', streamSid: this.streamSid, mark: { name } });
       } else this.flushResponse();
+      this.activity();
     }
   }
 
@@ -585,15 +652,14 @@ class CallStream {
     if (!isObject(args)) throw new Error('Invalid tool args');
     this.toolIds.add(event.call_id);
     this.toolPending += 1;
+    this.activity();
     const turn = this.workerTurn;
     const epoch = this.speechEpoch;
     const spoke = this.userSpoke;
     this.toolQueue = this.toolQueue.then(async () => {
       if (this.closed || this.ending) return;
       const confirmation = event.name === 'confirm_report' && args.confirmed === true;
-      const answering = event.name === 'answer_question';
-      // The server checks both against the worker's own words, so they wait for the transcript.
-      if ((confirmation || answering) && spoke && turn && !turn.settled) {
+      if (spoke && turn && !turn.settled) {
         this.timer('transcription', this.limits.transcriptionMs, () => turn.settle(''));
         await turn.promise;
         this.clearTimer('transcription');
@@ -603,26 +669,61 @@ class CallStream {
       const result = await this.internal('/api/voice/realtime/tool', {
         ticket: this.ticket, callSid: this.callSid, toolCallId: event.call_id,
         name: event.name, args, userSpokeSinceLastTool: spoke && this.userSpoke && current,
-        ...(confirmation || answering ? { workerUtterance: current ? turn?.transcript ?? '' : '' } : {}),
+        workerUtterance: current ? turn?.transcript ?? '' : '',
         ...(confirmation ? { heardSummary: current && turn?.heardSummary === true } : {}),
+        ...(current && turn?.heardSummary && turn.heardSummaryId !== undefined ? { heardSummaryId: turn.heardSummaryId } : {}),
       });
       if (this.closed) return;
-      if (!isObject(result) || typeof result.output !== 'string' || typeof result.awaitingConfirmation !== 'boolean'
-        || ![null, 'hangup', 'fallback'].includes(result.end)
-        || !(result.goodbye === null || typeof result.goodbye === 'string')) throw new Error('Invalid tool result');
       if (this.workerTurn === turn) {
         this.userSpoke = false;
         turn?.settle('');
         if (turn) turn.transcript = '';
       }
+      this.applyToolResult(result, event.call_id);
+    }).catch(() => this.finish('tool_failed')).finally(() => {
+      this.toolPending -= 1;
+      this.flushResponse();
+      this.activity();
+    });
+  }
+
+  /** Key 1 at the summary: the same save path as a spoken yes, with no model turn to wait for. */
+  queueKeypadConfirm() {
+    const heardSummaryId = this.summaryPlayback.id;
+    this.toolPending += 1;
+    this.toolQueue = this.toolQueue.then(async () => {
+      if (this.closed || this.ending) return;
+      this.applyToolResult(await this.internal('/api/voice/realtime/tool', {
+        ticket: this.ticket, callSid: this.callSid, toolCallId: `keypad-${++this.markCount}`, name: 'keypad_confirm', args: {},
+        userSpokeSinceLastTool: true, heardSummary: true, keypad: true, ...(heardSummaryId !== undefined ? { heardSummaryId } : {}),
+      }));
+    }).catch(() => this.finish('tool_failed')).finally(() => {
+      this.toolPending -= 1;
+      this.flushResponse();
+    });
+  }
+
+  applyToolResult(result, callId = null) {
+    if (this.closed) return;
+      if (!isObject(result) || typeof result.output !== 'string' || typeof result.awaitingConfirmation !== 'boolean'
+        || ![null, 'hangup', 'fallback'].includes(result.end)
+        || !(result.goodbye === null || typeof result.goodbye === 'string')
+        || ['summaryText', 'summaryId', 'sayText', 'repromptText'].some((field) => result[field] !== undefined && typeof result[field] !== 'string')
+        || (result.silent !== undefined && result.silent !== true)) throw new Error('Invalid tool result');
+      const summary = result.summaryText?.trim() ? result.summaryText : null;
+      const question = result.sayText?.trim() ? result.sayText : null;
+      const actions = [result.summaryText, result.sayText, result.silent].filter((value) => value !== undefined);
+      if (!result.end && (actions.length !== 1 || (!summary && !question && result.silent !== true))) {
+        throw new Error('Invalid tool result');
+      }
       // Only a summary the server speaks word for word counts as heard: a model reply could say anything.
-      const summary = typeof result.summaryText === 'string' && result.summaryText.trim() ? result.summaryText : null;
-      this.summaryNext = Boolean(summary);
       if (summary) this.summaryPlayback = null;
-      this.send(this.provider, {
-        type: 'conversation.item.create',
-        item: { type: 'function_call_output', call_id: event.call_id, output: result.output },
-      });
+      if (callId) {
+        this.send(this.provider, {
+          type: 'conversation.item.create',
+          item: { type: 'function_call_output', call_id: callId, output: result.output },
+        });
+      }
       this.log('tool_completed');
       if (result.end) {
         this.ending = true;
@@ -632,12 +733,12 @@ class CallStream {
         this.speaking = false;
         this.timer('goodbye', this.limits.goodbyeMs, () => this.finish('goodbye_timeout'));
         this.requestResponse('goodbye', result.goodbye);
-      } else if (summary) this.requestResponse('summary', summary);
-      else this.requestResponse('turn');
-    }).catch(() => this.finish('tool_failed')).finally(() => {
-      this.toolPending -= 1;
-      this.flushResponse();
-    });
+      } else if (summary) this.requestResponse('summary', summary, { summaryId: result.summaryId, repromptText: result.repromptText });
+      else if (question) this.requestResponse('question', question, { repromptText: result.repromptText });
+      else {
+        this.log('tool_silent');
+        if (this.lastPrompt?.cutOff) this.requestResponse(this.lastPrompt.kind, this.lastPrompt.text, { prompt: this.lastPrompt });
+      }
   }
 }
 

@@ -17,7 +17,7 @@ export interface FarmChanges {
   events?: unknown[];
   camels?: unknown[];
   resources?: unknown[];
-  farm?: Record<string, string | null>;
+  farm?: Record<string, string | null | object>;
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -64,10 +64,14 @@ export function diffWorkspace(
     Object.entries(options.reportCallProviderIds ?? {}).map(([runId, sid]) => [toDbIdFor(farmId, runId), sid]),
   );
 
-  const farm: Record<string, string | null> = {};
+  const farm: NonNullable<FarmChanges["farm"]> = {};
   if (before.lastUpdateAt !== after.lastUpdateAt) farm.last_update_at = after.lastUpdateAt;
   if (before.ownerAllowanceUsedAt !== after.ownerAllowanceUsedAt) farm.owner_allowance_used_at = after.ownerAllowanceUsedAt;
   if (before.missedNotificationAt !== after.missedNotificationAt) farm.missed_notification_at = after.missedNotificationAt;
+  if (!same(before.ownerCallRun ?? null, after.ownerCallRun ?? null)) {
+    const run = after.ownerCallRun;
+    farm.owner_call_run = run ? { ...run, id: toDbIdFor(farmId, run.id), reportId: run.reportId ? toDbIdFor(farmId, run.reportId) : null } : null;
+  }
 
   const changes: FarmChanges = {
     task_tickets: changed(b.taskTickets, a.taskTickets, id),

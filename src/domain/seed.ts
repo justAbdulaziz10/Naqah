@@ -51,6 +51,8 @@ export function createEmptyWorkspace(plan: Plan = "basic"): Workspace {
       herdCount: null,
       herdCountReviewedAt: null,
       customQuestions: [],
+      reportMode: "guided",
+      questionPlan: [],
       criteria: defaultCriteria(),
       emergencies: defaultEmergencies(),
       window: null,
@@ -105,6 +107,8 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
   const ar = locale === "ar";
   const yesterday = atRiyadhTime(realNow, 17, 40, -1);
   const y = yesterday.toISOString();
+  // The owner hears the report at their own call time (19:00 below), not straight after it is saved.
+  const ownerCall = yesterday.getTime() + 80 * MINUTE;
 
   ws.setupComplete = true;
   ws.settings.owner = { name: ar ? "عبدالله الدوسري" : "Abdullah Al-Dosari", phone: "+966 55 012 3344" };
@@ -129,6 +133,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
   ];
   // NAQAH calls the worker at the end of the workday: Basic every Thursday, Ultimate every day.
   ws.settings.callSchedule = { day: plan === "basic" ? 4 : null, time: "17:00" };
+  ws.settings.ownerCallSchedule = { day: plan === "basic" ? 4 : null, time: "19:00" };
 
   ws.settings.herdCount = 42;
   ws.camels = CAMELS[locale].map(([name, tag, sex, age]) => ({
@@ -205,7 +210,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
       kind: "owner_notification",
       direction: "outbound",
       party: "owner",
-      at: new Date(yesterday.getTime() + 2 * MINUTE).toISOString(),
+      at: new Date(ownerCall).toISOString(),
       outcome: "completed",
       attempt: null,
       summary: { ar: "أُبلغ المالك بالتحديث", en: "Owner briefed on the update" },
@@ -220,7 +225,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
       {
         id: t1,
         instruction: ar ? "انقل وضحة للحظيرة المظللة وراقب أكلها" : "Move Wadha to the shaded pen and watch her eating",
-        createdAt: new Date(yesterday.getTime() + 4 * MINUTE).toISOString(),
+        createdAt: new Date(ownerCall + 3 * MINUTE).toISOString(),
         scheduledFor: null,
         status: "open",
         closedAt: null,
@@ -241,7 +246,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
       kind: "worker_instruction",
       direction: "outbound",
       party: "worker",
-      at: new Date(yesterday.getTime() + 5 * MINUTE).toISOString(),
+      at: new Date(ownerCall + 6 * MINUTE).toISOString(),
       outcome: "completed",
       attempt: 1,
       summary: ar
@@ -261,7 +266,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
     },
     {
       id: uid("evt"),
-      at: new Date(yesterday.getTime() + 2 * MINUTE).toISOString(),
+      at: new Date(ownerCall).toISOString(),
       tone: "success",
       text: { ar: "اتصلت ناقة بالمالك وأبلغته بالتحديث", en: "NAQAH called the owner with the update" },
     },

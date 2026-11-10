@@ -35,11 +35,10 @@ Worktree: `/Users/moha/.t3/worktrees/NAQAH/t3-641b784b`, branch `t3/verify-backe
   reports after missed calls, turns, atomic save failures, duplicate/concurrent delivery, callbacks,
   tenant isolation and unreachable database behavior. The browser proof records one owner notification
   and consumes its allowance once despite duplicate status delivery. Report status webhooks exercise
-  no-answer, busy and failed, two 20-minute retries, then a missed report run. Separately, four persisted
-  instruction attempts (initial + three 20-minute retries) create one No Answer ticket; signed inbound
-  callback closes it without adding a report. This latter retry test invokes the service contract, not
-  a nonexistent instruction-status webhook/scheduler. Real instruction and task-verification dialing
-  remain unbuilt, as documented in `twilio-activation.md`.
+  no-answer, busy and failed, two 20-minute retries, then a missed report run. Instruction and
+  verification calls are dialed by the same scheduler (`/api/voice/worker`). Three attempts total,
+  20 minutes apart, then stop. No new No Answer ticket. A historical ticket still closes when the
+  worker calls back. Answering is not delivery and is not task completion.
 - **Cron safety: PASS.** Missing/wrong bearer secrets refuse; the correct secret returns
   `scheduled_calls_off`, with no transport requests. Unit tests also cover an unset `CRON_SECRET`.
 - **Dashboard report: PASS.** `owner-flow/report-{ar,en}-{375,1440}.png` shows the persisted report,

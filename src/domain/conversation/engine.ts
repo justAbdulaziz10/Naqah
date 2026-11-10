@@ -3,6 +3,7 @@
  * Scenario transitions live in focused family modules; callers keep this API.
  */
 import { startReportCallScenario, startWorkerInbound, answerReportScenario, hangUpReportCall } from "./report-call";
+export { addUrgentNote, addWorkerNote, reportSummaryId, resumeOpenAsGuided } from "./report-call";
 import { startOwnerNotification, handleOwnerNotification } from "./owner-briefing";
 import { startWorkerCallback, handleWorkerCallback } from "./worker-callback";
 import { startWorkerOutbound, handleWorkerOutbound, hangUpWorkerOutbound } from "./worker-outbound";
@@ -20,6 +21,10 @@ export type {
   CallSession,
   EngineResult,
   AnswerInput,
+  OpenFact,
+  ProposedInstruction,
+  InstructionCorrection,
+  PendingInstruction,
   ReportCallAvailability,
   ScenarioAvailability,
 } from "./shared";
@@ -30,11 +35,11 @@ export function start(
   ws: Workspace,
   now: Date,
   scenario: Scenario = "report_call",
-  options: { reportId?: string; reportCallId?: string } = {},
+  options: { reportId?: string; reportCallId?: string; modesAvailable?: boolean } = {},
 ): EngineResult {
   switch (scenario) {
     case "report_call":
-      return startReportCallScenario(ws, now, options.reportCallId);
+      return startReportCallScenario(ws, now, options.reportCallId, options.modesAvailable);
     case "worker_inbound":
       return startWorkerInbound(ws, now);
     case "worker_callback":
@@ -74,6 +79,6 @@ export function hangUp(session: CallSession, ws: Workspace, now: Date): EngineRe
   if (session.done) return { session };
   const ended = say(session, copy("This call has ended.", "انتهى الاتصال."), now, true);
   if (session.scenario === "report_call") return { session: ended, ...hangUpReportCall(session, ws, now) };
-  if (session.scenario === "worker_outbound") return hangUpWorkerOutbound(session, ws, ended);
+  if (session.scenario === "worker_outbound") return hangUpWorkerOutbound(session, ws, ended, now);
   return { session: ended };
 }

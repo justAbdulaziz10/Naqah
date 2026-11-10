@@ -51,8 +51,14 @@ describe("callEntries", () => {
   });
 
   it("keeps an instruction call that came before any briefing on its own line", () => {
-    const ws = createEmptyWorkspace("basic");
+    const ws = createEmptyWorkspace("ultimate");
     ws.calls = [call("worker_instruction", 0, { attempt: 1 }), call("worker_report", 10)];
     expect(callEntries(ws).map((entry) => entry.type)).toEqual(["report", "chain"]);
+  });
+
+  it("keeps Ultimate-only calls in old rows out of a Basic ranch's history", () => {
+    const ws = createEmptyWorkspace("basic");
+    ws.calls = [call("worker_instruction", 0, { attempt: 1 }), call("worker_report", 10)];
+    expect(callEntries(ws).map((entry) => entry.type)).toEqual(["report"]);
   });
 });

@@ -7,17 +7,24 @@ function event(id: string, tone: PlatformEvent["tone"], en: string, ar = "حدث
 }
 
 describe("selectNotificationEvents", () => {
-  it("selects attention, danger, findings, No Answer tickets, and owner-call summaries", () => {
+  it("selects attention, danger, findings, and owner-call summaries", () => {
     const events = [
       event("finding", "attention", "1 finding matches the owner's criteria"),
-      event("ticket", "attention", "After 3 retries a No Answer Ticket was opened — waiting for the worker to call back"),
       event("danger", "danger", "A dangerous event"),
       event("owner-call", "success", "The agent called the owner with the update", "اتصل المساعد بالمالك وأبلغه بالتحديث"),
       event("routine", "success", "A routine event"),
       event("neutral", "neutral", "A neutral event"),
     ];
 
-    expect(selectNotificationEvents(events).map(({ id }) => id)).toEqual(["finding", "ticket", "danger", "owner-call"]);
+    expect(selectNotificationEvents(events).map(({ id }) => id)).toEqual(["finding", "danger", "owner-call"]);
+  });
+
+  it("never announces a retired No Answer Ticket from saved history", () => {
+    const events = [
+      event("en", "attention", "After 3 retries a No Answer Ticket was opened — waiting for the worker to call back"),
+      event("ar", "attention", "Old", "فُتحت تذكرة «عدم رد» بعد المحاولات"),
+    ];
+    expect(selectNotificationEvents(events)).toEqual([]);
   });
 
   it("skips ids already seen and duplicate ids within the same batch", () => {
@@ -28,17 +35,14 @@ describe("selectNotificationEvents", () => {
 });
 
 describe("buildNotification", () => {
-  it("uses the event's Arabic copy and routes a No Answer Ticket to tickets", () => {
-    const result = buildNotification(
-      event("ticket-1", "attention", "After 3 retries a No Answer Ticket was opened", "فُتحت تذكرة «عدم رد» بعد المحاولات"),
-      "ar",
-    );
+  it("uses the event's Arabic copy and opens the overview", () => {
+    const result = buildNotification(event("finding-1", "attention", "1 finding", "ملاحظة مهمة"), "ar");
 
     expect(result).toEqual({
       title: "ناقة (تجريبي) | مستجد مهم في العزبة",
-      body: "فُتحت تذكرة «عدم رد» بعد المحاولات",
-      url: "/ar/app/tickets",
-      tag: "naqah-ticket-1",
+      body: "ملاحظة مهمة",
+      url: "/ar/app",
+      tag: "naqah-finding-1",
     });
   });
 

@@ -6,6 +6,7 @@ import { OutcomeBadge } from "@/components/dashboard/DashboardPrimitives";
 import { ReportSheet } from "@/components/dashboard/ReportSheet";
 import { callEntries, type CallChain, type CallGroup, type ReportStory } from "@/components/dashboard/callStories";
 import { useHashTarget } from "@/components/dashboard/useHashTarget";
+import { CALL_ATTEMPTS } from "@/components/dashboard/callStatus";
 import { useCallSentence } from "@/components/schedule/ReportCallSection";
 import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { CallActivity } from "@/components/visuals/CallActivity";
@@ -97,7 +98,7 @@ function StoryRow({ story, worker, onOpen }: { story: ReportStory; worker: strin
     const done = delivery.find((call) => call.outcome === "completed");
     steps.push(done
       ? { key: "back", title: worker, detail: v.delivered(fmt.time(done.at)), state: "done" }
-      : { key: "back", title: worker, detail: v.deliveryMissed, state: "missed" });
+      : { key: "back", title: worker, detail: delivery.length >= CALL_ATTEMPTS ? v.deliveryFailed : v.deliveryMissed, state: "missed" });
   }
 
   return (
@@ -143,6 +144,7 @@ function ChainRow({ ws, chain, worker }: { ws: Workspace; chain: CallChain; work
   const last = chain.calls[chain.calls.length - 1];
   const answered = chain.calls.find((call) => call.outcome === "completed");
   const many = chain.calls.length > 1;
+  const carried = last.kind === "worker_instruction" || last.kind === "worker_task_verification";
   const task = last.ticketId ? ws.taskTickets.find((ticket) => ticket.id === last.ticketId) ?? null : null;
   return (
     <div className="flex gap-4 px-5 py-5 transition-colors duration-200 hover:bg-ivory/50 sm:px-7">
@@ -163,7 +165,11 @@ function ChainRow({ ws, chain, worker }: { ws: Workspace; chain: CallChain; work
           <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
             <AttemptMarks calls={chain.calls} />
             <span className={answered ? "text-muted" : "font-semibold text-warn"}>
-              {answered ? c.answeredOn(fmt.number(answered.attempt ?? chain.calls.indexOf(answered) + 1)) : c.attemptsNoAnswer(fmt.number(chain.calls.length))}
+              {answered
+                ? c.answeredOn(fmt.number(answered.attempt ?? chain.calls.indexOf(answered) + 1))
+                : carried && chain.calls.length >= CALL_ATTEMPTS
+                  ? c.notDeliveredAfter(fmt.number(chain.calls.length))
+                  : c.attemptsNoAnswer(fmt.number(chain.calls.length))}
             </span>
           </p>
         ) : null}
@@ -260,7 +266,7 @@ export default function CallsPage() {
             options={[
               { value: "all", label: c.all },
               { value: "reports", label: c.reports },
-              { value: "followUps", label: c.followUps },
+              ...(ws.settings.plan === "ultimate" ? [{ value: "followUps" as const, label: c.followUps }] : []),
               { value: "yours", label: c.yours },
             ]}
           />

@@ -6,6 +6,7 @@
  * Nothing here can reach Twilio or Supabase: the app only ever gets fake credentials and loopback URLs.
  *
  *   node scripts/verify-call-scenarios.mjs [--label final] [--only S1,S3] [--ref HEAD] [--cleanup]
+ *     [--root /tmp/naqah-s3] [--pg-port 54660] [--rest-port 54661] [--gateway-port 54662] [--app-port 3801]
  *   Without --ref it tests the working tree; with --ref it tests that commit (a clean baseline).
  *
  * Results and full call transcripts: /tmp/naqah-s3/logs/<label>/ (result.json, transcripts.txt, server logs).
@@ -24,7 +25,7 @@ const arg = (name, fallback) => {
 const flag = (name) => process.argv.includes(`--${name}`);
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const ROOT = "/tmp/naqah-s3";
+const ROOT = arg("root", "/tmp/naqah-s3");
 const SRC = join(ROOT, "src");
 // When /tmp/naqah-s3/ram holds a mounted scratch volume (ram.dev), Postgres and .next live there to spare the disk.
 const SCRATCH = existsSync(join(ROOT, "ram.dev")) ? join(ROOT, "ram") : ROOT;
@@ -35,10 +36,10 @@ const LOGS = join(ROOT, "logs", LABEL);
 const ONLY = arg("only", "")?.split(",").filter(Boolean);
 const REF = arg("ref", "");
 const PG_BIN = "/opt/homebrew/opt/postgresql@17/bin";
-const PG_PORT = "54660";
-const REST_PORT = "54661";
-const GATEWAY_PORT = "54662";
-const APP_PORT = "3801";
+const PG_PORT = arg("pg-port", "54660");
+const REST_PORT = arg("rest-port", "54661");
+const GATEWAY_PORT = arg("gateway-port", "54662");
+const APP_PORT = arg("app-port", "3801");
 const DB = "naqah_s3";
 const GATEWAY = `http://127.0.0.1:${GATEWAY_PORT}`;
 const APP = `http://localhost:${APP_PORT}`;
@@ -251,6 +252,7 @@ async function makeOwner() {
 /** Basic ranch, one primary worker. Default: no camels, no herd count, no resources. */
 async function makeFarm({ camels = [], herd = null, resources = [], custom = [] } = {}) {
   const { user, account } = await makeOwner();
+  sql(`insert into farms (owner_id, plan, plan_selected_at) values (${q(user.id)}, 'basic', now()) on conflict (owner_id) do update set plan_selected_at = now()`);
   const opened = await account({ op: "open" });
   if (!opened.ok) throw new Error(`open failed: ${JSON.stringify(opened)}`);
   const farm = opened.data.farmId;
@@ -298,9 +300,16 @@ async function drive(call, plan, { fallback = speech("إيه"), max = 45, until 
   }
 }
 
-/** One saved report, its run linked, the owner told, and the dashboard showing it. */
+/** The owner is called at the owner's own time by the scheduler, so saving a report never dials them. */
+async function assertOwnerNotDialled() {
+  await sleep(1200);
+  const dialled = (await provider()).map((r) => r.To);
+  check("saving the report does not dial the owner", !dialled.includes(OWNER), dialled);
+}
+
+/** One saved report, its run linked, no call straight to the owner, and the dashboard showing it. */
 async function assertSaved(ranch, call, { expected = [], herd } = {}) {
-  check("the worker hears that the update is saved", /تم حفظ التحديث/.test(call.text), call.text);
+  check("the worker hears that the update is saved", /(?<!ما )انحفظ التحديث/.test(call.text), call.text);
   const status = await call.finalStatus("completed");
   check("final status callback is accepted", status.status === 204, status);
   const farm = ranch.farm;
@@ -327,31 +336,35 @@ async function assertSaved(ranch, call, { expected = [], herd } = {}) {
   const last = ws.reports?.at?.(-1);
   check("the owner's dashboard reads the report", ws.reports?.length === 1 && Boolean(ws.lastUpdateAt) && last?.answers?.length === answers.length, { reports: ws.reports?.length, lastUpdateAt: ws.lastUpdateAt, answers: last?.answers?.length });
   check("the dashboard's run points to the report", ws.reportCalls?.at?.(-1)?.state === "completed", ws.reportCalls?.at?.(-1));
-  await waitFor(async () => (await provider()).some((r) => r.To === OWNER), "owner call", 20).catch(() => {});
-  check("the owner gets one update call", (await provider()).filter((r) => r.To === OWNER).length === 1, (await provider()).map((r) => r.To));
+  await assertOwnerNotDialled();
   return ws;
 }
 
 function assertNotSaved(ranch, call, label = "no report") {
   check(`${label}: no report row`, count("reports", ranch.farm) === 0, reportOf(ranch.farm));
   const transcript = call.transcript.map((t) => t.said).join(" ");
-  check(`${label}: never says the update was saved`, !/تم حفظ/.test(transcript), transcript.slice(-300));
+  check(`${label}: never says the update was saved`, !/(?<!ما )انحفظ التحديث/.test(transcript), transcript.slice(-300));
 }
 
 /* ─────────────────── questions ─────────────────── */
 
 const Q = {
-  health: /حال الحلال/,
+  // The full read-back repeats questions, so the question patterns must not match the summary.
+  health: /^(?![\s\S]*أحفظه)[\s\S]*كيف الحلال/,
   herdCount: /كم عدد الحلال/,
-  feed: /كم باقي من العلف/,
-  water: /كيف وضع الماء/,
-  custom: /البيطري/,
-  bags: /أكياس العلف/,
-  litres: /الماء باللتر/,
+  feed: /^(?![\s\S]*أحفظه)[\s\S]*كيف العلف/,
+  water: /^(?![\s\S]*أحفظه)[\s\S]*كيف الماء/,
+  custom: /^(?![\s\S]*أحفظه)[\s\S]*البيطري/,
   summary: /أحفظه/,
 };
 
 /* ─────────────────── scenarios ─────────────────── */
+
+scenario("M0", "The migrations this verifier depends on are applied", async () => {
+  for (const file of ["20261109182526_owner_summary_schedule.sql", "20261110090000_mvp_owner_runs.sql"]) check(`${file} is in the tree`, existsSync(join(SRC, "supabase/migrations", file)));
+  const columns = sql("select string_agg(column_name, ',') from information_schema.columns where table_schema = 'public' and table_name = 'farms' and column_name in ('owner_call_day', 'owner_call_time', 'owner_call_run')");
+  check("the owner schedule and owner run columns exist", ["owner_call_day", "owner_call_time", "owner_call_run"].every((name) => columns.includes(name)), columns);
+});
 
 scenario("S1a", "Happy: zero camels, no herd count, natural speech", async () => {
   const ranch = await makeFarm();
@@ -362,7 +375,7 @@ scenario("S1a", "Happy: zero camels, no herd count, natural speech", async () =>
     { ask: Q.health, input: speech("كلها بخير") },
     { ask: Q.summary, input: speech("إيه") },
   ]);
-  note(`empty ranch hears the herd question: ${/حال الحلال/.test(call.transcript[0].said)}; summary: ${call.transcript.find((t) => /أحفظه/.test(t.said))?.said}`);
+  note(`empty ranch hears the herd question: ${/كيف الحلال/.test(call.transcript[0].said)}; summary: ${call.transcript.find((t) => /أحفظه/.test(t.said))?.said}`);
   check("not asked for a herd count on an empty ranch", !call.transcript.some((t) => /كم عدد/.test(t.said)), call.transcript.map((t) => t.said));
   await assertSaved(ranch, call, { expected: [] });
 });
@@ -375,9 +388,7 @@ scenario("S1b", "Happy: camels, resources, custom question, natural speech", asy
     { ask: Q.health, input: speech("كلها بخير") },
     { ask: Q.herdCount, input: speech("عشرين ناقة") },
     { ask: Q.feed, input: speech("باقي شوي") },
-    { ask: Q.bags, input: speech("٢٥") },
     { ask: Q.water, input: speech("إيه كافي") },
-    { ask: Q.litres, input: speech("مية لتر") },
     { ask: Q.custom, input: speech("لا ما جا") },
     { ask: Q.summary, input: speech("إيه") },
   ], { fallback: speech("إيه") });
@@ -400,9 +411,7 @@ scenario("S1c", "Happy: diacritics, hamza variants and trailing words", async ()
     { ask: Q.health, input: speech("كُلُّها بِخَيْر الحمد لله") },
     { ask: Q.herdCount, input: speech("٢٠ ناقة تقريبا") },
     { ask: Q.feed, input: speech("باقي شوي يا طويل العمر") },
-    { ask: Q.bags, input: speech("ثلاثين كيس تقريبا") },
     { ask: Q.water, input: speech("ايوه الخزان كافي") },
-    { ask: Q.litres, input: speech("٢٠٠") },
     { ask: Q.custom, input: speech("لا والله ما جاء أحد") },
     { ask: Q.summary, input: speech("أيوه احفظه") },
   ], { fallback: speech("أيوه") });
@@ -421,9 +430,7 @@ scenario("S1d", "Happy: «ما أدري» and «مدري» are saved as unknown"
     { ask: Q.health, input: speech("مدري") },
     { ask: Q.herdCount, input: speech("ما أدري") },
     { ask: Q.feed, input: speech("ما ادري والله") },
-    { ask: Q.bags, input: speech("ما أدري") },
     { ask: Q.water, input: speech("مدري") },
-    { ask: Q.litres, input: speech("مدري") },
     { ask: Q.custom, input: speech("ما أدري") },
     { ask: Q.summary, input: speech("إيه") },
   ]);
@@ -456,14 +463,13 @@ scenario("S3a", "Silence once, then answered (empty SpeechResult and no fields)"
   const ranch = await makeFarm(FULL);
   const call = await callNow(ranch, "S3a");
   await call.answer();
-  const first = call.text;
   await call.turn(SILENT);
-  check("one empty SpeechResult repeats the same question", call.action && call.text.includes(first.slice(-40)) && /معليش/.test(call.text), call.text);
+  check("one empty SpeechResult repeats the same question", call.action && Q.health.test(call.text) && /معليش/.test(call.text), call.text);
   await call.turn(speech("كلها بخير"));
   const second = call.text;
   await call.turn(NOTHING);
   check("a Gather with no speech field also repeats the question", call.action && call.text.includes(second.slice(-30)), call.text);
-  await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.bags, input: speech("٢٥") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.litres, input: speech("مية") }, { ask: Q.custom, input: speech("لا") }]);
+  await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.custom, input: speech("لا") }]);
   await assertSaved(ranch, call, { herd: 20 });
 });
 
@@ -520,13 +526,10 @@ scenario("S3c", "Replay of call 9b929d (speech, speech, 2 silent, speech, 3 sile
   await retry.answer();
   await drive(retry, [
     { ask: Q.health, input: speech("كلها بخير") }, { ask: Q.herdCount, input: speech("عشرين ناقة") },
-    { ask: Q.feed, input: speech("باقي شوي") }, { ask: Q.bags, input: speech("٢٥") },
-    { ask: Q.water, input: speech("إيه كافي") }, { ask: Q.litres, input: speech("مية لتر") },
+    { ask: Q.feed, input: speech("باقي شوي") },
+    { ask: Q.water, input: speech("إيه كافي") },
     { ask: Q.custom, input: speech("لا ما جا") }, { ask: Q.summary, input: speech("إيه") },
   ]);
-  await waitFor(async () => (await provider()).some((r) => r.To === OWNER), "owner call before the final status", 20).catch(() => {});
-  const ownerCallFirst = (await provider()).some((r) => r.To === OWNER);
-  note(`owner update call requested while the worker's call is still open (no final status yet): ${ownerCallFirst}`);
   await assertSaved(ranch, retry, {
     herd: 20,
     expected: [
@@ -554,16 +557,39 @@ scenario("S4b", "Nonsense speech", async () => {
   const ranch = await makeFarm(FULL);
   const call = await callNow(ranch, "S4b");
   await call.answer();
-  const first = call.text;
   await call.turn(speech("البطيخ طاير فوق السطح"));
-  check("nonsense on a choice question is asked again", call.action && call.text.includes(first.slice(-40)), call.text);
+  check("nonsense on a choice question is asked again", call.action && Q.health.test(call.text), call.text);
   await call.turn(speech("كلها بخير"));
   check("herd count is the next question", Q.herdCount.test(call.text), call.text);
   const before = call.text;
   await call.turn(speech("الجو حلو اليوم"));
   check("nonsense on a number question is asked again", call.action && call.text.includes(before.slice(-30)), call.text);
-  await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.bags, input: speech("٢٥") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.litres, input: speech("مية") }, { ask: Q.custom, input: speech("لا") }]);
-  check("reached the summary", /تم حفظ/.test(call.text), call.text);
+  await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.custom, input: speech("لا") }]);
+  check("reached the summary", /(?<!ما )انحفظ التحديث/.test(call.text), call.text);
+});
+
+scenario("S4e", "Off-topic words on a guided question are kept as a note and read back", async () => {
+  const ranch = await makeFarm(FULL);
+  const call = await callNow(ranch, "S4e");
+  await call.answer();
+  const words = "العلف زين";
+  await call.turn(speech(words));
+  const after = JSON.parse(sql(`select session::text from voice_call_sessions where call_sid = ${q(call.sid)}`)).draft;
+  check("the words do not answer the health question", after.answers.every((answer) => answer.questionId !== "herd_health"), after.answers);
+  check("the note is kept", after.answers.some((answer) => answer.answer === words), after.answers);
+  check("the question is asked again", Q.health.test(call.text) && Boolean(call.action), call.text);
+  await drive(call, [
+    { ask: Q.health, input: speech("كلها بخير") }, { ask: Q.herdCount, input: speech("عشرين ناقة") },
+    { ask: Q.feed, input: speech("باقي شوي") },
+    { ask: Q.water, input: speech("إيه كافي") },
+    { ask: Q.custom, input: speech("لا ما جا") },
+  ], { until: Q.summary });
+  check("the note is not asked as a question of its own", !call.transcript.some((t) => /الملاحظة الصحيحة/.test(t.said)), call.transcript.map((t) => t.said));
+  check("the note is read back", Q.summary.test(call.text) && call.text.includes(words), call.text);
+  if (!Q.summary.test(call.text)) { await call.finalStatus("completed"); return; }
+  await call.turn(speech("إيه"));
+  await assertSaved(ranch, call, { herd: 20 });
+  check("the note is saved in the worker's words", answersOf(ranch.farm).some((row) => row.answer === words), answersOf(ranch.farm));
 });
 
 scenario("S4c", "Correct words with the confidence values Twilio may send", async () => {
@@ -587,14 +613,14 @@ scenario("S4d", "A whole call whose speech scores below 0.5", async () => {
   await call.answer();
   await drive(call, [
     { ask: Q.health, input: speech("كلها بخير", "0.42") }, { ask: Q.herdCount, input: speech("عشرين", "0.42") },
-    { ask: Q.feed, input: speech("كافي", "0.42") }, { ask: Q.bags, input: speech("٢٥", "0.42") },
-    { ask: Q.water, input: speech("كافي", "0.42") }, { ask: Q.litres, input: speech("مية", "0.42") },
+    { ask: Q.feed, input: speech("كافي", "0.42") },
+    { ask: Q.water, input: speech("كافي", "0.42") },
     { ask: Q.custom, input: speech("لا", "0.42") }, { ask: Q.summary, input: speech("إيه", "0.42") },
   ], { fallback: speech("إيه", "0.42") });
   await call.finalStatus("completed");
   note(`after ${call.turns} turns; last line: ${call.text}`);
   note(`reports saved: ${count("reports", ranch.farm)}; summary heard: ${call.transcript.find((t) => /أحفظه/.test(t.said))?.said ?? "never reached"}`);
-  check("the answers the worker gave are saved", /تم حفظ/.test(call.text) && count("reports", ranch.farm) === 1, call.text);
+  check("the answers the worker gave are saved", /(?<!ما )انحفظ التحديث/.test(call.text) && count("reports", ranch.farm) === 1, call.text);
 });
 
 scenario("S5", "Hang-up midway", async () => {
@@ -626,7 +652,7 @@ scenario("S6a", "Database 503 on a turn", async () => {
   await faults(true);
   try { await call.turn(speech("عشرين")); } finally { await faults(false); }
   note(`during the 503 the worker hears: ${call.text} (HTTP ${call.status}, hangup: ${/Hangup/.test(call.xml)})`);
-  check("a failed turn is an honest message, not a claim of saving", !/تم حفظ/.test(call.text), call.text);
+  check("a failed turn is an honest message, not a claim of saving", !/(?<!ما )انحفظ التحديث/.test(call.text), call.text);
   check("the webhook answers valid TwiML within the failure", call.status === 200 && /<Response>/.test(call.xml), call.xml.slice(0, 200));
   await call.finalStatus("completed");
   assertNotSaved(ranch, call);
@@ -648,12 +674,12 @@ scenario("S6b", "Duplicate POST of the same turn (Twilio retry)", async () => {
   call.log("[turn x2 concurrent]");
   const again = await post(firstAction, input);
   check("a later duplicate replays the same reply", again.xml === one.xml, says(again.xml));
-  await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.bags, input: speech("٢٥") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.litres, input: speech("مية") }, { ask: Q.custom, input: speech("لا") }], { until: Q.summary });
+  await drive(call, [{ ask: Q.herdCount, input: speech("عشرين") }, { ask: Q.feed, input: speech("كافي") }, { ask: Q.water, input: speech("كافي") }, { ask: Q.custom, input: speech("لا") }], { until: Q.summary });
   check("reached the save question", Q.summary.test(call.text), call.text);
   const saveAction = call.action;
   const saveInput = callFields(call.sid, speech("إيه"));
   const [save1, save2] = await Promise.all([post(saveAction, saveInput), post(saveAction, saveInput)]);
-  check("both duplicate saves answer with the same outcome", save1.xml === save2.xml && /تم حفظ/.test(says(save1.xml)), [says(save1.xml), says(save2.xml)]);
+  check("both duplicate saves answer with the same outcome", save1.xml === save2.xml && /(?<!ما )انحفظ التحديث/.test(says(save1.xml)), [says(save1.xml), says(save2.xml)]);
   Object.assign(call, save1);
   call.log("[save x2 concurrent]");
   const replay = await post(saveAction, saveInput);
@@ -689,7 +715,7 @@ scenario("S6c", "Out-of-order status callbacks", async () => {
   call.log("[late confirm after status]");
   note(`late confirm after completed status hears: ${says(reply.xml)}`);
   check("a confirm after the final status does not save", count("reports", ranch.farm) === 0, reportOf(ranch.farm));
-  check("and does not claim it did", !/تم حفظ/.test(says(reply.xml)), says(reply.xml));
+  check("and does not claim it did", !/(?<!ما )انحفظ التحديث/.test(says(reply.xml)), says(reply.xml));
 
   // A duplicate completed after a save leaves the report alone.
   ranch = await makeFarm();
@@ -753,6 +779,36 @@ scenario("S7-scheduled", "Scheduled run: no-answer, busy, failed with retries", 
   check("attempts are recorded as unanswered", latest.attempts?.length === 3 && latest.attempts.every((a) => a.result === "no_answer"), latest.attempts);
   const after = await cron();
   check("no further call after the last retry", after.placed === 0 && (await provider()).length === 3, after);
+});
+
+scenario("S7-interrupted", "Scheduled run: a call answered then cut off counts as an attempt and retries", async () => {
+  const ranch = await makeFarm(FULL);
+  sql(`update farms set call_day = extract(dow from now() at time zone 'Asia/Riyadh' - interval '1 minute')::int,
+       call_time = (now() at time zone 'Asia/Riyadh' - interval '1 minute')::time where id = ${q(ranch.farm)}`);
+  await resetProvider();
+  const cron = async () => (await fetch(`${APP}/api/cron/report-calls`, { headers: { Authorization: `Bearer ${CRON_SECRET}` } })).json();
+  check("the cron dials the due slot", (await cron()).placed === 1);
+  for (const attempt of [1, 2, 3]) {
+    const requests = await provider();
+    check(`attempt ${attempt} is dialled once`, requests.length === attempt, requests.length);
+    const call = new Call(requests[attempt - 1], `interrupted-${attempt}`);
+    await call.answer();
+    await call.turn(speech("كلها بخير"));
+    await call.finalStatus("completed");
+    assertNotSaved(ranch, call, `interrupted attempt ${attempt}`);
+    const [latest] = run(ranch.farm);
+    if (attempt === 3) {
+      check("the third interruption ends the run as missed", latest.state === "missed" && latest.next_attempt_at === null && latest.attempts?.length === 3, latest);
+      break;
+    }
+    check(`interrupted attempt ${attempt} keeps the run calling, 20 minutes out`, latest.state === "calling" && latest.next_attempt_at && Math.abs(new Date(latest.next_attempt_at) - Date.now() - 20 * 60_000) < 120_000, latest);
+    check(`no redial before attempt ${attempt + 1} is due`, (await cron()).placed === 0 && (await provider()).length === attempt);
+    sql(`update report_call_runs set next_attempt_at = now() - interval '1 second' where farm_id = ${q(ranch.farm)} and state = 'calling'`);
+    check(`attempt ${attempt + 1} is placed when due`, (await cron()).placed === 1);
+  }
+  check("no further call after the last retry", (await cron()).placed === 0 && (await provider()).length === 3);
+  check("the owner was never dialled for the worker's report run", !(await provider()).some((r) => r.To === OWNER), (await provider()).map((r) => r.To));
+  check("no No Answer ticket row exists", count("no_answer_tickets", ranch.farm) === 0);
 });
 
 scenario("S8", "Forged signatures are rejected", async () => {

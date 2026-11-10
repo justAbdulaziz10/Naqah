@@ -34,9 +34,10 @@ receives facts labelled with where they came from and how certain they are.
 
 ## Operating Context
 
-- Worker reporting: Basic, one report a week inside the owner's window. Ultimate, one report a day
-  at the end of the workday.
-- The AI calls the owner after a successful update, on both plans.
+- Worker reporting: Basic, one report a week at the owner's chosen day and time. Ultimate, one report
+  a day at the owner's chosen time.
+- The AI calls the owner at the owner's chosen summary time after a saved report. Basic ends after
+  the summary. Ultimate then asks for instructions on the phone.
 - Emergencies: the worker calls the owner directly, never through the AI.
 - The owner may read the dashboard outdoors on a phone.
 
@@ -46,13 +47,16 @@ receives facts labelled with where they came from and how certain they are.
   has unlimited questions and owner calls, and task tickets for actionable instructions.
 - **Task tickets:** close only when the worker explicitly confirms. Deadlines never close them.
   Closed tickets move to History.
-- **Missed AI calls:** retry after 20 minutes, up to 3 retries, then a No Answer Ticket, which closes
-  when the worker calls back.
+- **Calls that don't complete:** worker and owner calls get three attempts total, 20 minutes apart.
+  An interrupted call counts as a failed attempt. After the third, automatic calls stop. There are
+  no No Answer Tickets. If no verified report exists, the owner still gets the scheduled call and
+  is told so.
 - **Not approved, do not add:** native apps, a website chatbot, multiple farms or workers, diagnosis,
   purchasing, extra reporting updates, new channels, automated emergency dispatch.
-- **Current state:** the demo runs in the browser. No real calls reach the dashboard, and nothing is
-  charged. **Calling the worker from NAQAH is not connected**, so it must never look like it works.
-  Simulation stays clearly labelled.
+- **Current state:** the browser demo is still a simulation and is labelled as one. The server
+  places worker report, instruction, verification, and owner-summary calls only when the telephony
+  flags and Twilio credentials are configured. Nothing is charged by the demo. Owner-summary time
+  is `farms.owner_call_day` / `owner_call_time`, separate from the worker's `call_day` / `call_time`.
 - **Terminology:** حلال for the herd, عزبة for the estate in Arabic; "task ticket" and "No Answer
   Ticket" are the product's terms for those records.
 

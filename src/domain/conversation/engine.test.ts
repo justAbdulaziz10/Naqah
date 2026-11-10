@@ -56,19 +56,23 @@ function ownerInstruction(ws: Workspace, now = NOW) {
   session = result.session;
   result = applyAnswer(session, ws, now, { value: "actionable" });
   session = result.session;
-  return session.step === "instruction_schedule"
-    ? applyAnswer(session, ws, now, { value: "any_time" })
-    : result;
+  if (session.step === "instruction_schedule") {
+    result = applyAnswer(session, ws, now, { value: "any_time" });
+    session = result.session;
+  }
+  if (ws.settings.plan !== "ultimate") return result;
+  result = applyAnswer(session, result.ws, now, { value: "instruction_no" });
+  return applyAnswer(result.session, result.ws, now, { value: "instructions_confirm" });
 }
 
 function noAnswerFourTimes(ws: Workspace, startAt = NOW) {
   let now = startAt;
   let session = start(ws, now, "worker_outbound").session;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     let result = applyAnswer(session, ws, now, { value: "no_answer" });
     session = result.session;
     ws = result.ws;
-    if (attempt < 3) {
+    if (attempt < 2) {
       result = applyAnswer(session, ws, now, { value: "skip_20" });
       session = result.session;
       ws = result.ws;
@@ -97,18 +101,34 @@ describe("callback-delivered instruction verification", () => {
     return applyAnswer(session, ws, now, { value: "received" }).ws;
   }
 
+  function stampHistoricalTicket(ws: Workspace) {
+    const call = [...ws.pendingWorkerCalls].reverse().find((item) => item.state === "no_answer_ticket");
+    if (!call) return;
+    ws.noAnswerTickets.push({
+      id: `nat_${call.id}`,
+      createdAt: call.attempts.at(-1)?.at ?? callbackAt.toISOString(),
+      purpose: call.purpose,
+      message: call.message,
+      taskTicketId: call.taskTicketId,
+      status: "open",
+      closedAt: null,
+    });
+  }
+
   it.each([false, true])("starts exactly one cycle per due callback-delivered task (grouped=%s)", (grouped) => {
     const missed = missedInstruction(grouped);
     expect(scenarioAvailability(missed.ws, dueAt).dueTaskVerificationCount).toBe(0);
     const blocked = start(missed.ws, dueAt, "worker_outbound");
     expect((blocked.commit?.(missed.ws) ?? missed.ws).pendingWorkerCalls.filter((call) => call.purpose === "task_verification")).toEqual([]);
+    expect(missed.ws.noAnswerTickets).toHaveLength(0);
 
+    stampHistoricalTicket(missed.ws);
     const delivered = deliverCallback(missed.ws);
     expect(scenarioAvailability(delivered, callbackAt).dueTaskVerificationCount).toBe(0);
     expect(scenarioAvailability(delivered, dueAt).dueTaskVerificationCount).toBe(missed.taskIds.length);
     const started = start(delivered, dueAt, "worker_outbound");
     const once = started.commit?.(delivered) ?? delivered;
-    expect(once.pendingWorkerCalls.filter((call) => call.purpose === "task_verification").map((call) => call.taskTicketId)).toEqual(missed.taskIds);
+    expect(once.pendingWorkerCalls.filter((call) => call.purpose === "task_verification").map((call) => call.coveredTaskIds)).toEqual([missed.taskIds]);
     expect(scenarioAvailability(once, dueAt).dueTaskVerificationCount).toBe(0);
     const repeated = start(once, dueAt, "worker_outbound");
     expect((repeated.commit?.(once) ?? once).pendingWorkerCalls).toEqual(once.pendingWorkerCalls);
@@ -116,6 +136,7 @@ describe("callback-delivered instruction verification", () => {
 
   it("keeps an identical later batch blocked until its own callback", () => {
     const first = missedInstruction(true);
+    stampHistoricalTicket(first.ws);
     const delivered = deliverCallback(first.ws);
     const secondAt = fromRiyadh(2026, 11, 5, 19, 0);
     const second = submitOwnerInstructionBatch(delivered, secondAt, [instruction, instruction], "later-callback-batch");
@@ -123,14 +144,16 @@ describe("callback-delivered instruction verification", () => {
     expect(scenarioAvailability(missed.ws, dueAt).dueTaskVerificationCount).toBe(first.taskIds.length);
     const started = start(missed.ws, dueAt, "worker_outbound");
     const onlyFirst = started.commit?.(missed.ws) ?? missed.ws;
-    expect(onlyFirst.pendingWorkerCalls.filter((call) => call.purpose === "task_verification").map((call) => call.taskTicketId)).toEqual(first.taskIds);
+    expect(onlyFirst.pendingWorkerCalls.filter((call) => call.purpose === "task_verification").map((call) => call.coveredTaskIds)).toEqual([first.taskIds]);
 
+    stampHistoricalTicket(missed.ws);
     const allDelivered = deliverCallback(missed.ws, fromRiyadh(2026, 11, 5, 20, 30));
     expect(scenarioAvailability(allDelivered, dueAt).dueTaskVerificationCount).toBe(first.taskIds.length + second.taskIds.length);
   });
 
   it.each(["before_callback", "after_callback"])("skips a batch task closed %s", (when) => {
     const missed = missedInstruction(true);
+    stampHistoricalTicket(missed.ws);
     let ws = missed.ws;
     if (when === "before_callback") ws = confirmTask(ws, callbackAt, missed.taskIds[0], true, "worker_report");
     ws = deliverCallback(ws);
@@ -163,16 +186,8 @@ describe("Call Lab conversation engine", () => {
         input = { value: "sick" };
       } else if (session.step === "health_note") {
         input = { text: "limping" };
-      } else if (session.step === "health_name_confirm") {
-        input = { value: "yes" };
       } else if (session.step === "health_more") {
         input = { value: "no" };
-      } else if (session.step === "herd_count_confirm") {
-        input = { value: "yes" };
-      } else if (session.step === "quantity_input") {
-        input = session.data.currentQuestionId === "feed_level" ? { text: "12" } : { value: "quantity_skip" };
-      } else if (session.step === "quantity_confirm") {
-        input = { value: "yes" };
       } else {
         throw new Error("Unexpected report step: " + session.step);
       }
@@ -242,11 +257,11 @@ describe("Call Lab conversation engine", () => {
     let current = started.commit?.(ws) ?? ws;
     let now = dueAt;
 
-    for (let attempt = 0; attempt < 4; attempt += 1) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       let result = applyAnswer(session, current, now, { value: "no_answer" });
       session = result.session;
       current = result.ws;
-      if (attempt < 3) {
+      if (attempt < 2) {
         result = applyAnswer(session, current, now, { value: "skip_20" });
         session = result.session;
         current = result.ws;
@@ -254,7 +269,17 @@ describe("Call Lab conversation engine", () => {
       }
     }
 
-    expect(current.noAnswerTickets.some((ticket) => ticket.taskTicketId === task.id && ticket.status === "open")).toBe(true);
+    expect(current.noAnswerTickets).toHaveLength(0);
+    expect(current.pendingWorkerCalls[0]?.state).toBe("no_answer_ticket");
+    current.noAnswerTickets.push({
+      id: "nat_hist",
+      createdAt: now.toISOString(),
+      purpose: "task_verification",
+      message: "Check the shade net",
+      taskTicketId: task.id,
+      status: "open",
+      closedAt: null,
+    });
     const reportsBefore = current.reports.length;
     const callbackAt = fromRiyadh(2026, 11, 6, 9, 0);
     const callback = start(current, callbackAt, "worker_callback").session;
@@ -303,7 +328,8 @@ describe("Call Lab conversation engine", () => {
 
     expect(ended.session.done).toBe(true);
     expect(after.reports).toHaveLength(1);
-    expect(after.reportCalls?.at(-1)?.state).toBe("missed");
+    expect(after.reportCalls?.at(-1)?.state).toBe("calling");
+    expect(after.reportCalls?.at(-1)?.nextAttemptAt).not.toBeNull();
   });
 
   it("undoes a report call hung up on its first ring", () => {
@@ -387,14 +413,11 @@ describe("Call Lab conversation engine", () => {
     const { ws, session: first } = reportCall(createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0)));
     let session = answer(first, ws, NOW, { value: "yes" }).session;
     expect(session.data.currentQuestionId).toBe("herd_count");
-    expect(session.turns.at(-1)?.text.en).toBe("How many camels are there in total today?");
+    expect(session.turns.at(-1)?.text.en).toBe("How many camels are there today?");
     expect(session.inputMode).toBe("number");
     session = answer(session, ws, NOW, { text: "lots" }).session;
     expect(session.turns.at(-1)?.text.en).toContain("for example 42");
     session = answer(session, ws, NOW, { text: "40" }).session;
-    expect(session.step).toBe("herd_count_confirm");
-    expect(session.turns.at(-1)?.text.en).toContain("You counted 40 camels");
-    session = answer(session, ws, NOW, { value: "yes" }).session;
     expect(session.step).toBe("herd_count_detail");
     expect(session.turns.at(-1)?.text.en).toContain("fewer than the 42 on record");
     session = answer(session, ws, NOW, { text: "Wadha and Shaha" }).session;
@@ -407,10 +430,10 @@ describe("Call Lab conversation engine", () => {
     for (let guard = 0; session.step !== "report_summary" && guard < 40; guard += 1) {
       const input = session.data.currentQuestionId === "herd_count" && session.step === "report_question"
         ? { text: "45" }
-        : session.inputMode === "choices" ? { value: session.replies[0].value } : session.inputMode === "number" ? { value: "quantity_skip" } : { text: "Nothing new" };
+        : session.inputMode === "choices" ? { value: session.replies[0].value } : { text: "Nothing new" };
       ({ ws, session } = applyAnswer(session, ws, NOW, input));
     }
-    expect(session.turns.at(-1)?.text.en).toContain("camels counted: 45");
+    expect(session.turns.at(-1)?.text.en).toContain("45 camels");
     ({ ws, session } = applyAnswer(session, ws, NOW, { value: "confirm_save" }));
     expect(ws.reports.at(-1)?.herdCountReported).toBe(45);
     expect(ws.settings.herdCount).toBe(42);
@@ -435,7 +458,7 @@ describe("Call Lab conversation engine", () => {
     expect(session.turns[0].text.en).toContain("hasn’t set a report time yet");
   });
 
-  it("creates an Ultimate task ticket and relays the same instruction on Basic", () => {
+  it("creates an Ultimate task ticket and ends a Basic summary without instructions", () => {
     const ultimate = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
     const ultimateResult = ownerInstruction(ultimate);
     expect(ultimateResult.ws.taskTickets.some((task) => task.instruction === "Move Wadha into the shaded pen" && task.status === "open")).toBe(true);
@@ -444,11 +467,13 @@ describe("Call Lab conversation engine", () => {
 
     const basic = createDemoWorkspace("en", "basic", fromRiyadh(2026, 11, 3, 9, 0));
     const basicResult = ownerInstruction(basic);
+    expect(basicResult.session.done).toBe(true);
     expect(basicResult.ws.taskTickets).toHaveLength(0);
-    expect(basicResult.ws.relays.some((relay) => relay.message === "Move Wadha into the shaded pen")).toBe(true);
+    expect(basicResult.ws.relays).toHaveLength(0);
+    expect(basicResult.ws.pendingWorkerCalls).toHaveLength(0);
   });
 
-  it("opens a No Answer Ticket after four unanswered worker calls", () => {
+  it("stops after three unanswered worker calls without a No Answer Ticket", () => {
     const ws = createDemoWorkspace("en", "ultimate", fromRiyadh(2026, 11, 4, 9, 0));
     const pending = submitOwnerInstruction(ws, NOW, {
       message: "Move Wadha into the shaded pen",
@@ -456,26 +481,29 @@ describe("Call Lab conversation engine", () => {
       scheduledFor: null,
     });
     const result = noAnswerFourTimes(pending.ws);
-    expect(result.ws.pendingWorkerCalls[0].attempts).toHaveLength(4);
+    expect(result.ws.pendingWorkerCalls[0].attempts).toHaveLength(3);
     expect(result.ws.pendingWorkerCalls[0].state).toBe("no_answer_ticket");
-    expect(result.ws.noAnswerTickets).toHaveLength(1);
-    expect(result.session.notices.some((notice) => notice.en.includes("No Answer Ticket"))).toBe(true);
+    expect(result.ws.noAnswerTickets).toHaveLength(0);
+    expect(result.session.notices.some((notice) => notice.en.includes("three attempts"))).toBe(true);
   });
 
   it("routes a worker callback to the missed message and closes the ticket without a report", () => {
     const basic = createDemoWorkspace("en", "basic", fromRiyadh(2026, 11, 3, 9, 0));
-    const pending = submitOwnerInstruction(basic, NOW, {
+    basic.noAnswerTickets.push({
+      id: "nat_hist",
+      createdAt: NOW.toISOString(),
+      purpose: "instruction",
       message: "Repair the gate",
-      actionable: true,
-      scheduledFor: null,
+      taskTicketId: null,
+      status: "open",
+      closedAt: null,
     });
-    const missed = noAnswerFourTimes(pending.ws);
-    const reportsBefore = missed.ws.reports.length;
-    const callback = start(missed.ws, missed.now, "worker_inbound").session;
+    const reportsBefore = basic.reports.length;
+    const callback = start(basic, NOW, "worker_inbound").session;
     expect(callback.scenario).toBe("worker_callback");
     expect(callback.turns[0].text.en).toContain("Message from the owner");
 
-    const completed = applyAnswer(callback, missed.ws, missed.now, { value: "received" });
+    const completed = applyAnswer(callback, basic, NOW, { value: "received" });
     expect(completed.ws.noAnswerTickets[0].status).toBe("closed");
     expect(completed.ws.reports).toHaveLength(reportsBefore);
     expect(completed.ws.calls.at(-1)?.kind).toBe("worker_callback");
@@ -618,7 +646,7 @@ describe("Call Lab conversation engine", () => {
 
     session = answer(session, heated, NOW, { value: "unknown" }).session;
     expect(session.step).toBe("report_summary");
-    expect(session.turns.at(-1)?.text.en).toContain("water or shade may not be enough");
+    expect(session.turns.at(-1)?.text.en).toContain("Do the camels have enough water and shade? Not enough");
     const saved = answer(session, heated, NOW, { value: "confirm_save" });
     const committed = saved.commit?.(heated) ?? heated;
     const finding = committed.reports.at(-1)?.findings.find((item) => item.criterionId === "weather_heat_day");
@@ -666,7 +694,8 @@ describe("Call Lab conversation engine", () => {
     expect(waiting.pendingWorkerCalls.filter((call) => call.purpose === "task_verification")).toHaveLength(0);
     expect(waiting.pendingWorkerCalls.filter((call) => call.purpose === "instruction" && call.state === "pending")).toHaveLength(1);
 
-    const delivered = applyAnswer(blocked.session, waiting, due, { value: "answer" });
+    const heard = applyAnswer(blocked.session, waiting, due, { value: "answer" });
+    const delivered = applyAnswer(heard.session, heard.ws, due, { value: "received" });
     const verified = start(delivered.ws, due, "worker_outbound");
     const ready = verified.commit?.(delivered.ws) ?? delivered.ws;
     expect(ready.pendingWorkerCalls.filter((call) => call.purpose === "task_verification")).toHaveLength(1);
@@ -680,6 +709,16 @@ describe("Call Lab conversation engine", () => {
       scheduledFor: null,
     });
     const missed = noAnswerFourTimes(pending.ws);
+    const exhausted = missed.ws.pendingWorkerCalls.find((call) => call.state === "no_answer_ticket");
+    missed.ws.noAnswerTickets.push({
+      id: "nat_hist",
+      createdAt: exhausted?.attempts.at(-1)?.at ?? NOW.toISOString(),
+      purpose: "instruction",
+      message: exhausted?.message ?? "Refill the trough",
+      taskTicketId: exhausted?.taskTicketId ?? null,
+      status: "open",
+      closedAt: null,
+    });
     missed.ws.taskTickets.push(
       {
         id: "overdue-gate",
@@ -755,9 +794,14 @@ describe("Call Lab conversation engine", () => {
       return { session: result.session, ws: saved };
     };
 
+    const confirm = (session: CallSession, ws: Workspace) => {
+      const readBack = applyAnswer(session, ws, NOW, { value: "instruction_no" });
+      return applyAnswer(readBack.session, readBack.ws, NOW, { value: "instructions_confirm" });
+    };
     const later = openSchedule();
     let result = applyAnswer(later.session, later.ws, NOW, { value: "later_today" });
     result = applyAnswer(result.session, later.ws, NOW, { text: "20:00" });
+    result = confirm(result.session, result.ws);
     expect(result.ws.taskTickets.at(-1)?.scheduledFor).toBe(fromRiyadh(2026, 11, 5, 20, 0).toISOString());
     expect(result.session.turns.at(-1)?.text.en).toContain("has not started");
     expect(result.session.turns.at(-1)?.text.en.toLowerCase()).not.toContain("calling");
@@ -765,6 +809,7 @@ describe("Call Lab conversation engine", () => {
     const tomorrow = openSchedule();
     result = applyAnswer(tomorrow.session, tomorrow.ws, NOW, { value: "tomorrow" });
     result = applyAnswer(result.session, tomorrow.ws, NOW, { text: "08:00" });
+    result = confirm(result.session, result.ws);
     expect(result.ws.taskTickets.at(-1)?.scheduledFor).toBe(fromRiyadh(2026, 11, 6, 8, 0).toISOString());
 
     const dated = openSchedule();
@@ -772,15 +817,18 @@ describe("Call Lab conversation engine", () => {
     result = applyAnswer(result.session, dated.ws, NOW, { text: "2026-11-15" });
     expect(result.session.step).toBe("instruction_time");
     result = applyAnswer(result.session, dated.ws, NOW, { text: "18:00" });
+    result = confirm(result.session, result.ws);
     expect(result.ws.taskTickets.at(-1)?.scheduledFor).toBe(fromRiyadh(2026, 11, 15, 18, 0).toISOString());
 
     const relative = openSchedule();
     result = applyAnswer(relative.session, relative.ws, NOW, { value: "future_date" });
     result = applyAnswer(result.session, relative.ws, NOW, { text: "10 days from now at 18:00" });
+    result = confirm(result.session, result.ws);
     expect(result.ws.taskTickets.at(-1)?.scheduledFor).toBe(fromRiyadh(2026, 11, 15, 18, 0).toISOString());
 
     const anytime = openSchedule();
     result = applyAnswer(anytime.session, anytime.ws, NOW, { value: "any_time" });
+    result = confirm(result.session, result.ws);
     expect(result.ws.taskTickets.at(-1)?.scheduledFor).toBeNull();
 
     const past = openSchedule();
@@ -844,7 +892,8 @@ describe("Call Lab conversation engine", () => {
     result = applyAnswer(result.session, result.ws, dueAt, { value: "unknown" });
     expect(result.ws.taskTickets.find((item) => item.id === task.id)?.status).toBe("open");
     expect(result.ws.events.some((event) => event.text.en.toLowerCase().includes("not done"))).toBe(false);
-    expect(result.session.turns.some((turn) => turn.text.en.includes("could not confirm"))).toBe(true);
+    expect(result.session.turns.some((turn) => turn.text.en.includes("stays open"))).toBe(true);
+    expect(result.ws.pendingWorkerCalls[0]).toMatchObject({ state: "pending", attempts: [expect.objectContaining({ answered: true })] });
   });
 
   it("asks applicable questions, skips absent resources, and keeps plan limits and emergency handling", () => {
@@ -885,6 +934,8 @@ describe("Call Lab conversation engine", () => {
     result = applyAnswer(session, ownerWs, NOW, { text: "Guests arrive Friday" });
     session = result.session;
     result = applyAnswer(session, ownerWs, NOW, { value: "information" });
+    result = applyAnswer(result.session, result.ws, NOW, { value: "instruction_no" });
+    result = applyAnswer(result.session, result.ws, NOW, { value: "instructions_confirm" });
     expect(result.ws.taskTickets.some((task) => task.instruction === "Guests arrive Friday")).toBe(false);
     expect(result.ws.relays.some((relay) => relay.message === "Guests arrive Friday")).toBe(true);
     expect(result.session.turns.at(-1)?.text.en).toContain("has not started");

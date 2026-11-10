@@ -53,14 +53,16 @@ function isOwnerCallSummary(event: PlatformEvent): boolean {
   return OWNER_CALL_EN.includes(event.text.en) || OWNER_CALL_AR.includes(event.text.ar);
 }
 
-function isNoAnswerTicket(event: PlatformEvent): boolean {
-  return event.text.en.includes("No Answer Ticket was opened")
-    || event.text.ar.includes("فُتحت تذكرة «عدم رد»");
+/** Saved history can still hold these. No Answer Tickets are retired, so the owner is never told of one. */
+function isRetiredTicketEvent(event: PlatformEvent): boolean {
+  return event.text.en.includes("No Answer Ticket")
+    || event.text.ar.includes("تذكرة «عدم رد»")
+    || event.text.ar.includes("تذكرة عدم الرد");
 }
 
 /**
  * Select important events and remove ids already handled, including duplicates
- * in the same batch. Findings and No Answer tickets use the attention tone.
+ * in the same batch. Findings use the attention tone.
  */
 export function selectNotificationEvents(
   events: readonly PlatformEvent[],
@@ -70,6 +72,7 @@ export function selectNotificationEvents(
   return events.filter((event) => {
     if (seenIds.has(event.id) || encountered.has(event.id)) return false;
     encountered.add(event.id);
+    if (isRetiredTicketEvent(event)) return false;
     return event.tone === "attention" || event.tone === "danger" || isOwnerCallSummary(event);
   });
 }
@@ -81,7 +84,7 @@ export function buildNotification(event: PlatformEvent, locale: Locale, demo = t
   const title = locale === "ar"
     ? `${brand} | ${ownerCall ? "اتصال المالك" : "مستجد مهم في العزبة"}`
     : `${brand} | ${ownerCall ? "Owner call" : "Important farm update"}`;
-  const destination = isNoAnswerTicket(event) ? "/app/tickets" : ownerCall ? "/app/calls" : "/app";
+  const destination = ownerCall ? "/app/calls" : "/app";
 
   return {
     title,

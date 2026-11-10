@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as outbound } from "./outbound/route";
 import { POST as outboundStatus } from "./outbound/status/route";
+import { POST as ownerHeard } from "./owner/heard/route";
 import { POST as ownerStatus } from "./owner/status/route";
 import { POST as realtimeAfter } from "./realtime/after/route";
 import { POST as voiceStatus } from "./status/route";
@@ -12,6 +13,7 @@ const mock = vi.hoisted(() => ({
   answerReportCall: vi.fn(),
   reportCallStatus: vi.fn(),
   ownerCallStatus: vi.fn(),
+  ownerCallHeard: vi.fn(),
   endFarmCall: vi.fn(),
   afterRealtimeCall: vi.fn(),
   logCallProgress: vi.fn(),
@@ -23,6 +25,7 @@ vi.mock("@/server/voice/farm-call", () => ({
   answerReportCall: mock.answerReportCall,
   reportCallStatus: mock.reportCallStatus,
   ownerCallStatus: mock.ownerCallStatus,
+  ownerCallHeard: mock.ownerCallHeard,
   endFarmCall: mock.endFarmCall,
 }));
 vi.mock("@/server/voice/diagnostics", () => ({ logCallProgress: mock.logCallProgress }));
@@ -34,7 +37,7 @@ const CALL = `CA${"a".repeat(32)}`;
 const FARM = "00000000-0000-4000-8000-000000000001";
 const RUN = "00000000-0000-4000-8000-000000000002";
 const reportToken = () => signCallToken({ k: "report", f: FARM, r: RUN, n: 1, l: "en", t: Date.now() }, FIXTURE_SIGNING_KEY);
-const ownerToken = () => signCallToken({ k: "owner", f: FARM, r: RUN, l: "en", t: Date.now() }, FIXTURE_SIGNING_KEY);
+const ownerToken = () => signCallToken({ k: "owner", f: FARM, o: RUN, r: "", n: 1, l: "en", t: Date.now() }, FIXTURE_SIGNING_KEY);
 const url = (path: string, token = "bad") => `${BASE}${path}?s=${encodeURIComponent(token)}`;
 const request = (path: string, token = "bad") => new Request(url(path, token), { method: "POST" });
 
@@ -47,6 +50,7 @@ beforeEach(() => {
   mock.answerReportCall.mockResolvedValue("<Response><Say>answer</Say></Response>");
   mock.reportCallStatus.mockResolvedValue(undefined);
   mock.ownerCallStatus.mockResolvedValue(undefined);
+  mock.ownerCallHeard.mockResolvedValue("<Response><Hangup/></Response>");
   mock.endFarmCall.mockResolvedValue(undefined);
   mock.afterRealtimeCall.mockResolvedValue("<Response><Say>after</Say></Response>");
 });
@@ -81,6 +85,22 @@ describe("farm outbound voice routes", () => {
     expect(mock.afterRealtimeCall).toHaveBeenCalledWith({}, expect.objectContaining({ callSid: CALL }));
   });
 
+  it("records a heard Basic summary only with an owner token, and hangs up", async () => {
+    expect((await ownerHeard(request("/api/voice/owner/heard"))).status).toBe(403);
+    expect((await ownerHeard(request("/api/voice/owner/heard", reportToken()))).status).toBe(403);
+    expect(mock.ownerCallHeard).not.toHaveBeenCalled();
+    const response = await ownerHeard(request("/api/voice/owner/heard", ownerToken()));
+    expect(await response.text()).toContain("<Hangup/>");
+    expect(mock.ownerCallHeard).toHaveBeenCalledWith({}, expect.objectContaining({ callSid: CALL, token: expect.objectContaining({ o: RUN, n: 1 }) }));
+  });
+
+  it("touches nothing on the sample line", async () => {
+    vi.stubEnv("NAQAH_VOICE_MODE", "");
+    expect(await (await ownerHeard(request("/api/voice/owner/heard", ownerToken()))).text()).toContain("<Hangup/>");
+    expect(mock.farmWebhook).not.toHaveBeenCalled();
+    expect(mock.ownerCallHeard).not.toHaveBeenCalled();
+  });
+
   it("passes shared webhook signature and input refusals through before route work", async () => {
     mock.farmWebhook.mockResolvedValueOnce(new Response("forbidden", { status: 403 }));
     expect((await outbound(request("/api/voice/outbound", reportToken()))).status).toBe(403);
@@ -96,6 +116,7 @@ describe("farm outbound voice routes", () => {
       () => outbound(request("/api/voice/outbound", reportToken())),
       () => outboundStatus(request("/api/voice/outbound/status", reportToken())),
       () => ownerStatus(request("/api/voice/owner/status", ownerToken())),
+      () => ownerHeard(request("/api/voice/owner/heard", ownerToken())),
       () => realtimeAfter(request("/api/voice/realtime/after", reportToken())),
       () => voiceStatus(request("/api/voice/status")),
     ];
