@@ -20,3 +20,8 @@ export function unreportedTopics(ws: Workspace, report: FarmReport, labels: { he
     return custom ? { ar: custom.text, en: custom.text } : labels.other;
   });
 }
+
+/** Some of the report is not known: an answer was «I don't know», or a question went unmentioned. Never "all is well". */
+export function reportIsPartial(report: FarmReport): boolean {
+  return report.answers.some((entry) => entry.certainty === "unknown") || (report.coverage ?? []).some((entry) => entry.status !== "reported");
+}

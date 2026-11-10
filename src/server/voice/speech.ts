@@ -647,5 +647,7 @@ export function mapSpeechToInput(
     const quantity = extractNumber(raw);
     if (quantity !== null) return { text: String(quantity) };
   }
-  return choiceInput(session, raw, locale);
+  const choice = choiceInput(session, raw, locale);
+  // «مريضة، رجلها اليسار وارمة»: the words describe the camel, and the engine keeps them as her note.
+  return choice?.value !== undefined && session.step === "health_status" ? { ...choice, text: transcript.trim().slice(0, 300) } : choice;
 }

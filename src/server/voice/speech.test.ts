@@ -254,7 +254,11 @@ describe("Saudi Arabic capture regressions", () => {
     expect(mapSpeechToInput(camel, "حمرا")).toEqual({ value: "camel:test" });
   });
   it.each([["ما تاكل", "sick"], ["تعرج", "sick"], ["نراقبها", "watch"]])("captures the reported camel condition %s", (speech, value) => {
-    expect(mapSpeechToInput({ ...session("choices", options(["healthy", "sick", "watch", "unknown"])), step: "health_status" }, speech)).toEqual({ value });
+    expect(mapSpeechToInput({ ...session("choices", options(["healthy", "sick", "watch", "unknown"])), step: "health_status" }, speech)).toEqual({ value, text: speech });
+  });
+  it("keeps the worker's description of what is wrong", () => {
+    const said = "مريضة، رجلها اليسار وارمة";
+    expect(mapSpeechToInput({ ...session("choices", options(["healthy", "sick", "watch", "unknown"])), step: "health_status" }, said)).toEqual({ value: "sick", text: said });
   });
 });
 

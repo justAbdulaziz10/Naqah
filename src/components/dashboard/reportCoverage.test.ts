@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createDemoWorkspace } from "@/domain/seed";
 import type { FarmReport } from "@/domain/types";
 import { app } from "@/i18n/messages/app";
-import { reportResources, unreportedTopics } from "./reportCoverageFacts";
+import { reportIsPartial, reportResources, unreportedTopics } from "./reportCoverageFacts";
 
 const report: FarmReport = { id: "r", at: "2026-11-09T14:00:00.000Z", callId: "c", answers: [], findings: [] };
 const labels = { health: app.en.overview.reportHealthTopic, count: app.en.overview.reportCountTopic, other: app.en.overview.reportOtherTopic };
@@ -44,5 +44,13 @@ describe("report provenance", () => {
   it("keeps omission copy natural in Arabic and English", () => {
     expect(app.ar.overview.reportNotMentioned("العلف، الماء")).toBe("ما ذُكر في هذا التحديث: العلف، الماء");
     expect(app.en.overview.reportNotMentioned("Feed, Water")).toBe("Not mentioned in this update: Feed, Water");
+  });
+  it("never treats a report with unknown or unmentioned topics as complete", () => {
+    const answer = { questionId: "feed_level", question: { ar: "س", en: "q" }, answer: "Plenty", certainty: "reported" as const, followUp: false };
+    expect(reportIsPartial({ ...report, answers: [answer], coverage: [{ questionId: "feed_level", status: "reported" }] })).toBe(false);
+    expect(reportIsPartial({ ...report, answers: [{ ...answer, certainty: "unknown" }] })).toBe(true);
+    // The worker never mentioned the herd in an open report: nothing says the camels are well.
+    expect(reportIsPartial({ ...report, answers: [answer], coverage: [{ questionId: "feed_level", status: "reported" }, { questionId: "herd_health", status: "not_reported" }] })).toBe(true);
+    expect(reportIsPartial({ ...report, answers: [answer], coverage: [{ questionId: "water_level", status: "unknown" }] })).toBe(true);
   });
 });
