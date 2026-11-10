@@ -150,6 +150,18 @@ describe("owner plan", () => {
     expect(session.data.currentQuestionId).toBe("water_level");
   });
 
+  it("never asks about a resource the ranch doesn't have, even when it is switched on", () => {
+    const { session } = callOn((workspace) => {
+      workspace.resources.forEach((resource) => { resource.present = !["water", "shelter"].includes(resource.kind); });
+      workspace.settings.questionPlan = [{ id: "fences_condition", enabled: false, required: true }];
+    });
+    const asked = session.data.queue?.map((item) => item.id) ?? [];
+    expect(asked).not.toContain("water_level");
+    expect(asked).not.toContain("shelter_condition");
+    expect(asked).not.toContain("fences_condition");
+    expect(asked).toEqual(expect.arrayContaining(["herd_health", "feed_level", "medicine_stock", CUSTOM_ID]));
+  });
+
   it("an optional question can be skipped and is saved as not reported", () => {
     const { ws, session } = callOn((workspace) => {
       workspace.settings.questionPlan = [{ id: CUSTOM_ID, enabled: true, required: false }, ...["herd_health", "herd_count", "feed_level", "water_level", "fences_condition", "shelter_condition", "medicine_stock"].map((id) => ({ id, enabled: false, required: true }))];

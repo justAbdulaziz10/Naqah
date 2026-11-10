@@ -6,7 +6,7 @@ import { EstateHeader, type EstateTone } from "@/components/dashboard/EstateHead
 import { EstateMatters } from "@/components/dashboard/EstateMatters";
 import { FirstReport } from "@/components/dashboard/FirstReport";
 import { HerdField } from "@/components/dashboard/HerdField";
-import { ReportCallNow } from "@/components/dashboard/ReportCallNow";
+import { CallBar } from "@/components/dashboard/CallBar";
 import { ReportLedger } from "@/components/dashboard/ReportLedger";
 import { latestReportIsOld, noVerifiedReport, workerCallStatus } from "@/components/dashboard/callStatus";
 import { estateMatters } from "@/components/dashboard/matters";
@@ -94,7 +94,6 @@ export default function OverviewPage() {
       scheduledOff={scheduledOff}
       nextWorker={next}
       workerStatus={workerStatus}
-      callNow={<ReportCallNow ws={ws} worker={worker} now={now} />}
     />
   );
 
@@ -104,7 +103,7 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-5 pb-8">
-      <EstateHeader name={estateName} answer={answer} tone={tone} provenance={provenance} rhythm={rhythm} next={nextBlock} />
+      <EstateHeader name={estateName} answer={answer} tone={tone} provenance={provenance} call={<CallBar ws={ws} worker={worker} now={now} />} rhythm={rhythm} next={nextBlock} />
 
       <CallSetupStatus ws={ws} />
 

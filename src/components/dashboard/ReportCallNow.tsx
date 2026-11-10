@@ -18,7 +18,7 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   const { m } = useI18n();
   const d = m.setup.dashboard;
   const account = useIsAccount();
-  const [available, setAvailable] = useState(false);
+  const [available, setAvailable] = useState<boolean | null>(null); // null while checking
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -34,7 +34,7 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
   useEffect(() => {
     if (!account) return;
     let live = true;
-    void reportCallNow.available().then((result) => { if (live) setAvailable(result.ok && result.data === true); }).catch(() => undefined);
+    void reportCallNow.available().then((result) => { if (live) setAvailable(result.ok && result.data === true); }).catch(() => { if (live) setAvailable(false); });
     return () => { live = false; };
   }, [account]);
 
@@ -70,20 +70,25 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
 
   const placedNotice = placedAfter && (active || (run?.id ?? null) === placedAfter.runId) ? d.callNowResult.placed(worker) : null;
   const message = notice ?? placedNotice;
-  if (!available && !message) return null;
+  if (!phone) return null; // The call bar offers to add the number instead.
+  // Always shown in an account, so the owner can find it; it only calls where this site allows it.
+  const off = available !== true;
+  const reason = available === null ? m.app.overview.callBar.checking : available === false ? m.app.overview.callBar.callOff : null;
   return (
     <div className="space-y-2">
-      {available && !active && phone ? (
+      {!active ? (
         <button
           type="button"
           onClick={() => setConfirming(true)}
-          disabled={pending}
-          className="inline-flex min-h-11 items-center gap-2 rounded-full bg-cream px-5 text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:opacity-60"
+          disabled={pending || off}
+          aria-describedby={reason ? "call-now-reason" : undefined}
+          className="inline-flex min-h-11 items-center gap-2 rounded-full bg-cream px-5 text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:cursor-not-allowed disabled:bg-cream/25 disabled:text-cream/80 disabled:active:scale-100"
         >
           <Phone size={16} weight="fill" aria-hidden />
           {pending ? d.calling : d.callNow(worker)}
         </button>
       ) : null}
+      {reason && !active ? <p id="call-now-reason" className="text-sm text-cream/75">{reason}</p> : null}
       {message ? <p className="text-sm text-cream/80" role="status">{message}</p> : null}
       {confirming && phone ? (
         <ConfirmDialog

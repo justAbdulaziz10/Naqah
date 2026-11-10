@@ -130,6 +130,7 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
     <div>
       <Heading className="ps-8 text-[1.0625rem] font-bold text-espresso">{v.title(worker)}</Heading>
       <p className="mt-0.5 ps-8 text-[0.9375rem] text-muted">{q.listNote}</p>
+      <p className="mt-1 ps-8 text-[0.9375rem] leading-relaxed text-muted">{q.requiredNote}</p>
       <div className="relative mt-5">
         {/* One line through the whole call, from NAQAH's greeting to its call to the owner. */}
         <span aria-hidden className="absolute -bottom-[2.4rem] start-[5.5px] top-[0.75rem] w-px bg-stone" />
@@ -160,15 +161,22 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
             <span tabIndex={-1} aria-invalid="true" className="block scroll-mt-40 outline-none">{q.nothingToAsk}</span>
           </p>
         )}
-        <p className="mt-2 ps-8 text-[0.9375rem] leading-relaxed text-muted">{q.requiredNote}</p>
         {plan.skipped.length ? (
-          <ul className="mt-2 space-y-1 ps-8 text-[0.9375rem] leading-relaxed text-muted">
-            {plan.skipped.map((item) => (
-              <li key={item.question.id}>
-                {item.reason === "herd_count" ? q.skippedHerd : q.skippedResource(t(RESOURCE_LABELS[item.resource]))}
-              </li>
-            ))}
-          </ul>
+          // NAQAH's questions this ranch can't be asked, by name and with the reason, where the call would be.
+          <div className="mt-4">
+            <p className="ps-8 text-[0.9375rem] font-semibold text-muted">{q.skippedTitle}</p>
+            <ul className="mt-1">
+              {plan.skipped.map((item) => (
+                <li key={item.question.id} className="relative py-1.5 ps-8">
+                  <Marker kind="naqah" muted />
+                  <p className="leading-relaxed text-muted">{t(item.question.text)}</p>
+                  <p className="text-[0.9375rem] leading-relaxed text-muted">
+                    {item.reason === "herd_count" ? q.skippedHerd : q.skippedResource(t(RESOURCE_LABELS[item.resource]))}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
 
         <p role="status" className={removed ? "mt-3 flex flex-wrap items-center gap-x-3 ps-8 text-[0.9375rem] text-espresso" : "sr-only"}>
@@ -243,12 +251,14 @@ function QuestionRow({ row, position, total, onToggle, onRequired, onMove, onEdi
   const { m, t } = useI18n();
   const q = m.setup.questions;
   const text = row.kind === "custom" ? row.question.text : t(row.question.text);
+  // Said on the question, not on the checkbox: "Must answer · optional" would contradict itself.
+  const optional = row.enabled && !row.required;
   return (
     <li data-question={row.question.id} className="relative py-3 ps-8">
       <Marker kind={row.kind === "custom" ? "owner" : "naqah"} muted={!row.enabled} />
       <div className="flex items-start gap-3">
         {row.kind === "custom" ? (
-          <StepField label={<span className="sr-only">{q.question(position)}</span>} className="min-w-0 flex-1 gap-0">
+          <StepField label={<span className="sr-only">{q.question(position)}</span>} hint={optional ? q.optional : undefined} className="min-w-0 flex-1 gap-0">
             {({ id }) => (
               <textarea
                 id={id}
@@ -262,15 +272,20 @@ function QuestionRow({ row, position, total, onToggle, onRequired, onMove, onEdi
             )}
           </StepField>
         ) : (
-          <p className={cn("min-w-0 flex-1 leading-relaxed", row.enabled ? "text-espresso" : "text-muted")}>{text}</p>
+          <p className={cn("min-w-0 flex-1 leading-relaxed", row.enabled ? "text-espresso" : "text-muted")}>
+            {text}
+            {optional ? <span className="block text-[0.9375rem] text-muted">{q.optional}</span> : null}
+          </p>
         )}
         <Switch checked={row.enabled} onChange={onToggle} label={q.ask(position, text)} className={row.kind === "custom" ? "mt-3.5" : "mt-0.5"} />
       </div>
       <div className="mt-0.5 flex flex-wrap items-center justify-between gap-x-3">
         {row.enabled ? (
-          <label className="-ms-1 inline-flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[0.9375rem] text-muted">
+          <label className="-ms-1 inline-flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[0.9375rem]">
             <input type="checkbox" checked={row.required} onChange={(event) => onRequired(event.target.checked)} className="size-[1.125rem] shrink-0 accent-brown" />
-            <span>{q.mustAnswer}<span className="sr-only"> · {q.nth(position)}</span></span>
+            <span className={row.required ? "font-medium text-espresso" : "text-muted"}>
+              {q.mustAnswer}<span className="sr-only"> · {q.nth(position)}</span>
+            </span>
           </label>
         ) : (
           <span className="inline-flex min-h-11 items-center text-[0.9375rem] text-muted">{q.off}</span>

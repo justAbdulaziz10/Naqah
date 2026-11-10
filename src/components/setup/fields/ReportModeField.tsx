@@ -1,30 +1,51 @@
 "use client";
 
-import { Segmented } from "@/components/ui";
+import { useId } from "react";
 import { reportModeOf } from "@/domain/rules";
 import type { ReportMode } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
+import { cn } from "@/lib/cn";
 import type { SetupFieldsProps } from "../types";
 
 const MODES: ReportMode[] = ["worker_choice", "guided", "open"];
 
-/** How the worker gives the report. Shared by setup and Settings. */
+/** How the worker gives the report: three separate choices, each with its one-line meaning. Shared by setup and Settings. */
 export function ReportModeField({ ws, onChange }: SetupFieldsProps) {
   const { m } = useI18n();
   const c = m.setup.questions.mode;
   const mode = reportModeOf(ws);
+  const name = useId();
   return (
-    <div className="mt-1 border-b border-stone/70 pb-8">
-      <h3 className="text-[1.0625rem] font-bold text-espresso">{c.title}</h3>
-      <Segmented
-        label={c.title}
-        value={mode}
-        onChange={(reportMode) => onChange((current) => ({ ...current, settings: { ...current.settings, reportMode } }))}
-        options={MODES.map((value) => ({ value, label: c.options[value] }))}
-        className="mt-3 w-full [&>button]:flex-auto [&>button]:px-1.5 max-sm:[&>button]:text-[0.8125rem] sm:[&>button]:px-4"
-      />
-      <p className="mt-3 text-[0.9375rem] leading-relaxed text-muted">{c.detail[mode]}</p>
-      {mode === "guided" ? null : <p className="mt-1 text-sm leading-relaxed text-muted">{c.realtimeNote}</p>}
-    </div>
+    <fieldset className="mt-1 border-b border-stone/70 pb-8">
+      <legend className="text-[1.0625rem] font-bold text-espresso">{c.title}</legend>
+      <div className="mt-3 space-y-2">
+        {MODES.map((value) => {
+          const selected = value === mode;
+          return (
+            <label
+              key={value}
+              className={cn(
+                "flex min-h-11 cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brown",
+                selected ? "border-brown ring-1 ring-brown" : "border-stone hover:border-sand",
+              )}
+            >
+              <input
+                type="radio"
+                name={name}
+                value={value}
+                checked={selected}
+                onChange={() => onChange((current) => ({ ...current, settings: { ...current.settings, reportMode: value } }))}
+                className="mt-1 size-[1.125rem] shrink-0 accent-brown focus-visible:outline-none"
+              />
+              <span className="min-w-0">
+                <span className={cn("block leading-snug text-espresso", selected && "font-semibold")}>{c.options[value]}</span>
+                <span className="mt-0.5 block text-[0.9375rem] leading-relaxed text-muted">{c.detail[value]}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      {mode === "guided" ? null : <p className="mt-3 text-sm leading-relaxed text-muted">{c.realtimeNote}</p>}
+    </fieldset>
   );
 }
