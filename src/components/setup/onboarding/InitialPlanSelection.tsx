@@ -43,7 +43,7 @@ export function InitialPlanSelection({ ownerId, existingFarm, next }: Props) {
   }
 
   return (
-    <AuthFrame demoLink={false}>
+    <AuthFrame demoLink={false} wide>
       <AuthHeading title={copy.title} lead={existingFarm ? copy.existingLead : copy.newLead} />
       <form onSubmit={(event) => void submit(event)} className="mt-7 flex flex-col gap-6" aria-busy={pending}>
         <PlanChoice mode="initial" selected={selected} onSelect={setSelected} disabled={pending || (error !== null && error !== "limit")} />
