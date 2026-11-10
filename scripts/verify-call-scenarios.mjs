@@ -350,10 +350,10 @@ function assertNotSaved(ranch, call, label = "no report") {
 
 const Q = {
   // The full read-back repeats questions, so the question patterns must not match the summary.
-  health: /^(?![\s\S]*أحفظه)[\s\S]*كيف الحلال/,
-  herdCount: /كم عدد الحلال/,
-  feed: /^(?![\s\S]*أحفظه)[\s\S]*كيف العلف/,
-  water: /^(?![\s\S]*أحفظه)[\s\S]*كيف الماء/,
+  health: /^(?![\s\S]*أحفظه)[\s\S]*وضع الحلال/,
+  herdCount: /كم الحلال/,
+  feed: /^(?![\s\S]*أحفظه)[\s\S]*وضع العلف/,
+  water: /^(?![\s\S]*أحفظه)[\s\S]*وضع الموية/,
   custom: /^(?![\s\S]*أحفظه)[\s\S]*البيطري/,
   summary: /أحفظه/,
 };
@@ -375,7 +375,7 @@ scenario("S1a", "Happy: zero camels, no herd count, natural speech", async () =>
     { ask: Q.health, input: speech("كلها بخير") },
     { ask: Q.summary, input: speech("إيه") },
   ]);
-  note(`empty ranch hears the herd question: ${/كيف الحلال/.test(call.transcript[0].said)}; summary: ${call.transcript.find((t) => /أحفظه/.test(t.said))?.said}`);
+  note(`empty ranch hears the herd question: ${/وضع الحلال/.test(call.transcript[0].said)}; summary: ${call.transcript.find((t) => /أحفظه/.test(t.said))?.said}`);
   check("not asked for a herd count on an empty ranch", !call.transcript.some((t) => /كم عدد/.test(t.said)), call.transcript.map((t) => t.said));
   await assertSaved(ranch, call, { expected: [] });
 });

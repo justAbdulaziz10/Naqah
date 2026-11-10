@@ -4,6 +4,8 @@
  * and every word the agent says chosen by the server. Kept apart from React so it can be tested
  * against provider events.
  */
+import { verbatimSpeechInstructions } from "../../../services/voice-bridge/speech.mjs";
+
 export type ProviderEvent = Record<string, unknown> & { type: string };
 
 export interface ToolReply {
@@ -225,7 +227,7 @@ export class TurnLoop {
     this.activity();
     const response: Record<string, unknown> = { output_modalities: [this.mode === "voice" ? "audio" : "text"] };
     if (next.text) {
-      response.instructions = `Say only the following text verbatim, with no additions: ${JSON.stringify(next.text)}`;
+      response.instructions = verbatimSpeechInstructions(next.text);
       response.tool_choice = "none";
     }
     this.host.send({ type: "response.create", response });

@@ -297,7 +297,7 @@ describe("negation reads as what was meant", () => {
   ])("«%s» on «is any camel sick?» means all are well", (speech) => {
     expect(mapSpeechToInput(herdHealth, speech, null, "ar")).toEqual({ value: "yes" });
   });
-  // Known product gap: the question is now «كيف الحلال اليوم؟», so a bare yes or no should be asked again,
+  // Known product gap: the question is now «وش وضع الحلال اليوم؟», so a bare yes or no should be asked again,
   // but choiceInput's YES_WORDS/NO_WORDS fallthrough still maps it. Remove `.fails` when that is fixed.
   it.each(["لا", "إيه", "no", "yes"])("asks again on a bare «%s» to «how are the camels?»", (speech) => {
     expect(mapSpeechToInput(herdHealth, speech, null, "ar")).toBeNull();

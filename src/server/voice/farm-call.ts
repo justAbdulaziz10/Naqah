@@ -45,7 +45,7 @@ const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 type Copy = Record<Locale, string>;
 export type VoiceCallSession = CallSession & { voiceSilences?: number; voiceUnmatched?: number; voiceKeypad?: boolean };
 
-const NOT_REGISTERED: Copy = { ar: "هذا الرقم غير مسجل لدى ناقة.", en: "This number is not registered with NAQAH." };
+const NOT_REGISTERED: Copy = { ar: "هذا الرقم مو مسجل عند ناقة.", en: "This number is not registered with NAQAH." };
 const NOT_READY: Copy = {
   ar: "إعداد هذي العزبة ما اكتمل. فضلاً تواصل مع صاحب العزبة.",
   en: "This farm's setup isn't finished yet. Please contact the farm owner.",
@@ -80,13 +80,13 @@ const INSTRUCTIONS_ALREADY_SAVED: Copy = {
   ar: "هذي التعليمات انحفظت قبل، وما تغير شيء. يعطيك العافية.",
   en: "These instructions were already saved, so nothing changed. Thank you.",
 };
-const MISS_ONCE: Copy = { ar: "معليش، ما فهمت عليك. ", en: "Sorry, I didn't catch that. " };
+const MISS_ONCE: Copy = { ar: "معليش، ما وضحت لي الإجابة. ", en: "Sorry, I didn't catch that. " };
 const MISS_AGAIN: Copy = {
-  ar: "معليش، ما وصلتني الإجابة. نعيد السؤال مرة أخيرة. ",
+  ar: "معليش، باقي ما وصلتني. نعيد السؤال مرة أخيرة. ",
   en: "Sorry, I still didn't catch that. Let's try once more. ",
 };
 const SPOKEN_MISS: Copy = {
-  ar: "سمعتك، بس ما فهمت إجابتك على السؤال. تقدر تجاوب أو تستخدم الأزرار. ",
+  ar: "سمعتك، بس ما وضحت لي الإجابة. جاوب أو استخدم الأزرار. ",
   en: "I heard you, but could not match your answer to this question. Please answer or use the keypad. ",
 };
 const TEXT_MISS: Copy = {

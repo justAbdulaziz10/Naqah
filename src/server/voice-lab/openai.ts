@@ -3,6 +3,7 @@ import { REALTIME_TOOLS } from "@/server/voice/realtime/tools";
 import type { LabPricing } from "@/components/voice-lab/usage";
 import type { Locale } from "@/domain/types";
 import { REALTIME_MODEL } from "../../../services/voice-bridge/config.mjs";
+import { REALTIME_VOICE } from "../../../services/voice-bridge/speech.mjs";
 
 export const LAB_MODEL: string = REALTIME_MODEL;
 export const LAB_MAX_SECONDS = 10 * 60;
@@ -32,7 +33,7 @@ export function labSession(mode: LabMode, locale: Locale, instructions: string) 
         transcription: { model: TRANSCRIBE_MODEL, language: locale },
         turn_detection: { type: "server_vad", threshold: 0.5, prefix_padding_ms: 300, silence_duration_ms: 700, create_response: false, interrupt_response: false },
       },
-      output: { voice: "marin" },
+      output: { voice: REALTIME_VOICE },
     },
   };
 }

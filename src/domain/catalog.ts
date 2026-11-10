@@ -69,7 +69,7 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: null,
     answerKind: "herd-health",
     text: {
-      ar: "كيف الحلال اليوم؟",
+      ar: "وش وضع الحلال اليوم؟",
       en: "How are the camels today?",
     },
   },
@@ -79,7 +79,7 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: null,
     answerKind: "yesno",
     text: {
-      ar: "كم عدد الحلال كله اليوم؟",
+      ar: "كم الحلال كله اليوم؟",
       en: "How many camels are there in total today?",
     },
   },
@@ -89,7 +89,7 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: "feed",
     answerKind: "level",
     text: {
-      ar: "كيف العلف؟",
+      ar: "وش وضع العلف؟",
       en: "How is the feed?",
     },
   },
@@ -99,7 +99,7 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: "water",
     answerKind: "level",
     text: {
-      ar: "كيف الماء؟",
+      ar: "وش وضع الموية عندكم؟",
       en: "How is the water?",
     },
   },
@@ -109,7 +109,7 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: "fences",
     answerKind: "level",
     text: {
-      ar: "الشبك سليم؟",
+      ar: "وش وضع الشبك؟",
       en: "Are the fences intact?",
     },
   },
@@ -119,7 +119,7 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: "shelter",
     answerKind: "level",
     text: {
-      ar: "المظلات سليمة؟",
+      ar: "وش وضع المظلات؟",
       en: "Is the shade and shelter in good condition?",
     },
   },
@@ -129,7 +129,7 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: "medicine",
     answerKind: "level",
     text: {
-      ar: "الأدوية كافية؟",
+      ar: "وش وضع الأدوية البيطرية؟",
       en: "Are the vet supplies enough?",
     },
   },

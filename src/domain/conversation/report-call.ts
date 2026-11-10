@@ -85,11 +85,11 @@ function beginReportQuestions(session: CallSession, ws: Workspace, now: Date, re
   const greeting = returning
     ? copy(
         "Hello Ahmed, I’m NAQAH’s automated assistant. Thanks for calling back about the report call you missed.",
-        "هلا أحمد، معك مساعد ناقة الآلي. شكراً إنك رجعت تتصل على مكالمة التقرير اللي فاتتك.",
+        "هلا يا أحمد، معك ناقة، المساعد الآلي للعزبة. رجعت تتصل على التقرير اللي فات، وبأخذ منك التحديث.",
       )
     : copy(
         "Hello Ahmed, this is NAQAH’s automated assistant for the ranch report.",
-        "هلا أحمد، معك مساعد ناقة الآلي لتقرير العزبة.",
+        "هلا يا أحمد، معك ناقة، المساعد الآلي للعزبة. بأخذ منك تحديث اليوم.",
       );
   const mode = chosenMode(ws, modesAvailable);
   if (mode === "ask") {
@@ -739,7 +739,7 @@ function askReportSummary(session: CallSession, ws: Workspace, now: Date): CallS
   const body = (locale: "en" | "ar", join: string, none: string) => lines.length ? lines.map((line) => line[locale]).join(join) : none;
   const text = copy(
     "Here’s the summary: " + body("en", "; ", "no additional farm facts") + ". Shall I save it, or would you like to correct something?",
-    "هذا ملخص التحديث: " + body("ar", "، ", "ما فيه معلومات إضافية عن العزبة") + ". أحفظه، ولا تبي تعدل شي؟",
+    "تمام، هذا ملخص اللي قلت لي: " + body("ar", "، ", "ما فيه معلومات إضافية عن العزبة") + ". إذا كل شيء صحيح، أكد لي عشان أحفظه، أو قل وش تبي تعدل.",
   );
   return ask(
     session,
@@ -780,7 +780,7 @@ function completeReport(session: CallSession, ws: Workspace, now: Date): EngineR
     },
     copy(
       "Saved, thank you. The update is ready for Abdullah. The call to him has not started.",
-      "تم حفظ التحديث، شكراً لك. التحديث جاهز لعبدالله، ومكالمته لم تبدأ بعد.",
+      "تمام، حفظت التحديث. جاهز لعبدالله، ومكالمته ما بدأت بعد.",
     ),
     now,
     true,

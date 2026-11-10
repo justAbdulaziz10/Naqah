@@ -60,7 +60,7 @@ describe("TwiML output", () => {
   });
 
   it("uses the requested Arabic and English voice locales", () => {
-    expect(sayElement("مرحبا", "ar")).toContain('voice="Polly.Zeina" language="arb"');
+    expect(sayElement("مرحبا", "ar")).toContain('voice="Polly.Hala-Neural" language="ar-AE"');
     expect(sayElement("Hello", "en")).toContain('voice="Polly.Joanna" language="en-US"');
   });
 
@@ -89,6 +89,6 @@ describe("TwiML output", () => {
   });
 
   it("ends politely with Hangup", () => {
-    expect(twimlGoodbye("ar")).toMatch(/^<Response><Say[^>]*>يعطيك العافية\. مع السلامة\.<\/Say><Hangup\/><\/Response>$/);
+    expect(twimlGoodbye("ar")).toMatch(/^<Response><Say[^>]*>يعطيك العافية، مع السلامة\.<\/Say><Hangup\/><\/Response>$/);
   });
 });

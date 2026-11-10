@@ -584,7 +584,7 @@ function assertUnsaved(ranch, label = "no report") {
 }
 
 /** Scripted completion after a fallback: the same Gather route a call without realtime uses. */
-const Q = { health: /حال الحلال/, herdCount: /كم عدد الحلال/, feed: /كم باقي من العلف/, water: /كيف وضع الماء/, custom: /^(?![\s\S]*أحفظه)[\s\S]*البيطري/, summary: /أحفظه/ };
+const Q = { health: /وضع الحلال/, herdCount: /كم الحلال/, feed: /وضع العلف/, water: /وضع الموية/, custom: /^(?![\s\S]*أحفظه)[\s\S]*البيطري/, summary: /أحفظه/ };
 
 async function driveScripted(call, how) {
   const speechPlan = [

@@ -414,7 +414,7 @@ describe("session response", () => {
     expect(opened.maxSeconds).toBe(600);
     expect(opened.tools.map((item: { name: string }) => item.name)).toEqual(REALTIME_TOOLS.map((item) => item.name));
     expect(opened.repromptText).toBeTruthy();
-    expect(opened.opening).toContain("مساعد ناقة الآلي");
+    expect(opened.opening).toContain("المساعد الآلي للعزبة");
     expect(opened.instructions).toContain("بيانات");
     expect(opened.instructions).not.toContain("currentStep");
     expect(firstPrompt(opened).replies.length).toBeGreaterThan(0);

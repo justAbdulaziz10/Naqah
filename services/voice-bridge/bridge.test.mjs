@@ -8,6 +8,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { loadConfig, REALTIME_URL } from './config.mjs';
 import { internalHeaders, verifyTwilioSignature } from './security.mjs';
 import { createBridge } from './server.mjs';
+import { verbatimSpeechInstructions } from './speech.mjs';
 
 const CALL_SID = `CA${'a'.repeat(32)}`;
 const STREAM_SID = `MZ${'b'.repeat(32)}`;
@@ -950,7 +951,7 @@ test('sayText is spoken verbatim as a question without leaking text to logs', as
     const response = state.providerEvents.filter((event) => event.type === 'response.create').at(-1).response;
     assert.deepEqual(response, {
       output_modalities: ['audio'], tool_choice: 'none',
-      instructions: `Say only the following text verbatim, with no additions: ${JSON.stringify(question)}`,
+      instructions: verbatimSpeechInstructions(question),
     });
     assert.ok(state.logs.some((record) => record.event === 'response_requested' && record.kind === 'question'));
     assert.ok(!JSON.stringify(state.logs).includes(question));

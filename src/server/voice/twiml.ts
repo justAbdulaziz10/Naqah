@@ -23,10 +23,15 @@ export function escapeXml(value: string): string {
     .replaceAll("'", "&apos;");
 }
 
+/** Polly's Gulf neural voices need ar-AE. Zeina and any other Arabic voice stay on arb. */
+export function arabicSayLanguage(voice: string): "ar-AE" | "arb" {
+  return /(?:^|\.)(?:Hala|Zayd)(?:-Neural)?$/i.test(voice) ? "ar-AE" : "arb";
+}
+
 export function sayElement(text: string, locale: Locale): string {
   const config = voiceConfiguration();
-  const language = locale === "ar" ? "arb" : "en-US";
   const voice = locale === "ar" ? config.arabicVoice : config.englishVoice;
+  const language = locale === "ar" ? arabicSayLanguage(voice) : "en-US";
   return `<Say voice="${escapeXml(voice)}" language="${language}">${escapeXml(text)}</Say>`;
 }
 
@@ -94,7 +99,7 @@ export function twimlSayThenRedirect(text: string, locale: Locale, url: string):
 }
 
 export function twimlGoodbye(locale: Locale, text?: string): string {
-  const fallback = locale === "ar" ? "يعطيك العافية. مع السلامة." : "Thank you. Goodbye.";
+  const fallback = locale === "ar" ? "يعطيك العافية، مع السلامة." : "Thank you. Goodbye.";
   return twimlSay(text ?? fallback, locale, true);
 }
 

@@ -46,7 +46,7 @@ describe("report coverage", () => {
     const result = completeWorkerReport(createDemoWorkspace("en", "ultimate"), now, draft({ urgentNote: "She is not standing" }));
     expect(result.report.findings).toHaveLength(1);
     expect(result.report.findings[0]).toMatchObject({ criterionId: "worker_urgent", text: {
-      ar: "ملاحظة عاجلة بحسب إفادة العامل: She is not standing",
+      ar: "ملاحظة عاجلة حسب كلام العامل: She is not standing",
       en: "Urgent concern reported by the worker: She is not standing",
     } });
   });

@@ -65,7 +65,7 @@ describe("the real call that repeated one question", () => {
   it("asks differently the second time, then moves on", () => {
     const live = driver(call());
     live.turn("repeat_or_clarify", { reason: "unclear" }, "جميع");
-    expect(live.spoken[0]).toBe("معليش، ما فهمت جوابك زين. كيف الحلال اليوم؟");
+    expect(live.spoken[0]).toBe("معليش، ما وضحت لي الإجابة. ممكن تعيدها؟ وش وضع الحلال اليوم؟");
     live.turn("repeat_or_clarify", { reason: "unclear" }, "جميع");
     expect(live.spoken[1]).toContain("قلها لي بكلمة");
     expect(live.spoken[1]).toContain("كلها بخير");

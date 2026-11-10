@@ -116,7 +116,7 @@ describe("a call with nothing to ask", () => {
 
 describe("catalog", () => {
   it("shows the herd question the call actually asks", () => {
-    expect(PREDEFINED_QUESTIONS.find((q) => q.id === "herd_count")?.text).toEqual({ en: "How many camels are there in total today?", ar: "كم عدد الحلال كله اليوم؟" });
+    expect(PREDEFINED_QUESTIONS.find((q) => q.id === "herd_count")?.text).toEqual({ en: "How many camels are there in total today?", ar: "كم الحلال كله اليوم؟" });
   });
 });
 

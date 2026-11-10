@@ -2,6 +2,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { WebSocket, WebSocketServer } from 'ws';
 import { REALTIME_MODEL } from './config.mjs';
+import { REALTIME_VOICE, verbatimSpeechInstructions } from './speech.mjs';
 import { internalHeaders, verifyTwilioSignature } from './security.mjs';
 
 const HARMLESS_PROVIDER_ERRORS = new Set(['response_cancel_not_active', 'conversation_already_has_active_response']);
@@ -346,7 +347,7 @@ class CallStream {
                   silence_duration_ms: 700, create_response: false, interrupt_response: false,
                 },
               },
-              output: { format: { type: 'audio/pcmu' }, voice: 'marin' },
+              output: { format: { type: 'audio/pcmu' }, voice: REALTIME_VOICE },
             },
           },
         });
@@ -398,7 +399,7 @@ class CallStream {
     this.log('response_requested', { kind: next.kind });
     const response = { output_modalities: ['audio'] };
     if (next.text) {
-      response.instructions = `Say only the following text verbatim, with no additions: ${JSON.stringify(next.text)}`;
+      response.instructions = verbatimSpeechInstructions(next.text);
       response.tool_choice = 'none';
     }
     this.send(this.provider, { type: 'response.create', response });

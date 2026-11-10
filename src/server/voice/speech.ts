@@ -466,7 +466,7 @@ function choiceInput(session: CallSession, transcript: string, locale: Locale): 
   if (needsClearAnswer(session) && reading.affirm && (reading.deny || reading.bareNegation)) return null;
   const intended = intentReply(session, reading);
   if (intended) return { value: intended };
-  // «كيف الحلال اليوم؟» takes a real answer: a bare yes or no would have to be guessed at.
+  // «وش وضع الحلال اليوم؟» takes a real answer: a bare yes or no would have to be guessed at.
   if (bareYesNo) return null;
   if (reading.unknown) return null;
   if (session.step === "report_summary" || session.step === "instruction_review") return null;

@@ -35,6 +35,8 @@ Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. P
 | Worker returns missed call | always answered (even outside the window); delivers missed messages; closes a **historical** No Answer Ticket if one is still open. No new ticket is created. **Not** a farm update and does not consume the report | same |
 | Emergency | worker calls the owner **directly** — never through the AI | same |
 
+Spoken Arabic is natural Saudi with a light Najdi influence. The server still chooses every spoken line; the model only classifies and then reads that line. English and other configured worker languages are unchanged.
+
 Agent behavior (from `NAQAH_AI_Agent_Identity_DRAFT_v0.1`): identifies itself as automated; one question at a time;
 accepts «ما أدري» / "I don't know"; confirms quantities and camel names; never diagnoses; never claims
 "saved/notified/created" before the system confirms; labels facts as *reported / approximate / unknown / verified*;

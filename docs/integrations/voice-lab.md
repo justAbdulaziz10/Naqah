@@ -7,7 +7,7 @@ Off unless `NAQAH_VOICE_LAB=1`.
 
 | Part | In the Lab |
 |---|---|
-| Model and voice | Same: `REALTIME_MODEL` from `services/voice-bridge/config.mjs`, voice `marin` |
+| Model and voice | Same: `REALTIME_MODEL` from `services/voice-bridge/config.mjs`, voice `marin` from `services/voice-bridge/speech.mjs`. Arabic lines are read verbatim with a light Najdi accent instruction. |
 | Instructions (with `firstStep`), tool schemas, `tool_choice: "required"` | Same code: `realtime/instructions.ts`, `realtime/tools.ts` |
 | What each tool call means, and every spoken word | Same code: `decideTool` in `realtime/decide.ts`, which `service.ts` also calls |
 | Conversation state | Same engine: `start` / `answer`, with `modesAvailable`, so guided, open and worker choice all follow the ranch's settings |

@@ -72,7 +72,7 @@ export function voiceConfiguration() {
     workerPhone: value("NAQAH_WORKER_PHONE"),
     ownerPhone: value("NAQAH_OWNER_PHONE"),
     locale: voiceLocale(),
-    arabicVoice: value("NAQAH_VOICE_ARABIC_VOICE") || "Polly.Zeina",
+    arabicVoice: value("NAQAH_VOICE_ARABIC_VOICE") || "Polly.Hala-Neural",
     englishVoice: value("NAQAH_VOICE_ENGLISH_VOICE") || "Polly.Joanna",
   };
 }

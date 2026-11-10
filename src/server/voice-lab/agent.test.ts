@@ -52,7 +52,7 @@ function walkToSummary(): LabSession {
 describe("Voice Lab agent", () => {
   it("opens with the real report questions", () => {
     const opened = open();
-    expect(opened.opening).toContain("مساعد ناقة الآلي");
+    expect(opened.opening).toContain("المساعد الآلي للعزبة");
     expect(opened.instructions).toContain('"firstStep"');
     expect(opened.repromptText).toBeTruthy();
     expect(opened.view.queue.length).toBeGreaterThan(0);
@@ -455,8 +455,11 @@ describe("Voice Lab stays in step with the phone call", () => {
   });
 
   it("uses the bridge's voice and reasoning effort", () => {
-    expect(bridge).toMatch(/voice: 'marin'/);
-    expect(lab).toContain('voice: "marin"');
+    expect(bridge).toContain("voice: REALTIME_VOICE");
+    expect(lab).toContain("voice: REALTIME_VOICE");
+    expect(readFileSync("services/voice-bridge/speech.mjs", "utf8")).toContain("export const REALTIME_VOICE = 'marin'");
+    expect(bridge).toContain("verbatimSpeechInstructions");
+    expect(readFileSync("src/components/voice-lab/turnLoop.ts", "utf8")).toContain("verbatimSpeechInstructions");
     expect(bridge).toMatch(/reasoning: \{ effort: 'minimal' \}/);
     expect(lab).toContain('reasoning: { effort: "minimal" }');
   });

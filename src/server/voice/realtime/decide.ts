@@ -29,9 +29,9 @@ export function fallbackResult(): ToolResponse {
 
 const PREFIXES: Record<ClarifyReason, Record<Locale, string>> = {
   noise: { ar: "ما وصلني صوتك زين. ", en: "I couldn't hear you clearly. " },
-  asked_to_repeat: { ar: "أكيد. ", en: "Of course. " },
+  asked_to_repeat: { ar: "أبشر. ", en: "Of course. " },
   asked_meaning: { ar: "المقصود بهالسؤال: ", en: "This question means: " },
-  unclear: { ar: "معليش، ما فهمت جوابك زين. ", en: "Sorry, I didn't understand that answer. " },
+  unclear: { ar: "معليش، ما وضحت لي الإجابة. ممكن تعيدها؟ ", en: "Sorry, I didn't understand that answer. " },
 };
 const URGENT: Record<Locale, string> = {
   ar: "إذا الأمر عاجل، اتصل بصاحب العزبة مباشرة الآن. ناقة ما تبلغ أحد بالطوارئ. ",

@@ -10,10 +10,10 @@ export const voiceMessages = defineMessages({
     missedTwice: "I couldn't understand your answer. Please call again. Thank you.",
   },
   ar: {
-    lineNotConfigured: "خط الاتصال غير مفعّل حالياً.",
-    unregisteredCaller: "هذا الرقم غير مسجل لدى ناقة.",
-    missOnce: "معليش، ما فهمت عليك. ",
-    missAgain: "معليش، ما وصلتني الإجابة. نعيد السؤال مرة أخيرة. ",
+    lineNotConfigured: "خط الاتصال مو مفعّل حالياً.",
+    unregisteredCaller: "هذا الرقم مو مسجل عند ناقة.",
+    missOnce: "معليش، ما وضحت لي الإجابة. ",
+    missAgain: "معليش، باقي ما وصلتني. نعيد السؤال مرة أخيرة. ",
     missedTwice: "ما قدرت أفهم إجابتك. تقدر تتصل مرة ثانية، يعطيك العافية.",
   },
 });

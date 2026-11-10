@@ -493,7 +493,7 @@ async function fillGuided(live, { feed = ["خمسة وعشرين كيس", { text
 async function keypadToEnd(call) {
   for (let index = 0; index < 30 && !call.ended; index += 1) {
     const text = call.text;
-    if (/قل العدد/.test(text)) await call.turn(keys(/كم عدد الحلال/.test(text) ? "20" : "7"));
+    if (/قل العدد/.test(text)) await call.turn(keys(/كم الحلال عندكم/.test(text) ? "20" : "7"));
     else await call.turn(keys("1"));
   }
 }
@@ -501,10 +501,10 @@ async function keypadToEnd(call) {
 /* ─────────────────── wording the checks rely on ─────────────────── */
 
 const TEXT = {
-  health: "كيف الحلال اليوم؟",
-  count: "كم عدد الحلال؟",
-  feed: "كيف العلف؟",
-  water: "كيف الماء؟",
+  health: "وش وضع الحلال اليوم؟",
+  count: "كم الحلال عندكم اليوم؟",
+  feed: "وش وضع العلف؟",
+  water: "وش وضع الموية عندكم؟",
   openAsk: "وش صار في العزبة؟",
   openMore: "فيه شي ثاني تبي تضيفه؟",
   choice: "تبي أسألك سؤال سؤال، ولا تقول لي وش صار؟",
@@ -1006,7 +1006,7 @@ scenario("J", "Urgent: the worker is told to call the owner, the note is read ba
   const findings = findingsOf(ranch.farm);
   const urgent = findings.filter((finding) => finding.text_ar.includes(words));
   check("the note is saved as exactly one finding", urgent.length === 1, findings);
-  check("the finding says it was reported by the worker", /بحسب إفادة العامل/.test(urgent[0]?.text_ar ?? "") && /reported by the worker/.test(urgent[0]?.text_en ?? ""), urgent[0]);
+  check("the finding says it was reported by the worker", /حسب كلام العامل/.test(urgent[0]?.text_ar ?? "") && /reported by the worker/.test(urgent[0]?.text_en ?? ""), urgent[0]);
   check("no dispatch: the call to the worker is the only call placed", (await outbound()).every((request) => request.To === WORKER), (await outbound()).map((request) => request.To));
 });
 

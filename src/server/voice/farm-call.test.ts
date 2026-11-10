@@ -52,7 +52,7 @@ describe("farm capture retries", () => {
   it("keeps silent questions unanswered and gives up only after three consecutive silent turns", async () => {
     const initial = row.session;
     const answer = (seq: number) => answerFarmCall(client, { callSid, seq, speech: "", digits: null, confidence: null, now });
-    expect(await answer(0)).toContain("ما فهمت عليك");
+    expect(await answer(0)).toContain("ما وضحت لي الإجابة");
     expect(await answer(1)).toContain("نعيد السؤال مرة أخيرة");
     expect(row.session).toMatchObject(initial);
     expect(row.misses).toBe(2);

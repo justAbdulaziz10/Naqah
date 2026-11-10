@@ -18,9 +18,9 @@ const stringify = (value: object) => JSON.stringify(value);
 
 const PREFIXES: Record<ClarifyReason, Record<Locale, string>> = {
   noise: { ar: "ما وصلني صوتك زين. ", en: "I couldn't hear you clearly. " },
-  asked_to_repeat: { ar: "أكيد، أعيد. ", en: "Of course. " },
+  asked_to_repeat: { ar: "طيب. ", en: "Of course. " },
   asked_meaning: { ar: "المقصود: ", en: "This means: " },
-  unclear: { ar: "معليش، ما فهمت عليك زين. ", en: "Sorry, I didn't quite follow that. " },
+  unclear: { ar: "معليش، ما وضحت لي. ممكن تعيدها؟ ", en: "Sorry, I didn't quite follow that. " },
 };
 const SAVE_OR_CHANGE: Record<Locale, string> = { ar: "أحفظها، ولا تبي تغير شي؟", en: "Shall I save these, or would you like to change something?" };
 

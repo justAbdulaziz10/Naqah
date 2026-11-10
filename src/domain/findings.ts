@@ -81,14 +81,14 @@ export function evaluateFindings(ws: Workspace, draft: ReportDraft): Finding[] {
           const note = u.note ? ` — ${u.note}` : "";
           push(
             u.health === "sick"
-              ? { ar: `${name} مريضة بحسب إفادة العامل${note}`, en: `${name} is sick, as reported by the worker${note}` }
+              ? { ar: `${name} مريضة، حسب كلام العامل${note}`, en: `${name} is sick, as reported by the worker${note}` }
               : { ar: `${name} تحت الملاحظة${note}`, en: `${name} is under watch${note}` },
           );
         }
         break;
       case "missing_camel":
         if (draft.herdAccountedFor === false)
-          push({ ar: "العامل أفاد أن الحلال غير مكتمل العدد", en: "The worker reported that not all camels are accounted for" });
+          push({ ar: "العامل قال إن عدد الحلال ناقص", en: "The worker reported that not all camels are accounted for" });
         break;
       case "low_feed":
       case "low_water":
@@ -131,7 +131,7 @@ export function evaluateFindings(ws: Workspace, draft: ReportDraft): Finding[] {
     id: uid("fnd"),
     criterionId: "worker_urgent",
     text: {
-      ar: `ملاحظة عاجلة بحسب إفادة العامل: ${draft.urgentNote.trim()}`,
+      ar: `ملاحظة عاجلة حسب كلام العامل: ${draft.urgentNote.trim()}`,
       en: `Urgent concern reported by the worker: ${draft.urgentNote.trim()}`,
     },
   });
@@ -151,14 +151,14 @@ export function criterionLabel(c: Workspace["settings"]["criteria"][number]): Lo
 export function ownerBriefing(findings: Finding[]): LocalizedText {
   if (!findings.length) {
     return {
-      ar: "وصل تحديث الحلال، وما فيه ملاحظات مهمة بحسب آخر تقرير من العامل. التفاصيل موجودة في الموقع.",
+      ar: "وصل تحديث الحلال، وما فيه شي مهم في آخر تقرير. التفاصيل في الموقع.",
       en: "The farm update is in. Based on the worker's latest report, there is nothing important to flag. The details are on the website.",
     };
   }
   const ar = findings.map((f) => f.text.ar).join("، و");
   const en = findings.map((f) => f.text.en).join("; ");
   return {
-    ar: `وصل تحديث الحلال. أهم ما فيه: ${ar}. التفاصيل موجودة في الموقع.`,
+    ar: `وصل تحديث الحلال. أهم شي: ${ar}. التفاصيل في الموقع.`,
     en: `The farm update is in. What matters: ${en}. The details are on the website.`,
   };
 }

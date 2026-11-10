@@ -198,7 +198,7 @@ export const copy = (en: string, ar: string): LocalizedText => ({ en, ar });
 
 export const UNKNOWN_ANSWER = copy("I don’t know", "ما أدري");
 
-export const HERD_COUNT_QUESTION = copy("How many camels are there today?", "كم عدد الحلال؟");
+export const HERD_COUNT_QUESTION = copy("How many camels are there today?", "كم الحلال عندكم اليوم؟");
 
 export const REPORT_CALL_ATTEMPTS = REPORT_CALL_RETRIES + 1;
 
@@ -343,7 +343,7 @@ export function heatDayReportItem(ws: Workspace, now: Date): ReportItem | null {
     id: "weather_heat_water",
     question: copy(
       `It's a hot day (${maxTemp}°). Do the camels have enough water and shade?`,
-      `الجو حار اليوم (${maxTemp} درجة). عند النوق ماء وظل كافيين؟`,
+      `الجو حار اليوم (${maxTemp} درجة). الموية والظل كافيين للحلال؟`,
     ),
   };
 }

@@ -46,7 +46,9 @@ Verified against the official documentation on November 8, 2026:
 - [OpenAI Realtime conversations](https://developers.openai.com/api/docs/guides/realtime-conversations)
   and [Realtime client events](https://developers.openai.com/api/reference/resources/realtime/client-events):
   GA `session.update`, `session.updated`, `audio.input/output.format.type =
-  "audio/pcmu"`, voice `marin`, and server VAD. PCMU is G.711 mu-law at 8 kHz;
+  "audio/pcmu"`, voice `marin`, and server VAD. `marin` is a quality voice, not a Saudi
+  voice. Each spoken line is still the server's text, with an accent instruction in
+  `speech.mjs`. PCMU is G.711 mu-law at 8 kHz;
   no resampling, base64 alteration, WAV headers, or transcription is necessary.
   `create_response` and `interrupt_response` are false so the bridge explicitly
   sequences `response.create` and `response.cancel` without auto-cancel races.

@@ -57,7 +57,7 @@ Confirm current number availability and local requirements directly with either 
 | `NAQAH_PUBLIC_BASE_URL` | Public origin Twilio signs; takes precedence over forwarded headers. |
 | `NAQAH_ALLOW_UNSIGNED_VOICE` | Legacy setting; it cannot permit unsigned production voice. Local sample-line signature checks depend on whether `TWILIO_AUTH_TOKEN` is set. |
 | `NAQAH_VOICE_LOCALE` | `ar` by default, or `en`. |
-| `NAQAH_VOICE_ARABIC_VOICE` | Twilio `<Say>` voice override; defaults to `Polly.Zeina`. |
+| `NAQAH_VOICE_ARABIC_VOICE` | Twilio `<Say>` voice override. Default `Polly.Hala-Neural` with `language="ar-AE"` (Amazon Polly Gulf Arabic). `Polly.Zeina` stays on `language="arb"`. |
 | `NAQAH_VOICE_ENGLISH_VOICE` | Twilio `<Say>` voice override; defaults to `Polly.Joanna`. |
 | `TWILIO_AUTH_TOKEN` | Enables required Twilio signature checks. Invalid or missing signatures are rejected; required for production voice by default and for paid owner summaries. |
 | `TWILIO_ACCOUNT_SID` | Twilio account SID for outbound owner calls. |
@@ -73,6 +73,8 @@ Confirm current number availability and local requirements directly with either 
 Template summaries are whitespace-normalized into a single line with ` • ` separators and capped at 1,000 characters;
 plain-text summaries keep line breaks and are capped at 4,096 characters. The outbound spoken summary includes the
 headline and findings only and is capped at 600 characters.
+
+Scripted Arabic uses Amazon Polly `Hala-Neural` (`ar-AE`). Twilio and Polly have no Saudi or Najdi voice. Hala is Gulf Arabic, closer to the region than Zeina's Modern Standard Arabic, and it is not a Najdi accent. Realtime calls keep OpenAI's `marin` voice. The model is still forbidden to invent speech: it reads the server's line, with an instruction to use a light Najdi delivery. That instruction can steer pronunciation, but OpenAI does not guarantee accent fidelity. A reliable Saudi voice would need an approved custom voice, which this project does not have. Speech recognition stays `ar-SA` on `<Gather>`. No generated audio was listened to for this change.
 
 Copy `.env.example` to `.env.local` for local work. Never commit `.env.local` or provider tokens. For Vercel, use the
 project's Environment Variables settings. Leave the optional WhatsApp and outbound-call variables unset to disable

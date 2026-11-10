@@ -40,7 +40,7 @@ export function startLiveOwnerBriefing(
   // Saved facts are read as written: a neighbour called أحمد must not become the worker.
   const told = say(session, briefing, now, false, true);
   if (!taskTicketsEnabled(ws)) {
-    return { session: say(told, copy("That's the update. Thank you.", "هذا التحديث. شكراً لك."), now, true) };
+    return { session: say(told, copy("That's the update. Thank you.", "هذا التحديث. يعطيك العافية."), now, true) };
   }
   return { session: ask(told, INSTRUCTION_QUESTION, now, "instruction_yesno", instructionReplies()) };
 }
@@ -90,7 +90,7 @@ export function handleOwnerNotification(session: CallSession, ws: Workspace, now
     const told = say(current.session, briefing, now);
     if (!taskTicketsEnabled(ws)) {
       return {
-        session: say(told, copy("That's the update. Thank you.", "هذا التحديث. شكراً لك."), now, true),
+        session: say(told, copy("That's the update. Thank you.", "هذا التحديث. يعطيك العافية."), now, true),
         commit: commitTo(updated),
       };
     }
@@ -261,7 +261,7 @@ export function handleOwnerNotification(session: CallSession, ws: Workspace, now
 const kindReplies = () => [reply("actionable", "A task for Ahmed", "مهمة لأحمد"), reply("information", "Information only", "معلومة فقط")];
 
 function declined(session: CallSession, now: Date): EngineResult {
-  return { session: say(session, copy("Thank you. The update is ready on the website.", "شكراً لك. التحديث موجود في الموقع."), now, true) };
+  return { session: say(session, copy("Thank you. The update is ready on the website.", "تمام. التحديث موجود في الموقع. يعطيك العافية."), now, true) };
 }
 
 function notSaved(session: CallSession, now: Date): EngineResult {

@@ -195,11 +195,11 @@ describe("voice webhook routes", () => {
     const firstAction = gatherAction(initialXml)!;
     const missedOnce = await turn(request(firstAction, { SpeechResult: "unrecognized words" }));
     const firstRetryXml = await missedOnce.text();
-    expect(xmlText(firstRetryXml, "Say")).toContain("ما فهمت عليك");
+    expect(xmlText(firstRetryXml, "Say")).toContain("ما وضحت لي الإجابة");
     const secondAction = gatherAction(firstRetryXml)!;
     const missedTwice = await turn(request(secondAction, { SpeechResult: "still unrecognized" }));
     const secondRetryXml = await missedTwice.text();
-    expect(xmlText(secondRetryXml, "Say")).not.toContain("ما فهمت عليك");
+    expect(xmlText(secondRetryXml, "Say")).not.toContain("ما وضحت لي الإجابة");
     const nextAction = gatherAction(secondRetryXml)!;
     const nextState = verifyVoiceState(new URL(nextAction).searchParams.get("s"), process.env.NAQAH_VOICE_SECRET)!;
     expect(nextState.a.slice(-2)).toEqual([{ value: VOICE_MISS_VALUE }, { value: "unknown" }]);
@@ -222,7 +222,7 @@ describe("voice webhook routes", () => {
 
     response = await turn(request(action!, { SpeechResult: "" }));
     xml = await response.text();
-    expect(xmlText(xml, "Say")).toContain("ما فهمت عليك");
+    expect(xmlText(xml, "Say")).toContain("ما وضحت لي الإجابة");
     action = gatherAction(xml);
     response = await turn(request(action!, { SpeechResult: "" }));
     xml = await response.text();
@@ -242,7 +242,7 @@ describe("voice webhook routes", () => {
     const xml = await response.text();
     expect(response.status).toBe(200);
     assertWellFormedTwiml(xml);
-    expect(xmlText(xml, "Say")).toContain("خط الاتصال غير مفعّل");
+    expect(xmlText(xml, "Say")).toContain("خط الاتصال مو مفعّل");
     expect(await (await status()).json()).toMatchObject({ ok: true, voice: { configured: false, number: null }, whatsapp: { configured: false }, ownerCall: { configured: false } });
   });
 
@@ -371,7 +371,7 @@ describe("voice webhook routes", () => {
     const response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966507782190" }));
     const xml = await response.text();
     expect(response.status).toBe(200);
-    expect(xmlText(xml, "Say")).toContain("خط الاتصال غير مفعّل");
+    expect(xmlText(xml, "Say")).toContain("خط الاتصال مو مفعّل");
     expect(gatherActionRaw(xml)).toBeNull();
   });
 
@@ -382,7 +382,7 @@ describe("voice webhook routes", () => {
     const response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966507782190" }));
     expect(response.status).toBe(200);
     const xml = await response.text();
-    expect(xmlText(xml, "Say")).toContain("خط الاتصال غير مفعّل");
+    expect(xmlText(xml, "Say")).toContain("خط الاتصال مو مفعّل");
     expect(gatherActionRaw(xml)).toBeNull();
   });
 
