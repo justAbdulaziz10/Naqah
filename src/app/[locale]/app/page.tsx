@@ -51,7 +51,9 @@ export default function OverviewPage() {
   const folded = new Set(matters.flatMap((matter) => matter.instructions.map((item) => item.id)));
   const standalone = undelivered.filter((item) => !item.taskIds.some((id) => folded.has(id)) && !(item.relayId && folded.has(item.relayId)));
   const concerns = standalone.length + matters.length;
-  const tone: EstateTone = noVerified ? "unanswered" : !hasReport ? "quiet" : undelivered.length || matters[0]?.camel?.health === "sick" ? "unanswered" : concerns ? "attention" : "calm";
+  // "All is well" only when every answer was actually given: an unknown is not a fine.
+  const partial = Boolean(latestReport?.answers.some((entry) => entry.certainty === "unknown"));
+  const tone: EstateTone = noVerified ? "unanswered" : !hasReport ? "quiet" : undelivered.length || matters[0]?.camel?.health === "sick" ? "unanswered" : concerns || partial ? "attention" : "calm";
 
   // The answer names the first thing that needs the owner; the rest wait below.
   const top = matters[0] ?? null;
@@ -72,7 +74,7 @@ export default function OverviewPage() {
                 ? o.answerWaiting(worker)
                 : latestReportIsOld(ws, now, reportAt)
                   ? o.answerCalmOld(worker)
-                  : o.answerCalm(worker);
+                  : partial ? o.answerPartial(worker) : o.answerCalm(worker);
   const more = concerns > 1 ? o.moreBelow(concerns - 1) : null;
   const provenance = reportAt ? (
     <>
