@@ -1,4 +1,5 @@
-import { isOffTopicAnswer } from "@/domain/conversation/answer-topic";
+import { askedTopic, isOffTopicAnswer, topicsInWords } from "@/domain/conversation/answer-topic";
+import { supports } from "./facts";
 import type { AnswerInput, CallSession } from "@/domain/conversation/engine";
 import type { Locale } from "@/domain/types";
 import { extractNumber, mapSpeechToInput, normalizeSpeech } from "../speech";
@@ -20,7 +21,7 @@ const STOP_WORDS = /(?:^| )(?:وقف|اوقف|اقفل|اقفلها|سكر|سك�
 /** Only the person on the line can end the call, in words that say so. */
 export const askedToStop = (heard: string) => STOP_WORDS.test(evidenceWords(heard));
 
-export function refuseAnswer(session: CallSession, input: AnswerInput, heard: string | null, locale: Locale, camelNames: readonly string[] = []): AnswerRefusal | null {
+export function refuseAnswer(session: CallSession, input: AnswerInput, heard: string | null, locale: Locale, camelNames: readonly string[] = [], evidence?: string): AnswerRefusal | null {
   const item = session.data.queue?.[session.data.reportIndex ?? 0];
   const health = session.step === "report_question" && item?.kind === "predefined" && item.answerKind === "herd-health";
   const closesTask = session.step === "report_question" && item?.kind === "task" && input.value === "yes";
@@ -31,22 +32,20 @@ export function refuseAnswer(session: CallSession, input: AnswerInput, heard: st
   if (!words) return numeric ? "number_not_in_answer" : "answer_unclear";
   if (isGarbled(words, locale)) return "answer_unclear";
   const mapped = mapSpeechToInput(session, heard ?? "", null, locale);
-  if (health && (input.value === "yes" || input.value === "no")) {
-    if (input.value === "yes" && mapped?.value !== "yes") return "answer_unclear";
-    if (input.value === "no" && mapped?.value === "yes") return "answer_conflicts_with_words";
-    // "One needs attention" raises a finding for the owner, so it needs words about a sick camel or a camel's name.
-    if (input.value === "no" && mapped?.value !== "no" && !words.split(" ").some((word) => camelNames.map(evidenceWords).includes(word))) return "answer_unclear";
-  }
   if (closesTask && mapped?.value !== "yes") return "answer_unclear";
   if (numeric && extractNumber(heard ?? "") !== Number(input.text)) return "number_not_in_answer";
   if (input.value !== undefined) {
     if (session.inputMode === "number" && extractNumber(heard ?? "") !== null) return "answer_conflicts_with_words";
-    if (mapped?.value !== undefined && session.replies.some((reply) => reply.value === mapped.value) && mapped.value !== input.value) return "answer_conflicts_with_words";
+    // A clear contradiction, unless another topic in the sentence is what the words were about.
+    const asked = askedTopic(session);
+    const mixedTopics = [...topicsInWords(words)].some((topic) => topic !== asked);
+    if (mapped?.value !== undefined && session.replies.some((reply) => reply.value === mapped.value) && mapped.value !== input.value && !mixedTopics) return "answer_conflicts_with_words";
   }
-  // A fixed choice needs words that say so. Anything else is asked again, never guessed.
-  if (input.value !== undefined && session.inputMode === "choices" && mapped?.value !== input.value) {
-    const namedCamel = health && input.value === "no" && words.split(" ").some((word) => camelNames.map(evidenceWords).includes(word));
-    if (!namedCamel) return "answer_unclear";
-  }
+  if (input.value === undefined || session.inputMode !== "choices" || mapped?.value === input.value) return null;
+  // The model understands the meaning; a word list can't. It must show which of the worker's words say so.
+  // One unrecognised word is too thin to carry an answer: that is what a mishearing looks like.
+  const quoted = evidenceWords(evidence ?? "");
+  const namedCamel = health && input.value === "no" && words.split(" ").some((word) => camelNames.map(evidenceWords).includes(word));
+  if (!namedCamel && !(quoted.split(" ").length >= 2 && supports(words, quoted))) return "answer_unclear";
   return null;
 }

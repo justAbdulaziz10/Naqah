@@ -770,6 +770,18 @@ describe("tool calls on a live call", () => {
     if (error === "answer_off_topic") expect(row().session.draft.answers.map((entry: { answer: string }) => entry.answer)).toEqual([workerUtterance]);
   });
 
+  it.each([
+    "تمام الحمد لله بس في واحدة تعبانة.",
+    "تمام الحمد لله الحلال بس إنه في واحدة تعبانة.",
+    "كلهم تمام، ألا في وحدة تعبانه.",
+  ])("takes the real call's answer «%s» the first time and asks which camel", async (workerUtterance) => {
+    const { ticket } = await open();
+    const result = await tool(ticket, "answer_question", { value: "no", topic: "herd", evidence: "في واحدة تعبانة" }, { workerUtterance });
+    expect(result.output.status).toBe("ok");
+    expect(row().session.step).toBe("health_pick");
+    expect(result.result.sayText).toContain("أي ناقة");
+  });
+
   it("refuses rather than flipping a model's no when the worker said none is sick", async () => {
     const { ticket } = await open();
     const result = await tool(ticket, "answer_question", { value: "no" }, { workerUtterance: "لا ما فيه مريض" });

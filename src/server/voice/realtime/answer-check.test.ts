@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { answer, start, type CallSession } from "@/domain/conversation/engine";
 import { fromRiyadh } from "@/domain/clock";
 import { createDemoWorkspace } from "@/domain/seed";
+import { mapSpeechToInput } from "../speech";
 import { refuseAnswer } from "./answer-check";
 import { validateFacts } from "./facts";
 import { askedTopic, isOffTopicAnswer } from "@/domain/conversation/answer-topic";
@@ -63,7 +64,7 @@ describe("worker words against the chosen answer", () => {
   });
 
   it("refuses a sick-camel answer classified as all healthy and a healthy answer classified as sick", () => {
-    expect(refuseAnswer(health, { value: "yes" }, "a camel is sick", "en")).toBe("answer_unclear");
+    expect(refuseAnswer(health, { value: "yes" }, "a camel is sick", "en")).toBe("answer_conflicts_with_words");
     expect(refuseAnswer(health, { value: "no" }, "all camels are well", "en")).toBe("answer_conflicts_with_words");
   });
 
@@ -145,5 +146,47 @@ describe("open facts evidence", () => {
     const queued = { ...session, data: { ...session.data, queue: [...session.data.queue!, { kind: "custom" as const, id: custom.questionId, question: { ar: "لون الباب؟", en: "Gate color?" } }] } };
     expect(validateFacts([custom], custom.evidence, queued, workspace, "en").facts).toHaveLength(1);
     expect(validateFacts([{ ...custom, answer: "the gate is red" }], custom.evidence, queued, workspace, "en").facts).toEqual([]);
+  });
+});
+
+describe("natural Arabic answers", () => {
+  const health = at("herd_health");
+  const feed = at("feed_level");
+  it.each([
+    "تمام الحمد لله بس في واحدة تعبانة.",
+    "تمام الحمد لله الحلال بس إنه في واحدة تعبانة.",
+    "كلهم تمام، ألا في وحدة تعبانه.",
+    "كلهم تمام بس وحدة تعبانة",
+    "زينين كلهم ما عدا وحدة تعرج",
+    "الحمد لله بس فيه ناقة ما تاكل",
+  ])("accepts «%s» as one needing attention", (heard) => {
+    expect(mapSpeechToInput(health, heard, null, "ar")).toEqual({ value: "no" });
+    expect(refuseAnswer(health, { value: "no" }, heard, "ar")).toBeNull();
+    expect(refuseAnswer(health, { value: "yes" }, heard, "ar")).toBe("answer_conflicts_with_words");
+  });
+
+  it.each(["الحمد لله كلهم بخير", "ما فيه مريضة", "ما عليهم خلاف", "زينين"])("accepts «%s» as all well", (heard) => {
+    expect(mapSpeechToInput(health, heard, null, "ar")).toEqual({ value: "yes" });
+  });
+
+  it.each([["زين بس قرب يخلص", "low"], ["العلف كافي بس ناقص شوي", "low"], ["خلص العلف", "critical"], ["مليان", "good"], ["مو كافي", "low"]])("reads «%s» on feed as %s", (heard, value) => {
+    expect(mapSpeechToInput(feed, heard, null, "ar")).toEqual({ value });
+  });
+
+  it("trusts the model's meaning only when it can point to the worker's words", () => {
+    const heard = "والله الوضع ماشي الحال";
+    expect(refuseAnswer(feed, { value: "good" }, heard, "ar", [], "الوضع ماشي الحال")).toBeNull();
+    expect(refuseAnswer(feed, { value: "good" }, heard, "ar")).toBe("answer_unclear");
+    expect(refuseAnswer(feed, { value: "good" }, heard, "ar", [], "العلف كافي")).toBe("answer_unclear");
+  });
+
+  it("does not guess from unclear or unrelated words", () => {
+    expect(refuseAnswer(feed, { value: "good" }, "كاسييا", "ar", [], "كاسييا")).toBe("answer_unclear");
+    expect(refuseAnswer(health, { value: "no" }, "الجو حار اليوم", "ar")).toBe("answer_unclear");
+    expect(refuseAnswer(health, { value: "yes" }, "إيه", "ar")).toBe("answer_unclear");
+  });
+
+  it("does not let another topic in the sentence contradict the answer", () => {
+    expect(refuseAnswer(feed, { value: "good" }, "العلف زين بس الماء قرب يخلص", "ar", [], "العلف زين")).toBeNull();
   });
 });

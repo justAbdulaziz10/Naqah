@@ -181,7 +181,8 @@ export function decideTool({ session: current, counters, workspace, locale, name
     if (asked !== "other" && asked !== "task" && [...topicsInWords(evidenceWords(heard))].some((topic) => topic !== asked)) session = addWorkerNote(session, heard);
   }
   if (action.kind === "answer" && name === "answer_question" && gaveUp === null) {
-    const refused = refuseAnswer(session, action.input, heard, locale, workspace.camels.map((camel) => camel.name));
+    const evidence = typeof args === "object" && args !== null && "evidence" in args && typeof args.evidence === "string" ? args.evidence : undefined;
+    const refused = refuseAnswer(session, action.input, heard, locale, workspace.camels.map((camel) => camel.name), evidence);
     if (refused) {
       const refusals = counters.refusalAt === position ? (counters.refusals ?? 0) + 1 : 1;
       next = { ...next, refusalAt: position, refusals };

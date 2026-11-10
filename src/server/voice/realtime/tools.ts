@@ -15,7 +15,7 @@ export const object = (properties: object, required: string[]) => ({ type: "obje
 export const tool = (name: string, description: string, properties: object, required: string[]) => ({ type: "function", name, description, parameters: object(properties, required) });
 
 export const REALTIME_TOOLS = [
-  tool("answer_question", "Classify the current guided answer. Pass exactly one of value or text, and the asked topic.", { value: string, text: string, topic: { type: "string", enum: TOPICS } }, ["topic"]),
+  tool("answer_question", "Classify the current guided answer. Pass exactly one of value or text, and the asked topic.", { value: string, text: string, topic: { type: "string", enum: TOPICS }, evidence: { type: "string", description: "The worker's own words that give this answer." } }, ["topic"]),
   tool("record_facts", "Record only facts supported by the worker's exact words in open mode. Never supply certainty.", {
     facts: { type: "array", maxItems: 20, items: { anyOf: [
       object({ type: { const: "camel_health" }, camelId: nullableString, scope: { enum: ["one", "all"] }, status: { enum: ["healthy", "watch", "sick", "unknown"] }, note: nullableString, evidence }, ["type", "camelId", "scope", "status", "note", "evidence"]),
@@ -67,6 +67,7 @@ export function toolsFor(session: CallSession) {
           ...(session.replies.length ? { value: { type: "string", enum: session.replies.map((reply) => reply.value) } } : {}),
           ...(textAllowed(session) ? { text: string } : {}),
           topic: { type: "string", enum: [askedTopic(session)] },
+          evidence: { type: "string", description: "The worker's own words that give this answer." },
         },
       },
     };
@@ -80,7 +81,7 @@ function takesQuantity(session: CallSession): boolean {
 export const textAllowed = (session: CallSession) => session.inputMode === "text" || session.inputMode === "number" || session.inputMode === "time" || takesQuantity(session);
 
 function checkAnswer(args: Record<string, unknown>, session: CallSession, locale: Locale): ToolCheck {
-  if (!onlyKeys(args, ["value", "text", "topic"]) || ("value" in args) === ("text" in args)) return { ok: false, error: "pass_exactly_one_of_value_or_text" };
+  if (!onlyKeys(args, ["value", "text", "topic", "evidence"]) || ("value" in args) === ("text" in args)) return { ok: false, error: "pass_exactly_one_of_value_or_text" };
   if (!TOPICS.includes(args.topic as AnswerTopic) || args.topic !== askedTopic(session)) return { ok: false, error: "answer_off_topic" };
   if ("value" in args) {
     if (!cleanString(args.value, 100) || !session.replies.some((reply) => reply.value === args.value)) return { ok: false, error: "value_not_allowed" };

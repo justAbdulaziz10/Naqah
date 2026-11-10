@@ -213,7 +213,7 @@ const CONCEPTS: Record<Concept, readonly string[]> = {
     "مشكله", "مشاكل", "تعرج", "عرجا", "عرجاء", "يعرج", "طايح", "طايحه", "ضعيف", "ضعيفه", "هزيله", "هزيل", "متعب", "متعبه", "مسقوم", "مسقومه", "ميت", "ميته", "نافق", "نافقه", "جربانه", "جرب", "sick", "ill", "injured", "hurt", "unwell", "limping", "wrong", "problem", "problems", "issue", "issues",
   ],
   watch: ["متابعه", "ملاحظه", "مراقبه", "نراقبها", "watch", "observation"],
-  damaged: ["خربان", "خربانه", "مكسور", "مكسوره", "broken", "damaged"],
+  damaged: ["خراب", "خرب", "منكسر", "خربان", "خربانه", "مكسور", "مكسوره", "broken", "damaged"],
   enough: ["مليان", "مليانه", "متروس", "فل", "كافي", "كافيه", "يكفي", "تكفي", "يكفون", "كفايه", "متوفر", "متوفره", "موجود", "موجوده", "وايد", "كثير", "enough", "plenty", "sufficient", "full"],
   low: ["ناقص", "ناقصه", "نقص", "نقصت", "قليل", "قليله", "شوي", "شويه", "low", "short", "little"],
   medium: ["متوسط", "متوسطه", "نص", "نصه", "النص", "نصف", "النصف", "half", "medium", "average"],
@@ -258,7 +258,9 @@ function readSpeech(transcript: string): Reading {
   const text = normalizeSpeech(transcript).replace(/n['’]t\b/g, " not").replace(/\bcannot\b/g, "can not")
     .replace(/(?:قارب|قرب)\s+يخلص|بيخلص(?:ون)?|nearly\s+empty|almost\s+(?:gone|finished)/gu, " low ")
     .replace(/ما\s+(?:عليهم|عليها|عليه)\s+(?:خلاف|باس|شر)|الحمد\s+لله|ما\s*شاء\s+الله/gu, " بخير ")
-    .replace(/ما\s+تاكل/gu, " مريضه ");
+    .replace(/ما\s+تاكل/gu, " مريضه ")
+    // «كلهم تمام ما عدا وحدة تعبانة»: an exception, not a negation of what follows.
+    .replace(/\s(?:ما\s*عدا|الا)\s/gu, " بس ");
   const reading: Reading = { unknown: false, affirm: false, wellbeing: false, deny: false, bareNegation: false, said: new Set(), negated: new Set() };
   const plain = text.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   if (UNKNOWN_PHRASE.test(plain)) reading.unknown = true;
@@ -343,15 +345,15 @@ function intentReply(session: CallSession, reading: Reading): string | null {
   if (item?.kind === "predefined" && item.answerKind === "herd-health" && values.has("yes") && values.has("no")) {
     const sick = has(reading, "sick") || has(reading, "healthy", true) || has(reading, "watch");
     const well = reading.wellbeing || has(reading, "healthy") || has(reading, "sick", true) || has(reading, "thing", true);
-    // "How are the camels?": a bare yes or no says nothing, so it is asked again.
-    return oneSide(well, sick, "yes", "no");
+    // "How are the camels?": a bare yes or no says nothing. "All fine except one" means one isn't.
+    if (sick) return "no";
+    return well ? "yes" : null;
   }
   // "Are the fences intact?" and the like: yes and no are real answers here.
   if (item?.kind === "predefined" && ["fences_condition", "shelter_condition", "medicine_stock"].includes(item.id) && values.has("good")) {
     const fine = reading.affirm || has(reading, "healthy") || has(reading, "enough") || has(reading, "damaged", true);
     const bad = reading.deny || reading.bareNegation || has(reading, "damaged") || has(reading, "low") || has(reading, "healthy", true);
-    const condition = oneSide(fine, bad, "good", "low");
-    if (condition) return condition;
+    if (bad || fine) return bad ? "low" : "good";
   }
   if (values.has("not_enough")) {
     const short = has(reading, "low") || has(reading, "enough", true) || has(reading, "thing", true) || has(reading, "finished");
@@ -362,7 +364,7 @@ function intentReply(session: CallSession, reading: Reading): string | null {
     if ((has(reading, "finished") || has(reading, "thing", true)) && !has(reading, "finished", true)) return "critical";
     const low = has(reading, "low") || has(reading, "enough", true);
     const good = reading.wellbeing || has(reading, "enough") || has(reading, "healthy") || has(reading, "low", true);
-    if (low && !good) return "low";
+    if (low) return "low"; // "Good, but nearly out": the exception is the answer.
     if (has(reading, "medium") && !low) return "medium";
     if (good && !low) return "good";
     return null;
@@ -371,7 +373,8 @@ function intentReply(session: CallSession, reading: Reading): string | null {
     if (has(reading, "watch") && values.has("watch")) return "watch";
     const sick = has(reading, "sick") || has(reading, "healthy", true);
     const well = reading.wellbeing || has(reading, "healthy") || has(reading, "sick", true) || has(reading, "thing", true);
-    return oneSide(well, sick, "healthy", "sick");
+    if (sick) return "sick";
+    return well ? "healthy" : null;
   }
   if (values.has("instructions_confirm") && values.has("instructions_cancel")) {
     if (!has(reading, "save") && !has(reading, "save", true) && (reading.said.size > 0 || reading.negated.size > 0)) return null;
