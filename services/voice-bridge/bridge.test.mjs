@@ -1501,3 +1501,51 @@ test('preflight reports an account with no credit left, which listing models can
   const result = await preflight({ sessionError: { type: 'insufficient_quota', code: 'credit_balance_exhausted', message: 'secret detail' } });
   assert.deepEqual(result.json, { openaiKeyValid: true, realtimeReady: false, realtimeError: 'credit_balance_exhausted' });
 });
+
+/** The 11 Nov call: the whole summary played, the worker answered at once, and VAD dated the speech 300 ms early. */
+async function answerRightAfterSummary(style, markAfterSpeech = false) {
+  const state = await fixture({ session: style ? { style } : {}, toolResult: (body) => body.name === 'confirm_report'
+    ? { output: '{"status":"saved"}', awaitingConfirmation: false, end: 'hangup', goodbye: SAVED_GOODBYE }
+    : { output: '{}', awaitingConfirmation: true, end: null, goodbye: null, summaryText: 'Mock summary', summaryId: 'revision-1' } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'to-summary', style ? 'submit_report' : 'answer_question');
+    for (let frame = 0; frame < 50; frame += 1) media(connection.socket); // 1 s of caller line while the summary plays
+    await delay(20);
+    const offset = connection.messages.received.length;
+    const itemId = `audio-${state.responseId}`;
+    state.audio(160, itemId);
+    send(state.provider, { type: 'response.output_audio.done', item_id: itemId, content_index: 0 });
+    send(state.provider, { type: 'response.output_audio_transcript.done', response_id: state.responseId, item_id: itemId, content_index: 0, transcript: 'Mock summary' });
+    state.complete();
+    await waitFor(() => connection.messages.received.slice(offset).some((event) => event.mark?.name.startsWith('summary-')));
+    const marks = connection.messages.received.slice(offset).filter((event) => event.event === 'mark');
+    const ack = () => { for (const event of marks) send(connection.socket, { event: 'mark', streamSid: STREAM_SID, mark: event.mark }); };
+    const audioMarks = marks.filter((event) => !event.mark.name.startsWith('summary-'));
+    for (const event of audioMarks) send(connection.socket, { event: 'mark', streamSid: STREAM_SID, mark: event.mark });
+    if (!markAfterSpeech) { ack(); await delay(15); }
+    send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 1000 - 300 });
+    if (markAfterSpeech) { await delay(5); ack(); await delay(15); }
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'yes' });
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'yes', content_index: 0, transcript: 'إيه احفظه' });
+    await delay(15);
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'yes-confirm', name: 'confirm_report', arguments: '{"confirmed":true}' });
+    await waitFor(() => state.requests.some((request) => request.body?.toolCallId === 'yes-confirm'));
+    const body = state.requests.find((request) => request.body?.toolCallId === 'yes-confirm').body;
+    return { heard: body.heardSummary, id: body.heardSummaryId };
+  } finally { await state.close(); }
+}
+
+test('natural: an answer the instant the summary ends has heard it', async () => {
+  assert.deepEqual(await answerRightAfterSummary('natural'), { heard: true, id: 'revision-1' });
+});
+
+test('natural: so has one whose playback mark arrives just after the worker starts speaking', async () => {
+  assert.deepEqual(await answerRightAfterSummary('natural', true), { heard: true, id: 'revision-1' });
+});
+
+test('the guided call keeps its strict rule for the same timing', async () => {
+  assert.deepEqual(await answerRightAfterSummary(undefined), { heard: false, id: undefined });
+});

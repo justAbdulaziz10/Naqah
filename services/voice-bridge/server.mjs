@@ -11,6 +11,9 @@ const DELIVERY = Object.freeze({
   ar: ' Speak it as a friendly Saudi speaking natural Najdi Gulf Arabic, warm and calm, at an unhurried pace, with clear Gulf pronunciation of names and numbers. Do not use formal Modern Standard Arabic pronunciation or an Egyptian or Levantine accent.',
   en: ' Speak it warmly and clearly, at an unhurried pace.',
 });
+/** How close to the end of the summary a natural call's answer may start and still have heard all of it. */
+const HEARD_GRACE_MS = 800;
+
 /** A natural call's silence prompt: the model checks in, in its own words. */
 const NUDGE = Object.freeze({
   ar: 'العامل ساكت. بجملة سعودية قصيرة وودودة تأكد إنه يسمعك، وأعد سؤالك الأخير باختصار. لا تنادي أي أداة.',
@@ -130,6 +133,7 @@ class CallStream {
     this.markCount = 0;
     this.inputFrames = 0;
     this.inputAudioMs = 0;
+    this.speechStartAudioMs = null;
     this.outputFrames = 0;
     this.userSpoke = false;
     this.workerTurn = null;
@@ -321,6 +325,13 @@ class CallStream {
         if (this.summaryPlayback === mark.summary && !mark.summary.cancelled) {
           mark.summary.inputAudioMs = this.inputAudioMs;
           mark.summary.heard = true;
+          // Every summary byte was played before the worker spoke (a barge-in would have cancelled it); only the mark
+          // was still on its way back. Within the grace, that answer heard the whole summary.
+          if (this.natural && this.speaking && !this.turnHeardSummary && this.speechStartAudioMs !== null
+            && this.speechStartAudioMs + HEARD_GRACE_MS >= mark.summary.inputAudioMs) {
+            this.turnHeardSummary = true;
+            this.turnHeardSummaryId = mark.summary.id;
+          }
         }
         return;
       }
@@ -559,8 +570,12 @@ class CallStream {
       this.reprompts = 0;
       if (!this.speaking) {
         this.speechEpoch += 1;
-        this.turnHeardSummary = this.summaryPlayback?.heard === true && Number.isSafeInteger(event.audio_start_ms)
-          && event.audio_start_ms >= this.summaryPlayback.inputAudioMs;
+        // VAD dates speech 300 ms early (prefix padding) and Twilio's playback mark arrives late: a worker answering
+        // the instant the summary ends must not count as talking over it. Natural calls allow that much.
+        const grace = this.natural ? HEARD_GRACE_MS : 0;
+        this.speechStartAudioMs = Number.isSafeInteger(event.audio_start_ms) ? event.audio_start_ms : null;
+        this.turnHeardSummary = this.summaryPlayback?.heard === true && this.speechStartAudioMs !== null
+          && this.speechStartAudioMs + grace >= this.summaryPlayback.inputAudioMs;
         this.turnHeardSummaryId = this.turnHeardSummary ? this.summaryPlayback.id : undefined;
         this.timer('speech', this.limits.speechMs, () => {
           if (!this.speaking || this.ending) return;

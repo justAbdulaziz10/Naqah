@@ -9,11 +9,11 @@ const summary = () => at("summary");
 
 describe("a spoken yes on a natural call, through phone transcription", () => {
   // The three replies the transcriber returned on the 11 Nov call, after the whole summary was read.
-  it.each(["كل كلام لا تعدل.", "كل شيء تمام. لا تتعدى لأحفظك.", "إيه احفظه", "تمام احفظ", "صح كله مضبوط", "ما فيه تعديل", "زين، ماشي"])("saves on «%s»", (heard) => {
+  it.each(["كل كلام لا تعدل.", "كل شيء تمام. لا تتعدى لأحفظك.", "احفظ لاشعريلي.", "إيه احفظه", "تمام احفظ", "صح كله مضبوط", "ما فيه تعديل", "زين، ماشي"])("saves on «%s»", (heard) => {
     expect(isNaturalConfirmation(heard, summary().session, "ar")).toBe(true);
   });
 
-  it.each(["كل شيء نام.", "لا", "لا تحفظ", "ما ابي احفظ", "إيه بس العلف غلط", "تمام لكن الماء ناقص", "عدل الشبك", "تمام؟", "مدري", "يمكن", "إيه احفظه بس عدل الحليب"])("does not save on «%s»", (heard) => {
+  it.each(["كل شيء نام.", "أهلا بكم.", "عفوا.", "لا", "لا تحفظ", "ما ابي احفظ", "إيه بس العلف غلط", "تمام لكن الماء ناقص", "عدل الشبك", "تمام؟", "مدري", "يمكن", "إيه احفظه بس عدل الحليب"])("does not save on «%s»", (heard) => {
     expect(isNaturalConfirmation(heard, summary().session, "ar")).toBe(false);
   });
 
