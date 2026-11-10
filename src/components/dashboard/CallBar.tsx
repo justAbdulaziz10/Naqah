@@ -2,6 +2,7 @@
 
 import { Phone } from "@phosphor-icons/react";
 import Link from "next/link";
+import { ACCOUNT_DATA } from "@/components/entry/paths";
 import { formatSaudiMobile } from "@/components/setup/phone";
 import type { Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
@@ -14,7 +15,8 @@ const linkClass = "inline-flex min-h-11 items-center font-semibold text-cream un
 /**
  * The one place to call the worker: who NAQAH calls, their number and where to change it, and the
  * call button. A real account uses the existing "Call now" with its confirmation; the demo opens the
- * Call Lab, where every call is a simulation.
+ * Call Lab, where every call is a simulation. Where accounts exist, the demo says it is the sample
+ * ranch and points to sign-in, so it is never mistaken for the owner's own farm.
  */
 export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; now: Date }) {
   const { m, href } = useI18n();
@@ -50,7 +52,14 @@ export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; no
               <Phone size={16} weight="fill" aria-hidden />
               {d.simulateWith(worker)}
             </Link>
-            <p className="text-xs text-cream/70">{o.callBar.simulated}</p>
+            {ACCOUNT_DATA ? (
+              <p className="text-xs text-cream/70">
+                {o.callBar.sampleRanch}{" "}
+                <Link href={href("/login")} className="font-semibold text-cream underline decoration-cream/40 underline-offset-4 hover:decoration-cream">{o.callBar.signIn}</Link>
+              </p>
+            ) : (
+              <p className="text-xs text-cream/70">{o.callBar.simulated}</p>
+            )}
           </div>
         )}
       </div>
