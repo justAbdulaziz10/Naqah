@@ -9,6 +9,11 @@ const DELIVERY = Object.freeze({
   ar: ' Speak it as a friendly Saudi speaking natural Najdi Gulf Arabic, warm and calm, at an unhurried pace, with clear Gulf pronunciation of names and numbers. Do not use formal Modern Standard Arabic pronunciation or an Egyptian or Levantine accent.',
   en: ' Speak it warmly and clearly, at an unhurried pace.',
 });
+/** A natural call's silence prompt: the model checks in, in its own words. */
+const NUDGE = Object.freeze({
+  ar: 'العامل ساكت. بجملة سعودية قصيرة وودودة تأكد إنه يسمعك، وأعد سؤالك الأخير باختصار. لا تنادي أي أداة.',
+  en: 'The worker is silent. In one short, friendly sentence, check they can hear you and briefly repeat your last question. Call no tool.',
+});
 const HARMLESS_PROVIDER_ERRORS = new Set(['response_cancel_not_active', 'conversation_already_has_active_response']);
 /** A provider enum for the logs; anything that doesn't look like one is not logged. */
 const label = (value) => (typeof value === 'string' && /^[a-z0-9_.-]{1,64}$/i.test(value) ? value : null);
@@ -61,6 +66,7 @@ function validSession(session) {
   return isObject(session) && typeof session.instructions === 'string' && Array.isArray(session.tools)
     && typeof session.opening === 'string' && session.opening.trim().length > 0
     && (session.repromptText === undefined || typeof session.repromptText === 'string')
+    && (session.style === undefined || session.style === 'natural')
     && ['ar', 'en'].includes(session.locale) && Number.isFinite(session.maxSeconds)
     && session.maxSeconds > 0 && session.maxSeconds <= 3600;
 }
@@ -162,6 +168,11 @@ class CallStream {
     });
   }
 
+  /** Next asked for one natural conversation: the model speaks for itself, only the summary is word for word. */
+  get natural() {
+    return this.session?.style === 'natural';
+  }
+
   timer(name, milliseconds, callback) {
     this.clearTimer(name);
     const timer = setTimeout(callback, milliseconds);
@@ -179,11 +190,13 @@ class CallStream {
     if (this.closed || this.ending || !this.lastPrompt?.played || this.speaking || this.toolPending
       || this.responsePending || this.responseId || this.nextResponse || this.userSpoke) return;
     this.timer('silence', this.limits.repromptMs, () => {
-      if (this.reprompts >= this.limits.maxReprompts || !this.lastPrompt.repromptText?.trim()) {
+      const nudge = this.natural && this.lastPrompt.natural;
+      if (this.reprompts >= this.limits.maxReprompts || (!nudge && !this.lastPrompt.repromptText?.trim())) {
         return this.finish('silence_timeout');
       }
       this.reprompts += 1;
       this.log('reprompt', { count: this.reprompts });
+      if (nudge) return this.requestResponse('nudge', null, { instructions: NUDGE[this.session.locale] });
       this.requestResponse('reprompt', this.lastPrompt.repromptText, { prompt: this.lastPrompt });
     });
   }
@@ -307,7 +320,7 @@ class CallStream {
     } else if (message.event === 'dtmf') {
       if (!this.started || message.streamSid !== this.streamSid) throw new Error('Invalid dtmf');
       // Pressing 1 confirms only after the whole summary was heard; every other key is ignored.
-      if (message.dtmf?.digit === '1' && this.summaryPlayback?.heard === true && !this.ending && !this.toolPending) this.queueKeypadConfirm();
+      if (!this.natural && message.dtmf?.digit === '1' && this.summaryPlayback?.heard === true && !this.ending && !this.toolPending) this.queueKeypadConfirm();
     } else throw new Error('Unknown message');
   }
 
@@ -340,7 +353,9 @@ class CallStream {
           type: 'session.update',
           session: {
             type: 'realtime', model: REALTIME_MODEL, output_modalities: ['audio'],
-            instructions: this.session.instructions, tools: this.session.tools, tool_choice: 'required',
+            instructions: this.session.instructions, tools: this.session.tools,
+            // A natural call talks for itself and calls a tool only to hand over or confirm the report.
+            tool_choice: this.natural ? 'auto' : 'required',
             reasoning: { effort: 'minimal' },
             audio: {
               input: {
@@ -393,7 +408,11 @@ class CallStream {
     this.responseKind = next.kind;
     this.responseAudible = false;
     this.responsePrompt = null;
-    if (next.text && next.kind !== 'goodbye') {
+    if (this.natural && !next.text && (next.kind === 'turn' || next.kind === 'nudge')) {
+      // The model's own words: tracked so silence after them is noticed, never replayed word for word.
+      this.responsePrompt = { kind: 'turn', text: '', natural: true, repromptText: null, played: false, cutOff: false };
+      this.lastPrompt = this.responsePrompt;
+    } else if (next.text && next.kind !== 'goodbye') {
       this.responsePrompt = next.prompt ?? {
         kind: next.kind, text: next.text, summaryId: next.summaryId,
         repromptText: next.repromptText ?? (next.kind === 'summary' ? null : next.text),
@@ -408,7 +427,10 @@ class CallStream {
     this.activity();
     this.log('response_requested', { kind: next.kind });
     const response = { output_modalities: ['audio'] };
-    if (next.text) {
+    if (next.instructions) {
+      response.instructions = next.instructions;
+      response.tool_choice = 'none';
+    } else if (next.text) {
       response.instructions = `Say only the following text verbatim, with no additions: ${JSON.stringify(next.text)}${DELIVERY[this.session?.locale] ?? ''}`;
       response.tool_choice = 'none';
     }
@@ -720,11 +742,12 @@ class CallStream {
         || ![null, 'hangup', 'fallback'].includes(result.end)
         || !(result.goodbye === null || typeof result.goodbye === 'string')
         || ['summaryText', 'summaryId', 'sayText', 'repromptText'].some((field) => result[field] !== undefined && typeof result[field] !== 'string')
-        || (result.silent !== undefined && result.silent !== true)) throw new Error('Invalid tool result');
+        || (result.silent !== undefined && result.silent !== true)
+        || (result.continue !== undefined && (result.continue !== true || !this.natural))) throw new Error('Invalid tool result');
       const summary = result.summaryText?.trim() ? result.summaryText : null;
       const question = result.sayText?.trim() ? result.sayText : null;
-      const actions = [result.summaryText, result.sayText, result.silent].filter((value) => value !== undefined);
-      if (!result.end && (actions.length !== 1 || (!summary && !question && result.silent !== true))) {
+      const actions = [result.summaryText, result.sayText, result.silent, result.continue].filter((value) => value !== undefined);
+      if (!result.end && (actions.length !== 1 || (!summary && !question && result.silent !== true && result.continue !== true))) {
         throw new Error('Invalid tool result');
       }
       // Only a summary the server speaks word for word counts as heard: a model reply could say anything.
@@ -746,6 +769,8 @@ class CallStream {
         this.requestResponse('goodbye', result.goodbye);
       } else if (summary) this.requestResponse('summary', summary, { summaryId: result.summaryId, repromptText: result.repromptText });
       else if (question) this.requestResponse('question', question, { repromptText: result.repromptText });
+      // The model was told what happened and answers in its own words.
+      else if (result.continue) this.requestResponse('turn');
       else {
         this.log('tool_silent');
         if (this.lastPrompt?.cutOff) this.requestResponse(this.lastPrompt.kind, this.lastPrompt.text, { prompt: this.lastPrompt });

@@ -1230,3 +1230,70 @@ describe("after the stream", () => {
     expect(await (await afterRoute(twilio(`/api/voice/realtime/after?s=${other}`, { CallSid: CALL }))).text()).toContain("<Hangup/>");
   });
 });
+
+describe("the natural call (local presentation style)", () => {
+  type Queue = NonNullable<CallSession["data"]["queue"]>;
+  const handOver = (queue: Queue, herd: number) => queue.map((item) => {
+    if (item.kind === "custom") return { question_id: item.id, text: "ما فيه شي جديد" };
+    if (item.kind === "predefined" && item.answerKind === "herd-health") return { question_id: item.id, value: "yes" };
+    if (item.id === "herd_count") return { question_id: item.id, number: herd };
+    if (item.kind === "predefined" && item.answerKind === "level") return { question_id: item.id, value: "good" };
+    return { question_id: item.id, value: "yes" };
+  });
+
+  beforeEach(() => vi.stubEnv("NAQAH_VOICE_STYLE", "natural"));
+
+  async function openNatural() {
+    const ticket = ticketIn(await answerCall());
+    const response = await sessionRoute(signed("/api/voice/realtime/session", { ticket, callSid: CALL }));
+    expect(response.status).toBe(200);
+    return { ticket, opened: await response.json() };
+  }
+
+  it("opens one natural conversation: own words, four tools, no keypad", async () => {
+    const { opened } = await openNatural();
+    expect(opened.style).toBe("natural");
+    expect(opened.opening).toMatch(/^السلام عليكم يا .+، معك ناقة، المساعد الآلي/);
+    expect(opened.opening).toContain("بشّر، كيف الحلال؟");
+    expect(opened.tools.map((item: { name: string }) => item.name)).toEqual(["submit_report", "confirm_report", "flag_urgent", "end_call"]);
+    expect(opened.instructions).toContain("لا تعيد سؤال انجاوب");
+  });
+
+  it("hands over the report once, reads the engine's summary, saves on a spoken yes and says goodbye", async () => {
+    const { ticket } = await openNatural();
+    const base = realtimeOf(row().session)!.naturalBase!;
+    const farm = answeredFarm();
+    const submitted = await tool(ticket, "submit_report", { answers: handOver(base.data.queue ?? [], farm.settings.herdCount ?? farm.camels.length) }, { workerUtterance: "إيه هذا كل شي" });
+    expect(submitted.status).toBe(200);
+    expect(submitted.result.summaryText).toContain("هذا ملخص التحديث");
+    expect(submitted.result.summaryId).toBe(reportSummaryId(row().session, "ar"));
+    expect(mock.save).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), expect.objectContaining({ type: "worker_report" }), expect.anything());
+    const saved = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "إيه احفظه", heardSummary: true, heardSummaryId: submitted.result.summaryId });
+    expect(saved.output.status).toBe("saved");
+    expect(saved.result.end).toBe("hangup");
+    expect(saved.result.goodbye).toContain("مع السلامة");
+  });
+
+  it("asks the model to get missing answers instead of saving a partial report", async () => {
+    const { ticket } = await openNatural();
+    const result = await tool(ticket, "submit_report", { answers: [] }, { workerUtterance: "خلاص" });
+    expect(result.output).toMatchObject({ status: "invalid", error: "questions_not_answered" });
+    expect(result.result.continue).toBe(true);
+    expect(result.result.summaryText).toBeUndefined();
+  });
+
+  it("never confirms on a keypad press", async () => {
+    const { ticket } = await openNatural();
+    const pressed = await tool(ticket, "keypad_confirm", {}, { keypad: true });
+    expect(pressed.status).not.toBe(200);
+  });
+
+  it("ends with a short apology, no keypad script, if the stream drops", async () => {
+    await openNatural();
+    const response = await afterRoute(twilio(`/api/voice/realtime/after?s=${encodeURIComponent(signCallToken(token(), SECRET))}`, { CallSid: CALL }));
+    const xml = await response.text();
+    expect(xml).toContain("معليش");
+    expect(xml).not.toContain("<Gather");
+    expect(xml).toContain("<Hangup");
+  });
+});

@@ -20,6 +20,8 @@ export interface ToolResponse {
   sayText?: string;
   silent?: true;
   repromptText?: string;
+  /** Natural call: send the output and let the model answer in its own words. */
+  continue?: true;
 }
 
 export interface RealtimeState {
@@ -39,6 +41,8 @@ export interface RealtimeState {
   noiseCount?: number;
   progressVersion?: number;
   fallbackPrepared?: boolean;
+  /** Natural call: the session on its first question, which every submitted report is replayed from. */
+  naturalBase?: CallSession;
   recent: { id: string; result: ToolResponse }[];
 }
 

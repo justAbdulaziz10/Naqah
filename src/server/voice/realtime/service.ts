@@ -21,6 +21,8 @@ import { OWNER_TOOLS, ownerPromptFor } from "./owner-tools";
 import { claimRealtime, realtimeOf, recordRealtimeResult, rememberResult, withRealtime, type RealtimeState, type ToolResponse } from "./state";
 import { REALTIME_MAX_SECONDS, TICKET_CALL_MS, TICKET_CLAIM_MS, verifyRealtimeTicket, type RealtimeTicket } from "./ticket";
 import { promptFor, REALTIME_TOOLS } from "./tools";
+import { buildNaturalInstructions, naturalize, naturalTools, replayAnswers } from "./natural";
+import { spokenFrom } from "./decide";
 
 export { fallbackResult };
 
@@ -60,7 +62,9 @@ async function farmOf(client: SupabaseClient, row: VoiceSessionRow, now: Date): 
 
 export type OpenedSession = {
   instructions: string;
-  tools: typeof REALTIME_TOOLS | typeof OWNER_TOOLS;
+  tools: typeof REALTIME_TOOLS | typeof OWNER_TOOLS | ReturnType<typeof naturalTools>;
+  /** "natural": the model speaks for itself and only the summary is read word for word. */
+  style?: "natural";
   opening: string;
   repromptText: string;
   locale: Locale;
@@ -87,6 +91,17 @@ export async function openRealtimeSession(client: SupabaseClient, body: Record<s
   }
   if (!(await claimRealtime(client, row, realtime, now))) return null;
   console.info(`[NAQAH] realtime session call=${ticket.sid.slice(-6)} opened`);
+  if (realtime.naturalBase && !owner) {
+    return {
+      instructions: realtime.instructions ?? buildNaturalInstructions(realtime.naturalBase, workspace, row.locale),
+      tools: naturalTools(realtime.naturalBase, workspace),
+      style: "natural",
+      opening: realtime.opening,
+      repromptText: realtime.opening,
+      locale: row.locale,
+      maxSeconds: REALTIME_MAX_SECONDS,
+    };
+  }
   return {
     instructions,
     tools: owner ? OWNER_TOOLS : REALTIME_TOOLS,
@@ -157,6 +172,11 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
     if (realtime.closed) return fallbackResult();
     const workspace = await farmOf(client, row, now);
     const owner = ticket.p === "owner";
+    if (realtime.naturalBase && !owner) {
+      if (body.name === "submit_report") return submitNatural(client, row, realtime, body, workspace, now, started);
+      // No keypad on a natural call: only spoken words confirm.
+      if (body.keypad) return null;
+    }
     const keypad = body.keypad === true && body.name === "keypad_confirm";
     const toolName = keypad ? (owner ? "confirm_instructions" : "confirm_report") : body.name;
     const toolArgs = keypad ? { confirmed: true } : body.args;
@@ -170,7 +190,7 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
       return latest && realtimeOf(latest.session)?.recent.find((entry) => entry.id === body.toolCallId)?.result || fallbackResult();
     };
     if (decision.checkError) logTool(body.callSid, body.name, decision.checkError, Date.now() - started);
-    if (decision.kind === "reply") return keep(decision.result);
+    if (decision.kind === "reply") return keep(realtime.naturalBase && !owner ? naturalize(decision.result, row.locale) : decision.result);
     const session = decision.session;
     let plan: TurnPlan;
     if (decision.kind === "stay") {
@@ -182,7 +202,8 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
     } else {
       plan = endedPlan(row, session);
     }
-    const result = decision.kind === "stay" ? decision.result : resultOf(plan, session, workspace, row.locale, decision.kind === "apply" ? decision.prefix : "", owner);
+    const spoken = decision.kind === "stay" ? decision.result : resultOf(plan, session, workspace, row.locale, decision.kind === "apply" ? decision.prefix : "", owner);
+    const result = realtime.naturalBase && !owner ? naturalize(spoken, row.locale) : spoken;
     const stored = withRealtime(plan.session, rememberResult(nextRealtime, body.toolCallId, result, plan.session.done));
     const saved = await advanceRow(client, row, stored, plan.misses, plan.response, plan.onAdvanced, true);
     if (plan.session.done) forgetCallWorkspace(ticket.sid);
@@ -203,6 +224,36 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
   }
 }
 
+/**
+ * The whole report at once. It is replayed from the call's first question through the engine, so it passes the same
+ * checks as a guided call, and the engine's summary is what the worker hears and confirms.
+ */
+async function submitNatural(client: SupabaseClient, row: VoiceSessionRow, realtime: RealtimeState, body: ToolBody, workspace: Workspace, now: Date, started: number): Promise<ToolResponse> {
+  const replayed = replayAnswers(realtime.naturalBase!, workspace, now, body.args, row.session.draft.urgentNote ?? undefined);
+  if (!replayed.ok) {
+    const result: ToolResponse = {
+      output: stringify({ status: "invalid", error: replayed.error, questions: replayed.questions, message: "Nothing was recorded. Ask the worker about these questions, briefly, then call submit_report again with every answer." }),
+      awaitingConfirmation: false, end: null, goodbye: null, continue: true,
+    };
+    const kept = await recordRealtimeResult(client, row, rememberResult(realtime, body.toolCallId, result, false));
+    logTool(body.callSid, "submit_report", replayed.error, Date.now() - started);
+    return kept ? result : fallbackResult();
+  }
+  const session = { ...replayed.session, data: { ...replayed.session.data, draftRevision: (row.session.data.draftRevision ?? 0) + 1 } } as VoiceCallSession;
+  const summary = promptResult(session, workspace, row.locale, "ok", undefined, "", undefined, false, spokenFrom(session, session.turns.length - 1, workspace, row.locale));
+  const result: ToolResponse = { ...summary, repromptText: row.locale === "ar" ? "أحفظ التحديث، ولا تبي تعدل شي؟" : "Shall I save the update, or would you like to correct something?" };
+  const stored = withRealtime(session, rememberResult(realtime, body.toolCallId, result, false));
+  const response = respond(session, session.turns.length - 1, workspace, row.locale, row.seq + 1);
+  const saved = await advanceRow(client, row, stored, row.misses, response, undefined, true);
+  logTool(body.callSid, "submit_report", saved ? "summary" : "state_changed", Date.now() - started);
+  return saved ? result : fallbackResult();
+}
+
+const NATURAL_SORRY: Record<Locale, string> = {
+  ar: "معليش، صار عندنا خلل في الاتصال. ما انحفظ شي. مع السلامة.",
+  en: "Sorry, the call ran into a problem. Nothing was saved. Goodbye.",
+};
+
 const AFTER_ATTEMPTS = 3;
 
 /** The stream closed. A finished call hangs up; anything else carries on by script from where it was. */
@@ -219,6 +270,13 @@ export async function afterRealtimeCall(client: SupabaseClient, input: { token: 
       return row.party === "owner" || (last && JSON.parse(last.output).status === "saved") ? "<Response><Hangup/></Response>" : row.last_response;
     }
     if (row.session.done || !realtime || realtime.fallbackPrepared) return row.last_response;
+    // A natural call has no keypad script to fall back to: a short apology, nothing saved.
+    if (realtime.naturalBase && row.party !== "owner") {
+      const goodbye = twimlGoodbye(row.locale, NATURAL_SORRY[row.locale]);
+      const ended = await advanceRow(client, row, withRealtime({ ...row.session, done: true }, { ...realtime, closed: true, fallbackPrepared: true }), row.misses, goodbye);
+      if (ended) return goodbye;
+      continue;
+    }
     const workspace = await farmOf(client, row, new Date());
     const session = scriptedFrom(row.session, workspace, new Date());
     const prefix = row.party === "owner"

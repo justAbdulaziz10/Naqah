@@ -481,7 +481,8 @@ describe("Voice Lab stays in step with the phone call", () => {
   });
 
   it("makes the model call tools and re-speaks on the bridge's schedule", () => {
-    expect(bridge).toContain("tool_choice: 'required'");
+    // The guided phone call; a natural call (local --natural) uses 'auto'.
+    expect(bridge).toContain("tool_choice: this.natural ? 'auto' : 'required'");
     expect(lab).toContain('tool_choice: "required"');
     expect(bridge).toContain("repromptMs: 10_000");
     expect(loop).toContain("REPROMPT_MS = 10_000");

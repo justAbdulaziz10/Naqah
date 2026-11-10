@@ -35,6 +35,7 @@ import { evidenceWords } from "./realtime/answer-check";
 import { isVerifiedConfirmation } from "./realtime/confirmation";
 import { forgetCallWorkspace, rememberCallWorkspace } from "./realtime/call-workspace";
 import { buildInstructions } from "./realtime/instructions";
+import { buildNaturalInstructions, naturalOpening, naturalStyle } from "./realtime/natural";
 import { buildOwnerInstructions } from "./realtime/owner-instructions";
 import { ownerPromptFor } from "./realtime/owner-tools";
 import { promptFor } from "./realtime/tools";
@@ -436,13 +437,21 @@ export async function answerReportCall(client: SupabaseClient, input: { token: R
   }
 
   // A phone call greets and waits for «جاهز؟»: whoever picks up often says «ألو» over the first words.
-  const result = start(workspace, now, "report_call", { reportCallId: run.id, modesAvailable: Boolean(realtime), greetFirst: Boolean(realtime) });
+  const result = start(workspace, now, "report_call", naturalStyle()
+    ? { reportCallId: run.id }
+    : { reportCallId: run.id, modesAvailable: Boolean(realtime), greetFirst: Boolean(realtime) });
   // The run was answered above, so the engine has nothing left to commit at the start.
   if (result.commit) throw new DbError("invalid_input", "report call start has no voice event");
   const response = respond(result.session, 0, workspace, locale, 0);
   if (result.session.done) return response;
-  const state = realtime ? newRealtimeState(spokenLines(result.session, 0, workspace, locale).join(" ")) : null;
-  if (state) {
+  const natural = Boolean(realtime) && naturalStyle();
+  const state = realtime ? newRealtimeState(natural ? naturalOpening(workspace, locale) : spokenLines(result.session, 0, workspace, locale).join(" ")) : null;
+  if (state && natural) {
+    // One conversation in the model's words; the engine only replays what it hands over.
+    state.naturalBase = withoutTranscript(result.session);
+    state.instructions = buildNaturalInstructions(result.session, workspace, locale);
+    rememberCallWorkspace(callSid, workspace, now);
+  } else if (state) {
     const firstStep = promptFor(result.session, spokenLines(result.session, result.session.turns.length - 1, workspace, locale), workspace, locale);
     state.instructions = buildInstructions(locale, { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name }, firstStep);
     rememberCallWorkspace(callSid, workspace, now);

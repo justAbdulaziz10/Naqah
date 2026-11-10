@@ -80,6 +80,7 @@ export function parseArgs(argv) {
     else if (name === "--dashboard-call") options.dashboardCall = true;
     else if (name === "--trace-transcripts") options.traceTranscripts = true;
     else if (name === "--reset-report") options.resetReport = true;
+    else if (name === "--natural") options.natural = true;
     else if (name === "--voice") {
       options.voice = takeValue(index, name);
       if (!/^(marin|cedar|alloy|ash|ballad|coral|echo|sage|shimmer|verse)$/.test(options.voice)) throw new UsageError("--voice takes a realtime voice such as marin or cedar");
@@ -209,6 +210,8 @@ export function buildEnvironments(options, stack, secrets = null) {
   };
   if (options.maxCallSeconds) bridge.NAQAH_CALL_TIME_LIMIT_SECONDS = options.maxCallSeconds;
   if (options.voice) bridge.NAQAH_REALTIME_VOICE = options.voice;
+  // One natural conversation, no keypad: local presentation runs only.
+  if (options.natural) next.NAQAH_VOICE_STYLE = "natural";
   // Some networks (NAT64) list an unreachable IPv6 address first for api.twilio.com: placement then times out.
   next.NODE_OPTIONS = IPV4_FIRST;
   bridge.NODE_OPTIONS = IPV4_FIRST;

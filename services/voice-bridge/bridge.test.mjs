@@ -1408,3 +1408,55 @@ test('HTTP proxy forwards trailers and response bytes before the request body en
     assert.deepEqual(result.trailers, ['X-Upstream-Trailer', 'upstream-finished']);
   } finally { await state.close(); }
 });
+
+test('natural style: auto tools, the model answers in its own words, and a continue result lets it carry on', async () => {
+  const state = await fixture({
+    session: { style: 'natural' },
+    toolResult: { output: '{"status":"invalid","questions":["water_level"]}', awaitingConfirmation: false, end: null, goodbye: null, continue: true },
+  });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    const update = state.providerEvents.find((event) => event.type === 'session.update').session;
+    assert.equal(update.tool_choice, 'auto');
+    await playPrompt(state, connection);
+    await workerTool(state, 'hand-over', 'submit_report', 'Mock worker words', { answers: [] });
+    await waitFor(() => state.providerEvents.filter((event) => event.type === 'response.create').length >= 3);
+    const free = state.providerEvents.filter((event) => event.type === 'response.create').at(-1).response;
+    // No words of the server's: the model says it for itself.
+    assert.deepEqual(free, { output_modalities: ['audio'] });
+    assert.ok(state.logs.some((record) => record.event === 'response_requested' && record.kind === 'turn'));
+  } finally { await state.close(); }
+});
+
+test('natural style: the summary is still spoken word for word, and a key press never confirms it', async () => {
+  const state = await fixture({ session: { style: 'natural' }, toolResult: keypadResult });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'to-summary', 'submit_report', 'Mock worker words', { answers: [] });
+    const summary = state.providerEvents.filter((event) => event.type === 'response.create').at(-1).response;
+    assert.match(summary.instructions, /^Say only the following text verbatim, with no additions: "Mock summary"/);
+    await playPrompt(state, connection, 'Mock summary');
+    dtmf(connection.socket, '1');
+    await delay(50);
+    assert.equal(state.requests.some((request) => request.body?.name === 'keypad_confirm'), false);
+  } finally { await state.close(); }
+});
+
+test('a continue result is refused outside the natural style', async () => {
+  const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: false, end: null, goodbye: null, continue: true } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 0 });
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'c1' });
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'c1', content_index: 0, transcript: 'x' });
+    await waitFor(() => state.responseId);
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'c1', name: 'answer_question', arguments: '{}' });
+    state.complete();
+    await closed(connection.socket);
+  } finally { await state.close(); }
+});
