@@ -11,7 +11,7 @@ import type { VoiceCallSession } from "../farm-call";
 import { camelClauses, mapSpeechToInput, namedCamels, numbersSaid, saysRestAreWell, topicSegments, unknownReply } from "../speech";
 import { spokenWording } from "../twiml";
 import { askedToStop, evidenceWords, isGarbled, isLeakedHint, refuseAnswer } from "./answer-check";
-import { isVerifiedConfirmation } from "./confirmation";
+import { isNaturalConfirmation, isVerifiedConfirmation } from "./confirmation";
 import { validateFacts } from "./facts";
 import type { RealtimeState, ToolResponse } from "./state";
 import { checkTool, promptFor, SUMMARY_STEP, toolsFor, type ClarifyReason } from "./tools";
@@ -151,6 +151,8 @@ export type ToolTurn = {
   now: Date;
   /** Key 1, pressed after the whole summary was heard. */
   keypad?: boolean;
+  /** A natural call: its own confirmation rule, and no keypad fallback after three tries. */
+  natural?: boolean;
 };
 
 export type ToolDecision = { counters: ToolCounters; checkError: string | null } & (
@@ -177,7 +179,7 @@ function readyChoice(heard: string): "ready" | "busy" | "again" {
   return "ready";
 }
 
-export function decideTool({ session: current, counters, workspace, locale, name, args, spoke, heard, heardSummaryId, now, keypad = false }: ToolTurn): ToolDecision {
+export function decideTool({ session: current, counters, workspace, locale, name, args, spoke, heard, heardSummaryId, now, keypad = false, natural = false }: ToolTurn): ToolDecision {
   if (current.step === "report_ready" && name !== "flag_urgent" && (spoke || name === "end_call")) {
     return { kind: "apply", session: { ...current, voiceSilences: 0 }, chosen: { value: name === "end_call" ? "busy" : readyChoice(heard) }, prefix: "", counters: {}, checkError: null };
   }
@@ -202,13 +204,15 @@ export function decideTool({ session: current, counters, workspace, locale, name
     return reply(promptResult(current, workspace, locale, "ok", undefined, count > 1 ? PREFIXES.noise[locale] : "", undefined, explicitNoise || count === 1), "noise");
   }
   const confirming = name === "confirm_report" && typeof args === "object" && args !== null && "confirmed" in args && args.confirmed === true;
-  const verified = keypad || (spoke && Boolean(heard) && isVerifiedConfirmation(heard, current, locale));
+  const verified = keypad || (spoke && Boolean(heard) && (isVerifiedConfirmation(heard, current, locale) || (natural && isNaturalConfirmation(heard, current, locale))));
   if (name === "end_call" && !askedToStop(heard)) {
     return reply(promptResult(current, workspace, locale, "invalid", "worker_has_not_asked_to_stop", evidenceWords(heard) ? PREFIXES.unclear[locale] : "", undefined, !evidenceWords(heard)), "worker_has_not_asked_to_stop");
   }
   if (confirming && current.step === SUMMARY_STEP && (!verified || heardSummaryId !== reportSummaryId(current, locale))) {
     const error = heardSummaryId !== reportSummaryId(current, locale) ? "summary_not_finished" : "worker_has_not_confirmed";
     const failures = (counters.confirmationFailures ?? 0) + 1;
+    // A natural call has no keypad to fall back to: after three tries it says plainly nothing was saved and ends.
+    if (natural && failures >= 3) return { kind: "end", session: { ...current, voiceSilences: 0 }, counters: { ...next, confirmationFailures: failures }, checkError: error };
     next = { ...next, confirmationFailures: failures, closed: failures >= 3 };
     if (failures >= 3) return reply(fallbackResult(), error);
     // The summary was heard, so only the question needs asking again.

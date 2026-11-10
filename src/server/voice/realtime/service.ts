@@ -180,7 +180,7 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
     const keypad = body.keypad === true && body.name === "keypad_confirm";
     const toolName = keypad ? (owner ? "confirm_instructions" : "confirm_report") : body.name;
     const toolArgs = keypad ? { confirmed: true } : body.args;
-    const toolTurn = { session: row.session, counters: realtime, workspace, locale: row.locale, name: toolName, args: toolArgs, keypad, spoke: body.userSpokeSinceLastTool, heard: body.workerUtterance ?? "", heardSummaryId: body.heardSummaryId , now };
+    const toolTurn = { session: row.session, counters: realtime, workspace, locale: row.locale, name: toolName, args: toolArgs, keypad, spoke: body.userSpokeSinceLastTool, heard: body.workerUtterance ?? "", heardSummaryId: body.heardSummaryId , now, natural: Boolean(realtime.naturalBase) && !owner };
     const decision = owner ? decideOwnerTool(toolTurn) : decideTool(toolTurn);
     const nextRealtime = { ...realtime, ...decision.counters };
     const keep = async (result: ToolResponse) => {

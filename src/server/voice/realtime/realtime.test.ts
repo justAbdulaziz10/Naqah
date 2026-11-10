@@ -1274,6 +1274,34 @@ describe("the natural call (local presentation style)", () => {
     expect(saved.result.goodbye).toContain("مع السلامة");
   });
 
+  async function readSummary(ticket: string) {
+    const base = realtimeOf(row().session)!.naturalBase!;
+    const farm = answeredFarm();
+    return tool(ticket, "submit_report", { answers: handOver(base.data.queue ?? [], farm.settings.herdCount ?? farm.camels.length) }, { workerUtterance: "هذا كل شي" });
+  }
+
+  it("saves once on a casual Saudi yes the transcriber garbled, as on the 11 Nov call", async () => {
+    const { ticket } = await openNatural();
+    const submitted = await readSummary(ticket);
+    const saved = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "كل شيء تمام. لا تتعدى لأحفظك.", heardSummary: true, heardSummaryId: submitted.result.summaryId });
+    expect(saved.output.status).toBe("saved");
+    expect(saved.result.end).toBe("hangup");
+    expect(mock.save.mock.calls.filter((call) => call[3]?.type === "worker_report")).toHaveLength(1);
+  });
+
+  it("after three unclear replies says nothing was saved and hangs up, never a connection problem", async () => {
+    const { ticket } = await openNatural();
+    const submitted = await readSummary(ticket);
+    let last;
+    for (let turn = 0; turn < 3; turn += 1) last = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "كل شيء نام", heardSummary: true, heardSummaryId: submitted.result.summaryId });
+    expect(last!.output.status).toBe("ended_without_saving");
+    expect(last!.result.goodbye).toContain("ما انحفظ التحديث");
+    expect(last!.result.end).toBe("hangup");
+    expect(mock.save.mock.calls.some((call) => call[3]?.type === "worker_report")).toBe(false);
+    const after = await (await afterRoute(twilio(`/api/voice/realtime/after?s=${encodeURIComponent(signCallToken(token(), SECRET))}`, { CallSid: CALL }))).text();
+    expect(after).not.toContain("معليش");
+  });
+
   it("asks the model to get missing answers instead of saving a partial report", async () => {
     const { ticket } = await openNatural();
     const result = await tool(ticket, "submit_report", { answers: [] }, { workerUtterance: "خلاص" });
