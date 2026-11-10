@@ -19,7 +19,12 @@ const CLEAR_CONFIRMATIONS = new Set([
 
 /** «إيه صح، احفظه»: a clear Arabic yes can be strung together, as long as every word is one of these. */
 const CLEAR_ARABIC_WORDS = new Set(["ايه", "ايوه", "اي", "نعم", "اكيد", "صح", "صحيح", "تمام", "اوكي", "طيب", "والله", "حفظ", "اعتمد", "احفظ", "احفظه", "احفظها", "واحفظ", "واحفظه", "تاكيد", "اكد"]);
-const isClearArabic = (words: string) => words.split(" ").every((word) => CLEAR_ARABIC_WORDS.has(word));
+/** Words that agree only alongside a clear yes: «إيه كله صحيح احفظه», «إيه زين احفظه». */
+const AGREEING_ARABIC_WORDS = new Set(["كله", "كل", "شي", "الكلام", "زين", "مضبوط", "يعطيك", "العافيه"]);
+const isClearArabic = (words: string) => {
+  const list = words.split(" ");
+  return list.some((word) => CLEAR_ARABIC_WORDS.has(word)) && list.every((word) => CLEAR_ARABIC_WORDS.has(word) || AGREEING_ARABIC_WORDS.has(word));
+};
 
 /** Words alone: does this transcript really say yes to the summary, with no correction in it? */
 export function isVerifiedConfirmation(utterance: string, session: CallSession, locale: Locale): boolean {

@@ -59,6 +59,8 @@ const NUMBER_WORDS: Record<string, number> = {
   "ثمانين": 80, "ثمانون": 80, "تسعين": 90, "تسعون": 90,
   "احدعش": 11, "حدعش": 11, "ثلاثطعش": 13, "اربعطعش": 14, "خمسطعش": 15, "خمستعش": 15,
   "ستطعش": 16, "سبعطعش": 17, "ثمانطعش": 18, "تسعطعش": 19, "كيسين": 2, "كيسان": 2, "لترين": 2,
+  "ثلطعش": 13, "ثلثطعش": 13, "ثلاثتعش": 13, "اربعتعش": 14, "ستعش": 16, "ستتعش": 16, "سبعتعش": 17,
+  "ثمنطعش": 18, "ثمنتعش": 18, "ثمانتعش": 18, "تسعتعش": 19,
 };
 
 const HUNDREDS: Record<string, number> = {
@@ -74,6 +76,28 @@ const EXCEPT = /(?:^|\s)(?:الا|غير|بس|only|just|except|but)(?:\s|$)/u;
 
 /** «نورة», «نوره», «نورا» and «النورة» are one name on the phone. */
 export const camelNameKey = (text: string) => compact(text).split(" ").map((word) => (word.startsWith("ال") && word.length > 3 ? word.slice(2) : word).replace(/[اهي]$/u, "")).join(" ");
+
+/**
+ * Every count the worker said: «ثمنطعش، ثنتين ما شفتهم» holds 18 and 2, and «عشرين إلا وحدة» is 19.
+ * Used to check a number the model read from a reply, never to pick one.
+ */
+export function numbersSaid(input: string): Set<number> {
+  const found = new Set<number>();
+  const whole = extractNumber(input);
+  if (whole !== null) found.add(whole);
+  const normalized = normalizeSpeech(input);
+  const less = normalized.match(/^(.*?)\s+(?:الا|غير)\s+(وحده|واحده|واحد|ثنتين|اثنين|ثلاث|ثلاثه)(?:\s|$)/u);
+  if (less) {
+    const base = extractNumber(less[1]);
+    const minus = NUMBER_WORDS[less[2]];
+    if (base !== null && minus !== undefined && base > minus) found.add(base - minus);
+  }
+  for (const part of normalized.split(/[,،.;؛!?؟]|\s(?:بس|لكن|الا|غير|و)\s/u)) {
+    const value = extractNumber(part);
+    if (value !== null) found.add(value);
+  }
+  return found;
+}
 
 export function extractNumber(input: string): number | null {
   const normalized = normalizeSpeech(input).replaceAll("٫", ".");
@@ -221,7 +245,7 @@ const CONCEPTS: Record<Concept, readonly string[]> = {
   enough: ["مليان", "مليانه", "متروس", "فل", "كافي", "كافيه", "يكفي", "تكفي", "يكفون", "كفايه", "متوفر", "متوفره", "موجود", "موجوده", "وايد", "كثير", "enough", "plenty", "sufficient", "full"],
   low: ["ناقص", "ناقصه", "نقص", "نقصت", "قليل", "قليله", "شوي", "شويه", "low", "short", "little"],
   medium: ["متوسط", "متوسطه", "نص", "نصه", "النص", "نصف", "النصف", "half", "medium", "average"],
-  finished: ["خلص", "خلصت", "خلصان", "خلصانه", "خلصتها", "خالص", "انتهيت", "انتهى", "انتهت", "نفد", "نفذ", "سويتها", "سويته", "سويناها", "سويناه", "انجزتها", "انجزته", "صلحتها", "صلحته", "done", "finished", "complete", "completed", "empty"],
+  finished: ["تم", "تمت", "خلصناها", "خلصناه", "خلصنا", "انتهينا", "خلص", "خلصت", "خلصان", "خلصانه", "خلصتها", "خالص", "انتهيت", "انتهى", "انتهت", "نفد", "نفذ", "سويتها", "سويته", "سويناها", "سويناه", "انجزتها", "انجزته", "صلحتها", "صلحته", "done", "finished", "complete", "completed", "empty"],
   pending: ["باقي", "لسه", "لسا", "yet"],
   save: ["احفظ", "احفظه", "احفظها", "تحفظ", "تحفظه", "حفظ", "اكد", "تاكيد", "اعتمد", "confirm", "save"],
   thing: ["شي", "شيء", "احد", "حد", "وحده", "واحده", "ناقه", "anything", "something", "thing", "anyone", "camel", "camels"],
@@ -263,6 +287,8 @@ function readSpeech(transcript: string): Reading {
     .replace(/(?:قارب|قرب)\s+يخلص|بيخلص(?:ون)?|nearly\s+empty|almost\s+(?:gone|finished)/gu, " low ")
     .replace(/ما\s+(?:عليهم|عليها|عليه)\s+(?:خلاف|باس|شر)|الحمد\s+لله|ما\s*شاء\s+الله/gu, " بخير ")
     .replace(/ما\s+تاكل/gu, " مريضه ")
+    // «لا والله ما فيه شي» about a fence or a shelter: nothing is wrong with it.
+    .replace(/^(?:لا\s+)?(?:والله\s+)?ما\s*(?:فيه|فيها|في)\s+(?:شي|شيء|شر|خلاف)(?:\s|$)/u, " سليم ")
     // «كلهم تمام ما عدا وحدة تعبانة»: an exception, not a negation of what follows.
     .replace(/\s(?:ما\s*عدا|الا)\s/gu, " بس ");
   const reading: Reading = { unknown: false, affirm: false, wellbeing: false, deny: false, bareNegation: false, said: new Set(), negated: new Set() };
@@ -513,6 +539,48 @@ export function namedCamels<T extends { name: string }>(transcript: string, came
     }
     return false;
   });
+}
+
+/**
+ * What the worker said about each named camel, in their own words: «كلهم بخير بس مزون للحين تعبانة ووضحة ما تاكل زين»
+ * gives «مزون للحين تعبانة» and «وضحة ما تاكل زين». «نورة ومزون تعبانات» shares its ending: «نورة تعبانات».
+ * A camel whose part can't be told apart gets nothing, and the caller keeps the whole sentence.
+ */
+export function camelClauses<T extends { id: string; name: string }>(transcript: string, camels: readonly T[]): Record<string, string> {
+  const single = camels.filter((camel) => compact(camel.name) && !compact(camel.name).includes(" "));
+  const nameOf = (raw: string) => {
+    const word = compact(raw);
+    if (!word || isVocabulary(word)) return null;
+    const exact = single.find((camel) => compact(camel.name) === word);
+    if (exact) return { camel: exact, shown: raw };
+    const bare = word.startsWith("و") && word.length > 3 ? single.find((camel) => compact(camel.name) === word.slice(1)) : undefined;
+    return bare ? { camel: bare, shown: raw.replace(/^و/u, "") } : null;
+  };
+  const parts: { camel: T | null; words: string[] }[] = [];
+  let current: { camel: T | null; words: string[] } = { camel: null, words: [] };
+  const close = () => { if (current.words.length || current.camel) parts.push(current); current = { camel: null, words: [] }; };
+  for (const raw of transcript.trim().split(/\s+/)) {
+    const named = nameOf(raw);
+    const word = compact(raw);
+    if (named) {
+      close();
+      current = { camel: named.camel, words: [named.shown.replace(/[,،.;؛!?؟]+$/u, "")] };
+    } else if (JOINS.has(word)) close();
+    else if (word) current.words.push(raw.replace(/[,،.;؛!?؟]+$/u, ""));
+    if (/[,،.;؛!?؟]$/u.test(raw)) close();
+  }
+  close();
+  const notes: Record<string, string> = {};
+  parts.forEach((part, index) => {
+    if (!part.camel || notes[part.camel.id]) return;
+    if (part.words.length > 1) { notes[part.camel.id] = part.words.join(" "); return; }
+    // Only the name: the next named part says how they both are.
+    const shared = parts.slice(index + 1).find((later) => later.camel && later.words.length > 1);
+    if (shared && parts.slice(index + 1, parts.indexOf(shared)).every((between) => between.camel && between.words.length === 1)) {
+      notes[part.camel.id] = [part.words[0], ...shared.words.slice(1)].join(" ");
+    }
+  });
+  return notes;
 }
 
 const EVERYONE = /(?:^| )(?:كلهم|كلها|كلهن|الكل|الباقي|البقيه|الباقين|الباقيات|غيرها|الحلال|الابل|النوق|all|everyone|rest|others)(?: |$)/u;

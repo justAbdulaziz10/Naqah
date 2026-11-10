@@ -129,6 +129,8 @@ export interface AnswerInput {
   camelId?: string;
   /** Realtime: every camel the worker named as needing attention in that answer. */
   camelIds?: string[];
+  /** Realtime: the worker's own words about each named camel («مزون للحين تعبانة»), by camel id. */
+  camelNotes?: Record<string, string>;
   /** Realtime: the same answer said the rest are well («كلهم بخير بس نورة تعبانة»). */
   restWell?: boolean;
   /** Guided mode: later questions this answer already covered («الحلال بخير والعلف قليل»), checked against the worker's words. */

@@ -8,7 +8,7 @@ import { makePersonalizer } from "@/domain/conversation/personalize";
 import { PREDEFINED_QUESTIONS } from "@/domain/catalog";
 import type { Locale, Workspace } from "@/domain/types";
 import type { VoiceCallSession } from "../farm-call";
-import { mapSpeechToInput, namedCamels, saysRestAreWell, topicSegments, unknownReply } from "../speech";
+import { camelClauses, mapSpeechToInput, namedCamels, saysRestAreWell, topicSegments, unknownReply } from "../speech";
 import { spokenWording } from "../twiml";
 import { askedToStop, evidenceWords, isGarbled, isLeakedHint, refuseAnswer } from "./answer-check";
 import { isVerifiedConfirmation } from "./confirmation";
@@ -77,6 +77,28 @@ function coveredAhead(session: CallSession, heard: string, workspace: Workspace,
     else rest = true;
   }
   return { facts, rest };
+}
+const ACK: Record<Locale, string[]> = { ar: ["تمام. ", "زين. ", "طيب. "], en: ["Okay. ", "Got it. ", "Thanks. "] };
+
+/**
+ * A word that shows the answer was heard before the next question, the way a person would say it. It never
+ * claims anything was saved, and nothing is said at the summary, where the next words are the save or a goodbye.
+ */
+function acknowledge(session: CallSession, chosen: AnswerInput, workspace: Workspace, locale: Locale): string {
+  if (chosen.value?.startsWith("correct:")) return locale === "ar" ? "طيب، نعدلها. " : "Sure, let's fix that. ";
+  if (session.step === SUMMARY_STEP || session.step === "report_correct_pick" || session.step === "report_mode_choice") return "";
+  if (session.data.correcting) return locale === "ar" ? "عدلتها. " : "Changed. ";
+  if (chosen.value === "unknown") return locale === "ar" ? "ما عليه. " : "That's fine. ";
+  if (isHerdHealth(session) && chosen.value === "yes") return locale === "ar" ? "الحمد لله. " : "Good to hear. ";
+  if (isHerdHealth(session) && chosen.value === "no") {
+    if (locale === "en") return "Sorry to hear that. ";
+    const camels = workspace.camels.filter((camel) => chosen.camelIds?.includes(camel.id));
+    return camels.length > 1 ? "سلامتهم. " : camels[0]?.sex === "male" ? "سلامته. " : "سلامتها. ";
+  }
+  const item = session.step === "report_question" ? session.data.queue?.[session.data.reportIndex ?? 0] : undefined;
+  if (item?.kind === "task" && chosen.value === "yes") return locale === "ar" ? "الله يعطيك العافية. " : "Thank you. ";
+  const turn = session.turns.filter((entry) => entry.speaker === "worker").length;
+  return ACK[locale][turn % ACK[locale].length];
 }
 const positionOf = (session: CallSession) => [session.step, session.data.reportIndex ?? 0, session.data.tempCamelId ?? "", session.data.draftRevision ?? 0].join(":");
 
@@ -264,8 +286,9 @@ export function decideTool({ session: current, counters, workspace, locale, name
   if (chosen?.value === "no" && isHerdHealth(current)) {
     const named = namedCamels(heard, workspace.camels);
     const restWell = saysRestAreWell(heard);
+    const notes = Object.fromEntries(Object.entries(camelClauses(heard, named)).map(([id, note]) => [id, note.slice(0, 300)]));
     chosen = named.length
-      ? { value: "no", text: heard.trim().slice(0, 300), camelIds: named.map((camel) => camel.id), restWell, ...(named.length === 1 ? { camelId: named[0].id } : {}) }
+      ? { value: "no", text: heard.trim().slice(0, 300), camelIds: named.map((camel) => camel.id), restWell, ...(Object.keys(notes).length ? { camelNotes: notes } : {}), ...(named.length === 1 ? { camelId: named[0].id } : {}) }
       : { ...chosen, restWell };
   }
   if (chosen && ahead.length && current.step === "report_question") chosen = { ...chosen, heardAhead: ahead };
@@ -276,5 +299,5 @@ export function decideTool({ session: current, counters, workspace, locale, name
     return { kind: "stay", session, result: promptResult(session, workspace, locale, "ok", undefined, URGENT[locale]), counters: next, checkError };
   }
   if (!chosen) return { kind: "end", session, counters: next, checkError };
-  return { kind: "apply", session, chosen, prefix: droppedFacts ? NOTED[locale] : prefix, counters: next, checkError };
+  return { kind: "apply", session, chosen, prefix: droppedFacts ? NOTED[locale] : prefix || acknowledge(current, chosen, workspace, locale), counters: next, checkError };
 }

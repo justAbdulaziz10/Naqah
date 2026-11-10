@@ -47,7 +47,7 @@ function reportQueue(ws: Workspace, now: Date): ReportItem[] {
       kind: "task" as const,
       id: "task_" + task.id,
       taskId: task.id,
-      question: copy("Did you finish: " + task.instruction + "?", "خلصت المهمة: " + task.instruction + "؟"),
+      question: copy("About the task: " + task.instruction + ". Is it done?", "وبخصوص المهمة: " + task.instruction + ". خلصت؟"),
     })),
   );
   return queue;
@@ -488,7 +488,7 @@ function handleReportQuestion(
     const named = (input.camelIds ?? []).filter((id) => ws.camels.some((camel) => camel.id === id));
     if (named.length > 1 || (named.length === 1 && input.restWell)) return { session: namedCamels(current.session, ws, now, named, input) };
     if (input.camelId && ws.camels.some((camel) => camel.id === input.camelId)) {
-      return handleHealthStatus({ ...session, data: { ...session.data, askedCamelIds: [], tempCamelId: input.camelId } }, ws, now, { value: "sick", text: input.text });
+      return handleHealthStatus({ ...session, data: { ...session.data, askedCamelIds: [], tempCamelId: input.camelId } }, ws, now, { value: "sick", text: input.camelNotes?.[input.camelId] ?? input.text });
     }
     const picking = {
       ...current.session,
@@ -659,6 +659,8 @@ function finishCamelHealth(session: CallSession, ws: Workspace, now: Date): Call
 function withCamelAnswer(session: CallSession, ws: Workspace, item: ReportItem, updates: CallSession["draft"]["camelUpdates"]): CallSession {
   const line = (locale: "en" | "ar", join: string) => updates.map((update) => {
     const name = ws.camels.find((entry) => entry.id === update.camelId)?.name ?? "";
+    // «مزون للحين تعبانة» already says who and how, in the worker's words.
+    if (update.note && name && update.note.includes(name)) return update.note;
     return name + ": " + HEALTH_LABELS[update.health][locale] + (update.note ? " — " + update.note : "");
   }).join(join);
   const answer = updates.length ? copy(line("en", "; "), line("ar", "؛ ")) : UNKNOWN_ANSWER;
@@ -711,10 +713,13 @@ function summaryLine(item: ReportItem, answer: CallSession["draft"]["answers"][n
   const said = answer.answerText ?? copy(answer.answer, answer.answer);
   const labelled = (label: LocalizedText) => copy(label.en + ": " + said.en, label.ar + ": " + said.ar);
   if (isOpenNote(item)) return labelled(NOTE_LABEL);
-  if (item.kind === "custom" || item.kind === "weather_heat_day") return copy(item.question.en + " " + said.en, item.question.ar + " " + said.ar);
+  if (item.kind === "custom" || item.kind === "weather_heat_day") {
+    const asked = (text: string) => text.trim().replace(/[?؟]+$/u, "");
+    return copy(asked(item.question.en) + ": " + said.en, asked(item.question.ar) + "، قلت: " + said.ar);
+  }
   if (item.kind === "task") {
     const instruction = ws.taskTickets.find((task) => task.id === item.taskId)?.instruction ?? "";
-    return labelled(copy("Task: " + instruction, "مهمة: " + instruction));
+    return labelled(copy("Task: " + instruction, "المهمة: " + instruction));
   }
   if (item.resource) return labelled(RESOURCE_LABELS[item.resource]);
   return answer.certainty === "unknown" ? labelled(TOPIC_LABELS[item.id] ?? item.question) : said;
@@ -959,7 +964,7 @@ function recordCamel(session: CallSession, ws: Workspace, update: CallSession["d
  */
 function namedCamels(session: CallSession, ws: Workspace, now: Date, camelIds: string[], input: AnswerInput): CallSession {
   const note = input.text?.trim() || null;
-  const named = camelIds.reduce((current, camelId) => recordCamel(current, ws, { camelId, health: "sick", note, certainty: "reported" }), session);
+  const named = camelIds.reduce((current, camelId) => recordCamel(current, ws, { camelId, health: "sick", note: input.camelNotes?.[camelId] ?? note, certainty: "reported" }), session);
   if (input.restWell) {
     const herd = recordWholeHerd(named, ws, { type: "camel_health", camelId: null, scope: "all", status: "healthy", note: null, evidence: note ?? "" }, "reported");
     return nextReportItem(herd, ws, now);

@@ -99,7 +99,7 @@ describe("a whole call on natural answers", () => {
     live.turn("answer_question", { text: "لا ما جا", topic: "other" }, "لا ما جا");
     expect(live.session.step).toBe("report_summary");
     const summary = live.spoken.at(-1)!;
-    for (const word of ["الحلال كله بخير", "العلف", "الماء", "جا البيطري اليوم؟ لا ما جا"]) expect(summary).toContain(word);
+    for (const word of ["الحلال كله بخير", "العلف", "الماء", "جا البيطري اليوم، قلت: لا ما جا"]) expect(summary).toContain(word);
   });
 
   it("takes «كلهم بخير بس نورة تعبانة» at once: no asking which camel, or whether there is another", () => {
@@ -109,7 +109,7 @@ describe("a whole call on natural answers", () => {
     expect(current(live.session)).toBe("feed_level");
     const [noura, ...rest] = first.ws.camels;
     expect(live.session.draft.camelUpdates).toEqual(expect.arrayContaining([
-      expect.objectContaining({ camelId: noura.id, health: "sick", note: "كلهم بخير بس نورة تعبانة" }),
+      expect.objectContaining({ camelId: noura.id, health: "sick", note: "نورة تعبانة" }),
       ...rest.map((camel) => expect.objectContaining({ camelId: camel.id, health: "healthy" })),
     ]));
     expect(live.session.draft.answers.filter((answer) => answer.questionId === "herd_health")).toHaveLength(1);
