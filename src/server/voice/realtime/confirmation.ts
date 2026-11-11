@@ -28,23 +28,36 @@ const isClearArabic = (words: string) => {
 };
 
 const AGREE = new Set(["ايه", "ايوه", "اي", "نعم", "اكيد", "صح", "صحيح", "تمام", "اوكي", "طيب", "زين", "احفظ", "احفظه", "احفظها", "حفظ", "موافق", "ماشي", "مضبوط", "yes", "yeah", "ok", "okay", "sure", "correct", "save"]);
+/** «طيب», «زين», «اوكي» are also how people fill a pause: alongside other words they need a clearer yes. */
+const SOFT_AGREE = new Set(["طيب", "اوكي", "زين", "ماشي", "ok", "okay"]);
 /** «لا تعدل», «ما فيه تعديل»: nothing to change is a yes to the summary as it stands. */
 const NOTHING_TO_CHANGE = /(?:^| )(?:لا|ما|مو) (?:تعدل|تغير|فيه تعديل|ابي اعدل|ابغى اعدل)(?: |$)|(?:^| )(?:no changes?|nothing to change)(?: |$)/;
+/** «توكل على الله», «يلا احفظ»: a Saudi go-ahead. */
+const GO_AHEAD = /(?:^| )(?:توكل على الله|توكل|يلا احفظ|يلا احفظه)(?: |$)/;
 const REFUSE = /(?:^| )(?:لا|ما|مو|لاء) (?:تحفظ|تحفظه|تحفظها|احفظ|ابي|ابغى|ابيه|توافق)(?: |$)|(?:^| )(?:غلط|خطا|خطأ|عدل|عدله|عدلها|تعديل|غيره|غيرها|بس|لكن|الا|مدري|ما ادري|يمكن|don t|not|wrong|change|but|maybe)(?: |$)/;
+/** Waiting, asking, doubting or wanting the owner: «طيب انتظر», «ايه وش قلت», «ايه اظن», «تمام قل للمعزب يتصل». */
+const HOLD = /(?:^| )(?:انتظر|انطر|استنى|لحظه|ثواني|ثانيه|دقيقه|اصبر|خلني|خليني|وش|ايش|شو|مين|من معي|اسمع|بعدين|اظن|اعتقد|احس|اتاكد|قل|قول|كلم|اكلم|يتصل|wait|hold|hang on|what|who|later|think|guess|second|sec|moment|minute|listen)(?: |$)|معزب/;
 const NO_ALONE = /^(?:لا|لاء|no|nope)(?: |$)/;
+/** «احفظ… لا»: a no said last takes the yes back. */
+const NO_LAST = /(?:^| )(?:لا|لاء|no|nope)$/;
 
 /**
  * A natural call: the model heard the audio and asked to save after the whole summary, but phone transcription
  * garbles a casual Saudi yes («كل شيء تمام، لا تعدل» came back as «كل شيء نام»). The words must still agree, or say
- * there is nothing to change, and hold no refusal, no correction, no doubt and no other topic; and never a question.
+ * there is nothing to change, and hold no refusal, no correction, no doubt, no wait and no other topic; and never a
+ * question, even one the transcript wrote without its «؟».
  */
 export function isNaturalConfirmation(utterance: string, session: CallSession, locale: Locale): boolean {
   if (!utterance || utterance.length > MAX_UTTERANCE || /[?؟]/u.test(utterance) || session.step !== SUMMARY_STEP) return false;
   const words = normalizeSpeech(utterance).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-  if (!words || NO_ALONE.test(words) || topicsInWords(words).size > 0) return false;
+  if (!words || NO_ALONE.test(words) || NO_LAST.test(words) || topicsInWords(words).size > 0) return false;
   const leftover = words.replace(NOTHING_TO_CHANGE, " ");
-  if (REFUSE.test(` ${leftover} `)) return false;
-  return NOTHING_TO_CHANGE.test(words) || words.split(" ").some((word) => AGREE.has(word)) || isVerifiedConfirmation(utterance, session, locale);
+  if (REFUSE.test(` ${leftover} `) || HOLD.test(` ${leftover} `)) return false;
+  if (NOTHING_TO_CHANGE.test(words) || GO_AHEAD.test(words)) return true;
+  const list = words.split(" ");
+  // «زين، ماشي» agrees in every word; «طيب طيب يا جماعة الخير» only fills a pause around other words.
+  const agrees = list.every((word) => AGREE.has(word)) || list.some((word) => AGREE.has(word) && !SOFT_AGREE.has(word));
+  return agrees || isVerifiedConfirmation(utterance, session, locale);
 }
 
 /** Words alone: does this transcript really say yes to the summary, with no correction in it? */
