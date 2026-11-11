@@ -101,7 +101,7 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
       <form onSubmit={(event) => void submit(event)} className="mt-7 flex flex-col gap-5" aria-busy={pending || googlePending}>
         {DEMO_AUTOFILL && mode === 'signup' ? <div className="flex flex-col gap-2">
           <label htmlFor={`${id}-sample-owner`} className="text-sm font-semibold">{messages.setup.ranch.ownerName} · {messages.common.demo.label}</label>
-          <Input id={`${id}-sample-owner`} dir="auto" value={sampleOwner} readOnly />
+          <Input id={`${id}-sample-owner`} dir="auto" autoComplete="name" value={sampleOwner} onChange={(event) => setSampleOwner(event.target.value)} />
         </div> : null}
         <div className="flex flex-col gap-2">
           <label htmlFor={emailId} className="text-sm font-semibold">{m.email}</label>
