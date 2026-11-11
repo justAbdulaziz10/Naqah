@@ -116,7 +116,8 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
       "flex min-w-0 flex-col rounded-2xl border p-5 text-start sm:p-6 text-espresso transition-[border-color,background-color,box-shadow] duration-200",
       selected ? "border-brown bg-cream shadow-[inset_0_0_0_1px_var(--color-brown)]" : "border-stone bg-cream/60",
     );
-    if (!selectable) return <div className={frame}>{body}</div>;
+    // Read-only (Settings, signed in): it already sits in the call card, so no second frame inside it.
+    if (!selectable) return <div className="flex min-w-0 max-w-md flex-col text-start text-espresso">{body}</div>;
     return (
       <label
         className={cn(

@@ -49,11 +49,11 @@ export function CallActivity({ calls, now, maxDays = 14, className }: { calls: C
           const shown = column.calls.slice(-MAX_MARKS);
           const more = column.calls.length - shown.length;
           return (
-            <li key={column.key} className={cn("flex h-[4.5rem] flex-col-reverse items-center gap-1 rounded-t-lg pb-1.5", index === columns.length - 1 && "bg-ivory")}>
+            <li key={column.key} className={cn("flex h-[5.75rem] flex-col-reverse items-center gap-1 rounded-t-lg pb-1.5", index === columns.length - 1 && "bg-ivory")}>
               {shown.map((call, i) => (
                 <span key={call.id} className={cn("naqah-pop size-3 shrink-0 rounded-full", mark(call))} style={{ animationDelay: `${index * 25 + i * 40}ms` }} />
               ))}
-              {more > 0 ? <span className="text-[0.625rem] font-semibold leading-none text-muted">+{more}</span> : null}
+              {more > 0 ? <span className="ltr-nums text-[0.625rem] font-semibold leading-none text-muted">+{more}</span> : null}
               {!column.calls.length ? <span className={cn("h-1.5 w-px", today ? "bg-brown" : "bg-stone")} /> : null}
             </li>
           );
@@ -61,7 +61,7 @@ export function CallActivity({ calls, now, maxDays = 14, className }: { calls: C
       </ol>
       <div aria-hidden className="mt-1.5 grid auto-cols-fr grid-flow-col gap-1 text-center text-[0.6875rem] text-muted">
         {columns.map((column, index) => (
-          <span key={column.key} className={cn("ltr-nums", index === columns.length - 1 && "font-semibold text-espresso")}>
+          <span key={column.key} className={cn("ltr-nums whitespace-nowrap", index === columns.length - 1 && "font-semibold text-espresso")}>
             {index === columns.length - 1 ? v.today : columns.length <= 8 || index % 2 === (columns.length - 1) % 2 ? fmt.dateTime(column.date, { weekday: undefined, month: undefined, hour: undefined, minute: undefined, day: "numeric" }) : ""}
           </span>
         ))}
