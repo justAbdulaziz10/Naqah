@@ -159,7 +159,7 @@ export const visual = defineMessages({
       dayCount: (count: string) => (count === "1" ? "مكالمة وحدة" : count === "2" ? "مكالمتين" : `${count} مكالمات`),
       flowLabel: (worker: string) => `مسار هذا التقرير: ${worker}، ثم ناقة، ثم أنت`,
       answered: "ردّ",
-      answeredQuestions: (count: number) => (count === 1 ? "جاوب سؤال واحد" : count === 2 ? "جاوب سؤالين" : count <= 10 ? `جاوب ${count} أسئلة` : `جاوب ${count} سؤال`),
+      answeredQuestions: (count: number) => (count === 1 ? "ردّ على سؤال واحد" : count === 2 ? "ردّ على سؤالين" : count <= 10 ? `ردّ على ${count} أسئلة` : `ردّ على ${count} سؤال`),
       saved: "انحفظ التقرير",
       findings: (count: number) => (count === 0 ? "ما فيه شي مهم" : count === 1 ? "ملاحظة مهمة وحدة" : count === 2 ? "ملاحظتين مهمتين" : `${count} ملاحظات مهمة`),
       briefed: (time: string) => `بلّغتك الساعة ${time}`,
