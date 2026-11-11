@@ -90,6 +90,7 @@ export function parseArgs(argv) {
     else if (name === "--reset-report") options.resetReport = true;
     else if (name === "--natural") options.natural = true;
     else if (name === "--keep-data") options.keepData = true;
+    else if (name === "--owner-approves") options.ownerApproves = true;
     else if (name === "--voice") {
       options.voice = takeValue(index, name);
       if (!/^(marin|cedar|alloy|ash|ballad|coral|echo|sage|shimmer|verse)$/.test(options.voice)) throw new UsageError("--voice takes a realtime voice such as marin or cedar");
@@ -126,14 +127,15 @@ export function parseArgs(argv) {
   if (options.reportPath) throw new UsageError("--report-path is for --mock only");
   if (!options.secrets) throw new UsageError("--live needs --secrets <file>");
   if (!options.publicUrl) throw new UsageError("--live needs --public-url https://…");
-  if (!options.allow.length) throw new UsageError("--live needs --allow +9665XXXXXXXX");
+  // --owner-approves: the owner approves numbers in Settings (with the recipient's agreement), so none is required here.
+  if (!options.allow.length && !options.ownerApproves) throw new UsageError("--live needs --allow +9665XXXXXXXX (or --owner-approves)");
   options.publicUrl = validatePublicUrl(options.publicUrl);
   options.allow = options.allow.map((number) => {
     if (!SAUDI_MOBILE.test(number)) throw new UsageError(`--allow takes exact Saudi mobiles such as +9665XXXXXXXX, not ${number}`);
     return number;
   });
   options.allow = [...new Set(options.allow)];
-  if (options.dashboardCall && options.allow.length < 1) throw new UsageError("--dashboard-call needs at least one --allow number");
+  if (options.dashboardCall && options.allow.length < 1 && !options.ownerApproves) throw new UsageError("--dashboard-call needs at least one --allow number, or --owner-approves");
   options.bridgePort ??= PORTS.live.bridge;
   if (options.bridgePort === PORTS.live.next) throw new UsageError(`--bridge-port cannot be ${PORTS.live.next}: Next uses it`);
   return options;
@@ -204,7 +206,8 @@ export function buildEnvironments(options, stack, secrets = null) {
     NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1",
     NAQAH_TEST_CALLS: "1", NAQAH_TEST_CALL_ADMINS: TESTER.email, NAQAH_CALL_ALLOWLIST: allowlist.join(","),
     NAQAH_VOICE_MODE: "farm", NAQAH_VOICE_LOCALE: "ar", NAQAH_VOICE_ENGINE: "realtime",
-    ...(live ? { NAQAH_CALL_ALLOWLIST_FILE: APPROVED_FILE } : {}),
+    ...(live || options.ownerApproves ? { NAQAH_CALL_ALLOWLIST_FILE: APPROVED_FILE } : {}),
+    ...(options.ownerApproves ? { NAQAH_OWNER_APPROVES_TEST_NUMBERS: "1" } : {}),
     NAQAH_BRIDGE_PUBLIC_URL: bridgePublic, NAQAH_PUBLIC_BASE_URL: publicBase,
   };
   if (options.maxCallSeconds) next.NAQAH_CALL_TIME_LIMIT_SECONDS = options.maxCallSeconds;
@@ -235,8 +238,11 @@ export function buildEnvironments(options, stack, secrets = null) {
   }
   const browserStack = { ...stack };
   delete browserStack.SUPABASE_SECRET_KEY;
-  const naturalFlag = options.natural ? { NEXT_PUBLIC_NAQAH_NATURAL_CALLS: "1" } : {};
-  if (options.natural) Object.assign(next, naturalFlag);
+  const naturalFlag = {
+    ...(options.natural ? { NEXT_PUBLIC_NAQAH_NATURAL_CALLS: "1" } : {}),
+    ...(options.ownerApproves ? { NEXT_PUBLIC_NAQAH_OWNER_APPROVES_NUMBERS: "1" } : {}),
+  };
+  Object.assign(next, naturalFlag);
   return { build: { ...browserStack, ...accountFlags, ...naturalFlag, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" }, next, bridge, ports, publicBase };
 }
 
@@ -449,10 +455,11 @@ async function main() {
     console.log("Starting the disposable database and local stack…");
     startPostgres(base, options.keepData);
     const kept = options.keepData && keptDatabase(base);
-    if (options.mode === "live") {
+    if (options.mode === "live" || options.ownerApproves) {
       // Approved numbers: these plus any already approved for this kept stack.
       const already = kept && existsSync(APPROVED_FILE) ? readFileSync(APPROVED_FILE, "utf8").split("\n").filter((line) => SAUDI_MOBILE.test(line.trim())).map((line) => line.trim()) : [];
-      writeFileSync(APPROVED_FILE, [...new Set([...already, ...options.allow])].join("\n") + "\n", { mode: 0o600 });
+      const start = options.mode === "live" ? options.allow : [...MOCK_ALLOWED.filter((number) => SAUDI_MOBILE.test(number)), ...(options.reportPath ? [REPORT_PATH_WORKER] : [])];
+      writeFileSync(APPROVED_FILE, [...new Set([...already, ...start])].join("\n") + "\n", { mode: 0o600 });
     }
     const stackChild = background("stack", "sh", [join(REPO, "supabase/local-validation/run-stack.sh"), STACK_ENV], {
       ...pgEnv(base), ...(kept ? { NAQAH_TEST_KEEP_DB: "1" } : {}),
@@ -480,7 +487,7 @@ async function main() {
       controlId = await createUser(CONTROL);
       seed(base, testerId, controlId);
       // A fresh test ranch starts on the first approved number; after that the owner's saved number is used.
-      if (options.dashboardCall) localSql(base)(`update workers set phone = '${options.allow[0]}' where farm_id = '${TEST_FARM}'`);
+      if (options.dashboardCall && options.allow[0]) localSql(base)(`update workers set phone = '${options.allow[0]}' where farm_id = '${TEST_FARM}'`);
     }
 
     if (options.skipBuild && existsSync(join(REPO, ".next/BUILD_ID"))) {

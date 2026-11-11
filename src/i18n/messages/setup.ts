@@ -56,6 +56,11 @@ export const setup = defineMessages({
       phoneConfirm: "Yes, save it",
       phoneEdit: "Edit",
       phoneSaved: "Saved. The next call goes to this number.",
+      phoneConsent: "The person with this number agreed to receive test calls from NAQAH.",
+      phoneApproveFailed: (reason: string) => reason === "limit"
+        ? "This computer already has the most numbers approved for test calls. Nothing was saved."
+        : reason === "invalid_number" ? "Use a Saudi mobile number. Nothing was saved."
+        : "The number couldn't be approved for test calls. Nothing was saved.",
       language: "Language",
       primary: "Gets the report call",
       remove: (name: string) => `Remove ${name}`,
@@ -281,7 +286,7 @@ export const setup = defineMessages({
       callNowResult: {
         placed: (worker: string) => `NAQAH is calling ${worker}. The report appears here when the call ends.`,
         notApproved: (numbers: string) => numbers
-          ? `This number isn't approved for test calls on this computer, so NAQAH won't call it. Approved: ${numbers}.`
+          ? `This number isn't approved for test calls on this computer, so NAQAH won't call it. Change it in Settings and confirm its owner agreed. Approved: ${numbers}.`
           : "No number is approved for test calls on this computer, so NAQAH won't call.",
         no_worker_phone: "Add the worker’s mobile in Settings first.",
         no_questions: "Turn on at least one question in Settings first.",
@@ -348,6 +353,11 @@ export const setup = defineMessages({
       phoneConfirm: "إيه، احفظه",
       phoneEdit: "تعديل",
       phoneSaved: "انحفظ. المكالمة الجاية على هذا الرقم.",
+      phoneConsent: "صاحب الرقم موافق يستقبل مكالمات تجريبية من ناقة.",
+      phoneApproveFailed: (reason: string) => reason === "limit"
+        ? "وصل هذا الجهاز للحد الأعلى من الأرقام المعتمدة للتجربة. ما انحفظ شي."
+        : reason === "invalid_number" ? "اكتب رقم جوال سعودي. ما انحفظ شي."
+        : "ما قدرنا نعتمد الرقم للتجربة. ما انحفظ شي.",
       language: "اللغة",
       primary: "يستقبل مكالمة التقرير",
       remove: (name: string) => `احذف ${name}`,
@@ -573,7 +583,7 @@ export const setup = defineMessages({
       callNowResult: {
         placed: (worker: string) => `ناقة تتصل على ${worker}. يظهر التقرير هنا بعد نهاية المكالمة.`,
         notApproved: (numbers: string) => numbers
-          ? `هذا الرقم مو معتمد لتجارب الاتصال على هذا الجهاز، فناقة ما بتتصل عليه. المعتمد: ${numbers}.`
+          ? `هذا الرقم مو معتمد لتجارب الاتصال على هذا الجهاز، فناقة ما بتتصل عليه. غيّره من الإعدادات وأكّد إن صاحبه موافق. المعتمد: ${numbers}.`
           : "ما فيه رقم معتمد لتجارب الاتصال على هذا الجهاز، فناقة ما بتتصل.",
         no_worker_phone: "أضف جوال العامل من الإعدادات أولاً.",
         no_questions: "شغّل سؤال واحد على الأقل من الإعدادات أولاً.",

@@ -32,6 +32,9 @@ function parseHerdCount(text: string): number | null | undefined {
 }
 
 /** Registered workers (one is called for the report) and the official herd count. */
+/** Local demo build: the owner approves a number for test calls themselves, with its owner's agreement. */
+const OWNER_APPROVES_NUMBERS = process.env.NEXT_PUBLIC_NAQAH_OWNER_APPROVES_NUMBERS === "1";
+
 /**
  * Settings: a saved worker's number changes only after the owner sees the whole new number once and confirms it,
  * so a half-typed number is never saved and never called. The next call reads it from the ranch as saved.
@@ -42,6 +45,9 @@ function ConfirmedPhone({ label, name, value, onSave }: { label: string; name: s
   const [draft, setDraft] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [consent, setConsent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
   const button = "inline-flex min-h-11 items-center rounded-full px-5 font-semibold transition";
   if (draft === null) {
     return (
@@ -49,7 +55,7 @@ function ConfirmedPhone({ label, name, value, onSave }: { label: string; name: s
         <p className="mb-2 text-[0.9375rem] font-semibold text-espresso">{label}</p>
         <div className="flex min-h-14 flex-wrap items-center gap-x-4 gap-y-2">
           <span dir="ltr" className="ltr-nums text-[1.0625rem] text-espresso">{value ? formatSaudiMobile(value) : "—"}</span>
-          <button type="button" onClick={() => { setDraft(value); setSaved(false); }} className="min-h-11 font-semibold text-brown underline decoration-sand underline-offset-4">
+          <button type="button" onClick={() => { setDraft(value); setSaved(false); setConsent(false); setFailed(null); }} className="min-h-11 font-semibold text-brown underline decoration-sand underline-offset-4">
             {s.phoneChange}
           </button>
         </div>
@@ -58,15 +64,43 @@ function ConfirmedPhone({ label, name, value, onSave }: { label: string; name: s
     );
   }
   const valid = isSaudiMobile(draft);
-  const cancel = () => { setDraft(null); setChecking(false); };
+  const cancel = () => { setDraft(null); setChecking(false); setFailed(null); };
+  /** Local demo: the number is approved for test calls (with the agreement ticked) before it is saved. */
+  const confirm = async () => {
+    const phone = formatSaudiMobile(draft);
+    if (OWNER_APPROVES_NUMBERS) {
+      setBusy(true);
+      setFailed(null);
+      try {
+        const response = await fetch("/api/test-number", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone, consent: true }) });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result?.ok) return setFailed(s.phoneApproveFailed(String(result?.reason ?? "unavailable")));
+      } catch {
+        return setFailed(s.phoneApproveFailed("unavailable"));
+      } finally {
+        setBusy(false);
+      }
+    }
+    onSave(phone);
+    setDraft(null);
+    setChecking(false);
+    setSaved(true);
+  };
   return (
     <div>
       {checking ? (
         <div role="group" aria-label={s.phoneCheck(name)} className="rounded-xl border border-sand bg-cream p-4">
           <p className="text-[0.9375rem] text-espresso">{s.phoneCheck(name)}</p>
           <p dir="ltr" className="ltr-nums mt-1 text-start text-[1.25rem] font-bold text-espresso">{formatSaudiMobile(draft)}</p>
+          {OWNER_APPROVES_NUMBERS ? (
+            <label className="mt-3 flex min-h-11 cursor-pointer items-start gap-3 text-[0.9375rem] text-espresso">
+              <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-0.5 size-5 shrink-0 accent-brown" />
+              <span>{s.phoneConsent}</span>
+            </label>
+          ) : null}
+          {failed ? <p role="alert" className="mt-2 text-[0.9375rem] text-danger">{failed}</p> : null}
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" autoFocus onClick={() => { onSave(formatSaudiMobile(draft)); setDraft(null); setChecking(false); setSaved(true); }} className={`${button} bg-brown text-ivory hover:bg-espresso`}>
+            <button type="button" autoFocus disabled={busy || (OWNER_APPROVES_NUMBERS && !consent)} onClick={() => void confirm()} className={`${button} bg-brown text-ivory hover:bg-espresso disabled:cursor-not-allowed disabled:bg-stone disabled:text-muted`}>
               {s.phoneConfirm}
             </button>
             <button type="button" onClick={() => setChecking(false)} className={`${button} border border-stone bg-ivory text-espresso hover:border-sand`}>

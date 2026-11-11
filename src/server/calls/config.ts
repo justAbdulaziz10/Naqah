@@ -2,7 +2,7 @@
  * Settings for calls NAQAH places itself (report calls to the worker, update calls to the owner).
  * Names only are reported as missing, so the result is safe to log.
  */
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 
 const value = (name: string) => process.env[name]?.trim() ?? "";
 
@@ -38,6 +38,34 @@ function approvedNumbersFile(): string | null {
   const file = value("NAQAH_CALL_ALLOWLIST_FILE");
   if (!file || process.env.VERCEL !== undefined) return null;
   return /^\/(?:tmp|private\/tmp|var\/folders)\/[\w./-]+$/.test(file) && !file.includes("..") ? file : null;
+}
+
+/** Local demo: the owner approves a worker number in Settings, with the recipient's agreement, instead of a developer. */
+export const ownerApprovesTestNumbers = () => value("NAQAH_OWNER_APPROVES_TEST_NUMBERS") === "1" && approvedNumbersFile() !== null;
+
+/** At most this many different numbers can be approved on one computer: a cost and abuse limit. */
+export const MAX_APPROVED_NUMBERS = 5;
+
+export type ApproveResult = { ok: true; number: string } | { ok: false; reason: "not_local" | "invalid_number" | "limit" };
+
+/**
+ * Adds one Saudi mobile to the local approved list, with an audit line of who agreed and when. Only where the local
+ * runner turned it on; never on Vercel. The call itself still goes through the allowlist, rate limits and time cap.
+ */
+export function approveTestNumber(raw: string, audit: { farmId: string; ownerId: string; at: Date }): ApproveResult {
+  const file = approvedNumbersFile();
+  if (!file || value("NAQAH_OWNER_APPROVES_TEST_NUMBERS") !== "1") return { ok: false, reason: "not_local" };
+  const number = raw.replace(/[\s-]/g, "");
+  if (!SAUDI_MOBILE.test(number)) return { ok: false, reason: "invalid_number" };
+  const current = callAllowlist();
+  if (!current.includes(number)) {
+    if (current.length >= MAX_APPROVED_NUMBERS) return { ok: false, reason: "limit" };
+    writeFileSync(file, [...current, number].join("\n") + "\n", { mode: 0o600 });
+  }
+  try {
+    appendFileSync(file.replace(/\.txt$/, "") + ".audit.jsonl", JSON.stringify({ at: audit.at.toISOString(), farm: audit.farmId, owner: audit.ownerId, number: number.slice(0, 6) + "•••••" + number.slice(-3), consent: true }) + "\n", { mode: 0o600 });
+  } catch { /* the audit line never blocks the owner's own number */ }
+  return { ok: true, number };
 }
 
 function readApproved(file: string): string {

@@ -89,3 +89,36 @@ describe("approved numbers from a local file", () => {
     }
   });
 });
+
+describe("the owner approves a test number (local demo)", () => {
+  it("adds a Saudi mobile with an audit line, only where the local runner turned it on, up to a limit", async () => {
+    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { approveTestNumber, callAllowlist, MAX_APPROVED_NUMBERS, ownerApprovesTestNumbers } = await import("./config");
+    const dir = mkdtempSync("/tmp/naqah-owner-approves-");
+    const file = join(dir, "approved-numbers.txt");
+    const audit = { farmId: "farm", ownerId: "owner", at: new Date("2026-11-11T00:00:00Z") };
+    try {
+      writeFileSync(file, "+966537099599\n");
+      vi.stubEnv("NAQAH_CALL_ALLOWLIST_FILE", file);
+      expect(ownerApprovesTestNumbers()).toBe(false);
+      expect(approveTestNumber("+966508913447", audit)).toEqual({ ok: false, reason: "not_local" });
+      vi.stubEnv("NAQAH_OWNER_APPROVES_TEST_NUMBERS", "1");
+      expect(ownerApprovesTestNumbers()).toBe(true);
+      expect(approveTestNumber("+44 7447 199952", audit)).toEqual({ ok: false, reason: "invalid_number" });
+      expect(approveTestNumber("+966 50 891 3447", audit)).toEqual({ ok: true, number: "+966508913447" });
+      expect(callAllowlist()).toEqual(["+966537099599", "+966508913447"]);
+      expect(approveTestNumber("+966508913447", audit)).toEqual({ ok: true, number: "+966508913447" });
+      expect(callAllowlist()).toHaveLength(2);
+      expect(readFileSync(join(dir, "approved-numbers.audit.jsonl"), "utf8")).toContain('"consent":true');
+      expect(readFileSync(join(dir, "approved-numbers.audit.jsonl"), "utf8")).not.toContain("508913447");
+      for (let n = callAllowlist().length; n < MAX_APPROVED_NUMBERS; n += 1) approveTestNumber(`+96650000010${n}`, audit);
+      expect(approveTestNumber("+966500000199", audit)).toEqual({ ok: false, reason: "limit" });
+      vi.stubEnv("VERCEL", "1");
+      expect(approveTestNumber("+966500000198", audit)).toEqual({ ok: false, reason: "not_local" });
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
