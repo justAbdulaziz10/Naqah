@@ -7,8 +7,8 @@ import type { Camel, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useNow } from "@/store/workspace";
+import { camelNews, namesCamel } from "./camelNews";
 import { CertaintyBadge, HealthBadge } from "./DashboardPrimitives";
-import { mentions } from "./matters";
 
 interface Moment {
   key: string;
@@ -23,22 +23,24 @@ const when = { weekday: "short", day: "numeric", month: "short", hour: undefined
 
 /**
  * One camel, one step away from the herd list: its health as last recorded and by whom, its
- * details, and everything the records say about it by name: report findings and the owner's tasks,
- * newest first. Records hold no link to a camel, so this matches whole names for display only.
+ * details, and everything the records say about it by name: each report's finding (or, without one,
+ * the worker's own words) and the owner's tasks, newest first. Records hold no link to a camel, so this
+ * matches whole names for display only.
  */
 export function CamelSheet({ ws, camel, onClose, onEdit }: { ws: Workspace; camel: Camel; onClose: () => void; onEdit: () => void }) {
   const { m, t, fmt, href } = useI18n();
   const h = m.app.herd;
   const now = useNow();
-  const about = (text: string) => mentions(text, camel.name);
+  const worker = ws.settings.worker.name.trim() || m.app.overview.unnamedWorker;
   const moments: Moment[] = [
-    ...ws.reports.flatMap((report) =>
-      report.findings
-        .filter((finding) => about(finding.text.ar) || about(finding.text.en))
-        .map((finding) => ({ key: finding.id, at: report.at, title: h.inReport, text: t(finding.text) })),
-    ),
+    ...camelNews(ws, camel).map((news) => ({
+      key: `report-${news.reportId}`,
+      at: news.at,
+      title: news.source === "finding" ? h.inReport : h.workerSaid(worker),
+      text: typeof news.text === "string" ? news.text : t(news.text),
+    })),
     ...(ws.settings.plan === "ultimate" ? ws.taskTickets : [])
-      .filter((ticket) => about(ticket.instruction))
+      .filter((ticket) => namesCamel(ticket.instruction, camel.name))
       .map((ticket) => ({
         key: ticket.id,
         at: ticket.createdAt,
