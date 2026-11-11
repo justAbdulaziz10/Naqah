@@ -70,7 +70,7 @@ export function AuthClosed({ mode }: { mode: 'login' | 'signup' }) {
   const { m } = useI18n();
   return <AuthFrame demoLink={false}>
     <AuthHeading title={m.auth[mode]} lead={m.auth.notOpen} />
-    <DemoAction size="lg" className="mt-7 w-full">{m.common.actions.startDemo}</DemoAction>
+    <DemoAction size="lg" className="mt-7 w-full shadow-none!">{m.common.actions.startDemo}</DemoAction>
   </AuthFrame>;
 }
 
