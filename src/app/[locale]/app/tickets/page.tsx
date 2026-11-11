@@ -71,7 +71,7 @@ function TaskTiming({ ws, ticket, worker, now, className, undelivered = false }:
         className={className}
         label={v.timing(fmt.dateTime(ticket.createdAt, dateTime), v.done(took))}
         start={{ ...start, value: stamp(ticket.createdAt), detail: fmt.dateTime(ticket.createdAt, dayMonth) }}
-        end={{ at: ticket.closedAt, label: m.app.tickets.closedAt, value: stamp(ticket.closedAt), detail: <>{fmt.dateTime(ticket.closedAt, dayMonth)} · {v.done(took)}</> }}
+        end={{ at: ticket.closedAt, label: m.app.tickets.closedAt, value: stamp(ticket.closedAt), detail: fmt.dateTime(ticket.closedAt, dayMonth), extra: <p className="mt-0.5 text-[0.8125rem] text-muted">{v.done(took)}</p> }}
       />
     );
   }
@@ -218,7 +218,7 @@ export default function TicketsPage() {
           value={tab}
           onChange={setTab}
           label={m.app.tickets.tabsLabel}
-          className="w-full justify-between [&>button]:min-h-11 sm:w-auto sm:justify-start"
+          className="w-full [&>button]:flex-1 sm:w-auto sm:[&>button]:flex-none"
           options={[
             { value: "active", label: m.app.tickets.active },
             { value: "history", label: m.app.tickets.history },
@@ -302,7 +302,25 @@ export default function TicketsPage() {
           {showTaskColumns ? (
             <aside className={cn("min-w-0 border-t border-stone/70 lg:border-s lg:border-t-0", !recentlyClosed.length && "hidden lg:block")} aria-labelledby="tickets-recent">
               {recentlyClosed.length ? (
-                <TicketGroup id="tickets-recent" title={m.app.tickets.recentlyClosed}>
+                <TicketGroup
+                  id="tickets-recent"
+                  title={m.app.tickets.recentlyClosed}
+                  footer={
+                    <div className="mt-3 border-t border-stone/70 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTab("history");
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      className="naqah-nudge inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown"
+                    >
+                      {m.app.tickets.allHistory}
+                      <ArrowRight size={15} className="naqah-nudge-icon shrink-0 rtl:-scale-x-100" aria-hidden />
+                    </button>
+                    </div>
+                  }
+                >
                   {recentlyClosed.map((ticket, index) => (
                     <li key={ticket.id} className="py-5 first:pt-2 last:pb-0" style={{ "--i": index } as CSSProperties}>
                       <p className="font-medium leading-relaxed text-espresso">{ticket.instruction}</p>

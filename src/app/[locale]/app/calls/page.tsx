@@ -78,6 +78,16 @@ function OutcomeMark({ outcome }: { outcome: CallLog["outcome"] }) {
   return <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full border-2 border-faint text-muted"><Minus size={14} weight="bold" /></span>;
 }
 
+function ViewReport({ onOpen, className }: { onOpen: () => void; className?: string }) {
+  const { m } = useI18n();
+  return (
+    <Button variant="secondary" size="sm" className={cn("naqah-nudge h-11 shrink-0", className)} onClick={onOpen} aria-haspopup="dialog">
+      {m.app.calls.viewReport}
+      <ArrowRight size={15} className="naqah-nudge-icon rtl:-scale-x-100" aria-hidden />
+    </Button>
+  );
+}
+
 function StoryRow({ story, worker, onOpen }: { story: ReportStory; worker: string; onOpen: () => void }) {
   const { m, t, fmt } = useI18n();
   const v = m.visual.calls;
@@ -86,7 +96,7 @@ function StoryRow({ story, worker, onOpen }: { story: ReportStory; worker: strin
   const findings = report?.findings ?? [];
   const briefing = story.briefings.find((call) => call.outcome === "completed") ?? story.briefings.at(-1);
   const steps: FlowStep[] = [
-    { key: "worker", title: worker, detail: <>{v.answered} · <time className="ltr-nums" dateTime={story.call.at}>{fmt.time(story.call.at)}</time></>, state: "done" },
+    { key: "worker", title: worker, detail: <>{report?.answers.length ? v.answeredQuestions(report.answers.length) : v.answered} · <time className="ltr-nums" dateTime={story.call.at}>{fmt.time(story.call.at)}</time></>, state: "done" },
     { key: "naqah", title: v.naqah, detail: report ? <>{v.saved} · {v.findings(findings.length)}</> : v.saved, state: "done" },
     briefing?.outcome === "completed"
       ? { key: "owner", title: v.you, detail: v.briefed(fmt.time(briefing.at)), state: "done" }
@@ -117,7 +127,7 @@ function StoryRow({ story, worker, onOpen }: { story: ReportStory; worker: strin
           {findings.length ? (
             <p className="mt-2 flex items-start gap-2 leading-relaxed text-espresso">
               <WarningCircle size={18} weight="fill" className="mt-1 shrink-0 text-warn" aria-hidden />
-              <span>{t(findings[0].text)}{findings.length > 1 ? <span className="text-muted"> · {c.moreFindings(findings.length - 1)}</span> : null}</span>
+              <span><bdi>{t(findings[0].text)}</bdi>{findings.length > 1 ? <span className="text-muted"> · {c.moreFindings(findings.length - 1)}</span> : null}</span>
             </p>
           ) : (
             <p className="mt-2 flex items-center gap-2 text-muted">
@@ -126,14 +136,11 @@ function StoryRow({ story, worker, onOpen }: { story: ReportStory; worker: strin
             </p>
           )}
         </div>
-        {report ? (
-          <Button variant="secondary" size="sm" className="naqah-nudge h-11 shrink-0 max-sm:w-full" onClick={onOpen} aria-haspopup="dialog">
-            {c.viewReport}
-            <ArrowRight size={15} className="naqah-nudge-icon rtl:-scale-x-100" aria-hidden />
-          </Button>
-        ) : null}
+        {report ? <ViewReport onOpen={onOpen} className="max-sm:hidden" /> : null}
       </div>
       <ReportFlow stack steps={steps} label={v.flowLabel(worker)} className="mt-5 max-w-2xl" />
+      {/* On a phone the story reads top to bottom, so the way into the report closes it. */}
+      {report ? <ViewReport onOpen={onOpen} className="mt-5 w-full sm:hidden" /> : null}
       </div>
     </article>
   );
@@ -256,7 +263,7 @@ export default function CallsPage() {
               setVisibleDayCount(CALL_HISTORY_PAGE_DAYS);
             }}
             label={c.filterLabel}
-            className="w-full justify-between [&>button]:min-h-11 [&>button]:flex-1 sm:w-auto sm:justify-start sm:[&>button]:flex-none"
+            className="w-full [&>button]:flex-1 sm:w-auto sm:[&>button]:flex-none"
             options={[
               { value: "all", label: c.all },
               { value: "reports", label: c.reports },

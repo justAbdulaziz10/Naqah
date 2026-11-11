@@ -228,7 +228,7 @@ export const setup = defineMessages({
     settings: {
       title: "Settings",
       lead: "Changes save as you go.",
-      groups: { ranch: "Ranch and team", call: "Calls", questions: "Questions", connections: "Alerts", account: "Account", demo: "Demo" },
+      groups: { ranch: "Ranch and team", call: "Calls", questions: "Questions", connections: "Connections", account: "Account", demo: "Demo" },
       more: "What NAQAH listens for",
       plan: "Plan",
       demoPlan: "Demo plan",
@@ -525,7 +525,7 @@ export const setup = defineMessages({
     settings: {
       title: "الإعدادات",
       lead: "التغييرات تنحفظ أول بأول.",
-      groups: { ranch: "العزبة والعمال", call: "المكالمات", questions: "الأسئلة", connections: "التنبيهات", account: "الحساب", demo: "العرض" },
+      groups: { ranch: "العزبة والعمال", call: "المكالمات", questions: "الأسئلة", connections: "الربط", account: "الحساب", demo: "العرض" },
       more: "وش تنتبه له ناقة",
       plan: "الباقة",
       demoPlan: "باقة العرض",

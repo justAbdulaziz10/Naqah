@@ -242,6 +242,7 @@ export const app = defineMessages({
       emptyActive: "Nothing open right now",
       emptyHistory: "Nothing here yet",
       recentlyClosed: "Recently done",
+      allHistory: "See all history",
       summary: (open: number, undelivered: number, messages: number) =>
         [
           open ? (open === 1 ? "1 open task" : `${open} open tasks`) : null,
@@ -558,6 +559,7 @@ export const app = defineMessages({
       emptyActive: "ما فيه شي مفتوح الحين",
       emptyHistory: "ما فيه شي هنا للحين",
       recentlyClosed: "انتهت مؤخرًا",
+      allHistory: "اعرض السجل كامل",
       summary: (open: number, undelivered: number, messages: number) =>
         [
           open ? (open === 1 ? "مهمة مفتوحة" : open === 2 ? "مهمتين مفتوحتين" : `${open} مهام مفتوحة`) : null,
