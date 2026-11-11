@@ -50,6 +50,13 @@ export function demoRepeatReports(farmId: string): boolean {
   return value("NAQAH_DEMO_REPEAT_FARMS").split(",").map((id) => id.trim()).filter(Boolean).includes(farmId);
 }
 
+/**
+ * LOCAL DEMO ONLY, until the presentation: the presentation ranch's «اتصال حقيقي» skips the 3-an-hour / 10-a-day
+ * limit when the runner sets NAQAH_DEMO_NO_CALL_LIMIT=1 (--no-demo-call-limit). Approved numbers, one call at a time
+ * and the call length cap still apply. Never on Vercel; every other ranch keeps the limit.
+ */
+export const demoNoCallLimit = (farmId: string) => value("NAQAH_DEMO_NO_CALL_LIMIT") === "1" && demoRepeatReports(farmId);
+
 /** Local demo: the owner approves a worker number in Settings, with the recipient's agreement, instead of a developer. */
 export const ownerApprovesTestNumbers = () => value("NAQAH_OWNER_APPROVES_TEST_NUMBERS") === "1" && approvedNumbersFile() !== null;
 
