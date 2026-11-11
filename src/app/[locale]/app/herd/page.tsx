@@ -6,6 +6,7 @@ import { CamelEditorDialog, type CamelFormValues } from "@/components/dashboard/
 import { CamelSheet } from "@/components/dashboard/CamelSheet";
 import { CertaintyBadge, EmptyState, HealthBadge } from "@/components/dashboard/DashboardPrimitives";
 import { HerdCountFact } from "@/components/dashboard/HerdCountFact";
+import { GroupLabel, PageHeader } from "@/components/dashboard/PageHeader";
 import { toastWhenSaved } from "@/components/dashboard/toastWhenSaved";
 import { useHashTarget } from "@/components/dashboard/useHashTarget";
 import { HERD_DOTS_MAX, HerdDots } from "@/components/visuals/HerdDots";
@@ -136,17 +137,18 @@ export default function HerdPage() {
   const dots = Math.max(herdCount ?? 0, ws.camels.length) <= HERD_DOTS_MAX;
 
   return (
-    <div className="space-y-6 pb-8">
-      <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-espresso sm:text-[2.5rem]">{h.title}</h1>
-          <HerdCountFact ws={ws} worker={worker} className="mt-2" />
-        </div>
-        <Button ref={addButtonRef} className="w-full shrink-0 sm:w-auto" onClick={openNewCamel}>
-          <Plus size={18} weight="bold" aria-hidden />
-          {h.addCamel}
-        </Button>
-      </header>
+    <div className="naqah-page space-y-6 pb-8">
+      <PageHeader
+        title={h.title}
+        action={(
+          <Button ref={addButtonRef} className="w-full sm:w-auto" onClick={openNewCamel}>
+            <Plus size={18} weight="bold" aria-hidden />
+            {h.addCamel}
+          </Button>
+        )}
+      >
+        <HerdCountFact ws={ws} worker={worker} className="mt-2" />
+      </PageHeader>
 
       {ws.camels.length || herdCount ? (
         <Card className="grid gap-x-12 gap-y-7 px-5 py-6 sm:px-7 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
@@ -187,10 +189,7 @@ export default function HerdPage() {
                 if (!camels.length) return null;
                 return (
                   <section key={group} aria-labelledby={`herd-${group}`}>
-                    <h2 id={`herd-${group}`} className="mb-2.5 flex items-baseline gap-2 text-sm font-semibold text-espresso">
-                      {h.groups[group]}
-                      <span className="font-medium text-muted">{fmt.number(camels.length)}</span>
-                    </h2>
+                    <GroupLabel id={`herd-${group}`} count={fmt.number(camels.length)}>{h.groups[group]}</GroupLabel>
                     <Card className={cn("naqah-stagger overflow-hidden", group === "healthy" ? "grid gap-px bg-stone/70 sm:grid-cols-2" : "divide-y divide-stone/70")}>
                       {camels.map((camel, index) => (
                         <button

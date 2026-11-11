@@ -3,6 +3,7 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import { ArrowRight, Check, CheckCircle, Minus, WarningCircle, X } from "@phosphor-icons/react";
 import { OutcomeBadge } from "@/components/dashboard/DashboardPrimitives";
+import { GroupLabel, PageHeader } from "@/components/dashboard/PageHeader";
 import { ReportSheet } from "@/components/dashboard/ReportSheet";
 import { callEntries, type CallChain, type CallGroup, type ReportStory } from "@/components/dashboard/callStories";
 import { useHashTarget } from "@/components/dashboard/useHashTarget";
@@ -243,18 +244,11 @@ export default function CallsPage() {
   }
 
   return (
-    <div className="max-w-4xl space-y-6 pb-8">
-      <header>
-        <h1 className="text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-espresso sm:text-[2.5rem]">{c.title}</h1>
-        <p className="mt-1 text-muted">{c.lead}</p>
-      </header>
-
-      {ws.calls.length ? (
-        <>
-          <Card className="px-5 py-5 sm:px-7 sm:py-6">
-            <CallActivity calls={ws.calls} now={now} />
-          </Card>
-
+    <div className="naqah-page space-y-6 pb-8">
+      <PageHeader
+        title={c.title}
+        lead={c.lead}
+        action={ws.calls.length ? (
           <Segmented
             value={filter}
             onChange={(next) => {
@@ -270,15 +264,22 @@ export default function CallsPage() {
               { value: "yours", label: c.yours },
             ]}
           />
+        ) : null}
+      />
+
+      {ws.calls.length ? (
+        <>
+          <Card className="px-5 py-5 sm:px-7 sm:py-6">
+            <CallActivity calls={ws.calls} now={now} />
+          </Card>
+
 
           {days.length ? (
             <div className="space-y-7">
               <div id="calls-history" className="space-y-7">
                 {days.map(([day, group]) => (
                   <section key={day} aria-labelledby={`calls-day-${day}`}>
-                    <h2 id={`calls-day-${day}`} className="mb-3 flex items-baseline gap-2 text-sm font-semibold text-espresso">
-                      {fmt.date(group[0].at)}
-                    </h2>
+                    <GroupLabel id={`calls-day-${day}`}>{fmt.date(group[0].at)}</GroupLabel>
                     <Card className="naqah-stagger divide-y divide-stone/70 overflow-hidden">
                       {group.map((entry, index) => (
                         <div key={entry.id} style={{ "--i": index } as CSSProperties}>

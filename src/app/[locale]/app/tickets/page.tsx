@@ -3,8 +3,9 @@
 import { ArrowRight, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { EmptyState } from "@/components/dashboard/DashboardPrimitives";
+import { PageHeader } from "@/components/dashboard/PageHeader";
 import { useHashTarget } from "@/components/dashboard/useHashTarget";
 import { TaskCalendarLink } from "@/components/integrations/TaskCalendarLink";
 import { upcomingReportCall } from "@/components/schedule/ReportCallSection";
@@ -46,8 +47,8 @@ function callKindLabel(kind: CallKind, m: ReturnType<typeof useI18n>["m"]) {
 function TicketGroup({ id, title, footer, children }: { id: string; title: string; footer?: ReactNode; children: ReactNode }) {
   return (
     <section aria-labelledby={id} className="px-5 py-5 sm:px-8 sm:py-6">
-      <h2 id={id} className="text-lg font-semibold leading-snug text-espresso">{title}</h2>
-      <ul className="mt-2 divide-y divide-stone/70">{children}</ul>
+      <h2 id={id} className="text-xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{title}</h2>
+      <ul className="naqah-stagger mt-3 divide-y divide-stone/70">{children}</ul>
       {footer}
     </section>
   );
@@ -209,13 +210,11 @@ export default function TicketsPage() {
   const summary = m.app.tickets.summary(openTasks.length, undelivered.length, waitingRelays);
 
   return (
-    <div className="max-w-none space-y-4 pb-8">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-espresso sm:text-[2.5rem]">{m.app.tickets.title}</h1>
-          {hasAnything ? <p className="mt-1 text-muted">{summary}</p> : null}
-        </div>
-        {hasAnything ? <Segmented
+    <div className="naqah-page space-y-6 pb-8">
+      <PageHeader
+        title={m.app.tickets.title}
+        lead={hasAnything ? summary : null}
+        action={hasAnything ? <Segmented
           value={tab}
           onChange={setTab}
           label={m.app.tickets.tabsLabel}
@@ -225,7 +224,7 @@ export default function TicketsPage() {
             { value: "history", label: m.app.tickets.history },
           ]}
         /> : null}
-      </header>
+      />
 
       <Card className="min-w-0">
         <div className={cn(showTaskColumns && "grid items-start lg:grid-cols-[minmax(0,1.8fr)_minmax(16rem,1fr)]")}>
@@ -246,7 +245,7 @@ export default function TicketsPage() {
                 </div>
               ) : undefined}
             >
-              {tasks.map((ticket) => {
+              {tasks.map((ticket, index) => {
                 const stopped = taskUndelivered(ticket);
                 const neverDelivered = stopped?.purpose === "instruction";
                 return (
@@ -254,7 +253,8 @@ export default function TicketsPage() {
                   key={ticket.id}
                   data-hash-target={`task-${ticket.id}`}
                   tabIndex={-1}
-                  className={cn("py-4 last:pb-0 focus:outline-none", linkedTaskId === ticket.id && "border-s-2 border-s-brown ps-3")}
+                  style={{ "--i": index } as CSSProperties}
+                  className={cn("py-5 first:pt-2 last:pb-0 focus:outline-none", linkedTaskId === ticket.id && "border-s-2 border-s-brown ps-3")}
                 >
                   <p className="text-lg font-semibold leading-relaxed text-espresso">{ticket.instruction}</p>
                   {active && !neverDelivered ? <TaskStatus ticket={ticket} worker={worker} now={now} /> : null}
@@ -272,8 +272,8 @@ export default function TicketsPage() {
 
           {relays.length ? (
             <TicketGroup id="tickets-relays" title={m.app.tickets.relays}>
-              {relays.map((relay) => (
-                <li key={relay.id} className="py-4 last:pb-0">
+              {relays.map((relay, index) => (
+                <li key={relay.id} className="py-5 first:pt-2 last:pb-0" style={{ "--i": index } as CSSProperties}>
                   <p className="text-lg font-semibold leading-relaxed text-espresso">{relay.message}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                     <Badge tone={relay.delivered ? "ok" : "warn"} dot>{relay.delivered ? m.app.tickets.delivered : relayUndelivered(relay.id) ? m.app.tickets.undelivered : m.app.tickets.notDelivered}</Badge>
@@ -303,8 +303,8 @@ export default function TicketsPage() {
             <aside className={cn("min-w-0 border-t border-stone/70 lg:border-s lg:border-t-0", !recentlyClosed.length && "hidden lg:block")} aria-labelledby="tickets-recent">
               {recentlyClosed.length ? (
                 <TicketGroup id="tickets-recent" title={m.app.tickets.recentlyClosed}>
-                  {recentlyClosed.map((ticket) => (
-                    <li key={ticket.id} className="py-4 last:pb-0">
+                  {recentlyClosed.map((ticket, index) => (
+                    <li key={ticket.id} className="py-5 first:pt-2 last:pb-0" style={{ "--i": index } as CSSProperties}>
                       <p className="font-medium leading-relaxed text-espresso">{ticket.instruction}</p>
                       <TaskTiming ws={ws} ticket={ticket} worker={worker} now={now} className="mt-3" />
                     </li>
@@ -312,7 +312,7 @@ export default function TicketsPage() {
                 </TicketGroup>
               ) : (
                 <section className="px-5 py-5 sm:px-8 sm:py-6">
-                  <h2 id="tickets-recent" className="text-lg font-semibold leading-snug text-espresso">{m.app.tickets.recentlyClosed}</h2>
+                  <h2 id="tickets-recent" className="text-xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{m.app.tickets.recentlyClosed}</h2>
                   <p className="mt-2 text-sm leading-relaxed text-muted">{m.app.tickets.emptyHistory}</p>
                 </section>
               )}
