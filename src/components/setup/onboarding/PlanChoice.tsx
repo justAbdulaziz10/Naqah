@@ -2,8 +2,8 @@
 
 import { Check } from "@phosphor-icons/react";
 import { PLAN_LIMITS } from "@/domain/catalog";
+import { MONTHLY_PLAN_PRICES_SAR, VAT_PERCENT } from "@/domain/pricing";
 import type { Plan, Weekday } from "@/domain/types";
-import { PlanPrice } from "@/components/plans/PlanPrice";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useIsAccount } from "@/store/workspace";
@@ -34,6 +34,27 @@ export function PlanRhythm({ plan, day, tone = "light", className }: { plan: Pla
   );
 }
 
+/** The monthly price, large, with the VAT-inclusive amount underneath. Display only: nothing is charged. */
+function PlanCardPrice({ plan }: { plan: Plan }) {
+  const { m } = useI18n();
+  const c = m.onboarding.plans;
+  const price = MONTHLY_PLAN_PRICES_SAR[plan];
+  const amount = (value: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+  return (
+    <span className="mt-4 block">
+      <span className="flex flex-wrap items-baseline gap-x-2">
+        <bdi className="whitespace-nowrap text-[1.75rem] font-semibold leading-none tabular-nums sm:text-[2rem]">
+          {amount(price.beforeVat)} <span className="text-lg">{c.currency}</span>
+        </bdi>
+        <span className="text-[0.9375rem] text-muted">{c.perMonth}<span className="sr-only"> · {c.beforeVat}</span></span>
+      </span>
+      <span className="mt-2 block text-[0.875rem] text-muted">
+        <bdi className="whitespace-nowrap tabular-nums">{amount(price.includingVat)} {c.currency}</bdi> {c.withVat(VAT_PERCENT)}
+      </span>
+    </span>
+  );
+}
+
 /**
  * The plan as a choice between two weeks. In the demo the owner can switch; in an account the plan is
  * set by the NAQAH team, so only theirs is shown, read-only.
@@ -41,6 +62,7 @@ export function PlanRhythm({ plan, day, tone = "light", className }: { plan: Pla
 export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoiceProps) {
   const { m } = useI18n();
   const p = m.setup.plans;
+  const c = m.onboarding.plans;
   const account = useIsAccount();
   const initial = props.mode === "initial";
   const ws = "ws" in props ? props.ws : null;
@@ -72,16 +94,20 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
                 selected ? "border-brown bg-brown text-cream" : "border-sand bg-cream",
               )}
             >
-              {selected ? <Check size={13} weight="bold" /> : null}
+              {selected ? <Check size={13} weight="bold" className="naqah-done" /> : null}
             </span>
           ) : null}
         </span>
-        {/* The price answers the first question; the week and what it includes follow. */}
-        <PlanPrice plan={plan} copy={p.price} className="mt-3" />
+        {/* The price answers the first question; the week and two facts follow. */}
+        <PlanCardPrice plan={plan} />
         <span className="mt-5 block border-t border-stone pt-4">
           <PlanRhythm plan={plan} day={day} className="h-3" />
-          <span className="mt-3 block text-[1.0625rem] font-medium leading-snug">{plan === "basic" ? p.basicRhythm : p.ultimateRhythm}</span>
-          <span className="mt-1.5 block text-[0.9375rem] leading-relaxed text-muted">{plan === "basic" ? p.basicExtras : p.ultimateExtras}</span>
+          <span className="mt-3 block text-[1.0625rem] font-semibold leading-snug">{plan === "basic" ? c.basicRhythm : c.ultimateRhythm}</span>
+          <span className="mt-1 block text-[0.9375rem] leading-relaxed text-muted">
+            {plan === "basic"
+              ? c.basicFacts(PLAN_LIMITS.basic.customQuestions, PLAN_LIMITS.basic.workers)
+              : c.ultimateFacts(PLAN_LIMITS.ultimate.workers)}
+          </span>
         </span>
         {blocked ? <span className="mt-2 block text-[0.9375rem] text-danger">{p.tooManyForBasic}</span> : null}
       </>

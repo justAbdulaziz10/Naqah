@@ -20,7 +20,7 @@ type Props = {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale } = await params;
   const messages = getMessages(isLocale(locale) ? locale : "ar");
-  return { title: messages.setup.plans.initial.title, robots: { index: false } };
+  return { title: messages.onboarding.plans.title, robots: { index: false } };
 }
 
 export default function ChoosePlanPage(props: Props) {
@@ -45,7 +45,7 @@ async function ChoosePlanContent({ params, searchParams }: Props) {
     }
     return (
       <AuthFrame demoLink={false}>
-        <AuthHeading title={m.setup.plans.initial.title} lead={m.auth.unavailable} />
+        <AuthHeading title={m.onboarding.plans.title} lead={m.auth.unavailable} />
         <p role="alert" className="mt-5 leading-relaxed text-danger">{m.account.loadFailed}</p>
         <ButtonLink size="lg" href={`/${locale}/choose-plan${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="mt-6 w-full">{m.setup.plans.initial.retry}</ButtonLink>
       </AuthFrame>
