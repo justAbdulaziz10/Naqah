@@ -47,7 +47,7 @@ describe("the natural yes filter: waiting, asking and doubting are not a yes", (
   it.each([
     "طيب انتظر", "تمام بعدين", "ايه وش قلت", "ايوه مين معي", "زين خلني اتاكد", "اوكي ثواني", "تمام قل للمعزب يتصل علي",
     "طيب اسمع", "ايه ابي اكلم المعزب", "احفظ وقل للمعزب ان كل شي تمام", "ok wait", "yes hold on", "الله يسلمك",
-    "طيب طيب يا جماعة الخير", "تمام ما ادري", "ايه بس وحده ضايعه", "ايه اظن", "ايه لحظة", "اصبر شوي", "ايش", "okay what",
+    "تمام ما ادري", "ايه بس وحده ضايعه", "ايه اظن", "ايه لحظة", "اصبر شوي", "ايش", "okay what",
     "yes maybe later", "احفظ لا لحظة", "أحفظ لا", "ايه ايه لا",
   ])("does not save on «%s»", (heard) => {
     expect(isNaturalConfirmation(heard, summary().session, "ar")).toBe(false);
@@ -56,8 +56,48 @@ describe("the natural yes filter: waiting, asking and doubting are not a yes", (
   it.each([
     "ايه احفظ", "احفظه الله يعافيك", "اي نعم صحيح", "تمام كذا", "yes please save", "yes that's all correct", "ايوه يا شيخ احفظه",
     "تمام يعطيك العافية", "احفظ احفظ", "توكل على الله", "يلا احفظ", "ايه ايه", "أحفظ احفظ", "طيب", "زين", "اوكي تمام",
+    // Changed 12 Nov: the summary now ends on a plain «أحفظه؟», so «طيب» with only filler around it answers that
+    // yes/no question. It was a refusal while the question was «أحفظه، ولا تبي تعدل شي؟».
+    "طيب طيب يا جماعة الخير",
   ])("saves on «%s»", (heard) => {
     expect(isNaturalConfirmation(heard, summary().session, "ar")).toBe(true);
+  });
+});
+
+/** The owner's list (12 Nov): after «أحفظه؟», the ordinary ways a Saudi worker says yes. */
+describe("a plain yes to «أحفظه؟», said many ways", () => {
+  const camels = () => summary().ws.camels;
+  it.each([
+    "إيه", "ايوه", "أيوه", "اي", "صح", "تمام", "تمام احفظ", "خلاص", "خلاص احفظ", "ماشي", "اوكي", "زين", "طيب احفظ", "كذا تمام", "كله صح",
+    "كل شي تمام", "احفظه", "احفظ", "سجله", "يلا", "توكل على الله", "الله يعطيك العافية", "يعطيك العافية", "yes", "ok", "okay", "sure",
+    "done", "save it", "correct", "yes please", "that's right",
+  ])("saves on «%s»", (heard) => {
+    expect(isNaturalConfirmation(heard, summary().session, "ar", camels())).toBe(true);
+  });
+
+  it.each([
+    // Doubt, waiting or a question.
+    "لحظة", "تمام لحظة", "انتظر", "وش", "مين", "بعدين", "اظن", "يمكن", "ايه يمكن", "wait", "what", "maybe", "okay wait",
+    // A no, alone or last.
+    "لا", "لا شكرا", "احفظ لا", "تمام لا", "no", "yes no",
+    // A correction: a number, a camel's name, a topic.
+    "تمام عشرين كيس", "ايه 30", "ايه مزون بخير", "تمام وضحة", "صح بس الماي ناقص", "تمام العلف", "ok the water",
+    // A soft word beside something else.
+    "خلاص اقفل", "طيب الحين", "يلا مع السلامة",
+  ])("does not save on «%s»", (heard) => {
+    expect(isNaturalConfirmation(heard, summary().session, "ar", camels())).toBe(false);
+  });
+});
+
+describe("an urgent concern at a natural call's summary", () => {
+  it("is read back in the short summary, ending on «أحفظه؟», and only the new summary can be confirmed", () => {
+    const { ws, session } = summary();
+    const decision = decideTool({ session: session as VoiceCallSession, counters: {}, workspace: ws, locale: "ar", name: "flag_urgent", args: { note: "مزون طايحة" }, spoke: true, heard: "مزون طايحة ما تقوم", now: NOW, natural: true });
+    expect(decision.kind).toBe("stay");
+    if (decision.kind !== "stay") return;
+    expect(decision.result.summaryText).toMatch(/^.*هذا اللي فهمته: .*الأمر العاجل اللي ذكرته: مزون طايحة ما تقوم\. أحفظه؟$/u);
+    expect(decision.result.summaryId).toBe(reportSummaryId(decision.session, "ar"));
+    expect(decision.result.summaryId).not.toBe(reportSummaryId(session, "ar"));
   });
 });
 
@@ -95,6 +135,22 @@ describe("a natural call's three strikes are the worker's own unclear replies", 
     const decision = confirm("بالعراق", id());
     expect(decision.counters.confirmationFailures).toBe(1);
     expect(said(decision)?.summaryText).toBeUndefined();
+  });
+
+  it("a plain «لا» to the heard summary asks what to change: no save, no strike, no ending", () => {
+    for (const heard of ["لا", "لا شكرا", "no"]) {
+      const decision = confirm(heard, id());
+      expect(decision.kind).toBe("reply");
+      expect(decision.counters.confirmationFailures).toBe(0);
+      expect(said(decision)?.sayText).toBe("وش تبي نعدل؟");
+      expect(said(decision)?.summaryText).toBeUndefined();
+    }
+    // Three of them in a row still never end the call by strikes.
+    expect(confirm("لا", id(), { confirmationFailures: 2 }).kind).toBe("reply");
+  });
+
+  it("a summary read again after a reply over it ends on the plain question", () => {
+    expect(said(confirm("لا شكرا احفظ", undefined))?.repromptText).toBe("أحفظه؟");
   });
 
   it("the model confirming with no worker words is no strike", () => {

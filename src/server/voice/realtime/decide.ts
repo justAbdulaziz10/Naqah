@@ -13,6 +13,7 @@ import { spokenWording } from "../twiml";
 import { askedToStop, evidenceWords, isGarbled, isLeakedHint, refuseAnswer } from "./answer-check";
 import { isNaturalConfirmation, isVerifiedConfirmation } from "./confirmation";
 import { validateFacts } from "./facts";
+import { withNaturalSummary } from "./natural";
 import type { RealtimeState, ToolResponse } from "./state";
 import { checkTool, promptFor, SUMMARY_STEP, toolsFor, type ClarifyReason } from "./tools";
 
@@ -40,6 +41,8 @@ const URGENT: Record<Locale, string> = {
 const CONFIRM_AGAIN: Record<Locale, string> = { ar: "ما سمعتك زين. أحفظه؟ قل إيه، أو اضغط واحد.", en: "I didn't catch that. Shall I save it? Say yes, or press 1." };
 /** A natural call whose worker already heard this summary in full: only the question is asked again. */
 const SAVE_IT: Record<Locale, string> = { ar: "أحفظه؟", en: "Shall I save it?" };
+/** A natural call's «لا» to «أحفظه؟»: not yet, so what to change, never a save or an ending. */
+const WHAT_TO_CHANGE: Record<Locale, string> = { ar: "وش تبي نعدل؟", en: "What should we change?" };
 /** A natural call ends unsaved after this many confirmations refused for timing alone, so a model loop can't run on. */
 const NATURAL_MISSES = 6;
 const isDeny = (heard: string) => /(?:^| )(?:لا|غلط|عدل|عدله|تعديل|no|wrong|change)(?: |$)/.test(evidenceWords(heard));
@@ -208,7 +211,7 @@ export function decideTool({ session: current, counters, workspace, locale, name
     return reply(promptResult(current, workspace, locale, "ok", undefined, count > 1 ? PREFIXES.noise[locale] : "", undefined, explicitNoise || count === 1), "noise");
   }
   const confirming = name === "confirm_report" && typeof args === "object" && args !== null && "confirmed" in args && args.confirmed === true;
-  const verified = keypad || (spoke && Boolean(heard) && (isVerifiedConfirmation(heard, current, locale) || (natural && isNaturalConfirmation(heard, current, locale))));
+  const verified = keypad || (spoke && Boolean(heard) && (isVerifiedConfirmation(heard, current, locale) || (natural && isNaturalConfirmation(heard, current, locale, workspace.camels))));
   if (name === "end_call" && !askedToStop(heard)) {
     return reply(promptResult(current, workspace, locale, "invalid", "worker_has_not_asked_to_stop", evidenceWords(heard) ? PREFIXES.unclear[locale] : "", undefined, !evidenceWords(heard)), "worker_has_not_asked_to_stop");
   }
@@ -217,18 +220,20 @@ export function decideTool({ session: current, counters, workspace, locale, name
   if (confirming && current.step === SUMMARY_STEP && (!verified || heardSummaryId !== summaryId)) {
     const error = heardSummaryId !== summaryId ? "summary_not_finished" : "worker_has_not_confirmed";
     if (natural) {
+      // A clear «لا» to the heard summary is an answer, not an unclear one: ask what to change, with no strike.
+      const declined = error === "worker_has_not_confirmed" && spoke && isDeny(heard);
       // Only the worker's own unclear reply to a summary they heard is a strike. The model asking too early, or a
       // reply over the summary, is the call's timing: the summary or the question is asked again, with no strike.
-      const strike = error === "worker_has_not_confirmed" && spoke;
+      const strike = error === "worker_has_not_confirmed" && spoke && !declined;
       const failures = (counters.confirmationFailures ?? 0) + (strike ? 1 : 0);
       const misses = (counters.confirmationMisses ?? 0) + (strike ? 0 : 1);
       next = { ...next, confirmationFailures: failures, confirmationMisses: misses };
       // No keypad to fall back to: it says plainly nothing was saved and ends.
       if (failures >= 3 || misses >= NATURAL_MISSES) return { kind: "end", session: { ...current, voiceSilences: 0 }, counters: next, checkError: error };
       // A summary the worker already heard in full isn't read again: only «أحفظه؟». One never heard is read in full.
-      const again = error === "worker_has_not_confirmed" ? CONFIRM_AGAIN[locale] : counters.summaryHeardId === summaryId ? SAVE_IT[locale] : null;
-      if (again) return reply({ ...promptResult(current, workspace, locale, "invalid", error), summaryText: undefined, summaryId: undefined, sayText: again, repromptText: again }, error);
-      return reply(promptResult(current, workspace, locale, "invalid", error), error);
+      const again = declined ? WHAT_TO_CHANGE[locale] : error === "worker_has_not_confirmed" ? CONFIRM_AGAIN[locale] : counters.summaryHeardId === summaryId ? SAVE_IT[locale] : null;
+      if (again) return reply({ ...promptResult(current, workspace, locale, "invalid", declined ? "worker_declined" : error), summaryText: undefined, summaryId: undefined, sayText: again, repromptText: again }, error);
+      return reply({ ...promptResult(current, workspace, locale, "invalid", error), repromptText: SAVE_IT[locale] }, error);
     }
     const failures = (counters.confirmationFailures ?? 0) + 1;
     next = { ...next, confirmationFailures: failures, closed: failures >= 3 };
@@ -346,7 +351,9 @@ export function decideTool({ session: current, counters, workspace, locale, name
   if (action.kind === "urgent") {
     // The model heard the audio and the note may word it differently, so what is kept is what was transcribed.
     const note = heard.trim().slice(0, 300);
+    // At the summary the engine reads it again with the concern in it; a natural call reads its own short one.
     if (note) session = addUrgentNote(session, workspace, now, note);
+    if (note && natural) session = withNaturalSummary(session, workspace) as VoiceCallSession;
     return { kind: "stay", session, result: promptResult(session, workspace, locale, "ok", undefined, URGENT[locale]), counters: next, checkError };
   }
   if (!chosen) return { kind: "end", session, counters: next, checkError };

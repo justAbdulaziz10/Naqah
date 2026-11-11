@@ -1,7 +1,7 @@
 import type { CallSession } from "@/domain/conversation/engine";
 import type { Locale } from "@/domain/types";
 import { topicsInWords } from "@/domain/conversation/answer-topic";
-import { mapSpeechToInput, normalizeSpeech } from "../speech";
+import { mapSpeechToInput, namedCamels, normalizeSpeech, numbersSaid } from "../speech";
 import { SUMMARY_STEP } from "./tools";
 
 const MAX_UTTERANCE = 1000;
@@ -27,13 +27,22 @@ const isClearArabic = (words: string) => {
   return list.some((word) => CLEAR_ARABIC_WORDS.has(word)) && list.every((word) => CLEAR_ARABIC_WORDS.has(word) || AGREEING_ARABIC_WORDS.has(word));
 };
 
-const AGREE = new Set(["ايه", "ايوه", "اي", "نعم", "اكيد", "صح", "صحيح", "تمام", "اوكي", "طيب", "زين", "احفظ", "احفظه", "احفظها", "حفظ", "موافق", "ماشي", "مضبوط", "yes", "yeah", "ok", "okay", "sure", "correct", "save"]);
-/** «طيب», «زين», «اوكي» are also how people fill a pause: alongside other words they need a clearer yes. */
-const SOFT_AGREE = new Set(["طيب", "اوكي", "زين", "ماشي", "ok", "okay"]);
+const AGREE = new Set([
+  "ايه", "ايوه", "اي", "نعم", "اكيد", "صح", "صحيح", "تمام", "اوكي", "طيب", "زين", "احفظ", "احفظه", "احفظها", "حفظ", "موافق", "ماشي", "مضبوط",
+  "خلاص", "يلا", "سجل", "سجله", "سجلها", "اعتمد", "اعتمده",
+  "yes", "yeah", "yep", "yup", "ok", "okay", "sure", "correct", "save", "done", "right", "fine", "good",
+]);
+/** «طيب», «زين», «خلاص», «اوكي» are also how people fill a pause: alongside other words they need a clearer yes. */
+const SOFT_AGREE = new Set(["طيب", "اوكي", "زين", "ماشي", "خلاص", "يلا", "ok", "okay", "done", "right", "fine", "good"]);
+/** Words that add nothing to a yes or a no: «طيب طيب يا جماعة الخير», «كذا تمام», «yes please, that's it». */
+const FILLER = new Set([
+  "يا", "جماعه", "الخير", "شيخ", "اخوي", "الغالي", "حبيبي", "الحبيب", "طال", "عمرك", "الله", "يعافيك", "يحفظك", "كذا", "كله", "كل", "شي",
+  "الكلام", "والله", "it", "that", "s", "is", "all", "please", "thanks", "thank", "you",
+]);
 /** «لا تعدل», «ما فيه تعديل»: nothing to change is a yes to the summary as it stands. */
 const NOTHING_TO_CHANGE = /(?:^| )(?:لا|ما|مو) (?:تعدل|تغير|فيه تعديل|ابي اعدل|ابغى اعدل)(?: |$)|(?:^| )(?:no changes?|nothing to change)(?: |$)/;
-/** «توكل على الله», «يلا احفظ»: a Saudi go-ahead. */
-const GO_AHEAD = /(?:^| )(?:توكل على الله|توكل|يلا احفظ|يلا احفظه)(?: |$)/;
+/** «توكل على الله», «يلا احفظ», and «الله يعطيك العافية» said back to «أحفظه؟»: a Saudi go-ahead. */
+const GO_AHEAD = /(?:^| )(?:توكل على الله|توكل|يلا احفظ|يلا احفظه)(?: |$)|^(?:الله )?يعطيك العافيه(?: يا \p{L}+)?$/u;
 const REFUSE = /(?:^| )(?:لا|ما|مو|لاء) (?:تحفظ|تحفظه|تحفظها|احفظ|ابي|ابغى|ابيه|توافق)(?: |$)|(?:^| )(?:غلط|خطا|خطأ|عدل|عدله|عدلها|تعديل|غيره|غيرها|بس|لكن|الا|مدري|ما ادري|يمكن|don t|not|wrong|change|but|maybe)(?: |$)/;
 /** Waiting, asking, doubting or wanting the owner: «طيب انتظر», «ايه وش قلت», «ايه اظن», «تمام قل للمعزب يتصل». */
 const HOLD = /(?:^| )(?:انتظر|انطر|استنى|لحظه|ثواني|ثانيه|دقيقه|اصبر|خلني|خليني|وش|ايش|شو|مين|من معي|اسمع|بعدين|اظن|اعتقد|احس|اتاكد|قل|قول|كلم|اكلم|يتصل|wait|hold|hang on|what|who|later|think|guess|second|sec|moment|minute|listen)(?: |$)|معزب/;
@@ -47,16 +56,20 @@ const NO_LAST = /(?:^| )(?:لا|لاء|no|nope)$/;
  * there is nothing to change, and hold no refusal, no correction, no doubt, no wait and no other topic; and never a
  * question, even one the transcript wrote without its «؟».
  */
-export function isNaturalConfirmation(utterance: string, session: CallSession, locale: Locale): boolean {
+export function isNaturalConfirmation(utterance: string, session: CallSession, locale: Locale, camels: readonly { name: string }[] = []): boolean {
   if (!utterance || utterance.length > MAX_UTTERANCE || /[?؟]/u.test(utterance) || session.step !== SUMMARY_STEP) return false;
   const words = normalizeSpeech(utterance).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   if (!words || NO_ALONE.test(words) || NO_LAST.test(words) || topicsInWords(words).size > 0) return false;
+  // A number or a camel's name is what a correction sounds like («تمام، عشرين كيس», «إيه مزون بخير»), never a plain yes.
+  if (numbersSaid(words).size > 0 || namedCamels(words, camels).length > 0) return false;
   const leftover = words.replace(NOTHING_TO_CHANGE, " ");
   if (REFUSE.test(` ${leftover} `) || HOLD.test(` ${leftover} `)) return false;
   if (NOTHING_TO_CHANGE.test(words) || GO_AHEAD.test(words)) return true;
   const list = words.split(" ");
-  // «زين، ماشي» agrees in every word; «طيب طيب يا جماعة الخير» only fills a pause around other words.
-  const agrees = list.every((word) => AGREE.has(word)) || list.some((word) => AGREE.has(word) && !SOFT_AGREE.has(word));
+  // «زين، ماشي» agrees in every word, and «طيب طيب يا جماعة الخير» only adds filler to it. A soft word beside anything
+  // else («خلاص اقفل», «طيب الحين») needs a clearer yes.
+  const agrees = (list.some((word) => AGREE.has(word)) && list.every((word) => AGREE.has(word) || FILLER.has(word)))
+    || list.some((word) => AGREE.has(word) && !SOFT_AGREE.has(word));
   return agrees || isVerifiedConfirmation(utterance, session, locale);
 }
 

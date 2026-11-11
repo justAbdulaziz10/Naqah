@@ -1666,16 +1666,20 @@ const SPLIT_SUMMARY = 'هذا ملخص التحديث: الحلال كله بخ�
 const SPLIT_FACTS = 'هذا ملخص التحديث: الحلال كله بخير، العلف: 50 كيس.';
 
 /** Calls 050ac3 and 4f6a40: the worker answered over «أحفظه، ولا تبي تعدل شي؟», after every fact had played. */
-async function answerOverClosing(style, { cutFacts = false } = {}) {
+/** 12 Nov: a natural summary now ends on a plain «أحفظه؟». */
+const SHORT_SUMMARY = 'هذا اللي فهمته: الحلال كله بخير، العلف 50 كيس، والمهمة خلصت. أحفظه؟';
+const SHORT_FACTS = 'هذا اللي فهمته: الحلال كله بخير، العلف 50 كيس، والمهمة خلصت.';
+
+async function answerOverClosing(style, { cutFacts = false, summary = SPLIT_SUMMARY, facts = SPLIT_FACTS, closing = /تبي تعدل/ } = {}) {
   const state = await fixture({ session: style ? { style } : {}, limits: { transcriptionMs: 500 }, toolResult: (body) => body.name === 'confirm_report'
     ? { output: '{"status":"saved"}', awaitingConfirmation: false, end: 'hangup', goodbye: SAVED_GOODBYE }
-    : { output: '{}', awaitingConfirmation: true, end: null, goodbye: null, summaryText: SPLIT_SUMMARY, summaryId: 'revision-1', repromptText: 'أحفظ التحديث، ولا تبي تعدل شي؟' } });
+    : { output: '{}', awaitingConfirmation: true, end: null, goodbye: null, summaryText: summary, summaryId: 'revision-1', repromptText: 'أحفظه؟' } });
   try {
     const connection = await state.connect();
     await state.ready(connection.socket);
     await playPrompt(state, connection);
     await workerTool(state, 'to-summary', style ? 'submit_report' : 'answer_question');
-    const factsRequest = await state.providerInbox.wait((event) => event.type === 'response.create' && /ملخص/.test(event.response.instructions || ''));
+    const factsRequest = await state.providerInbox.wait((event) => event.type === 'response.create' && /الحلال كله بخير/.test(event.response.instructions || ''));
     for (let frame = 0; frame < 50; frame += 1) media(connection.socket);
     await delay(20);
     const offset = connection.messages.received.length;
@@ -1688,13 +1692,13 @@ async function answerOverClosing(style, { cutFacts = false } = {}) {
       await connection.messages.wait((event) => event.event === 'clear');
       send(state.provider, { type: 'response.done', response: { id: factsId, status: 'cancelled' } });
     } else {
-      send(state.provider, { type: 'response.output_audio_transcript.done', response_id: factsId, item_id: 'facts', content_index: 0, transcript: style ? SPLIT_FACTS : SPLIT_SUMMARY });
+      send(state.provider, { type: 'response.output_audio_transcript.done', response_id: factsId, item_id: 'facts', content_index: 0, transcript: style ? facts : summary });
       state.complete();
       await waitFor(() => connection.messages.received.slice(offset).some((event) => event.mark?.name.startsWith('summary-')));
       for (const event of connection.messages.received.slice(offset).filter((event) => event.event === 'mark')) send(connection.socket, { event: 'mark', streamSid: STREAM_SID, mark: event.mark });
       await delay(15);
     }
-    const closingRequest = state.providerEvents.find((event) => event.type === 'response.create' && /تبي تعدل/.test(event.response.instructions || '') && !/ملخص/.test(event.response.instructions));
+    const closingRequest = state.providerEvents.find((event) => event.type === 'response.create' && closing.test(event.response.instructions || '') && !/الحلال كله بخير/.test(event.response.instructions));
     if (style && !cutFacts) {
       // The question plays; the worker answers over it.
       assert.ok(closingRequest);
@@ -1713,7 +1717,7 @@ async function answerOverClosing(style, { cutFacts = false } = {}) {
     await waitFor(() => state.requests.some((request) => request.body?.toolCallId === 'yes-confirm'));
     const body = state.requests.find((request) => request.body?.toolCallId === 'yes-confirm').body;
     return {
-      factsOnly: !/تبي تعدل/.test(factsRequest.response.instructions), closingAsked: Boolean(closingRequest),
+      factsOnly: !closing.test(factsRequest.response.instructions), closingAsked: Boolean(closingRequest),
       heard: body.heardSummary, id: body.heardSummaryId,
     };
   } finally { await state.close(); }
@@ -1721,6 +1725,10 @@ async function answerOverClosing(style, { cutFacts = false } = {}) {
 
 test('natural: the summary\'s question is spoken after its facts, and an answer over the question has heard them', async () => {
   assert.deepEqual(await answerOverClosing('natural'), { factsOnly: true, closingAsked: true, heard: true, id: 'revision-1' });
+});
+
+test('natural: the short summary\'s plain «أحفظه؟» is spoken after its facts, and an answer over it has heard them', async () => {
+  assert.deepEqual(await answerOverClosing('natural', { summary: SHORT_SUMMARY, facts: SHORT_FACTS, closing: /أحفظه؟/ }), { factsOnly: true, closingAsked: true, heard: true, id: 'revision-1' });
 });
 
 test('natural: talking over the facts still means the summary was not heard, and its question is dropped', async () => {

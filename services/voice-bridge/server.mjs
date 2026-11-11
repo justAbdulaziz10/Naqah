@@ -73,7 +73,7 @@ function summaryWords(value) {
 }
 
 /**
- * A natural call's summary ends on its question («أحفظه، ولا تبي تعدل شي؟»). Spoken apart, the facts count as heard
+ * A natural call's summary ends on its question («أحفظه؟»). Spoken apart, the facts count as heard
  * once they have played, so a worker answering the question as soon as they understand it has still heard them.
  */
 function splitClosing(text) {

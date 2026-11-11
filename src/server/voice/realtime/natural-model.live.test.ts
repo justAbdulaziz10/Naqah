@@ -85,6 +85,15 @@ const CASES: Case[] = [
     if (!said) return "no custom text";
     return /كشف|إبرة|ابرة|علاج|دواء|فحص/u.test(said) ? `added words: «${said}»` : null;
   } },
+  // 12 Nov, after call b8fd64: the summary ends on «أحفظه؟». A plain «لا» asks what to change; a plain yes saves; the
+  // same answers handed over again are 'unchanged' and the summary is never read twice.
+  { id: "28-la-shukran", locale: "ar", must: true, lines: [...FULL("باقي عشرين كيس", "لا ما فيه شي"), "لا شكرا"], check: all(noConfirm, noSaveClaim,
+    (run) => (named(run, "end_call").length ? "ended on a plain «لا»" : null), (run) => (run.summaries.length === 1 ? null : `summary read ${run.summaries.length} times`),
+    (run) => (/(نعدل|تعدل|تغيّر|تغير|تصحح|نصحح)/u.test(run.said.at(-1) ?? "") ? null : "did not ask what to change")) },
+  { id: "29-tamam-saves", locale: "ar", must: true, lines: [...FULL("باقي عشرين كيس", "لا ما فيه شي"), "تمام"], check: all(
+    (run) => (named(run, "confirm_report").length ? null : "no confirm_report on «تمام»"), (run) => (run.summaries.length === 1 ? null : `summary read ${run.summaries.length} times`)) },
+  { id: "30-same-again", locale: "ar", must: false, lines: [...FULL("باقي عشرين كيس", "لا ما فيه شي"), "يعني العلف عشرين كيس، صح كذا", "إيه احفظ"], check: all(
+    (run) => (run.summaries.length === 1 ? null : `summary read ${run.summaries.length} times`), (run) => (named(run, "confirm_report").length ? null : "no confirm_report")) },
   { id: "25-dont-save", locale: "ar", must: false, prior: AT_FEED, lines: ["تراني بلغت المعزب، لا تسجل شي"], check: all(noConfirm, noSaveClaim, (run) => (named(run, "end_call").length ? null : "no end_call")) },
   // English versions of the key cases.
   { id: "1-weather-en", locale: "en", must: false, prior: AT_FEED_EN, lines: ["Will it rain tomorrow?"], check: all(noTools, offTopic, asksBack) },
@@ -121,7 +130,10 @@ function play(entry: Case): Promise<Run> {
     let again = true;
     if (call.name === "submit_report") {
       const replayed = replayAnswers(session, ws, NOW, call.args, { urgentNote, feedUnitAsked });
-      if (replayed.ok) {
+      // As the server does: the same summary as the one already read is not read again.
+      if (replayed.ok && run.summaries.at(-1) === replayed.session.turns.at(-1)!.text[entry.locale]) {
+        output = { status: "unchanged", message: "Nothing changed. If the worker agreed, call confirm_report; otherwise ask briefly what to change. Do not read the summary again." };
+      } else if (replayed.ok) {
         const summary = replayed.session.turns.at(-1)!.text[entry.locale];
         output = { status: "ok", message: "The system reads the summary to the worker now, word for word." };
         send({ type: "conversation.item.create", item: { type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) } });
@@ -129,9 +141,10 @@ function play(entry: Case): Promise<Run> {
         run.summaryRead = true;
         run.summaries.push(summary);
         return false;
+      } else {
+        if (!replayed.ok && replayed.error === "unit_missing") feedUnitAsked = true;
+        output = replayed.ok ? {} : { status: "invalid", error: replayed.error, questions: replayed.questions, message: "Nothing was recorded. Ask the worker about these questions, briefly, then call submit_report again with every answer." };
       }
-      if (replayed.error === "unit_missing") feedUnitAsked = true;
-      output = { status: "invalid", error: replayed.error, questions: replayed.questions, message: "Nothing was recorded. Ask the worker about these questions, briefly, then call submit_report again with every answer." };
     } else if (call.name === "confirm_report") {
       output = run.summaryRead ? { status: "saved" } : { status: "invalid", error: "no_summary_yet", message: "Nothing was saved. Finish the questions first." };
       ended = run.summaryRead;

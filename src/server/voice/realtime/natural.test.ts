@@ -27,9 +27,10 @@ function answers(session: ReturnType<typeof base>["session"]) {
 }
 
 describe("the natural call", () => {
-  it("opens in Saudi Arabic with the worker's and the ranch's names, and asks about the herd", () => {
+  it("opens short and warm in Saudi Arabic, says it is NAQAH's automated assistant, and asks one question", () => {
     const { ws } = base();
-    expect(naturalOpening(ws, "ar")).toBe("السلام عليكم يا أحمد، معك ناقة، المساعد الآلي لعزبة الوسم. بتطمن على الحلال اليوم. بشّر، كيف الحلال؟");
+    expect(naturalOpening(ws, "ar")).toBe("هلا والله يا أحمد، معك ناقة، المساعد الآلي لعزبة الوسم. بشّر، كيف الحلال اليوم؟");
+    expect(naturalOpening(ws, "en")).toBe("Hello أحمد, this is NAQAH, the automated assistant for عزبة الوسم. How are the camels today?");
   });
 
   it("gives the model every configured question, the camel names and only four tools", () => {
@@ -45,14 +46,17 @@ describe("the natural call", () => {
     expect(naturalTools(session, ws).map((entry) => entry.name)).toEqual(["submit_report", "confirm_report", "flag_urgent", "end_call"]);
   });
 
-  it("replays the answers through the engine to its own summary", () => {
+  it("replays the answers through the engine to a short summary in everyday words, ending on a plain «أحفظه؟»", () => {
     const { ws, session } = base();
     const replayed = replayAnswers(session, ws, NOW, { answers: answers(session) });
     expect(replayed.ok).toBe(true);
     if (!replayed.ok) return;
     expect(replayed.session.step).toBe("report_summary");
-    const summary = replayed.session.turns.at(-1)!.text.ar;
-    for (const fact of ["مزون للحين تعبانة", "وضحة ما تاكل زين", "الباقي بخير", "العلف: 25 كيس", "الماء: كافٍ", "الشبك والسياج: سليم", "فيه شي ثاني تبي تبلغ عنه، قلت: الماسورة تسرب شوي", "أحفظه، ولا تبي تعدل شي؟"]) expect(summary).toContain(fact);
+    const summary = replayed.session.turns.at(-1)!.text;
+    expect(summary.ar).toBe("هذا اللي فهمته: مزون للحين تعبانة ووضحة ما تاكل زين والباقي بخير، العلف 25 كيس، الماي كافي، ما فيه شي خربان، ذكرت: الماسورة تسرب شوي، والمهمة خلصت. أحفظه؟");
+    expect(summary.en).toBe("Here's what I got: مزون للحين تعبانة, وضحة ما تاكل زين, the rest are well, feed: 25 bags, water is enough, nothing is broken, you also mentioned: الماسورة تسرب شوي, and the task is done. Shall I save it?");
+    // The stored report keeps the engine's own wording: only what is spoken is shorter.
+    expect(replayed.session.draft.answers.find((entry) => entry.questionId === "feed_level")?.answerText?.ar).toBe("25 كيس");
     const health = Object.fromEntries(replayed.session.draft.camelUpdates.map((update) => [ws.camels.find((camel) => camel.id === update.camelId)?.name, update.health]));
     expect(health).toMatchObject({ مزون: "sick", وضحة: "watch", شيخة: "healthy" });
   });
@@ -91,14 +95,14 @@ describe("the natural call", () => {
     const second = replayAnswers(session, ws, NOW, { answers: corrected });
     expect(first.ok && second.ok).toBe(true);
     if (!second.ok) return;
-    expect(second.session.turns.at(-1)!.text.ar).toContain("العلف: 30 كيس");
+    expect(second.session.turns.at(-1)!.text.ar).toContain("العلف 30 كيس");
     expect(second.session.turns.at(-1)!.text.ar).not.toContain("25 كيس");
   });
 
   it("keeps an urgent concern in the read-back", () => {
     const { ws, session } = base();
     const replayed = replayAnswers(session, ws, NOW, { answers: answers(session) }, { urgentNote: "مزون طايحة ما تقوم" });
-    expect(replayed.ok && replayed.session.turns.at(-1)!.text.ar).toContain("أمر عاجل ذكرته: مزون طايحة ما تقوم");
+    expect(replayed.ok && replayed.session.turns.at(-1)!.text.ar).toContain("الأمر العاجل اللي ذكرته: مزون طايحة ما تقوم");
   });
 
   it("saves only through the engine's confirmation after the read-back", () => {

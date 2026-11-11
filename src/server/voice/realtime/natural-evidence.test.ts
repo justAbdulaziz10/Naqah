@@ -146,7 +146,7 @@ describe("the herd count on record (A5) and the worker's own words (A4)", () => 
     expect(JSON.stringify(naturalTools(base, ws)[0])).toContain("The worker's own words as said, nothing added.");
   });
 
-  it("reads the shortfall right after the count, in the engine's own words", () => {
+  it("reads the shortfall right after the count", () => {
     const { ws, base } = ranch(["herd_health", "herd_count", "feed_level"], ["vet"]);
     const replayed = replayAnswers(base, ws, NOW, { answers: [
       { question_id: "herd_health", value: "yes" }, { question_id: "herd_count", number: 18, missing: "مزون ما رجعت" },
@@ -155,9 +155,9 @@ describe("the herd count on record (A5) and the worker's own words (A4)", () => 
     expect(replayed.ok).toBe(true);
     if (!replayed.ok) return;
     const summary = replayed.session.turns.at(-1)!.text;
-    expect(summary.ar).toContain("18 من الحلال — مزون ما رجعت، الحلال غير مكتمل العدد، العلف: كافٍ");
-    expect(summary.ar.match(/غير مكتمل العدد/gu)).toHaveLength(1);
-    expect(summary.en).toContain("18 camels — مزون ما رجعت; not all camels are accounted for; Feed");
+    expect(summary.ar).toContain("18 من الحلال — مزون ما رجعت، والعدد ناقص، العلف كافي");
+    expect(summary.ar.match(/العدد ناقص/gu)).toHaveLength(1);
+    expect(summary.en).toContain("18 camels — مزون ما رجعت, so some are missing, feed is enough");
     expect(replayed.session.draft.herdAccountedFor).toBe(false);
   });
 });

@@ -4,7 +4,7 @@
  * position is kept in last_response, so a failure at any moment resumes the call by script.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { answer, resumeOpenAsGuided, type CallSession } from "@/domain/conversation/engine";
+import { answer, reportSummaryId, resumeOpenAsGuided, type CallSession } from "@/domain/conversation/engine";
 import type { Locale, Workspace } from "@/domain/types";
 import { loadFarm, requireFarm } from "@/server/db/queries";
 import { readVoiceSession, type VoiceSessionRow } from "@/server/db/voice-sessions";
@@ -218,7 +218,9 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
     const natural = Boolean(realtime.naturalBase) && !owner;
     const result = natural && plan.outcome === "retry_save"
       ? { output: stringify({ status: "save_not_confirmed", say: SAVE_AGAIN[row.locale], message: "The save could not be confirmed. Tell the worker that briefly in your own words and ask for their yes once more. Do not say anything was saved." }), awaitingConfirmation: true, end: null, goodbye: null, continue: true as const }
-      : natural ? naturalize(spoken, row.locale) : spoken;
+      // Only a save the database confirmed is said as saved, in the natural call's own Saudi goodbye.
+      : natural && plan.outcome === "saved" ? { ...spoken, goodbye: NATURAL_SAVED[row.locale] }
+        : natural ? naturalize(spoken, row.locale) : spoken;
     const stored = withRealtime(plan.session, rememberResult(nextRealtime, body.toolCallId, result, plan.session.done));
     const saved = await advanceRow(client, row, stored, plan.misses, plan.response, plan.onAdvanced, true);
     if (plan.session.done) forgetCallWorkspace(ticket.sid);
@@ -282,9 +284,22 @@ async function submitNatural(client: SupabaseClient, row: VoiceSessionRow, realt
     logTool(body.callSid, "submit_report", "check:" + [...new Set(doubts.map((doubt) => doubt.reason))].join("+"), Date.now() - started);
     return kept ? result : fallbackResult();
   }
+  // The same answers as the summary already read: nothing is read again and the summary, its id and anything heard of
+  // it stay as they are. A yes still has to come through confirm_report against that summary.
+  if (row.session.step === "report_summary" && sameSummary(row.session, replayed.session, row.locale)) {
+    const current = reportSummaryId(row.session, row.locale);
+    const result: ToolResponse = {
+      output: stringify({ status: "unchanged", message: "Nothing changed. If the worker agreed, call confirm_report; otherwise ask briefly what to change. Do not read the summary again." }),
+      awaitingConfirmation: true, end: null, goodbye: null, continue: true,
+    };
+    const heard = body.heardSummaryId === current ? { ...realtime, summaryHeardId: current } : realtime;
+    const kept = await recordRealtimeResult(client, row, rememberResult(heard, body.toolCallId, result, false));
+    logTool(body.callSid, "submit_report", "unchanged", Date.now() - started);
+    return kept ? result : fallbackResult();
+  }
   const session = { ...replayed.session, data: { ...replayed.session.data, draftRevision: (row.session.data.draftRevision ?? 0) + 1 } } as VoiceCallSession;
   const summary = promptResult(session, workspace, row.locale, "ok", undefined, "", undefined, false, spokenFrom(session, session.turns.length - 1, workspace, row.locale));
-  const result: ToolResponse = { ...summary, repromptText: row.locale === "ar" ? "أحفظ التحديث، ولا تبي تعدل شي؟" : "Shall I save the update, or would you like to correct something?" };
+  const result: ToolResponse = { ...summary, repromptText: SAVE_IT[row.locale] };
   const stored = withRealtime(session, rememberResult(realtime, body.toolCallId, result, false));
   const response = respond(session, session.turns.length - 1, workspace, row.locale, row.seq + 1);
   const saved = await advanceRow(client, row, stored, row.misses, response, undefined, true);
@@ -292,8 +307,15 @@ async function submitNatural(client: SupabaseClient, row: VoiceSessionRow, realt
   return saved ? result : fallbackResult();
 }
 
+/** Same words, same draft: the summary the worker would hear is the one already read. */
+function sameSummary(current: CallSession, next: CallSession, locale: Locale): boolean {
+  const said = (session: CallSession) => [...session.turns].reverse().find((turn) => turn.speaker === "agent")?.text[locale];
+  return said(current) !== undefined && said(current) === said(next) && JSON.stringify(current.draft) === JSON.stringify(next.draft);
+}
+
+const SAVE_IT: Record<Locale, string> = { ar: "أحفظه؟", en: "Shall I save it?" };
 const SAVE_AGAIN: Record<Locale, string> = { ar: "ما قدرت أتأكد من الحفظ. أحفظه مرة ثانية؟", en: "I couldn't confirm the save. Shall I save it again?" };
-const NATURAL_SAVED: Record<Locale, string> = { ar: "انحفظ التحديث. يعطيك العافية، مع السلامة.", en: "Your update is saved. Thank you, goodbye." };
+const NATURAL_SAVED: Record<Locale, string> = { ar: "انحفظ، الله يعطيك العافية. مع السلامة.", en: "It's saved. Thank you, goodbye." };
 
 const NATURAL_SORRY: Record<Locale, string> = {
   ar: "معليش، صار عندنا خلل في الاتصال. ما انحفظ شي. مع السلامة.",

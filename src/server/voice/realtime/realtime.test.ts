@@ -1253,8 +1253,8 @@ describe("the natural call (local presentation style)", () => {
   it("opens one natural conversation: own words, four tools, no keypad", async () => {
     const { opened } = await openNatural();
     expect(opened.style).toBe("natural");
-    expect(opened.opening).toMatch(/^السلام عليكم يا .+، معك ناقة، المساعد الآلي/);
-    expect(opened.opening).toContain("بشّر، كيف الحلال؟");
+    expect(opened.opening).toMatch(/^هلا والله يا .+، معك ناقة، المساعد الآلي/);
+    expect(opened.opening).toContain("بشّر، كيف الحلال اليوم؟");
     expect(opened.tools.map((item: { name: string }) => item.name)).toEqual(["submit_report", "confirm_report", "flag_urgent", "end_call"]);
     expect(opened.instructions).toContain("لا تعيد سؤال انجاوب");
   });
@@ -1265,13 +1265,14 @@ describe("the natural call (local presentation style)", () => {
     const farm = answeredFarm();
     const submitted = await tool(ticket, "submit_report", { answers: handOver(base.data.queue ?? [], farm.settings.herdCount ?? farm.camels.length) }, { workerUtterance: "إيه هذا كل شي" });
     expect(submitted.status).toBe(200);
-    expect(submitted.result.summaryText).toContain("هذا ملخص التحديث");
+    expect(submitted.result.summaryText).toMatch(/^هذا اللي فهمته: .*\. أحفظه؟$/u);
+    expect(submitted.result.repromptText).toBe("أحفظه؟");
     expect(submitted.result.summaryId).toBe(reportSummaryId(row().session, "ar"));
     expect(mock.save).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), expect.objectContaining({ type: "worker_report" }), expect.anything());
     const saved = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "إيه احفظه", heardSummary: true, heardSummaryId: submitted.result.summaryId });
     expect(saved.output.status).toBe("saved");
     expect(saved.result.end).toBe("hangup");
-    expect(saved.result.goodbye).toContain("مع السلامة");
+    expect(saved.result.goodbye).toBe("انحفظ، الله يعطيك العافية. مع السلامة.");
   });
 
   async function readSummary(ticket: string) {
@@ -1358,6 +1359,65 @@ describe("the natural call (local presentation style)", () => {
     await readSummary(ticket);
     const corrected = await tool(ticket, "submit_report", { answers: handOver(base.data.queue ?? [], herd + 3) }, { workerUtterance: "لا العدد غلط", workerTranscripts: ["ما فيه شي جديد", "لا العدد غلط"] });
     expect(corrected.result.summaryText).toContain(`${herd + 3} من الحلال`);
+  });
+
+  it("never reads the same summary twice: an identical hand-over is 'unchanged', and the first summary still saves", async () => {
+    const { ticket } = await openNatural();
+    const submitted = await readSummary(ticket);
+    const id = submitted.result.summaryId;
+    const again = await readSummary(ticket);
+    expect(again.output.status).toBe("unchanged");
+    expect(again.output.message).toContain("Nothing changed. If the worker agreed, call confirm_report; otherwise ask briefly what to change.");
+    expect(again.result).toMatchObject({ continue: true, end: null });
+    expect(again.result.summaryText).toBeUndefined();
+    expect(again.result.sayText).toBeUndefined();
+    expect(reportSummaryId(row().session, "ar")).toBe(id);
+    const saved = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "تمام", heardSummary: true, heardSummaryId: id });
+    expect(saved.output.status).toBe("saved");
+    expect(mock.save.mock.calls.filter((call) => call[3]?.type === "worker_report")).toHaveLength(1);
+  });
+
+  it("a hand-over that changes an answer is read in full once, and only its new summary can be confirmed", async () => {
+    const { ticket } = await openNatural();
+    const base = realtimeOf(row().session)!.naturalBase!;
+    const herd = answeredFarm().settings.herdCount ?? answeredFarm().camels.length;
+    const first = await readSummary(ticket);
+    const changed = await tool(ticket, "submit_report", { answers: handOver(base.data.queue ?? [], herd + 2) }, { workerUtterance: "لا العدد غلط", workerTranscripts: ["لا العدد غلط"] });
+    expect(changed.result.summaryText).toContain(`${herd + 2} من الحلال`);
+    expect(changed.result.summaryId).not.toBe(first.result.summaryId);
+    const stale = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "تمام", heardSummary: true, heardSummaryId: first.result.summaryId });
+    expect(stale.output.status).not.toBe("saved");
+    const saved = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "تمام", heardSummary: true, heardSummaryId: changed.result.summaryId });
+    expect(saved.output.status).toBe("saved");
+  });
+
+  /**
+   * Call b8fd64 (11 Nov), its ending as the new rules take it. Then: a 24-second summary the worker talked over twice at
+   * its question-sounding «فيه شي ثاني تبي تبلغ عنه» line, so it was read three times. Now the summary is short, has no
+   * question before «أحفظه؟», and is read once; «لا شكرا… احفظ» and «لا» ask what to change; «أحفظ» saves, once.
+   */
+  it("call b8fd64's ending: one summary read, «لا» asks what to change, «أحفظ» saves once", async () => {
+    const { ticket } = await openNatural();
+    const submitted = await readSummary(ticket);
+    const heard = { heardSummary: true, heardSummaryId: submitted.result.summaryId };
+    expect(submitted.result.summaryText).not.toMatch(/فيه شي ثاني|ولا تبي تعدل/u);
+    expect(submitted.result.summaryText.match(/[?؟]/gu)).toEqual(["؟"]);
+    expect(submitted.result.summaryText).toMatch(/أحفظه؟$/u);
+    const reads = [submitted.result.summaryText];
+    const steps = [
+      await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "لا شكرا احفظ.", ...heard }),
+      await readSummary(ticket),
+      await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "لا", ...heard }),
+      await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "أحفظ.", ...heard }),
+    ];
+    for (const step of steps) if (step.result.summaryText) reads.push(step.result.summaryText);
+    expect(reads).toHaveLength(1);
+    expect(JSON.parse(steps[0].result.output).say).toContain("وش تبي نعدل؟");
+    expect(steps[1].output.status).toBe("unchanged");
+    expect(JSON.parse(steps[2].result.output).say).toContain("وش تبي نعدل؟");
+    expect(steps[3].output.status).toBe("saved");
+    expect(steps[3].result.goodbye).toBe("انحفظ، الله يعطيك العافية. مع السلامة.");
+    expect(mock.save.mock.calls.filter((call) => call[3]?.type === "worker_report")).toHaveLength(1);
   });
 
   it("accepts the worker's transcripts only as a short list of plain strings", async () => {
