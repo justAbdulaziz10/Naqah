@@ -203,7 +203,12 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
       plan = endedPlan(row, session);
     }
     const spoken = decision.kind === "stay" ? decision.result : resultOf(plan, session, workspace, row.locale, decision.kind === "apply" ? decision.prefix : "", owner);
-    const result = realtime.naturalBase && !owner ? naturalize(spoken, row.locale) : spoken;
+    // A natural call has no keypad script to resume: a save that couldn't be confirmed is retried once by asking
+    // for the yes again, as a guided call does; a second failure ends with the honest «ما قدرت أتأكد من حفظ شيء».
+    const natural = Boolean(realtime.naturalBase) && !owner;
+    const result = natural && plan.outcome === "retry_save"
+      ? { output: stringify({ status: "save_not_confirmed", say: SAVE_AGAIN[row.locale], message: "The save could not be confirmed. Tell the worker that briefly in your own words and ask for their yes once more. Do not say anything was saved." }), awaitingConfirmation: true, end: null, goodbye: null, continue: true as const }
+      : natural ? naturalize(spoken, row.locale) : spoken;
     const stored = withRealtime(plan.session, rememberResult(nextRealtime, body.toolCallId, result, plan.session.done));
     const saved = await advanceRow(client, row, stored, plan.misses, plan.response, plan.onAdvanced, true);
     if (plan.session.done) forgetCallWorkspace(ticket.sid);
@@ -249,6 +254,9 @@ async function submitNatural(client: SupabaseClient, row: VoiceSessionRow, realt
   return saved ? result : fallbackResult();
 }
 
+const SAVE_AGAIN: Record<Locale, string> = { ar: "ما قدرت أتأكد من الحفظ. أحفظه مرة ثانية؟", en: "I couldn't confirm the save. Shall I save it again?" };
+const NATURAL_SAVED: Record<Locale, string> = { ar: "انحفظ التحديث. يعطيك العافية، مع السلامة.", en: "Your update is saved. Thank you, goodbye." };
+
 const NATURAL_SORRY: Record<Locale, string> = {
   ar: "معليش، صار عندنا خلل في الاتصال. ما انحفظ شي. مع السلامة.",
   en: "Sorry, the call ran into a problem. Nothing was saved. Goodbye.",
@@ -272,7 +280,10 @@ export async function afterRealtimeCall(client: SupabaseClient, input: { token: 
     if (row.session.done || !realtime || realtime.fallbackPrepared) return row.last_response;
     // A natural call has no keypad script to fall back to: a short apology, nothing saved.
     if (realtime.naturalBase && row.party !== "owner") {
-      const goodbye = twimlGoodbye(row.locale, NATURAL_SORRY[row.locale]);
+      // Said only after checking: a report that did land is never called lost.
+      const { workspace: latest } = requireFarm(await loadFarm(client, { id: row.farm_id }));
+      const savedReport = latest.reportCalls?.some((run) => run.id === row.session.data.reportCallId && run.reportId);
+      const goodbye = twimlGoodbye(row.locale, (savedReport ? NATURAL_SAVED : NATURAL_SORRY)[row.locale]);
       const ended = await advanceRow(client, row, withRealtime({ ...row.session, done: true }, { ...realtime, closed: true, fallbackPrepared: true }), row.misses, goodbye);
       if (ended) return goodbye;
       continue;

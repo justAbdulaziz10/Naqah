@@ -1302,6 +1302,25 @@ describe("the natural call (local presentation style)", () => {
     expect(after).not.toContain("معليش");
   });
 
+  it("a save that fails asks once more, then ends honestly, never blaming the connection", async () => {
+    const { ticket } = await openNatural();
+    const submitted = await readSummary(ticket);
+    mock.save.mockImplementation(async (_client: unknown, _farm: unknown, _party: unknown, event: { type?: string }) => {
+      if (event?.type === "worker_report") throw new Error("database unavailable");
+      return { status: "saved" };
+    });
+    const heard = { heardSummary: true, heardSummaryId: submitted.result.summaryId };
+    const first = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "إيه احفظه", ...heard });
+    expect(first.output.status).toBe("save_not_confirmed");
+    expect(first.result.continue).toBe(true);
+    expect(first.result.end).toBeNull();
+    const second = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "إيه احفظه", ...heard });
+    expect(second.output.status).toBe("save_failed");
+    expect(second.result.end).toBe("hangup");
+    expect(second.result.goodbye).toContain("ما قدرت أتأكد من حفظ شيء");
+    expect(second.result.goodbye).not.toContain("الاتصال");
+  });
+
   it("asks the model to get missing answers instead of saving a partial report", async () => {
     const { ticket } = await openNatural();
     const result = await tool(ticket, "submit_report", { answers: [] }, { workerUtterance: "خلاص" });
