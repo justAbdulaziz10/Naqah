@@ -284,7 +284,8 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
         await sleep(100);
       }
       summaryMarks = marks("summary-");
-      summary.readInFull = upstream.spoken.includes(summary.text);
+      // A natural summary is spoken as its facts, then the closing question as a second line.
+      summary.readInFull = upstream.spoken.includes(summary.text) || upstream.spoken.some((line, index) => `${line} ${upstream.spoken[index + 1] ?? ""}`.trim() === summary.text);
       call.scenarioLog.summaries.push(summary);
       call.summary = summary;
       if (!last) answers = build(corrections[round].answers);

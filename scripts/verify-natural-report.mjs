@@ -246,7 +246,8 @@ function callBasics(call, enabledOther) {
   check("the mock call finished without a harness error", call.finished === true && !call.error, call.error);
   check("natural mode: the model was given tool_choice auto and the four natural tools", call.provider?.sessionUpdate?.tool_choice === "auto"
     && JSON.stringify((call.provider.sessionUpdate.tools ?? []).map((tool) => tool.name)) === JSON.stringify(["submit_report", "confirm_report", "flag_urgent", "end_call"]), call.provider?.sessionUpdate?.tools?.map((tool) => tool.name));
-  const asked = (call.scenarioLog?.asked ?? []).map((item) => item.id);
+  // An open task joins the call once it is due (the presentation ranch's «اعزل مزون…»), so tasks are not topics here.
+  const asked = (call.scenarioLog?.asked ?? []).filter((item) => item.kind !== "task").map((item) => item.id);
   check("only the ranch's enabled topics were queued (herd health, feed, water, fences, «فيه شي ثاني»)",
     JSON.stringify(asked.filter((id) => !id.startsWith("open_note_"))) === JSON.stringify(["herd_health", "feed_level", "water_level", "fences_condition", enabledOther]), call.scenarioLog?.asked);
   const instructions = call.provider?.sessionUpdate?.instructions ?? "";
@@ -670,7 +671,7 @@ async function scenarioNumberChange(browser) {
     const call = state.calls[0];
     writeFileSync(join(OUT, "natural-number-change-call.json"), JSON.stringify(call, null, 2));
     check("d. the natural call ran: submit_report then confirm_report saved", call.finished && !call.error && JSON.stringify(call.toolResults.map((entry) => entry.name)) === JSON.stringify(["submit_report", "confirm_report"]) && call.confirm?.output?.status === "saved", { error: call.error, tools: call.toolResults?.map((entry) => entry.name), confirm: call.confirm?.output });
-    check("d. only the ranch's enabled topics were asked", JSON.stringify((call.scenarioLog?.asked ?? []).map((item) => item.id).filter((id) => !id.startsWith("open_note_"))) === JSON.stringify(["herd_health", "feed_level", "water_level", "fences_condition", plan.other]));
+    check("d. only the ranch's enabled topics were asked", JSON.stringify((call.scenarioLog?.asked ?? []).filter((item) => item.kind !== "task").map((item) => item.id).filter((id) => !id.startsWith("open_note_"))) === JSON.stringify(["herd_health", "feed_level", "water_level", "fences_condition", plan.other]));
     const runRow = run(farm);
     evidence("dRun", runRow);
     check("d. exactly ONE new report, run completed, manual, linked", counts(farm).reports === reportsBefore + 1 && runRow?.state === "completed" && runRow.trigger === "manual" && Boolean(runRow.report_id), { reports: counts(farm).reports, reportsBefore, runRow });
