@@ -161,4 +161,14 @@ describe("the natural call", () => {
       expect(kept.ok && kept.session.draft.resourceUpdates.find((update) => update.kind === "feed")).toMatchObject({ quantity: `${feed.number} (الوحدة غير محددة)` });
     }
   });
+
+  it("says the unit as a Saudi would: «4 أكياس», but «20 كيس» (call 02d1b8: «أربع كيس»)", () => {
+    const { ws, session } = base();
+    for (const [number, said, expected] of [[4, "كيس", "4 أكياس"], [20, "كيس", "20 كيس"], [5, "بالة", "5 بالات"]] as const) {
+      const given = answers(session).map((entry) => (entry.question_id === "feed_level" ? { question_id: "feed_level", number, unit: said } : entry));
+      const replayed = replayAnswers(session, ws, NOW, { answers: given });
+      expect(replayed.ok && replayed.session.draft.resourceUpdates.find((update) => update.kind === "feed")?.quantity).toBe(expected);
+    }
+    expect(buildNaturalInstructions(session, ws, "ar")).toContain("«أربعة أكياس»");
+  });
 });

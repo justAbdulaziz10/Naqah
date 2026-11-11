@@ -76,6 +76,12 @@ function summaryWords(value) {
  * A natural call's summary ends on its question («أحفظه؟»). Spoken apart, the facts count as heard
  * once they have played, so a worker answering the question as soon as they understand it has still heard them.
  */
+/**
+ * How long a natural call waits after the worker stops talking before it answers. 700 ms (guided) felt slow on the
+ * 11 Nov calls (about 1.7 s per turn); a worker who pauses mid-sentence can still talk over the reply (barge-in).
+ */
+const NATURAL_SILENCE_MS = 500;
+
 function splitClosing(text) {
   const end = text.lastIndexOf('. ');
   if (end < 1) return null;
@@ -417,7 +423,7 @@ class CallStream {
                 transcription: { model: 'gpt-4o-transcribe', language: this.session.locale },
                 turn_detection: {
                   type: 'server_vad', threshold: 0.5, prefix_padding_ms: 300,
-                  silence_duration_ms: 700, create_response: false, interrupt_response: false,
+                  silence_duration_ms: this.natural ? NATURAL_SILENCE_MS : 700, create_response: false, interrupt_response: false,
                 },
               },
               output: { format: { type: 'audio/pcmu' }, voice: this.config.voice ?? 'marin' },

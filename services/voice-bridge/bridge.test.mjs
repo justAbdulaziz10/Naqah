@@ -327,6 +327,16 @@ test('session fetch and provider connection run side by side; nothing is sent un
   } finally { await state.close(); }
 });
 
+test('a natural call answers after 500 ms of silence, not 700', async () => {
+  const state = await fixture({ session: { style: 'natural' } });
+  try {
+    const { socket } = await state.connect();
+    await state.ready(socket);
+    const input = state.providerEvents.find((event) => event.type === 'session.update').session.audio.input;
+    assert.equal(input.turn_detection.silence_duration_ms, 500);
+  } finally { await state.close(); }
+});
+
 test('input transcription carries no hint, phone noise is filtered and VAD waits 700 ms', async () => {
   const state = await fixture();
   try {

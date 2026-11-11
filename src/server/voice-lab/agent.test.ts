@@ -450,7 +450,8 @@ describe("Voice Lab stays in step with the phone call", () => {
   const loop = readFileSync("src/components/voice-lab/turnLoop.ts", "utf8");
 
   it.each(["threshold: 0.5", "prefix_padding_ms: 300", "silence_duration_ms: 700", "create_response: false", "interrupt_response: false"])("matches the bridge's VAD setting %s", (setting) => {
-    expect(bridge).toContain(setting);
+    // The guided call's 700 ms; a natural phone call answers sooner (NATURAL_SILENCE_MS).
+    expect(bridge.replace("this.natural ? NATURAL_SILENCE_MS : 700", "700")).toContain(setting);
     expect(lab).toContain(setting);
   });
 

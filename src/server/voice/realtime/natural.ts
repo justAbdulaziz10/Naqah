@@ -10,6 +10,7 @@ import { makePersonalizer } from "@/domain/conversation/personalize";
 import { isHerdCount } from "@/domain/herd";
 import type { HealthStatus, Level, Locale, ResourceKind, Workspace } from "@/domain/types";
 import { camelNameKey, namedCamels, numbersSaid, wordBacking } from "../speech";
+import { countedUnit } from "./counted-unit";
 import { naturalGuardrails } from "./natural-guardrails";
 import { object, tool } from "./tools";
 import type { ToolResponse } from "./state";
@@ -128,7 +129,7 @@ export function buildNaturalInstructions(base: CallSession, ws: Workspace, local
     "اسأل الأسئلة بنفس الكلمات القصيرة اللي تحت، بدون شرح أو خيارات إلا إذا ما فهم.",
     "«يكفي» و«كافي» = good. «ناقص شوي» و«باقي شوي» و«قليل» = low. «خلص» و«ما بقى شي» = critical. ما تعرف الكمية = unknown.",
     "أجوبة أسئلة صاحب العزبة: انقل كلام العامل نفسه زي ما قاله، ولا تزيد كلمة ما قالها.",
-    "إذا قال كمية برقم مثل «باقي 25 كيس» أو «عندنا 10 بالات»: number بالرقم وunit بكلمته نفسها (كيس، بالات). لا تخترع رقم ولا وحدة ما قالها.",
+    "إذا قال كمية برقم مثل «باقي 25 كيس» أو «عندنا 10 بالات»: number بالرقم وunit بكلمته نفسها (كيس، بالات). لا تخترع رقم ولا وحدة ما قالها. لما تعيد الكمية: من 3 إلى 10 بالجمع («أربعة أكياس»، «خمس بالات»)، و11 وفوق بالمفرد («عشرين كيس»).",
     "إذا قال رقم العلف بدون وحدة («باقي 25»)، اسأله سؤال قصير: «25 إيش؟ أكياس ولا بالات؟». إذا ما يدري، unit: unknown.",
     "«فيه شي خربان؟» عن الشبك: إذا قال ما فيه شي خربان = good. إذا الخربان هو الشبك = low (أو critical إذا كبير). إذا الخربان شي ثاني غير الشبك، سجّل الشبك unknown واذكر الشي الخربان في جواب «فيه شي ثاني» بكلامه.",
     "«سلامتها» بس لناقة تعبانة، مو للعلف أو الماي.",
@@ -230,7 +231,7 @@ export function replayAnswers(base: CallSession, ws: Workspace, now: Date, args:
       }
       if (typeof entry.number === "number" && entry.number >= 0 && item.kind === "predefined" && (item.resource === "feed" || item.resource === "water")) {
         const unknownUnit = UNKNOWN_UNIT.test(clean(entry.unit, 20));
-        const unit = unknownUnit ? "" : unitOf(entry.unit);
+        const unit = unknownUnit ? "" : countedUnit(entry.number, unitOf(entry.unit));
         // A feed amount with no unit: ask once; «ما يدري» or a second hand-over without one keeps the number alone.
         if (item.resource === "feed" && !unit && !unknownUnit && !feedUnitAsked) unitMissing.push(id);
         step({ text: [String(entry.number), unit].filter(Boolean).join(" ") });
@@ -448,7 +449,7 @@ export function doubtfulAnswers(base: CallSession, ws: Workspace, args: unknown,
     if (entry.value === "unknown") continue;
     if (said && typeof entry.number === "number") {
       const reason = !heard.has(entry.number) ? "number_not_heard" : stray.size ? "other_number_heard" : null;
-      const unit = id === "herd_count" ? (ar ? "راس" : "camels") : unitOf(entry.unit);
+      const unit = id === "herd_count" ? (ar ? "راس" : "camels") : countedUnit(entry.number, unitOf(entry.unit));
       if (reason) doubts.push({ key: `${id}:number`, questionId: id, reason, line: [String(entry.number), unit].filter(Boolean).join(" ") });
     }
     if (item.kind === "predefined" && item.answerKind === "herd-health") {
