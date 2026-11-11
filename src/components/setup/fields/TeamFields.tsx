@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash } from "@phosphor-icons/react";
+import { CheckCircle, Plus, Trash } from "@phosphor-icons/react";
 import { useState } from "react";
 import { WORKER_LANGUAGES } from "@/domain/catalog";
 import { isHerdCount } from "@/domain/herd";
@@ -48,18 +48,23 @@ function ConfirmedPhone({ label, name, value, onSave }: { label: string; name: s
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
-  const button = "inline-flex min-h-11 items-center rounded-full px-5 font-semibold transition";
+  const button = "naqah-press inline-flex min-h-11 items-center rounded-full px-5 font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown";
   if (draft === null) {
     return (
       <div>
         <p className="mb-2 text-[0.9375rem] font-semibold text-espresso">{label}</p>
         <div className="flex min-h-14 flex-wrap items-center gap-x-4 gap-y-2">
           <span dir="ltr" className="ltr-nums text-[1.0625rem] text-espresso">{value ? formatSaudiMobile(value) : "—"}</span>
-          <button type="button" onClick={() => { setDraft(value); setSaved(false); setConsent(false); setFailed(null); }} className="min-h-11 font-semibold text-brown underline decoration-sand underline-offset-4">
+          <button type="button" onClick={() => { setDraft(value); setSaved(false); setConsent(false); setFailed(null); }} className="min-h-11 font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown">
             {s.phoneChange}
           </button>
         </div>
-        {saved ? <p role="status" className="mt-1 text-[0.9375rem] text-ok">{s.phoneSaved}</p> : null}
+        {saved ? (
+          <p role="status" className="mt-1 flex items-start gap-1.5 text-[0.9375rem] font-medium text-ok">
+            <CheckCircle size={18} weight="fill" className="naqah-done mt-0.5 shrink-0" aria-hidden />
+            {s.phoneSaved}
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -89,7 +94,7 @@ function ConfirmedPhone({ label, name, value, onSave }: { label: string; name: s
   return (
     <div>
       {checking ? (
-        <div role="group" aria-label={s.phoneCheck(name)} className="rounded-xl border border-sand bg-cream p-4">
+        <div role="group" aria-label={s.phoneCheck(name)} className="naqah-saved-in rounded-xl border border-sand bg-ivory p-4">
           <p className="text-[0.9375rem] text-espresso">{s.phoneCheck(name)}</p>
           <p dir="ltr" className="ltr-nums mt-1 text-start text-[1.25rem] font-bold text-espresso">{formatSaudiMobile(draft)}</p>
           {OWNER_APPROVES_NUMBERS ? (
@@ -256,7 +261,7 @@ export function TeamFields({ ws, onChange, showErrors = false, confirmPhone = fa
             type="button"
             disabled={!canAddWorker(ws.settings)}
             onClick={() => editList((list) => [...list, newWorker(list[0]?.language ?? "ar")])}
-            className="inline-flex min-h-12 items-center gap-2 rounded-full border border-stone bg-cream px-5 font-semibold text-espresso transition hover:border-sand disabled:cursor-not-allowed disabled:text-muted"
+            className="naqah-press inline-flex min-h-12 items-center gap-2 rounded-full border border-stone bg-cream px-5 font-semibold text-espresso transition hover:border-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown disabled:cursor-not-allowed disabled:text-muted"
           >
             <Plus size={18} weight="bold" aria-hidden />
             {s.add}
