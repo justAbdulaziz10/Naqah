@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 import { Logo } from '@/components/brand/Logo';
 import { AuthLocaleSwitcher } from './AuthLocaleSwitcher';
 import { useI18n } from '@/i18n/client';
@@ -11,6 +11,8 @@ import { DemoAction } from '@/components/landing/LandingActions';
 import { useAuthOptions } from './auth-options';
 import { LANDING_PHOTOS } from '@/components/landing/photos';
 import './auth.css';
+
+export const AuthHeadingAction = createContext<ReactNode>(null);
 
 /**
  * Sign-in and sign-up: the form on the page ground, the herd at dusk beside it. On sign-up the photo
@@ -76,9 +78,11 @@ export function AuthClosed({ mode }: { mode: 'login' | 'signup' }) {
 
 /** One title and one short line: what this screen is for. */
 export function AuthHeading({ title, lead }: { title: ReactNode; lead?: ReactNode }) {
+  const action = useContext(AuthHeadingAction);
   return <div className="flex flex-col gap-2">
     <h1 className="text-balance text-2xl font-semibold leading-snug sm:text-[1.75rem]">{title}</h1>
     {lead ? <p className="text-pretty leading-relaxed text-muted">{lead}</p> : null}
+    {action ? <div className="mt-2">{action}</div> : null}
   </div>;
 }
 
