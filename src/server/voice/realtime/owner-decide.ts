@@ -9,7 +9,7 @@ import { mapSpeechToInput } from "../speech";
 import { askedToStop, evidenceWords, isLeakedHint } from "./answer-check";
 import { isVerifiedConfirmation } from "./confirmation";
 import { fallbackResult, spokenFrom, type ToolCounters, type ToolDecision, type ToolTurn } from "./decide";
-import { validateCorrection, validateProposals } from "./owner-facts";
+import { readBackProposals, validateCorrection, validateProposals } from "./owner-facts";
 import { checkOwnerTool, ownerPromptFor, ownerToolsFor, REVIEW_STEP } from "./owner-tools";
 import type { ToolResponse } from "./state";
 import type { ClarifyReason } from "./tools";
@@ -97,7 +97,8 @@ export function decideOwnerTool({ session: current, counters, workspace, locale,
       if (current.step !== "instruction_yesno" || said !== "instruction_yes") return refuse("instructions_not_supported");
       chosen = { value: "instruction_yes" };
     } else {
-      const instructions = validateProposals(action.items, heard, now);
+      // The transcript first; if it is too garbled to back the words up, the read-back and the owner's yes check them.
+      const instructions = validateProposals(action.items, heard, now) ?? (evidenceWords(heard) ? readBackProposals(action.items, heard, now) : null);
       if (!instructions) return refuse("instructions_not_supported");
       chosen = { text: heard, instructions };
     }
