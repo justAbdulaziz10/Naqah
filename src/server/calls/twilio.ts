@@ -3,7 +3,7 @@
  * returns `not_configured`, and any provider failure is `placed: false`. Recording is always off.
  */
 import type { OutboundConfig } from "./config";
-import { outboundConfig } from "./config";
+import { callTimeLimitSeconds, outboundConfig, SAUDI_MOBILE } from "./config";
 
 export interface OutboundCallRequest {
   /** E.164 number to call. */
@@ -23,6 +23,7 @@ export type OutboundCallResult =
   | { placed: false; reason: "not_configured" | "invalid_number" | "not_allowed" | "rejected" | "network_error"; status?: number; code?: number };
 
 export interface OutboundCaller {
+  provider?: "twilio";
   place(request: OutboundCallRequest): Promise<OutboundCallResult>;
 }
 
@@ -31,11 +32,12 @@ const CALL_SID = /^CA[0-9a-f]{32}$/i;
 
 export function createTwilioCaller(config: OutboundConfig | null = outboundConfig(), fetchImpl: typeof fetch = fetch): OutboundCaller {
   return {
+    provider: "twilio",
     async place(request) {
       if (!config) return { placed: false, reason: "not_configured" };
-      if (!E164.test(request.to) || (!request.url && !request.twiml)) return { placed: false, reason: "invalid_number" };
-      // Controlled tests: only the consenting numbers on the allowlist can ring.
-      if (config.allowlist && !config.allowlist.includes(request.to)) {
+      if (!E164.test(request.to) || !SAUDI_MOBILE.test(request.to) || (!request.url && !request.twiml)) return { placed: false, reason: "invalid_number" };
+      // Only the consenting numbers on the allowlist can ring; an empty allowlist rings nobody.
+      if (!config.allowlist.includes(request.to)) {
         console.info("[NAQAH] outbound call refused: number is not on NAQAH_CALL_ALLOWLIST");
         return { placed: false, reason: "not_allowed" };
       }
@@ -45,8 +47,8 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
         StatusCallback: request.statusCallback,
         StatusCallbackMethod: "POST",
         Timeout: String(request.timeoutSeconds ?? 30),
-        // A hard ceiling on a call's length, for local real-phone tests only. Unset everywhere else.
-        ...(/^\d{2,4}$/.test(process.env.NAQAH_CALL_TIME_LIMIT_SECONDS ?? "") ? { TimeLimit: process.env.NAQAH_CALL_TIME_LIMIT_SECONDS! } : {}),
+        // A hard ceiling on every call's length: Twilio ends the call when it is reached.
+        TimeLimit: String(callTimeLimitSeconds()),
         Record: "false",
       });
       for (const event of request.statusEvents ?? []) body.append("StatusCallbackEvent", event);
@@ -65,6 +67,8 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
             "Content-Type": "application/x-www-form-urlencoded",
           },
           body,
+          signal: AbortSignal.timeout(10_000),
+          redirect: "error",
         });
         if (!response.ok) {
           console.info(`[NAQAH] Twilio outbound call refused (${response.status})`);

@@ -18,7 +18,7 @@ verified over HTTPS through an ngrok tunnel. Unattended scheduled calls are off.
 | Variable | Effect |
 |---|---|
 | `NAQAH_MANUAL_REPORT_CALLS=1` | Shows the owner's **Call {worker} now** on the dashboard. The farm comes from the owner's session (RLS) and the number from that farm's saved primary worker; nothing in the request chooses who is called. |
-| `NAQAH_CALL_ALLOWLIST=+9665…` | Only these E.164 numbers can ring (scheduled, manual and owner calls). Unset = no extra limit. Set to anything invalid (e.g. `none-yet`) = nothing can ring. |
+| `NAQAH_CALL_ALLOWLIST=+9665…` | Only these Saudi mobiles (`+9665` and eight digits) can ring: scheduled, manual and owner calls. Strict: unset, empty or invalid = nothing can ring. Every call is also capped at 300 seconds (`NAQAH_CALL_TIME_LIMIT_SECONDS` can only lower it), and «اتصال حقيقي» allows 3 calls an hour and 10 a day per ranch. |
 | `NAQAH_SCHEDULED_CALLS=1` | Lets `/api/cron/report-calls` dial. Without it the route answers `skipped: scheduled_calls_off` even with the right `CRON_SECRET`. |
 | `NAQAH_CALL_OWNER=1` | After a saved report, calls the farm's `owner_phone` with the findings (paid). |
 

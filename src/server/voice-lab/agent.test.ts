@@ -450,12 +450,14 @@ describe("Voice Lab stays in step with the phone call", () => {
   const loop = readFileSync("src/components/voice-lab/turnLoop.ts", "utf8");
 
   it.each(["threshold: 0.5", "prefix_padding_ms: 300", "silence_duration_ms: 700", "create_response: false", "interrupt_response: false"])("matches the bridge's VAD setting %s", (setting) => {
-    expect(bridge).toContain(setting);
+    // The guided call's 700 ms; a natural phone call answers sooner (NATURAL_SILENCE_MS).
+    expect(bridge.replace("this.natural ? NATURAL_SILENCE_MS : 700", "700")).toContain(setting);
     expect(lab).toContain(setting);
   });
 
   it("uses the bridge's voice and reasoning effort", () => {
-    expect(bridge).toMatch(/voice: 'marin'/);
+    // The phone's default voice; a local test can pick another with --voice.
+    expect(readFileSync("services/voice-bridge/config.mjs", "utf8")).toContain("env.NAQAH_REALTIME_VOICE || 'marin'");
     expect(lab).toContain('voice: "marin"');
     expect(bridge).toMatch(/reasoning: \{ effort: 'minimal' \}/);
     expect(lab).toContain('reasoning: { effort: "minimal" }');
@@ -474,13 +476,14 @@ describe("Voice Lab stays in step with the phone call", () => {
     expect(decide).toContain('"summary_not_finished"');
     expect(decide).toContain("isVerifiedConfirmation");
     expect(decide).toContain("summaryText");
-    expect(bridge).toContain("requestResponse('summary', summary,");
+    expect(bridge).toContain("requestResponse('summary', parts?.facts ?? summary,");
     for (const limit of ["transcriptionMs: 2_500", "speechMs: 10_000"]) expect(bridge).toContain(limit);
     for (const value of ["TRANSCRIPTION_MS = 2_500", "SPEECH_MS = 10_000"]) expect(loop).toContain(value);
   });
 
   it("makes the model call tools and re-speaks on the bridge's schedule", () => {
-    expect(bridge).toContain("tool_choice: 'required'");
+    // The guided phone call; a natural call (local --natural) uses 'auto'.
+    expect(bridge).toContain("tool_choice: this.natural ? 'auto' : 'required'");
     expect(lab).toContain('tool_choice: "required"');
     expect(bridge).toContain("repromptMs: 10_000");
     expect(loop).toContain("REPROMPT_MS = 10_000");

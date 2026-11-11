@@ -29,6 +29,14 @@ export const DEMO_REPORT_RETENTION_LIMIT = 100;
  * server and must never apply this policy to database rows, so the store calls this explicitly
  * only for local demo workspaces.
  */
+/** Arabic counts agree with their number: one, two, 3–10 (plural) and 11+ (singular). */
+function arabicCount(count: number, one: string, two: string, few: string, many: string): string {
+  if (count === 1) return one;
+  if (count === 2) return two;
+  const tens = count % 100;
+  return tens >= 3 && tens <= 10 ? `${count} ${few}` : `${count} ${many}`;
+}
+
 export function retainDemoHistory(input: Workspace): Workspace {
   const protectedTicketIds = new Set([
     ...input.taskTickets.filter((ticket) => ticket.status === "open").map((ticket) => ticket.id),
@@ -121,7 +129,7 @@ export function completeWorkerReport(
     outcome: "completed",
     attempt: run ? run.attempts.length || null : null,
     summary: findings.length
-      ? { ar: `تحديث مكتمل — ${findings.length} ملاحظة مهمة`, en: `Update completed — ${findings.length} important ${findings.length === 1 ? "finding" : "findings"}` }
+      ? { ar: `تحديث مكتمل — ${arabicCount(findings.length, "ملاحظة مهمة واحدة", "ملاحظتين مهمتين", "ملاحظات مهمة", "ملاحظة مهمة")}`, en: `Update completed — ${findings.length} important ${findings.length === 1 ? "finding" : "findings"}` }
       : { ar: "تحديث مكتمل — لا ملاحظات مهمة", en: "Update completed — nothing important flagged" },
     ticketId: null,
     reportId: null,
@@ -140,7 +148,7 @@ export function completeWorkerReport(
   ws.lastUpdateAt = at;
 
   pushEvent(ws, now, "success", {
-    ar: `حُفظ تحديث العزبة من ${ws.settings.worker.name} (${draft.answers.length} إجابة)`,
+    ar: `حُفظ تحديث العزبة من ${ws.settings.worker.name} (${arabicCount(draft.answers.length, "إجابة واحدة", "إجابتين", "إجابات", "إجابة")})`,
     en: `Farm update saved from ${ws.settings.worker.name} (${draft.answers.length} answers)`,
   });
   const closed = confirmations.filter((t) => t.done).length;
@@ -151,7 +159,7 @@ export function completeWorkerReport(
     });
   if (findings.length)
     pushEvent(ws, now, "attention", {
-      ar: `رُصدت ${findings.length} ملاحظة تطابق معايير المالك`,
+      ar: `رُصدت ${arabicCount(findings.length, "ملاحظة واحدة تطابق", "ملاحظتين تطابقان", "ملاحظات تطابق", "ملاحظة تطابق")} معايير المالك`,
       en: `${findings.length} ${findings.length === 1 ? "finding matches" : "findings match"} the owner's criteria`,
     });
   return { ws, report };

@@ -17,6 +17,7 @@ import { listScheduledFarmIds, runFarmAction } from "@/server/db/service-reposit
 import { dialDueOwnerCall } from "./owner-call";
 import { signCallToken } from "./token";
 import type { OutboundCaller, OutboundCallResult } from "./twilio";
+import { expireReportRuns, recordCallFailure } from "./reliability";
 
 export interface SchedulerSummary {
   farms: number;
@@ -39,7 +40,7 @@ export async function runReportCallScheduler(
   for (const farmId of farmIds) {
     try {
       const { result: claim } = await runFarmAction(client, farmId, (ws) => {
-        const claimed = claimDueReportCall(ws, now);
+        const claimed = claimDueReportCall(expireReportRuns(ws, farmId, now), now);
         return { ws: claimed.ws, result: claimed.claim ? { ...claimed.claim, locale: workerLocale(ws) } : null };
       });
       if (claim) {
@@ -137,21 +138,37 @@ async function dial(
   // A run opened in this pass has a domain id until saved; the database id is derived from it.
   const runId = toDbId(farmId, claim.runId);
   const query = `s=${encodeURIComponent(signCallToken({ k: "report", f: farmId, r: runId, n: claim.attempt, l: claim.locale, t: now.getTime() }))}`;
-  const placed = await caller.place({
+  let placed: OutboundCallResult;
+  try {
+    placed = await caller.place({
     to: claim.phone,
     url: `${baseUrl}/api/voice/outbound?${query}`,
     statusCallback: `${baseUrl}/api/voice/outbound/status?${query}`,
     timeoutSeconds: REPORT_CALL_RING_SECONDS,
     statusEvents: ["initiated", "ringing", "answered", "completed"],
-  });
-  if (placed.placed) return placed;
+    });
+  } catch {
+    placed = { placed: false, reason: "network_error" };
+  }
+  if (placed.placed) {
+    if (caller.provider === "twilio") {
+      const { error } = await client.from("report_call_runs").update({ provider_call_id: placed.sid }).eq("farm_id", farmId).eq("id", runId).is("provider_call_id", null);
+      if (error) console.error("[NAQAH] call SID linking failed; waiting for signed webhooks");
+    }
+    return placed;
+  }
+  if (placed.reason === "network_error") {
+    await recordCallFailure(client, farmId, runId, "placement_unknown", now);
+    return placed;
+  }
   await runFarmAction(client, farmId, (ws) => ({ ws: abandonReportCallAttempt(ws, now, runId, claim.attempt, retry), result: null }));
+  if (!retry) await recordCallFailure(client, farmId, runId, placed.reason === "not_allowed" ? "not_allowed" : placed.status === 401 || placed.status === 403 ? "twilio_auth" : "provider_rejected", now);
   return placed;
 }
 
 export type CallNowResult =
   | { status: "placed" }
-  | { status: "blocked"; reason: ReportCallBlock | "duplicate" | "not_allowed" }
+  | { status: "blocked"; reason: ReportCallBlock | "duplicate" | "not_allowed" | "rate_limited" }
   | { status: "failed"; reason: "not_placed"; code?: number; failureReason?: Extract<OutboundCallResult, { placed: false }>["reason"] };
 
 /**
@@ -163,16 +180,17 @@ export async function requestReportCallNow(
   client: SupabaseClient,
   caller: OutboundCaller,
   farmId: string,
-  options: { baseUrl: string; now: Date; allowlist?: string[] | null; to?: string; onRunOpened?: (runId: string) => Promise<void> },
+  options: { baseUrl: string; now: Date; allowlist?: string[] | null; to?: string; onRunOpened?: (runId: string) => Promise<void>; repeatReports?: boolean },
 ): Promise<CallNowResult> {
   const { now, allowlist } = options;
   type Opened = { blocked: ReportCallBlock | "duplicate" | "not_allowed" } | { claim: Claim };
-  const { result } = await runFarmAction<Opened>(client, farmId, (ws) => {
+  const { result } = await runFarmAction<Opened>(client, farmId, (workspace) => {
+    const ws = expireReportRuns(workspace, farmId, now);
     // Checked before a run exists, so a number outside a controlled test leaves no trace and no retry.
     const saved = options.to ?? dialableWorkerPhone(ws);
     if (saved && allowlist && !allowlist.includes(saved)) return { ws, result: { blocked: "not_allowed" as const } };
     const input = options.to ? { ...ws, settings: { ...ws.settings, worker: { ...ws.settings.worker, phone: options.to } } } : ws;
-    const opened = startReportCall(input, now, "manual");
+    const opened = startReportCall(input, now, "manual", now, { repeatReports: options.repeatReports === true });
     if (!opened.run) return { ws, result: { blocked: opened.blocked ?? ("duplicate" as const) } };
     opened.ws.settings = ws.settings;
     const placed = placeReportCallAttempt(opened.ws, now, opened.run.id);
@@ -181,7 +199,12 @@ export async function requestReportCallNow(
     return { ws: placed.ws, result: { claim: { runId: opened.run.id, attempt: placed.attempt, phone, locale: workerLocale(ws) } } };
   });
   if ("blocked" in result) return { status: "blocked", reason: result.blocked };
-  await options.onRunOpened?.(toDbId(farmId, result.claim.runId));
+  try {
+    await options.onRunOpened?.(toDbId(farmId, result.claim.runId));
+  } catch (error) {
+    await runFarmAction(client, farmId, (ws) => ({ ws: abandonReportCallAttempt(ws, now, toDbId(farmId, result.claim.runId), result.claim.attempt, false), result: null }));
+    throw error;
+  }
   const placed = await dial(client, caller, farmId, result.claim, { ...options, retry: false });
   return placed.placed ? { status: "placed" } : {
     status: "failed", reason: "not_placed",

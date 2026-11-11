@@ -20,6 +20,8 @@ export interface ToolResponse {
   sayText?: string;
   silent?: true;
   repromptText?: string;
+  /** Natural call: send the output and let the model answer in its own words. */
+  continue?: true;
 }
 
 export interface RealtimeState {
@@ -31,12 +33,24 @@ export interface RealtimeState {
   /** Set once the call fell back to the script. A late tool call must not write after that. */
   closed: boolean;
   confirmationFailures?: number;
+  /** Natural call: confirmations refused for the model's timing, not the worker's words. Capped so a loop still ends. */
+  confirmationMisses?: number;
+  /** Natural call: the summary id the bridge last reported as heard in full, so a re-ask needn't read it again. */
+  summaryHeardId?: string;
   refusalAt?: string;
   refusals?: number;
+  /** The answer the model gave when the transcript didn't back it, to accept it when the model hears it again. */
+  refusedAnswer?: string;
   noiseAt?: string;
   noiseCount?: number;
   progressVersion?: number;
   fallbackPrepared?: boolean;
+  /** Natural call: the session on its first question, which every submitted report is replayed from. */
+  naturalBase?: CallSession;
+  /** Natural call: the worker was already asked the unit of a feed amount, so a second hand-over without one is kept as given. */
+  feedUnitAsked?: boolean;
+  /** Natural call: answers the worker was already asked to confirm once («خمسين كيس، صح؟»); they are never checked again. */
+  checkedAnswers?: string[];
   recent: { id: string; result: ToolResponse }[];
 }
 

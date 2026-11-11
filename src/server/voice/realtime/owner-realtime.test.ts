@@ -230,6 +230,14 @@ describe("proposing", () => {
     expect(events()).toEqual([]);
   });
 
+  it("takes the model's words when the transcript garbled the owner's (call 5d7773), to be read back for a yes", async () => {
+    const { ticket } = await open();
+    const step = await tool(ticket, "propose_instructions", { items: [proposal("خليه يودي وضحة البيطري", "task", null)] }, "خلي ودي وضح البيضة.");
+    expect(step.output.status).not.toBe("invalid");
+    expect(row().session.data.pendingInstructions?.[0]?.message).toBe("خليه يودي وضحة البيطري");
+    expect(events()).toEqual([]);
+  });
+
   it("refuses the whole list when one item is unsupported", async () => {
     const { ticket } = await open();
     const step = await tool(ticket, "propose_instructions", { items: [proposal("يصلح السياج", "task", null), proposal("يبيع القعود", "task", null)] }, "قل له يصلح السياج");

@@ -131,7 +131,8 @@ function PreviewVisual() {
           <p className="text-[0.875rem] font-semibold text-muted">{preview.needs}</p>
           <ul className="mt-2 grid gap-2">
             {call.facts.map((fact) => (
-              <li key={fact.label} className="flex items-start gap-2.5 border-s-2 border-warn bg-cream px-3 py-2 text-[0.9375rem] leading-snug">
+              <li key={fact.label} className="flex items-baseline gap-2.5 bg-cream px-3 py-2 text-[0.9375rem] leading-snug">
+                <span aria-hidden className="size-2 shrink-0 translate-y-[-1px] rounded-full bg-warn" />
                 <span>
                   <span className="font-semibold">{fact.label}</span> · {fact.value}
                 </span>
@@ -151,11 +152,11 @@ function PreviewVisual() {
           </ul>
         </div>
       </div>
-      <div style={seq(3)} className="naqah-seq flex items-center justify-between gap-3 border-t border-stone px-5 py-3 text-[0.875rem]">
-        <span className="inline-flex items-center gap-2">
+      <div style={seq(3)} className="naqah-seq flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-stone px-5 py-3 text-[0.875rem]">
+        <span className="inline-flex flex-wrap items-center gap-x-2">
           <span aria-hidden className="size-2.5 rounded-full border-2 border-brown" />
           <span className="text-muted">{preview.next}</span>
-          <span className="ltr-nums font-semibold">{preview.nextValue}</span>
+          <span className="ltr-nums whitespace-nowrap font-semibold">{preview.nextValue}</span>
         </span>
         <span className="text-muted">{example}</span>
       </div>
@@ -234,7 +235,7 @@ export function CallStory() {
 
   return (
     <div className="grid gap-y-10 lg:grid-cols-12 lg:gap-x-12">
-      <ol className="grid gap-10 lg:col-span-5 lg:gap-0">
+      <ol className="grid gap-10 lg:col-span-5 lg:gap-0 lg:pb-[30svh]">
         {story.steps.map((step, index) => {
           const Visual = VISUALS[index];
           const summary = summaries[index];

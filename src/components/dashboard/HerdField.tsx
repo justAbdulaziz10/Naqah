@@ -19,7 +19,7 @@ export function HerdField({ ws, worker }: { ws: Workspace; worker: string }) {
   const dots = Math.max(ws.settings.herdCount ?? 0, ws.camels.length) <= HERD_DOTS_MAX;
 
   return (
-    <section aria-labelledby="herd-field" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-6 sm:px-7">
+    <section aria-labelledby="herd-field" className="rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-6 sm:px-7">
       <div className="flex items-start justify-between gap-3">
         <h2 id="herd-field" className="text-xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{h.title}</h2>
         {ws.camels.length ? (

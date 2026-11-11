@@ -20,7 +20,7 @@ export function EmergencyStrip({ ws, worker, allowance }: { ws: Workspace; worke
     category.kind === "custom" ? category.label || o.unknown : t(EMERGENCY_LABELS[category.kind]),
   );
   return (
-    <section aria-labelledby="emergency-strip" className="naqah-rise grid gap-x-10 gap-y-4 rounded-[var(--radius-card)] bg-sand-soft/45 px-5 py-4 sm:px-7 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+    <section aria-labelledby="emergency-strip" className="grid gap-x-10 gap-y-4 rounded-[var(--radius-card)] bg-sand-soft/45 px-5 py-4 sm:px-7 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
       <details className="group min-w-0">
         <summary className="flex min-h-11 cursor-pointer list-none flex-col gap-x-6 gap-y-1 rounded-xl py-1 sm:flex-row sm:items-center [&::-webkit-details-marker]:hidden">
           <span className="min-w-0 flex-1 leading-relaxed">

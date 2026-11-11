@@ -59,6 +59,8 @@ const NUMBER_WORDS: Record<string, number> = {
   "ثمانين": 80, "ثمانون": 80, "تسعين": 90, "تسعون": 90,
   "احدعش": 11, "حدعش": 11, "ثلاثطعش": 13, "اربعطعش": 14, "خمسطعش": 15, "خمستعش": 15,
   "ستطعش": 16, "سبعطعش": 17, "ثمانطعش": 18, "تسعطعش": 19, "كيسين": 2, "كيسان": 2, "لترين": 2,
+  "ثلطعش": 13, "ثلثطعش": 13, "ثلاثتعش": 13, "اربعتعش": 14, "ستعش": 16, "ستتعش": 16, "سبعتعش": 17,
+  "ثمنطعش": 18, "ثمنتعش": 18, "ثمانتعش": 18, "تسعتعش": 19,
 };
 
 const HUNDREDS: Record<string, number> = {
@@ -69,11 +71,35 @@ const HUNDREDS: Record<string, number> = {
 };
 
 /** «ما في ولا وحدة», "none", "not a single one": zero, unless it goes on to give a count («إلا وحدة»). */
+const FEED_UNIT = /كيس|كياس|أكياس|اكياس|بالات|بالة|باله|طن|bags?|bales?|tonnes?|tons?/iu;
+const FEED_UNIT_WORD: Record<string, string> = { "كياس": "كيس", "أكياس": "كيس", "اكياس": "كيس", "باله": "بالة", bag: "bags", bale: "bales", tonne: "tonnes", ton: "tonnes", tons: "tonnes" };
 const ZERO = /(?:^|\s)(?:صفر|zero|none|nothing|nobody|not\s+(?:a\s+single(?:\s+one)?|one|any)|no\s+(?:camels?|bags?|one)|ولا\s+(?:وحده|واحده|واحد|ناقه|شي|شيء|كيس|حبه|لتر|نقطه)|ما\s*(?:في|فيه)\s+(?:شي|شيء|احد)|مافي\s+(?:شي|شيء|احد)|محد)(?:\s|$)/u;
 const EXCEPT = /(?:^|\s)(?:الا|غير|بس|only|just|except|but)(?:\s|$)/u;
 
 /** «نورة», «نوره», «نورا» and «النورة» are one name on the phone. */
 export const camelNameKey = (text: string) => compact(text).split(" ").map((word) => (word.startsWith("ال") && word.length > 3 ? word.slice(2) : word).replace(/[اهي]$/u, "")).join(" ");
+
+/**
+ * Every count the worker said: «ثمنطعش، ثنتين ما شفتهم» holds 18 and 2, and «عشرين إلا وحدة» is 19.
+ * Used to check a number the model read from a reply, never to pick one.
+ */
+export function numbersSaid(input: string): Set<number> {
+  const found = new Set<number>();
+  const whole = extractNumber(input);
+  if (whole !== null) found.add(whole);
+  const normalized = normalizeSpeech(input);
+  const less = normalized.match(/^(.*?)\s+(?:الا|غير)\s+(وحده|واحده|واحد|ثنتين|اثنين|ثلاث|ثلاثه)(?:\s|$)/u);
+  if (less) {
+    const base = extractNumber(less[1]);
+    const minus = NUMBER_WORDS[less[2]];
+    if (base !== null && minus !== undefined && base > minus) found.add(base - minus);
+  }
+  for (const part of normalized.split(/[,،.;؛!?؟]|\s(?:بس|لكن|الا|غير|و)\s/u)) {
+    const value = extractNumber(part);
+    if (value !== null) found.add(value);
+  }
+  return found;
+}
 
 export function extractNumber(input: string): number | null {
   const normalized = normalizeSpeech(input).replaceAll("٫", ".");
@@ -221,7 +247,7 @@ const CONCEPTS: Record<Concept, readonly string[]> = {
   enough: ["مليان", "مليانه", "متروس", "فل", "كافي", "كافيه", "يكفي", "تكفي", "يكفون", "كفايه", "متوفر", "متوفره", "موجود", "موجوده", "وايد", "كثير", "enough", "plenty", "sufficient", "full"],
   low: ["ناقص", "ناقصه", "نقص", "نقصت", "قليل", "قليله", "شوي", "شويه", "low", "short", "little"],
   medium: ["متوسط", "متوسطه", "نص", "نصه", "النص", "نصف", "النصف", "half", "medium", "average"],
-  finished: ["خلص", "خلصت", "خلصان", "خلصانه", "خلصتها", "خالص", "انتهيت", "انتهى", "انتهت", "نفد", "نفذ", "سويتها", "سويته", "سويناها", "سويناه", "انجزتها", "انجزته", "صلحتها", "صلحته", "done", "finished", "complete", "completed", "empty"],
+  finished: ["تم", "تمت", "خلصناها", "خلصناه", "خلصنا", "انتهينا", "خلص", "خلصت", "خلصان", "خلصانه", "خلصتها", "خالص", "انتهيت", "انتهى", "انتهت", "نفد", "نفذ", "سويتها", "سويته", "سويناها", "سويناه", "انجزتها", "انجزته", "صلحتها", "صلحته", "done", "finished", "complete", "completed", "empty"],
   pending: ["باقي", "لسه", "لسا", "yet"],
   save: ["احفظ", "احفظه", "احفظها", "تحفظ", "تحفظه", "حفظ", "اكد", "تاكيد", "اعتمد", "confirm", "save"],
   thing: ["شي", "شيء", "احد", "حد", "وحده", "واحده", "ناقه", "anything", "something", "thing", "anyone", "camel", "camels"],
@@ -263,6 +289,8 @@ function readSpeech(transcript: string): Reading {
     .replace(/(?:قارب|قرب)\s+يخلص|بيخلص(?:ون)?|nearly\s+empty|almost\s+(?:gone|finished)/gu, " low ")
     .replace(/ما\s+(?:عليهم|عليها|عليه)\s+(?:خلاف|باس|شر)|الحمد\s+لله|ما\s*شاء\s+الله/gu, " بخير ")
     .replace(/ما\s+تاكل/gu, " مريضه ")
+    // «لا والله ما فيه شي» about a fence or a shelter: nothing is wrong with it.
+    .replace(/^(?:لا\s+)?(?:والله\s+)?ما\s*(?:فيه|فيها|في)\s+(?:شي|شيء|شر|خلاف)(?:\s|$)/u, " سليم ")
     // «كلهم تمام ما عدا وحدة تعبانة»: an exception, not a negation of what follows.
     .replace(/\s(?:ما\s*عدا|الا)\s/gu, " بس ");
   const reading: Reading = { unknown: false, affirm: false, wellbeing: false, deny: false, bareNegation: false, said: new Set(), negated: new Set() };
@@ -515,6 +543,48 @@ export function namedCamels<T extends { name: string }>(transcript: string, came
   });
 }
 
+/**
+ * What the worker said about each named camel, in their own words: «كلهم بخير بس مزون للحين تعبانة ووضحة ما تاكل زين»
+ * gives «مزون للحين تعبانة» and «وضحة ما تاكل زين». «نورة ومزون تعبانات» shares its ending: «نورة تعبانات».
+ * A camel whose part can't be told apart gets nothing, and the caller keeps the whole sentence.
+ */
+export function camelClauses<T extends { id: string; name: string }>(transcript: string, camels: readonly T[]): Record<string, string> {
+  const single = camels.filter((camel) => compact(camel.name) && !compact(camel.name).includes(" "));
+  const nameOf = (raw: string) => {
+    const word = compact(raw);
+    if (!word || isVocabulary(word)) return null;
+    const exact = single.find((camel) => compact(camel.name) === word);
+    if (exact) return { camel: exact, shown: raw };
+    const bare = word.startsWith("و") && word.length > 3 ? single.find((camel) => compact(camel.name) === word.slice(1)) : undefined;
+    return bare ? { camel: bare, shown: raw.replace(/^و/u, "") } : null;
+  };
+  const parts: { camel: T | null; words: string[] }[] = [];
+  let current: { camel: T | null; words: string[] } = { camel: null, words: [] };
+  const close = () => { if (current.words.length || current.camel) parts.push(current); current = { camel: null, words: [] }; };
+  for (const raw of transcript.trim().split(/\s+/)) {
+    const named = nameOf(raw);
+    const word = compact(raw);
+    if (named) {
+      close();
+      current = { camel: named.camel, words: [named.shown.replace(/[,،.;؛!?؟]+$/u, "")] };
+    } else if (JOINS.has(word)) close();
+    else if (word) current.words.push(raw.replace(/[,،.;؛!?؟]+$/u, ""));
+    if (/[,،.;؛!?؟]$/u.test(raw)) close();
+  }
+  close();
+  const notes: Record<string, string> = {};
+  parts.forEach((part, index) => {
+    if (!part.camel || notes[part.camel.id]) return;
+    if (part.words.length > 1) { notes[part.camel.id] = part.words.join(" "); return; }
+    // Only the name: the next named part says how they both are.
+    const shared = parts.slice(index + 1).find((later) => later.camel && later.words.length > 1);
+    if (shared && parts.slice(index + 1, parts.indexOf(shared)).every((between) => between.camel && between.words.length === 1)) {
+      notes[part.camel.id] = [part.words[0], ...shared.words.slice(1)].join(" ");
+    }
+  });
+  return notes;
+}
+
 const EVERYONE = /(?:^| )(?:كلهم|كلها|كلهن|الكل|الباقي|البقيه|الباقين|الباقيات|غيرها|الحلال|الابل|النوق|all|everyone|rest|others)(?: |$)/u;
 
 /** «كلهم بخير بس نورة تعبانة»: before the exception, the sentence says the rest are well. */
@@ -645,9 +715,94 @@ export function mapSpeechToInput(
   const item = currentItem(session);
   if (item?.kind === "predefined" && item.answerKind === "level" && (item.resource === "feed" || item.resource === "water")) {
     const quantity = extractNumber(raw);
-    if (quantity !== null) return { text: String(quantity) };
+    // Feed comes in bags, bales or tonnes: the unit word said is kept, and none is assumed when it wasn't.
+    const unit = item.resource === "feed" ? FEED_UNIT.exec(raw)?.[0] : undefined;
+    if (quantity !== null) return { text: unit ? `${quantity} ${FEED_UNIT_WORD[unit.toLowerCase()] ?? unit}` : String(quantity) };
   }
   const choice = choiceInput(session, raw, locale);
   // «مريضة، رجلها اليسار وارمة»: the words describe the camel, and the engine keeps them as her note.
   return choice?.value !== undefined && session.step === "health_status" ? { ...choice, text: transcript.trim().slice(0, 300) } : choice;
+}
+
+/** Words that carry no fact of their own: a recorded text made only of these adds nothing the worker didn't say. */
+const FILLER_WORDS = new Set([
+  "ما", "في", "فيه", "مافي", "مافيه", "لا", "ايه", "اي", "ايوه", "نعم", "يا", "و", "او", "ثم", "هو", "هي", "هم", "انا", "احنا",
+  "كل", "شي", "بس", "لكن", "الحين", "من", "علي", "عن", "الي", "اللي", "ان", "انه", "قد", "كان", "هذا", "هذي", "ذا", "مع",
+  "والله", "الحمد", "لله", "الله", "الحمدلله", "تمام", "طيب", "يعني", "مره", "شوي", "عاد", "ترا", "تراه",
+  "the", "a", "an", "is", "are", "was", "were", "be", "it", "its", "they", "them", "he", "she", "we", "i", "you", "and", "or",
+  "but", "to", "of", "in", "on", "at", "for", "with", "not", "no", "yes", "did", "do", "does", "has", "have", "had", "there",
+  "this", "that", "so", "just", "ok", "okay",
+]);
+
+/** «شيء» and «شي», «جاء» and «جا» are one word on the phone. */
+const wordKey = (word: string) => word.replace(/ء/gu, "").replace(/ؤ/gu, "و").replace(/ئ/gu, "ي");
+
+/** The spellings one spoken word takes: «وسوى» is «سوى», «البيطري» is «بيطري», «أبوه» and «أبوي» meet at «ابو». */
+function wordForms(word: string): Set<string> {
+  const forms = new Set([word]);
+  const bare = /^[وفب]/u.test(word) && word.length > 3 ? word.slice(1) : word;
+  for (const form of [word, bare]) {
+    forms.add(form);
+    if (form.startsWith("ال") && form.length > 4) forms.add(form.slice(2));
+  }
+  for (const form of [...forms]) if (form.length > 2) forms.add(form.replace(/[اهيى]$/u, ""));
+  return forms;
+}
+
+function oneEditApart(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i += 1; j += 1; continue; }
+    edits += 1;
+    if (edits > 1) return false;
+    if (a.length > b.length) i += 1;
+    else if (b.length > a.length) j += 1;
+    else { i += 1; j += 1; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+function sameWord(a: string, b: string): boolean {
+  const left = wordForms(a);
+  for (const form of wordForms(b)) if (left.has(form)) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  // «جا» for «جال», and one letter the transcriber got wrong («امتاز» for «ممتاز»).
+  if (short.length >= 2 && long.length - short.length <= 2 && long.startsWith(short)) return true;
+  return long.length >= 4 && oneEditApart(a, b);
+}
+
+export type WordBacking = {
+  /** Words that say something (not «ما», «ايه», «كل شي»). */
+  content: number;
+  /** Content words found neither in what the worker said nor in the question asked. */
+  unbacked: string[];
+  /** At least one word of the text, filler included, is the worker's. */
+  fromWorker: boolean;
+};
+
+/**
+ * How far a recorded text is the worker's own words. Used to ask once about a doubtful answer, never to rewrite it:
+ * «إيه جا البيطري وسوى كشف» against «ايه جال حمد الله هو سوى كل شي» has «كشف» from nowhere.
+ * The question's own words count as backed, since «إيه، جا البيطري» only repeats what was asked.
+ */
+export function wordBacking(text: string, said: readonly string[], asked: readonly string[] = []): WordBacking {
+  const tokens = (input: string) => (compact(input).match(/[\p{L}\p{N}]+/gu) ?? []).map(wordKey).filter(Boolean);
+  const worker = said.flatMap(tokens);
+  const joined = worker.join("");
+  const context = asked.flatMap(tokens);
+  const inWorker = (word: string) => worker.some((other) => sameWord(word, other)) || (word.length >= 4 && joined.includes(word));
+  let content = 0;
+  let fromWorker = false;
+  const unbacked: string[] = [];
+  for (const word of tokens(text)) {
+    const own = inWorker(word);
+    if (own) fromWorker = true;
+    if (FILLER_WORDS.has(word) || /^\d+$/u.test(word)) continue;
+    content += 1;
+    if (!own && !context.some((other) => sameWord(word, other))) unbacked.push(word);
+  }
+  return { content, unbacked, fromWorker };
 }

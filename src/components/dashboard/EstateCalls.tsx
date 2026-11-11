@@ -33,7 +33,7 @@ function ownerLine(status: OwnerCallStatus | null, m: M, fmt: Fmt): string | nul
   return owner.missed(status.attempts);
 }
 
-function CallColumn({ label, next, detail, status, actions }: { label: string; next: Date | null; detail: ReactNode; status: string | null; actions?: ReactNode }) {
+function CallColumn({ label, next, detail, status }: { label: string; next: Date | null; detail: ReactNode; status: string | null }) {
   const { m, fmt } = useI18n();
   return (
     <div className="min-w-0">
@@ -49,7 +49,6 @@ function CallColumn({ label, next, detail, status, actions }: { label: string; n
         <p className="mt-1 text-[1.25rem] font-semibold leading-tight sm:text-[1.5rem]">{m.app.overview.noCallTimeYet}</p>
       )}
       {status ? <p role="status" className="naqah-name mt-1.5 text-sm font-medium leading-snug text-cream">{status}</p> : null}
-      {actions ? <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3">{actions}</div> : null}
     </div>
   );
 }
@@ -94,7 +93,6 @@ export function EstateCalls({ ws, now, worker, hasReport, scheduledOff, nextWork
       <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
         <CallColumn
           label={!nextWorker ? d.nextCall : scheduledOff ? d.plannedCall : hasReport ? o.callsWorker(worker) : o.firstCallsWorker(worker)}
-          actions={actions}
           next={nextWorker}
           detail={nextWorker ? (scheduledOff ? o.callingInactive : when(nextWorker)) : null}
           status={workerLine(workerStatus, worker, m, fmt)}
@@ -108,6 +106,8 @@ export function EstateCalls({ ws, now, worker, hasReport, scheduledOff, nextWork
           />
         ) : null}
       </div>
+      {/* After both calls, so on a phone it never sits between them. */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-3">{actions}</div>
     </div>
   );
 }

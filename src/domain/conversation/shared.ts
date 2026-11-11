@@ -89,6 +89,10 @@ export interface ConversationData {
   correcting?: boolean;
   /** How this report was taken. Absent on a call still choosing, which is read as guided. */
   reportMode?: "guided" | "open";
+  /** Realtime: the worker was greeted and asked «جاهز؟»; the report starts after they answer. */
+  readyModes?: boolean;
+  /** How many times the greeting was said again because the worker didn't catch it («ألو؟»). */
+  readyRepeats?: number;
   /** Open mode: camel observations whose camel the worker hasn't named yet. */
   openClarify?: { status: HealthStatus; note: string | null }[];
   openNotes?: number;
@@ -129,6 +133,8 @@ export interface AnswerInput {
   camelId?: string;
   /** Realtime: every camel the worker named as needing attention in that answer. */
   camelIds?: string[];
+  /** Realtime: the worker's own words about each named camel («مزون للحين تعبانة»), by camel id. */
+  camelNotes?: Record<string, string>;
   /** Realtime: the same answer said the rest are well («كلهم بخير بس نورة تعبانة»). */
   restWell?: boolean;
   /** Guided mode: later questions this answer already covered («الحلال بخير والعلف قليل»), checked against the worker's words. */

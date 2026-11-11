@@ -67,11 +67,17 @@ function finishMissed(ws: Workspace, now: Date, run: OwnerCallRun): Workspace {
   const name = ws.settings.owner.name;
   const attempts = run.attempts.length;
   if (!attempts) {
-    pushEvent(ws, now, "attention", {
-      ar: `تعذر على ناقة الاتصال بـ${name} في موعد مكالمته`,
-      en: `NAQAH couldn't place the scheduled call to ${name}`,
-    });
+    pushEvent(ws, now, "attention", run.trigger === "manual"
+      ? { ar: `تعذر على ناقة الاتصال بـ${name} الآن`, en: `NAQAH couldn't place the call to ${name}` }
+      : {
+          ar: `تعذر على ناقة الاتصال بـ${name} في موعد مكالمته`,
+          en: `NAQAH couldn't place the scheduled call to ${name}`,
+        });
     return ws;
+  }
+  if (run.trigger === "manual") {
+    pushEvent(ws, now, "attention", { ar: `ما اكتملت مكالمة ${name}`, en: `The call to ${name} didn't complete` });
+    return recordOwnerNotification(ws, now, run.reportId, false);
   }
   pushEvent(ws, now, "attention", {
     ar: `ما اكتملت مكالمة ${name} بعد ${attempts} محاولات`,
@@ -133,7 +139,8 @@ export function abandonOwnerCallAttempt(input: Workspace, now: Date, runId: stri
   const ws = structuredClone(input);
   const run = ws.ownerCallRun!;
   run.attempts.pop();
-  if (isTooOld(run, now)) return finishMissed(ws, now, run);
+  // A manual demo call authorized one call: nothing retries it.
+  if (run.trigger === "manual" || isTooOld(run, now)) return finishMissed(ws, now, run);
   run.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
   pushEvent(ws, now, "attention", {
     ar: `تعذر على ناقة الاتصال بـ${ws.settings.owner.name} — تحاول مرة ثانية بعد ٢٠ دقيقة`,
@@ -172,7 +179,8 @@ export function resolveOwnerCallAttempt(
     run.state = "completed";
     return recordOwnerNotification(ws, now, run.reportId, true);
   }
-  if (attempt >= OWNER_CALL_ATTEMPTS) return finishMissed(ws, now, run);
+  // A manual demo call authorized one call. Only scheduled runs retry unattended.
+  if (attempt >= OWNER_CALL_ATTEMPTS || run.trigger === "manual") return finishMissed(ws, now, run);
   run.state = "calling";
   run.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
   pushEvent(ws, now, "neutral", result === "interrupted"
@@ -185,4 +193,52 @@ export function resolveOwnerCallAttempt(
         en: `${ws.settings.owner.name} didn't answer — NAQAH will try again in 20 minutes (${attempt}/${OWNER_CALL_ATTEMPTS})`,
       });
   return ws;
+}
+
+export type OwnerCallNowBlock = "setup_incomplete" | "no_owner_phone" | "call_live";
+
+/** A worker report call still running (ringing, connected or waiting for its retry), or an owner call ringing or connected. */
+export function anyCallLive(ws: Workspace, now: Date): boolean {
+  if (reportCallRuns(ws).some((run) => reportCallIsLive(run, now))) return true;
+  const last = ws.ownerCallRun?.attempts.at(-1);
+  if (!ws.ownerCallRun || last?.result !== "pending") return false;
+  return now.getTime() - Date.parse(last.at) < (ws.ownerCallRun.state === "answered" ? ANSWERED_LOST_MS : RING_LOST_MS);
+}
+
+/**
+ * LOCAL DEMO ONLY: the owner asks NAQAH to call them now, from the Dashboard. Opens a manual owner run for the
+ * newest report the owner hasn't heard (or the "no new report" briefing), recorded as a placed attempt before
+ * anything is dialled, exactly like a scheduled slot. One attempt: a manual run never retries. It never touches
+ * report call runs or the worker. A run left waiting for a scheduled retry is replaced: the owner asked for this one.
+ */
+export function openOwnerCallNow(
+  input: Workspace,
+  now: Date,
+): { ws: Workspace; claim: { runId: string; attempt: number; phone: string; reportId: string | null } | null; blocked: OwnerCallNowBlock | null } {
+  if (!input.setupComplete) return { ws: input, claim: null, blocked: "setup_incomplete" };
+  const phone = dialableOwnerPhone(input);
+  if (!phone) return { ws: input, claim: null, blocked: "no_owner_phone" };
+  if (anyCallLive(input, now)) return { ws: input, claim: null, blocked: "call_live" };
+  let base = input;
+  // A pending attempt whose webhook was lost is settled first, as the scheduler would.
+  const lost = input.ownerCallRun;
+  if (lost && lost.attempts.at(-1)?.result === "pending") {
+    base = resolveOwnerCallAttempt(input, now, lost.id, lost.attempts.length, lost.state === "answered" ? "interrupted" : "unanswered");
+  }
+  const ws = structuredClone(base);
+  const run: OwnerCallRun = {
+    id: uid("ocr"),
+    occurrence: iso(now),
+    reportId: newestUnsummarizedReport(base)?.id ?? null,
+    attempts: [{ at: iso(now), result: "pending" }],
+    nextAttemptAt: null,
+    state: "calling",
+    trigger: "manual",
+  };
+  ws.ownerCallRun = run;
+  pushEvent(ws, now, "neutral", {
+    ar: `طلبت مكالمة المالك الآن — ناقة تتصل بـ${ws.settings.owner.name}`,
+    en: `You asked for the owner call now — NAQAH is calling ${ws.settings.owner.name}`,
+  });
+  return { ws, claim: { runId: run.id, attempt: 1, phone, reportId: run.reportId }, blocked: null };
 }

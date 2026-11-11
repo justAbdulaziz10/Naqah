@@ -8,6 +8,11 @@
  *
  * --live places REAL, CHARGED calls to the allowed numbers. Options: --bridge-port (live, default 3300), --skip-build,
  * --dry-run (print variable names and non-secret values, start nothing).
+ * --owner-call-now (LOCAL DEMO ONLY, needs --repeat-demo-reports; live also needs --dashboard-call): the presentation
+ *   ranch's Dashboard gets «العامل / المالك» above «اتصال حقيقي». «المالك» calls the ranch's saved owner number now with the
+ *   briefing (instructions per plan). With --owner-approves the owner approves their own number in Settings, with the
+ *   same confirmation and agreement as a worker number. Approved numbers, one call at a time and the call cap apply;
+ *   scheduled owner calls (NAQAH_CALL_OWNER) stay off.
  * Logs: /tmp/naqah-test-call/logs. Nothing from --secrets is printed or written to disk.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -18,22 +23,30 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const ROOT = "/tmp/naqah-test-call";
+/**
+ * NAQAH_TEST_CALL_ISOLATED=1: a second, separate stack (its own folder and ports +100) for mock checks, so they
+ * never touch the running demo's kept database.
+ */
+const ISOLATED = /^[1-5]$/.test(process.env.NAQAH_TEST_CALL_ISOLATED ?? "") ? Number(process.env.NAQAH_TEST_CALL_ISOLATED) : 0;
+const SHIFT = ISOLATED * 100;
+export const ROOT = ISOLATED === 0 ? "/tmp/naqah-test-call" : ISOLATED === 1 ? "/tmp/naqah-test-call-iso" : `/tmp/naqah-test-call-iso${ISOLATED}`;
 const LOGS = join(ROOT, "logs");
 const PGDATA = join(ROOT, "pg");
+/** Approved numbers, read by the app on every call: approving one needs no restart (see scripts/demo/approve-number.mjs). */
+export const APPROVED_FILE = join(ROOT, "approved-numbers.txt");
 const SOCK = join(ROOT, "sock");
 const STACK_ENV = join(ROOT, "stack.env");
 export const READY_FILE = join(ROOT, "ready.json");
 const PG_BIN = "/opt/homebrew/opt/postgresql@17/bin";
 const POSTGREST_BIN = "/opt/homebrew/bin/postgrest";
 const DB = "naqah_test_call";
-const PG_PORT = 54350;
-const REST_PORT = 54351;
-const GATEWAY_PORT = 54352;
-const PROVIDER_PORT = 3313;
+export const PG_PORT = 54350 + SHIFT;
+const REST_PORT = 54351 + SHIFT;
+const GATEWAY_PORT = 54352 + SHIFT;
+const PROVIDER_PORT = 3313 + SHIFT;
 export const GATEWAY = `http://127.0.0.1:${GATEWAY_PORT}`;
 export const PORTS = {
-  mock: { next: 3311, bridge: 3310 },
+  mock: { next: 3311 + SHIFT, bridge: 3310 + SHIFT },
   live: { next: 3301, bridge: 3300 },
 };
 
@@ -55,13 +68,14 @@ export const FORBIDDEN_LIVE = ["CRON_SECRET", "NAQAH_SCHEDULED_CALLS", "NAQAH_MA
 const MASKED = new Set([...SECRET_NAMES.filter((name) => name !== "TWILIO_PHONE_NUMBER"), "SUPABASE_SECRET_KEY", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"]);
 const LOOPBACK_HOST = /^(localhost|127(\.\d+){3}|\[::1\]|::1)$/;
 const SAUDI_MOBILE = /^\+9665\d{8}$/;
+const IPV4_FIRST = "--dns-result-order=ipv4first";
 
 export class UsageError extends Error {}
 
 /* ─────────────────── arguments and environment (pure, unit tested) ─────────────────── */
 
 export function parseArgs(argv) {
-  const options = { mode: null, secrets: null, publicUrl: null, allow: [], bridgePort: null, dryRun: false, skipBuild: false, reportPath: false, traceTranscripts: false };
+  const options = { mode: null, secrets: null, publicUrl: null, allow: [], bridgePort: null, dryRun: false, skipBuild: false, reportPath: false, dashboardCall: false, traceTranscripts: false, resetReport: false };
   const takeValue = (index, name) => {
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("--")) throw new UsageError(`${name} needs a value`);
@@ -76,7 +90,21 @@ export function parseArgs(argv) {
     } else if (name === "--dry-run") options.dryRun = true;
     else if (name === "--skip-build") options.skipBuild = true;
     else if (name === "--report-path") options.reportPath = true;
+    else if (name === "--dashboard-call") options.dashboardCall = true;
     else if (name === "--trace-transcripts") options.traceTranscripts = true;
+    else if (name === "--reset-report") options.resetReport = true;
+    else if (name === "--natural") options.natural = true;
+    else if (name === "--keep-data") options.keepData = true;
+    else if (name === "--owner-approves") options.ownerApproves = true;
+    else if (name === "--repeat-demo-reports") options.repeatDemoReports = true;
+    else if (name === "--no-demo-call-limit") options.noDemoCallLimit = true;
+    else if (name === "--demo-autofill") options.demoAutofill = true;
+    else if (name === "--owner-call-now") options.ownerCallNow = true;
+    else if (name === "--voice") {
+      options.voice = takeValue(index, name);
+      if (!/^(marin|cedar|alloy|ash|ballad|coral|echo|sage|shimmer|verse)$/.test(options.voice)) throw new UsageError("--voice takes a realtime voice such as marin or cedar");
+      index += 1;
+    }
     else if (name === "--max-call-seconds") {
       options.maxCallSeconds = takeValue(index, name);
       if (!/^\d{2,4}$/.test(options.maxCallSeconds)) throw new UsageError("--max-call-seconds needs a number of seconds");
@@ -93,9 +121,14 @@ export function parseArgs(argv) {
     } else throw new UsageError(`Unknown option: ${name}`);
   }
   options.mode ??= "mock";
+  if (options.resetReport) {
+    if (argv.length !== 1) throw new UsageError("--reset-report must be used on its own");
+    return options;
+  }
 
+  if (options.ownerCallNow && !options.repeatDemoReports) throw new UsageError("--owner-call-now needs --repeat-demo-reports: it is for the presentation ranch only");
   if (options.mode === "mock") {
-    for (const [given, name] of [[options.secrets, "--secrets"], [options.publicUrl, "--public-url"], [options.allow.length || null, "--allow"], [options.bridgePort, "--bridge-port"]]) {
+    for (const [given, name] of [[options.secrets, "--secrets"], [options.publicUrl, "--public-url"], [options.allow.length || null, "--allow"], [options.bridgePort, "--bridge-port"], [options.dashboardCall || null, "--dashboard-call"]]) {
       if (given !== null) throw new UsageError(`${name} is for --live only`);
     }
     return options;
@@ -104,13 +137,16 @@ export function parseArgs(argv) {
   if (options.reportPath) throw new UsageError("--report-path is for --mock only");
   if (!options.secrets) throw new UsageError("--live needs --secrets <file>");
   if (!options.publicUrl) throw new UsageError("--live needs --public-url https://…");
-  if (!options.allow.length) throw new UsageError("--live needs --allow +9665XXXXXXXX");
+  // --owner-approves: the owner approves numbers in Settings (with the recipient's agreement), so none is required here.
+  if (!options.allow.length && !options.ownerApproves) throw new UsageError("--live needs --allow +9665XXXXXXXX (or --owner-approves)");
   options.publicUrl = validatePublicUrl(options.publicUrl);
   options.allow = options.allow.map((number) => {
     if (!SAUDI_MOBILE.test(number)) throw new UsageError(`--allow takes exact Saudi mobiles such as +9665XXXXXXXX, not ${number}`);
     return number;
   });
   options.allow = [...new Set(options.allow)];
+  if (options.ownerCallNow && !options.dashboardCall) throw new UsageError("--owner-call-now needs --dashboard-call");
+  if (options.dashboardCall && options.allow.length < 1 && !options.ownerApproves) throw new UsageError("--dashboard-call needs at least one --allow number, or --owner-approves");
   options.bridgePort ??= PORTS.live.bridge;
   if (options.bridgePort === PORTS.live.next) throw new UsageError(`--bridge-port cannot be ${PORTS.live.next}: Next uses it`);
   return options;
@@ -181,9 +217,14 @@ export function buildEnvironments(options, stack, secrets = null) {
     NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1",
     NAQAH_TEST_CALLS: "1", NAQAH_TEST_CALL_ADMINS: TESTER.email, NAQAH_CALL_ALLOWLIST: allowlist.join(","),
     NAQAH_VOICE_MODE: "farm", NAQAH_VOICE_LOCALE: "ar", NAQAH_VOICE_ENGINE: "realtime",
+    ...(live || options.ownerApproves ? { NAQAH_CALL_ALLOWLIST_FILE: APPROVED_FILE } : {}),
+    ...(options.ownerApproves ? { NAQAH_OWNER_APPROVES_TEST_NUMBERS: "1" } : {}),
     NAQAH_BRIDGE_PUBLIC_URL: bridgePublic, NAQAH_PUBLIC_BASE_URL: publicBase,
   };
   if (options.maxCallSeconds) next.NAQAH_CALL_TIME_LIMIT_SECONDS = options.maxCallSeconds;
+  // The owner's «اتصال حقيقي» on the Dashboard. Scheduling and owner calls stay off; the allowlist,
+  // per-ranch rate limits, 300-second cap and no-retry rule of manual calls all still apply.
+  if (live && options.dashboardCall) next.NAQAH_MANUAL_REPORT_CALLS = "1";
   if (options.traceTranscripts) next.NAQAH_CALL_TRACE_DIR = join(tmpdir(), "naqah-call-transcripts");
   const bridge = {
     NODE_ENV: "production", PORT: String(ports.bridge),
@@ -191,16 +232,37 @@ export function buildEnvironments(options, stack, secrets = null) {
     NAQAH_VOICE_SECRET: credentials.NAQAH_VOICE_SECRET, TWILIO_AUTH_TOKEN: credentials.TWILIO_AUTH_TOKEN,
     OPENAI_API_KEY: live ? secrets.OPENAI_API_KEY : "local-test-key",
   };
+  if (options.maxCallSeconds) bridge.NAQAH_CALL_TIME_LIMIT_SECONDS = options.maxCallSeconds;
+  if (options.voice) bridge.NAQAH_REALTIME_VOICE = options.voice;
+  // One natural conversation, no keypad: local presentation runs only.
+  if (options.natural) next.NAQAH_VOICE_STYLE = "natural";
+  if (options.traceTranscripts) bridge.NAQAH_CALL_TRACE_DIR = next.NAQAH_CALL_TRACE_DIR;
+  // Some networks (NAT64) list an unreachable IPv6 address first for api.twilio.com: placement then times out.
+  next.NODE_OPTIONS = IPV4_FIRST;
+  bridge.NODE_OPTIONS = IPV4_FIRST;
   if (!live) {
-    next.NODE_OPTIONS = `--import=${join(REPO, "supabase/local-validation/mock-outbound.mjs")}`;
+    next.NODE_OPTIONS = `${IPV4_FIRST} --import=${join(REPO, "supabase/local-validation/mock-outbound.mjs")}`;
     next.NAQAH_TEST_OUTBOUND_GATEWAY = `http://127.0.0.1:${PROVIDER_PORT}/`;
     if (options.reportPath) next.NAQAH_MANUAL_REPORT_CALLS = "1";
-    bridge.NODE_OPTIONS = `--import=${join(REPO, "scripts/mocks/loopback-guard.mjs")}`;
+    bridge.NODE_OPTIONS = `${IPV4_FIRST} --import=${join(REPO, "scripts/mocks/loopback-guard.mjs")}`;
     bridge.NAQAH_REALTIME_URL = `ws://127.0.0.1:${PROVIDER_PORT}/v1/realtime`;
   }
   const browserStack = { ...stack };
   delete browserStack.SUPABASE_SECRET_KEY;
-  return { build: { ...browserStack, ...accountFlags, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" }, next, bridge, ports, publicBase };
+  const naturalFlag = {
+    ...(options.natural ? { NEXT_PUBLIC_NAQAH_NATURAL_CALLS: "1" } : {}),
+    ...(options.ownerApproves ? { NEXT_PUBLIC_NAQAH_OWNER_APPROVES_NUMBERS: "1" } : {}),
+    // The Dashboard's «اتصال حقيقي» is the demo's call; the Test AI Call page serves only the test ranch, so its menu
+    // link would send the demo owner back to the Overview.
+    ...(options.dashboardCall ? { NEXT_PUBLIC_NAQAH_TEST_CALL: "0" } : {}),
+    ...(options.ownerCallNow ? { NEXT_PUBLIC_NAQAH_DEMO_OWNER_CALL: "1" } : {}),
+    // «تعبئة تجريبية» buttons in onboarding, sign-in and Settings (fill only, never save).
+    ...(options.demoAutofill ? { NEXT_PUBLIC_NAQAH_DEMO_AUTOFILL: "1" } : {}),
+  };
+  // LOCAL DEMO ONLY: «المالك» on the presentation ranch's Dashboard (see --owner-call-now). NAQAH_CALL_OWNER stays unset.
+  if (options.ownerCallNow) next.NAQAH_DEMO_OWNER_CALL = "1";
+  Object.assign(next, naturalFlag);
+  return { build: { ...browserStack, ...accountFlags, ...naturalFlag, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" }, next, bridge, ports, publicBase };
 }
 
 export function describeEnvironment(name, env) {
@@ -251,17 +313,29 @@ async function waitFor(probe, what, tries = 240) {
 
 const pgEnv = (base) => ({ ...base, PATH: `${PG_BIN}:${base.PATH}`, LC_ALL: "en_US.UTF-8", PGHOST: "127.0.0.1", PGPORT: String(PG_PORT), PGUSER: "postgres" });
 
-function startPostgres(base) {
-  rmSync(PGDATA, { recursive: true, force: true });
+/** With --keep-data the database survives restarts: the owner's saved numbers and questions stay as saved. */
+function startPostgres(base, keep = false) {
+  const kept = keep && existsSync(join(PGDATA, "PG_VERSION"));
+  if (!kept) {
+    rmSync(PGDATA, { recursive: true, force: true });
+    rmSync(join(ROOT, "users.json"), { force: true });
+  }
   mkdirSync(SOCK, { recursive: true });
-  execFileSync(join(PG_BIN, "initdb"), ["-D", PGDATA, "-U", "postgres", "--auth=trust", "-E", "UTF8"], { env: pgEnv(base), stdio: "ignore" });
+  if (!kept) execFileSync(join(PG_BIN, "initdb"), ["-D", PGDATA, "-U", "postgres", "--auth=trust", "-E", "UTF8"], { env: pgEnv(base), stdio: "ignore" });
   execFileSync(join(PG_BIN, "pg_ctl"), ["-D", PGDATA, "-w", "-l", join(LOGS, "postgres.log"), "-o", `-p ${PG_PORT} -h 127.0.0.1 -k ${SOCK} -c fsync=off`, "start"], { env: pgEnv(base), stdio: "ignore" });
 }
 
-function stopPostgres(base) {
+function stopPostgres(base, keep = false) {
   if (!existsSync(PGDATA)) return;
   try { execFileSync(join(PG_BIN, "pg_ctl"), ["-D", PGDATA, "-m", "fast", "-w", "stop"], { env: pgEnv(base), stdio: "ignore" }); } catch { /* already stopped */ }
-  rmSync(PGDATA, { recursive: true, force: true });
+  if (!keep) rmSync(PGDATA, { recursive: true, force: true });
+}
+
+/** A kept database that already holds the test ranch: nothing is seeded or overwritten. */
+function keptDatabase(base) {
+  try {
+    return execFileSync(join(PG_BIN, "psql"), ["-X", "-A", "-t", "-d", DB, "-c", `select count(*) from farms where id = '${TEST_FARM}'`], { env: pgEnv(base), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() === "1";
+  } catch { return false; }
 }
 
 async function stopChildren() {
@@ -291,6 +365,31 @@ function seed(base, testerId, controlId) {
 
 const localSql = (base) => (query) => execFileSync(join(PG_BIN, "psql"), ["-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", DB], { input: query, encoding: "utf8", env: pgEnv(base), maxBuffer: 1 << 26 }).trim();
 
+export function resetLocalReport(env, runSql = localSql(cleanBaseEnv())) {
+  assertLoopbackUrl(env.NEXT_PUBLIC_SUPABASE_URL, "Supabase URL");
+  runSql(`begin;
+    do $$ begin
+      if inet_server_addr() is null or not (inet_server_addr() <<= inet '127.0.0.0/8' or inet_server_addr() = inet '::1') then
+        raise exception 'Refusing a non-loopback database';
+      end if;
+      perform 1 from public.farms f join public.test_call_ranches t on t.farm_id = f.id
+        where f.id = '${TEST_FARM}' for update of f, t;
+      if not found then raise exception 'No marked local test ranch'; end if;
+      if exists (select 1 from public.report_call_runs where farm_id = '${TEST_FARM}' and state in ('calling', 'answered'))
+        or exists (select 1 from public.test_calls where farm_id = '${TEST_FARM}' and status in ('calling', 'ringing', 'connected')) then
+        raise exception 'A call is still active; wait for it to finish before resetting';
+      end if;
+    end $$;
+    delete from public.reports where farm_id = '${TEST_FARM}' and at >= (
+      select (case when plan = 'basic' then date_trunc('week', (now() at time zone 'Asia/Riyadh') + interval '1 day') - interval '1 day'
+        else date_trunc('day', now() at time zone 'Asia/Riyadh') end) at time zone 'Asia/Riyadh'
+      from public.farms where id = '${TEST_FARM}');
+    delete from public.voice_call_sessions where farm_id = '${TEST_FARM}';
+    update public.farms set last_update_at = (select max(at) from public.reports where farm_id = '${TEST_FARM}'), revision = revision + 1
+      where id = '${TEST_FARM}';
+    commit;`);
+}
+
 /* ─────────────────── main ─────────────────── */
 
 function refuseBusyPorts(options, ports) {
@@ -305,7 +404,7 @@ function refuseBusyPorts(options, ports) {
 function printLiveWarning(options, ports) {
   console.log(`
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  LIVE MODE: pressing "Test AI Call" places a REAL, CHARGED phone call
+  LIVE MODE: pressing "Test AI Call"${options.dashboardCall ? " or the Dashboard's «اتصال حقيقي»" : ""} places a REAL, CHARGED phone call
   through Twilio and OpenAI to: ${options.allow.join(", ")}
   Public address: ${options.publicUrl} (must tunnel to bridge port ${ports.bridge})
   The database is local. Scheduled calls and owner calls stay off.
@@ -332,6 +431,14 @@ function dryRun(options) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  if (options.resetReport) {
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL) assertLoopbackUrl(process.env.NEXT_PUBLIC_SUPABASE_URL, "Supabase URL");
+    const stack = readFileSync(STACK_ENV, "utf8");
+    const url = stack.match(/export NEXT_PUBLIC_SUPABASE_URL='([^']*)'/)?.[1];
+    resetLocalReport({ NEXT_PUBLIC_SUPABASE_URL: url });
+    console.log("PASS local test ranch report reset. Rate limits are unchanged; no call placed.");
+    return;
+  }
   if (options.traceTranscripts) console.log("Local transcript tracing is enabled. Files older than 24 hours are cleaned on first write. All call participants must consent. Directory: " + join(tmpdir(), "naqah-call-transcripts"));
   if (options.dryRun) return dryRun(options);
 
@@ -357,7 +464,7 @@ async function main() {
     rmSync(READY_FILE, { force: true });
     await mock?.close().catch(() => {});
     await stopChildren();
-    stopPostgres(base);
+    stopPostgres(base, options.keepData);
     console.log("Stopped.");
     process.exit(code);
   };
@@ -365,9 +472,18 @@ async function main() {
 
   try {
     console.log("Starting the disposable database and local stack…");
-    startPostgres(base);
+    startPostgres(base, options.keepData);
+    const kept = options.keepData && keptDatabase(base);
+    if (options.mode === "live" || options.ownerApproves) {
+      // Approved numbers: these plus any already approved for this kept stack.
+      const already = kept && existsSync(APPROVED_FILE) ? readFileSync(APPROVED_FILE, "utf8").split("\n").filter((line) => SAUDI_MOBILE.test(line.trim())).map((line) => line.trim()) : [];
+      const start = options.mode === "live" ? options.allow : [...MOCK_ALLOWED.filter((number) => SAUDI_MOBILE.test(number)), ...(options.reportPath ? [REPORT_PATH_WORKER] : [])];
+      writeFileSync(APPROVED_FILE, [...new Set([...already, ...start])].join("\n") + "\n", { mode: 0o600 });
+    }
     const stackChild = background("stack", "sh", [join(REPO, "supabase/local-validation/run-stack.sh"), STACK_ENV], {
-      ...pgEnv(base), NAQAH_TEST_DB: DB, NAQAH_TEST_REST_PORT: String(REST_PORT), NAQAH_TEST_GATEWAY_PORT: String(GATEWAY_PORT), POSTGREST_BIN,
+      ...pgEnv(base), ...(kept ? { NAQAH_TEST_KEEP_DB: "1" } : {}),
+      // Kept with the database, so the local logins still work after a restart.
+      ...(options.keepData ? { NAQAH_TEST_USERS_FILE: join(ROOT, "users.json") } : {}), NAQAH_TEST_DB: DB, NAQAH_TEST_REST_PORT: String(REST_PORT), NAQAH_TEST_GATEWAY_PORT: String(GATEWAY_PORT), POSTGREST_BIN,
     });
     await waitFor(() => {
       if (stackChild.exitCode !== null) throw new UsageError(`The local stack exited early; see ${LOGS}/stack.log`);
@@ -376,10 +492,39 @@ async function main() {
     const stack = Object.fromEntries([...readFileSync(STACK_ENV, "utf8").matchAll(/export (\w+)='([^']*)'/g)].map((match) => [match[1], match[2]]));
     const envs = buildEnvironments(options, stack, secrets);
 
-    console.log("Creating local accounts and sample ranches…");
-    const testerId = await createUser(TESTER);
-    const controlId = await createUser(CONTROL);
-    seed(base, testerId, controlId);
+    let testerId;
+    let controlId;
+    if (kept) {
+      // The owner's saved numbers, questions and history stay exactly as they were saved.
+      console.log("Keeping the saved local data (--keep-data): nothing is seeded or overwritten.");
+      const ownerOf = (farm) => localSql(base)(`select owner_id from farms where id = '${farm}'`);
+      testerId = ownerOf(TEST_FARM);
+      controlId = ownerOf(CONTROL_FARM);
+    } else {
+      console.log("Creating local accounts and sample ranches…");
+      testerId = await createUser(TESTER);
+      controlId = await createUser(CONTROL);
+      seed(base, testerId, controlId);
+      // A fresh test ranch starts on the first approved number; after that the owner's saved number is used.
+      if (options.dashboardCall && options.allow[0]) localSql(base)(`update workers set phone = '${options.allow[0]}' where farm_id = '${TEST_FARM}'`);
+    }
+
+    if (options.repeatDemoReports) {
+      // Only the presentation ranch (named «… (عرض تجريبي)») may take another call after today's report.
+      // The demo login's ranch counts too, so renaming it in Settings (e.g. «تعبئة تجريبية» → «عزبة الوسم») keeps it the demo.
+      const demoOwner = (() => {
+        try {
+          const users = JSON.parse(readFileSync(join(ROOT, "users.json"), "utf8"));
+          const id = users.find((entry) => entry?.user?.email === "demo@naqah.demo")?.user?.id;
+          return /^[0-9a-f-]{36}$/i.test(id ?? "") ? id : null;
+        } catch { return null; }
+      })();
+      const ids = localSql(base)(`select coalesce(string_agg(id::text, ','), '') from farms where name like '%(عرض تجريبي)%'${demoOwner ? ` or owner_id = '${demoOwner}'` : ""}`);
+      envs.next.NAQAH_DEMO_REPEAT_FARMS = ids;
+      // Until the presentation: no hourly or daily limit on the presentation ranch's «اتصال حقيقي».
+      if (options.noDemoCallLimit) envs.next.NAQAH_DEMO_NO_CALL_LIMIT = "1";
+      console.log(ids ? `Repeat demo calls: on for ${ids.split(",").length} presentation ranch(es)${options.noDemoCallLimit ? ", no call limit" : ""}.` : "Repeat demo calls: no presentation ranch yet (seed it, then restart).");
+    }
 
     if (options.skipBuild && existsSync(join(REPO, ".next/BUILD_ID"))) {
       console.log("Using the existing build (--skip-build).");
@@ -409,7 +554,7 @@ async function main() {
     await waitFor(async () => (await fetch(`http://127.0.0.1:${envs.ports.next}/api/cron/report-calls`)).status > 0, "Next", 240);
     await waitFor(() => portOpen(envs.ports.bridge), "the voice bridge", 80);
 
-    const url = `http://127.0.0.1:${envs.ports.next}/ar/app/lab`;
+    const url = `http://127.0.0.1:${envs.ports.next}/ar/app${options.dashboardCall ? "" : "/lab"}`;
     writeFileSync(READY_FILE, JSON.stringify({ mode: options.mode, app: `http://127.0.0.1:${envs.ports.next}`, bridge: envs.ports.bridge, provider: options.mode === "mock" ? `http://127.0.0.1:${PROVIDER_PORT}` : null, tester: TESTER, testerId, controlId }));
 
     console.log(`

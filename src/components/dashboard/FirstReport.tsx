@@ -15,7 +15,7 @@ export function FirstReport({ ws, worker }: { ws: Workspace; worker: string }) {
   const questions = plannedQuestions(ws).length;
 
   return (
-    <section aria-labelledby="first-report" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-6 sm:px-8 sm:py-7">
+    <section aria-labelledby="first-report" className="rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 py-6 sm:px-8 sm:py-7">
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-1">
         <div className="min-w-0">
           <h2 id="first-report" className="text-xl font-semibold leading-snug text-espresso">{o.firstReportTitle}</h2>

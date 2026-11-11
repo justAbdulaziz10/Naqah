@@ -39,7 +39,7 @@ export function JourneyPanel({ ws, step, onGo }: { ws: Workspace; step: number; 
         <Logo locale={locale} href={href("/")} tone="light" />
         <nav aria-label={f.stepsNav} className="mt-14">
           <p className="text-2xl font-semibold leading-snug">{f.title}</p>
-          <p className="mt-2 max-w-[18rem] text-[0.9375rem] leading-relaxed text-cream/70">{f.panelLine}</p>
+          <p className="mt-2 max-w-[18rem] text-balance text-[0.9375rem] leading-relaxed text-cream/70">{m.onboarding.flow.panelLine}</p>
           <ol className="relative mt-10">
             {WIZARD_STEPS.map((key, index) => {
               const done = index < step && !stepNeedsFixing(key, ws);
@@ -61,7 +61,7 @@ export function JourneyPanel({ ws, step, onGo }: { ws: Workspace; step: number; 
                     aria-hidden
                     className={cn(
                       "absolute start-0 top-1 flex size-4 items-center justify-center rounded-full transition-colors duration-300",
-                      done ? "bg-gold text-espresso" : here ? "naqah-ring border-2 border-gold bg-gold" : "border-2 border-cream/35 bg-espresso",
+                      done ? "naqah-done bg-gold text-espresso" : here ? "naqah-ring border-2 border-gold bg-gold" : "border-2 border-cream/35 bg-espresso",
                     )}
                   >
                     {done ? <Check size={10} weight="bold" /> : null}
@@ -103,11 +103,14 @@ export function JourneyBar({ step }: { step: number }) {
   const { m } = useI18n();
   const f = m.setup.flow;
   const current = WIZARD_STEPS[step];
+  const upcoming = WIZARD_STEPS[step + 1];
+  // The heading below names this step, so the bar says where it stands and what comes next.
   return (
     <div className="mx-auto w-full max-w-[44rem] px-4 pt-5 sm:px-6 lg:hidden">
       <div className="flex items-baseline justify-between gap-4 text-[0.9375rem]">
-        <span className="font-bold text-espresso">{f.steps[current]}</span>
-        <span className="ltr-nums text-muted">{f.stepOf(step + 1, WIZARD_STEPS.length)}</span>
+        {/* Not .ltr-nums: in Arabic the whole phrase reads right to left («1 من 4»). */}
+        <span className="font-semibold tabular-nums text-espresso">{f.stepOf(step + 1, WIZARD_STEPS.length)}</span>
+        {upcoming ? <span className="text-muted">{m.onboarding.flow.next(f.steps[upcoming])}</span> : null}
       </div>
       <div
         className="relative mt-3 flex items-center justify-between"
@@ -130,7 +133,7 @@ export function JourneyBar({ step }: { step: number }) {
             aria-hidden
             className={cn(
               "relative size-3 rounded-full transition-colors duration-300",
-              index < step ? "bg-brown" : index === step ? "naqah-ring border-2 border-brown bg-brown" : "border-2 border-stone bg-ivory",
+              index < step ? "naqah-done bg-brown" : index === step ? "naqah-ring border-2 border-brown bg-brown" : "border-2 border-stone bg-ivory",
             )}
           />
         ))}

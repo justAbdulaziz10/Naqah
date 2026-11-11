@@ -5,9 +5,17 @@ import { useI18n } from "@/i18n/client";
 import { regionForCoords, SAUDI_REGIONS } from "@/lib/geo/regions";
 import type { SetupFieldsProps } from "../types";
 import { FieldGroup, PhoneField, StepField, StepInput, StepSelect } from "../onboarding/WizardParts";
+import { isSaudiMobile } from "../phone";
+import { ConfirmedPhone } from "./TeamFields";
+
+/**
+ * LOCAL DEMO build only (--owner-call-now with --owner-approves): in Settings the owner approves their own number for
+ * test calls the way a worker's number is approved, with one confirmation and their agreement.
+ */
+const OWNER_APPROVES_OWN_NUMBER = process.env.NEXT_PUBLIC_NAQAH_DEMO_OWNER_CALL === "1" && process.env.NEXT_PUBLIC_NAQAH_OWNER_APPROVES_NUMBERS === "1";
 
 /** Ranch name (required), region (optional), then the owner's name and mobile. Shared by onboarding and Settings. */
-export function RanchFields({ ws, onChange, showErrors = false }: SetupFieldsProps) {
+export function RanchFields({ ws, onChange, showErrors = false, confirmPhone = false }: SetupFieldsProps & { confirmPhone?: boolean }) {
   const { m } = useI18n();
   const r = m.setup.ranch;
   const { owner, farm } = ws.settings;
@@ -67,7 +75,11 @@ export function RanchFields({ ws, onChange, showErrors = false }: SetupFieldsPro
           <StepField label={r.ownerName}>
             {({ id }) => <StepInput id={id} dir="auto" autoComplete="name" value={owner.name} onChange={(event) => setOwner({ name: event.target.value })} />}
           </StepField>
-          <PhoneField label={r.ownerPhone} value={owner.phone} showError={showErrors} hint={r.youHint} onChange={(phone) => setOwner({ phone })} />
+          {confirmPhone && OWNER_APPROVES_OWN_NUMBER && isSaudiMobile(owner.phone) ? (
+            <ConfirmedPhone label={r.ownerPhone} name={owner.name.trim() || r.ownerName} value={owner.phone} onSave={(phone) => setOwner({ phone })} />
+          ) : (
+            <PhoneField label={r.ownerPhone} value={owner.phone} showError={showErrors} hint={r.youHint} onChange={(phone) => setOwner({ phone })} />
+          )}
         </div>
       </FieldGroup>
     </div>

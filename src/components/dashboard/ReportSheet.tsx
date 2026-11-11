@@ -31,7 +31,6 @@ export function ReportSheet({ ws, report, worker, onClose }: { ws: Workspace; re
       description={<time className="ltr-nums" dateTime={report.at}>{fmt.dateTime(report.at, full)}</time>}
       closeLabel={m.common.actions.close}
       onClose={onClose}
-      footer={<p className="text-[0.8125rem] leading-relaxed text-muted">{c.note}</p>}
     >
       <ReportCoverage ws={ws} report={report} />
       <section aria-labelledby="sheet-findings">

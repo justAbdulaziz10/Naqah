@@ -1,7 +1,7 @@
 /** What the owner asked for, checked against the transcript before the engine sees any of it. */
 import type { InstructionCorrection, ProposedInstruction } from "@/domain/conversation/engine";
 import { MAX_INSTRUCTIONS, readDue } from "@/domain/conversation/owner-briefing";
-import { extractNumber } from "../speech";
+import { extractNumber, wordBacking } from "../speech";
 import { evidenceWords } from "./answer-check";
 import { supports, token } from "./facts";
 import { cleanString, onlyKeys } from "./tools";
@@ -55,6 +55,29 @@ export function validateProposals(raw: unknown[], utterance: string, now: Date):
     // The model may trim the words, but what the worker will hear must be the owner's.
     const message = denied || !supports(evidenceWords(evidence), evidenceWords(item.message)) || droppedNegation(evidence, item.message) ? evidence : item.message.trim();
     items.push({ message, kind: item.kind, due: item.kind === "task" ? supportedDue(item.due, evidenceWords(evidence), now) : null, evidence });
+  }
+  return items;
+}
+
+/**
+ * The model's own words for instructions the transcript couldn't back up. Phone transcription garbles Saudi speech
+ * («خلي ودي وضح البيضة» for «خليه يودي وضحة البيطري», call 5d7773) while the model heard the audio. Safe only because
+ * every instruction is read back to the owner word for word and saved only after their spoken yes (REVIEW_STEP).
+ * Still close to what was heard: some of the words are the owner's and at most half are not, so an instruction the
+ * owner never gave («يصلح السياج» for «قل له يسقي الحلال») is still refused. A due must be backed by the quoted words.
+ */
+export function readBackProposals(raw: unknown[], utterance: string, now: Date): ProposedInstruction[] | null {
+  if (!raw.length || raw.length > MAX_INSTRUCTIONS) return null;
+  const items: ProposedInstruction[] = [];
+  for (const candidate of raw) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+    const item = candidate as Record<string, unknown>;
+    if (!onlyKeys(item, ["message", "kind", "due", "evidence"]) || (item.kind !== "task" && item.kind !== "information")) return null;
+    if (!cleanString(item.evidence, MAX_WORDS) || !cleanString(item.message, MAX_WORDS)) return null;
+    const evidence = item.evidence.trim();
+    const backing = wordBacking(evidence, [utterance]);
+    if (!backing.fromWorker || backing.unbacked.length * 2 > backing.content) return null;
+    items.push({ message: item.message.trim(), kind: item.kind, due: item.kind === "task" ? supportedDue(item.due, evidenceWords(evidence), now) : null, evidence });
   }
   return items;
 }

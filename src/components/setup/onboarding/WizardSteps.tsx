@@ -3,7 +3,7 @@
 import { CaretDown, PencilSimple } from "@phosphor-icons/react";
 import { PlanComparison } from "@/components/plans/PlanComparison";
 import type { ReactNode } from "react";
-import { ReportCallFields, useCallSentence } from "@/components/schedule/ReportCallSection";
+import { ReportCallFields } from "@/components/schedule/ReportCallSection";
 import { nowFor } from "@/domain/clock";
 import { isCompleteCallSchedule } from "@/domain/schedule";
 import type { Workspace } from "@/domain/types";
@@ -117,7 +117,6 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
   const { m, t, fmt } = useI18n();
   const account = useIsAccount();
   const r = m.setup.ready;
-  const call = useCallSentence(ws);
   const present = RESOURCE_KINDS.filter((kind) => ws.resources.some((item) => item.kind === kind && item.present));
   const { owner, farm, plan, worker, herdCount } = ws.settings;
   const workers = allWorkers(ws.settings).filter((item) => item.name.trim() || item.phone.trim());
@@ -134,6 +133,16 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
 
   return (
     <div className="space-y-10">
+      {/* What still stops NAQAH from calling comes first: it is the one thing to act on. */}
+      {gaps.length ? (
+        <section aria-labelledby="ready-missing" className="rounded-2xl border border-stone bg-cream px-5 py-5 sm:px-7">
+          <h2 id="ready-missing" className="text-[1.0625rem] font-bold text-espresso">{r.missingTitle}</h2>
+          <ul className="mt-2 list-disc space-y-1 ps-6 text-[1.0625rem] text-espresso">
+            {gaps.map((gap) => <li key={gap}>{r.missing[gap]}</li>)}
+          </ul>
+        </section>
+      ) : null}
+      {/* The week card says when NAQAH calls, so the list below doesn't repeat it. */}
       <RanchWeek ws={ws} />
       <section aria-labelledby="ready-details">
       <h2 id="ready-details" className="mb-2 text-[1.0625rem] font-bold text-espresso">{r.details}</h2>
@@ -164,22 +173,11 @@ export function ReadyStep({ ws, onEdit }: { ws: Workspace; onEdit: (step: Wizard
         <SummaryRow label={r.resources} step="team" onEdit={onEdit}>
           {present.length ? present.map((kind) => t(RESOURCE_LABELS[kind])).join(" · ") : <span className="text-muted">{r.noResources}</span>}
         </SummaryRow>
-        <SummaryRow label={r.call} step="call" onEdit={onEdit}>
-          {call ? call.sentence : notSet}
-        </SummaryRow>
         <SummaryRow label={r.mode} step="call" onEdit={onEdit}>{m.setup.questions.mode.options[reportModeOf(ws)]}</SummaryRow>
         <SummaryRow label={r.questions} step="call" onEdit={onEdit}>{r.questionsPlanned(plannedQuestions(ws).length)}</SummaryRow>
       </dl>
       </section>
 
-      {gaps.length ? (
-        <section aria-labelledby="ready-missing">
-          <h2 id="ready-missing" className="text-[1.0625rem] font-bold text-espresso">{r.missingTitle}</h2>
-          <ul className="mt-2 list-disc space-y-1 ps-6 text-[1.0625rem] text-espresso">
-            {gaps.map((gap) => <li key={gap}>{r.missing[gap]}</li>)}
-          </ul>
-        </section>
-      ) : null}
       {account ? (
         <CallingStateNote ws={ws} skipMissing className="text-[1.0625rem]" />
       ) : (

@@ -38,7 +38,8 @@ export function traceCall(callSid: string, input: { session: CallSession; tool: 
     if (realpathSync(directory) !== directory) return;
     if (!cleaned.has(directory)) {
       for (const name of readdirSync(directory)) {
-        if (!/^CA[0-9a-f]{32}\.jsonl$/i.test(name)) continue;
+        // The bridge's own lines (bridge-<last six of the call>.jsonl) expire on the same 24 hours.
+        if (!/^(?:CA[0-9a-f]{32}|bridge-[0-9a-z]{1,6})\.jsonl$/i.test(name)) continue;
         const file = path.join(directory, name);
         const stat = lstatSync(file);
         if (stat.isFile() && stat.mtimeMs < Date.now() - 24 * 60 * 60 * 1000) unlinkSync(file);
