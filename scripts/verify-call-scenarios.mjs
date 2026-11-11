@@ -352,7 +352,7 @@ const Q = {
   // The full read-back repeats questions, so the question patterns must not match the summary.
   health: /^(?![\s\S]*أحفظه)[\s\S]*كيف الحلال/,
   herdCount: /كم عدد الحلال/,
-  feed: /^(?![\s\S]*أحفظه)[\s\S]*كيف العلف/,
+  feed: /^(?![\s\S]*أحفظه)[\s\S]*كم باقي من العلف/,
   water: /^(?![\s\S]*أحفظه)[\s\S]*كيف الماء/,
   custom: /^(?![\s\S]*أحفظه)[\s\S]*البيطري/,
   summary: /أحفظه/,

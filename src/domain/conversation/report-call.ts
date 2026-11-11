@@ -16,8 +16,14 @@ import type { ReportItem, CallSession, EngineResult, AnswerInput, OpenFact, Repl
 import { startWorkerCallback } from './worker-callback';
 
 const camelsText = (count: number) => copy(count + (count === 1 ? " camel" : " camels"), count + " من الحلال");
-const isQuantity = (text: string) => text !== "" && Number.isFinite(Number(text)) && Number(text) >= 0;
 const quantityUnit = (resource: ResourceKind) => (resource === "feed" ? copy("bags", "كيس") : copy("litres", "لتر"));
+/** "25" or "25 بالات": the number, and the worker's own unit word when one was said. */
+function spokenQuantity(text: string): { count: string; unit: string | null } | null {
+  const match = text.trim().match(/^(\d+(?:\.\d+)?)(?:\s+([\p{L} ]{1,20}))?$/u);
+  return match ? { count: match[1], unit: match[2]?.trim() || null } : null;
+}
+/** English for the usual unit words; any other word is kept as said. */
+const UNIT_EN: Record<string, string> = { "كيس": "bags", "أكياس": "bags", "اكياس": "bags", "كياس": "bags", "بالة": "bales", "باله": "bales", "بالات": "bales", "طن": "tonnes", "أطنان": "tonnes", "كيلو": "kg", "لتر": "litres", "لترات": "litres" };
 
 /** Herd size the worker's count is compared with: the owner's official count, else the camel list. */
 function expectedHerd(ws: Workspace): number | null {
@@ -539,8 +545,9 @@ function handleReportQuestion(
     if (!LEVELS.includes(value as Level)) {
       // "How much is left?" answered with a number: keep it, without inventing a level.
       const count = (input.text ?? value).trim();
-      if ((item.resource === "feed" || item.resource === "water") && isQuantity(count)) {
-        return { session: nextReportItem(addResourceAnswer(current.session, item, "unknown", storedQuantity(ws, item.resource, count), "approximate"), ws, now) };
+      const said = spokenQuantity(count);
+      if ((item.resource === "feed" || item.resource === "water") && said) {
+        return { session: nextReportItem(addResourceAnswer(current.session, item, "unknown", storedQuantity(ws, item.resource, said.count, said.unit), "approximate"), ws, now) };
       }
       // Never carry a value that isn't a level: the save would refuse the whole report.
       return { session: askReportItem(current.session, ws, now) };
@@ -736,8 +743,8 @@ function addResourceAnswer(
   return next;
 }
 
-function storedQuantity(ws: Workspace, resource: ResourceKind, count: string) {
-  const unit = quantityUnit(resource);
+function storedQuantity(ws: Workspace, resource: ResourceKind, count: string, said: string | null = null) {
+  const unit = said ? copy(UNIT_EN[said] ?? said, said) : quantityUnit(resource);
   const text = copy(count + " " + unit.en, count + " " + unit.ar);
   return { stored: ws.settings.worker.language === "en" ? text.en : text.ar, text };
 }

@@ -38,7 +38,7 @@ export function naturalOpening(ws: Workspace, locale: Locale): string {
 const NATURAL_WORDING: Record<string, string> = {
   herd_health: "بشّر، كيف الحلال اليوم؟ (وإذا ما وضح، اسأل: فيه ناقة تعبانة أو تحتاج متابعة؟)",
   herd_count: "كم راس الحلال اليوم؟",
-  feed_level: "كيف العلف، يكفي ولا ناقص؟",
+  feed_level: "كم باقي من العلف عندكم؟",
   water_level: "كيف وضع الماي؟",
   fences_condition: "فيه شي خربان أو يحتاج تصليح؟",
   shelter_condition: "المظلات سليمة؟",
@@ -59,7 +59,9 @@ function expects(item: Item, locale: Locale): string {
   if (item.id === "herd_count") return ar ? "number: العدد، أو value: unknown. إذا أقل من المسجل: missing بكلامه عن الناقصة" : "number: the count, or value: unknown. If fewer than on record: missing, in their words";
   if (item.answerKind === "level" && item.resource) {
     const levels = LEVEL_VALUES.map((value) => `${value} (${levelLabel(item.resource!, value)[locale]})`).join(" / ");
-    const quantity = item.resource === "feed" || item.resource === "water" ? (ar ? " أو number إذا قال كمية" : " or number if they gave a quantity") : "";
+    const quantity = item.resource === "feed" || item.resource === "water"
+      ? (ar ? " أو number مع unit بكلمة العامل (كيس، بالة، طن…) إذا قال كمية برقم. بدون رقم لا تعطي number" : " or number with unit in the worker's word (bags, bales…) if they gave a quantity. No number said: no number")
+      : "";
     return `value: ${levels}${quantity}`;
   }
   return "value: yes / no / unknown";
@@ -104,7 +106,8 @@ export function buildNaturalInstructions(base: CallSession, ws: Workspace, local
     "لا تخمّن أبداً. «ما أدري» و«مدري» تعني unknown. لا تسجّل ناقة إنها بخير إذا العامل ما قال. لا تشخّص ولا تنصح بعلاج. إذا فيه شي عاجل نادِ flag_urgent وقل له يتصل على صاحب العزبة مباشرة الحين.",
     "انطق أسماء النوق والأرقام بوضوح، وقل الأرقام بالعربي.",
     "اسأل الأسئلة بنفس الكلمات القصيرة اللي تحت، بدون شرح أو خيارات إلا إذا ما فهم.",
-    "«يكفي» و«كافي» = good. «ناقص شوي» و«قليل» = low. «خلص» و«ما بقى شي» = critical. ما تعرف الكمية = unknown.",
+    "«يكفي» و«كافي» = good. «ناقص شوي» و«باقي شوي» و«قليل» = low. «خلص» و«ما بقى شي» = critical. ما تعرف الكمية = unknown.",
+    "إذا قال كمية برقم مثل «باقي 25 كيس» أو «عندنا 10 بالات»: number بالرقم وunit بكلمته نفسها (كيس، بالات). لا تخترع رقم ولا وحدة ما قالها.",
     "«فيه شي خربان؟» عن الشبك: إذا قال ما فيه شي خربان = good. إذا الخربان هو الشبك = low (أو critical إذا كبير). إذا الخربان شي ثاني غير الشبك، سجّل الشبك unknown واذكر الشي الخربان في جواب «فيه شي ثاني» بكلامه.",
     "«سلامتها» بس لناقة تعبانة، مو للعلف أو الماي.",
     `الأسئلة بالترتيب:\n${questions}`,
@@ -123,6 +126,7 @@ export function naturalTools(base: CallSession, ws: Workspace) {
     question_id: { type: "string", enum: ids },
     value: { type: "string" },
     number: { type: "number", minimum: 0 },
+    unit: { type: "string", maxLength: 20 },
     text: { type: "string" },
     camels: { type: "array", maxItems: 30, items: camel },
     rest_well: { type: "boolean" },
@@ -136,10 +140,12 @@ export function naturalTools(base: CallSession, ws: Workspace) {
   ];
 }
 
-type Given = { question_id: string; value?: string; number?: number; text?: string; camels?: { name: string; status: string; note?: string }[]; rest_well?: boolean; missing?: string };
+type Given = { question_id: string; value?: string; number?: number; unit?: string; text?: string; camels?: { name: string; status: string; note?: string }[]; rest_well?: boolean; missing?: string };
 export type Replayed = { ok: true; session: CallSession } | { ok: false; error: string; questions: string[] };
 
 const clean = (text: unknown, max = 300) => (typeof text === "string" ? text.trim().slice(0, max) : "");
+/** The worker's unit word, as said («كيس», «بالات»): letters only, short. Anything else is dropped, never guessed. */
+const unitOf = (unit: unknown) => { const word = clean(unit, 20).replace(/\s+/g, " "); return /^[\p{L} ]+$/u.test(word) ? word : ""; };
 const valueOf = (session: CallSession, value: unknown) => (typeof value === "string" && session.replies.some((reply) => reply.value === value) ? value : null);
 
 /**
@@ -194,7 +200,7 @@ export function replayAnswers(base: CallSession, ws: Workspace, now: Date, args:
         if (at() === "herd_count_detail") step(clean(entry.missing) ? { text: clean(entry.missing) } : { value: "unknown" });
         continue;
       }
-      if (typeof entry.number === "number" && entry.number >= 0 && item.kind === "predefined" && (item.resource === "feed" || item.resource === "water")) { step({ text: String(entry.number) }); continue; }
+      if (typeof entry.number === "number" && entry.number >= 0 && item.kind === "predefined" && (item.resource === "feed" || item.resource === "water")) { step({ text: [String(entry.number), unitOf(entry.unit)].filter(Boolean).join(" ") }); continue; }
       const value = valueOf(session, entry.value);
       if (!value) { invalid.push(id); step({ value: valueOf(session, "unknown") ?? session.replies[0].value }); continue; }
       step({ value });

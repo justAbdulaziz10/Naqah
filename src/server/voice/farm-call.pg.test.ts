@@ -479,7 +479,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       await call.say("Sick, her left hind leg is swollen");
       await call.press("2");
       await call.say("two");
-      expect(call.text).toContain("How is the feed?");
+      expect(call.text).toContain("How much feed is left?");
       await call.press("3");
       expect(call.text).toContain("How is the water?");
       await call.say("I don't know");
@@ -489,7 +489,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(0);
       await call.press("2");
       await call.press("3");
-      expect(call.text).toContain("How is the feed?");
+      expect(call.text).toContain("How much feed is left?");
       await call.press("1");
       expect(call.text).toContain("Feed: Plenty");
       expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(0);
@@ -503,7 +503,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
       const answers = sql(`select a.question_en || '=' || coalesce(a.answer_en, a.answer) || ':' || a.certainty from report_answers a
         join reports r on r.id = a.report_id where r.farm_id = ${q(farm.id)} order by a.sort_order`).split("\n");
       expect(count(`reports where farm_id = ${q(farm.id)}`)).toBe(1);
-      expect(answers).toContain("How is the feed?=Plenty:reported");
+      expect(answers).toContain("How much feed is left?=Plenty:reported");
       expect(answers.join(" ")).not.toContain("Running low");
       expect(answers).toContain("How is the water?=Unknown:unknown");
       expect(answers).toContain("Did the vet come?=Yes, the vet gave Noura an injection:reported");

@@ -503,7 +503,7 @@ async function keypadToEnd(call) {
 const TEXT = {
   health: "كيف الحلال اليوم؟",
   count: "كم عدد الحلال؟",
-  feed: "كيف العلف؟",
+  feed: "كم باقي من العلف عندكم؟",
   water: "كيف الماء؟",
   openAsk: "وش صار في العزبة؟",
   openMore: "فيه شي ثاني تبي تضيفه؟",

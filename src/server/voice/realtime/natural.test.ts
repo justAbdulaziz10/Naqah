@@ -36,7 +36,7 @@ describe("the natural call", () => {
     const { ws, session } = base();
     const text = buildNaturalInstructions(session, ws, "ar");
     for (const id of ids(session)) expect(text).toContain(`[${id}]`);
-    for (const asked of ["بشّر، كيف الحلال اليوم؟", "فيه ناقة تعبانة أو تحتاج متابعة؟", "كيف العلف، يكفي ولا ناقص؟", "كيف وضع الماي؟", "فيه شي خربان أو يحتاج تصليح؟", "فيه شي ثاني تبي تبلغ عنه؟"]) expect(text).toContain(asked);
+    for (const asked of ["بشّر، كيف الحلال اليوم؟", "فيه ناقة تعبانة أو تحتاج متابعة؟", "كم باقي من العلف عندكم؟", "كيف وضع الماي؟", "فيه شي خربان أو يحتاج تصليح؟", "فيه شي ثاني تبي تبلغ عنه؟"]) expect(text).toContain(asked);
     // The demo's short call: the older questions are switched off for this ranch only.
     for (const dropped of ["كم لتر حليب", "فيه أحد زار", "[herd_count]", "[shelter_condition]", "[medicine_stock]"]) expect(text).not.toContain(dropped);
     expect(ids(session)).toHaveLength(6);
@@ -118,5 +118,32 @@ describe("the natural call", () => {
     expect(JSON.parse(line.output).say).not.toContain("اضغط");
     const summary = { output: "{}", awaitingConfirmation: true, end: null, goodbye: null, summaryText: "هذا ملخص التحديث" };
     expect(naturalize(summary, "ar")).toBe(summary);
+  });
+
+  it.each([
+    ["«باقي 25 كيس»", { number: 25, unit: "كيس" }, { ar: "25 كيس", en: "25 bags" }, { level: "unknown", quantity: "25 كيس", certainty: "approximate" }],
+    ["«عندنا 10 بالات»", { number: 10, unit: "بالات" }, { ar: "10 بالات", en: "10 bales" }, { level: "unknown", quantity: "10 بالات", certainty: "approximate" }],
+    ["«باقي شوي»", { value: "low" }, { ar: "قارب على النفاد", en: "Running low" }, { level: "low", quantity: null, certainty: "reported" }],
+    ["«ما أدري»", { value: "unknown" }, { ar: "غير معروف", en: "Unknown" }, { level: "unknown", quantity: null, certainty: "unknown" }],
+    ["a number with a made-up unit", { number: 7, unit: "<b>x</b>" }, { ar: "7 كيس", en: "7 bags" }, { level: "unknown", quantity: "7 كيس", certainty: "approximate" }],
+  ])("keeps the feed amount as said: %s", (_label, feed, answerText, resource) => {
+    const { ws, session } = base();
+    const given = answers(session).map((entry) => (entry.question_id === "feed_level" ? { question_id: "feed_level", ...feed } : entry));
+    const replayed = replayAnswers(session, ws, NOW, { answers: given });
+    expect(replayed.ok).toBe(true);
+    const draft = replayed.ok ? replayed.session.draft : null;
+    const saved = draft!.answers.find((entry) => entry.questionId === "feed_level")!;
+    expect(saved.question.ar).toBe("كم باقي من العلف عندكم؟");
+    expect(saved.answerText).toEqual(answerText);
+    expect(draft!.resourceUpdates.find((update) => update.kind === "feed")).toMatchObject(resource);
+  });
+
+  it("tells the model to keep the worker's unit and never invent an amount", () => {
+    const { ws, session } = base();
+    const text = buildNaturalInstructions(session, ws, "ar");
+    expect(text).toContain("«كم باقي من العلف عندكم؟»");
+    expect(text).toContain("لا تخترع رقم ولا وحدة ما قالها");
+    const submit = naturalTools(session, ws).find((entry) => JSON.stringify(entry).includes("submit_report"));
+    expect(JSON.stringify(submit)).toContain('"unit":{"type":"string","maxLength":20}');
   });
 });

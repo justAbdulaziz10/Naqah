@@ -4,7 +4,7 @@
  * routes, the real voice bridge and a disposable Postgres, with Twilio and the model replaced by loopback mocks
  * (scripts/mocks/test-call-twilio.mjs runs each call from a JSON scenario; see runNaturalScenario there).
  *
- *   NAQAH_TEST_CALL_ISOLATED=1 node scripts/verify-natural-report.mjs [--skip-build]
+ *   NAQAH_TEST_CALL_ISOLATED=1 node scripts/verify-natural-report.mjs [--skip-build] [--only 1,9]
  *
  * Scenarios (each on a freshly seeded copy of the ranch, worker +966500000001, no report today):
  *   1 happy path, the worker's yes starting 300 ms before the summary's playback mark returns (placed from the
@@ -15,6 +15,8 @@
  *     that number   7 «اتصال حقيقي» rate limit: a 4th placed call in an hour is refused
  *   8 repeat demo calls: the presentation ranch takes a second report call today (two reports, the Dashboard shows the
  *     latest); the test ranch with a report today stays blocked; in_progress and the hourly limit still apply
+ *   9 feed amount «كم باقي من العلف عندكم؟»: «باقي 25 كيس», «عندنا 10 بالات», «باقي شوي», «ما أدري» keep the amount and
+ *     unit (or the level), invent nothing; the Dashboard and Calls page show «25 كيس» (runs before 8)
  *
  * The runner is started with --keep-data --repeat-demo-reports (its database emptied before the first start), and scenario 8
  * restarts it after seeding, because the repeat list holds the ranch ids present when the runner starts.
@@ -945,6 +947,101 @@ async function scenarioRepeat(browser) {
   }
 }
 
+/* ─────────────────── scenario 9: the feed amount ─────────────────── */
+
+const FEED_QUESTION = "كم باقي من العلف عندكم؟";
+const OLD_FEED_QUESTION = "كيف العلف، يكفي ولا ناقص؟";
+const FEED_CASES = [
+  { id: "a", words: "باقي 25 كيس", feed: { number: 25, unit: "كيس" } },
+  { id: "b", words: "عندنا 10 بالات", feed: { number: 10, unit: "بالات" } },
+  { id: "c", words: "باقي شوي", feed: { value: "low" } },
+  { id: "d", words: "ما أدري", feed: { value: "unknown" } },
+];
+
+async function scenarioFeed(browser) {
+  section(9, "Feed amount: «كم باقي من العلف عندكم؟», amount and unit kept, nothing invented");
+  for (const feedCase of FEED_CASES) {
+    const label = feedCase.id.toUpperCase();
+    const farm = seedRanch();
+    const plan = ensurePlan(farm);
+    const say = BASE.say.replace("العلف ناقص شوي", feedCase.words);
+    await control({ reset: true, outcome: "full", twilioError: null, dwellMs: 200, natural: { ...BASE, say, answers: { ...BASE.answers, feed_level: feedCase.feed } } });
+    const placed = await callViaApi(await demoCookie());
+    check(`${label}. callNow placed the call («${feedCase.words}»)`, placed.json?.data?.status === "placed", placed);
+    const call = (await finishedCall()).calls[0];
+    writeFileSync(join(OUT, `natural-feed-${feedCase.id}.json`), JSON.stringify(call, null, 2));
+    callBasics(call, plan.other);
+    check(`${label}. confirm_report returned saved`, call.confirm?.output?.status === "saved", call.confirm);
+    if (feedCase.id === "a") check("A. the worker's words include «باقي 25 كيس»", say.includes("باقي 25 كيس"), say);
+    const instructions = call.provider?.sessionUpdate?.instructions ?? "";
+    check(`${label}. the model asks «${FEED_QUESTION}», not «${OLD_FEED_QUESTION}»`, instructions.includes(FEED_QUESTION) && !instructions.includes(OLD_FEED_QUESTION), instructions.match(/[^\n]*العلف[^\n]*/g)?.slice(0, 4));
+    const submit = (call.provider?.sessionUpdate?.tools ?? []).find((tool) => tool.name === "submit_report");
+    check(`${label}. submit_report's answer items accept a unit`, Boolean(submit?.parameters?.properties?.answers?.items?.properties?.unit), Object.keys(submit?.parameters?.properties?.answers?.items?.properties ?? {}));
+    const runRow = run(farm);
+    const feed = json(`select row_to_json(a) from (select answer, answer_ar, certainty, question_ar from report_answers where report_id = ${q(runRow?.report_id)} and question_id = 'feed_level') a`);
+    const resource = json(`select row_to_json(r) from (select level, quantity, certainty from resources where farm_id = ${q(farm)} and kind = 'feed') r`);
+    const summary = call.scenarioLog?.summaries?.at(-1)?.text ?? "";
+    evidence(`${feedCase.id}Feed`, { answer: feed, resource, summary });
+    check(`${label}. the feed answer keeps the question «${FEED_QUESTION}»`, feed?.question_ar === FEED_QUESTION, feed);
+    if (feedCase.id === "a" || feedCase.id === "b") {
+      const [ar, en] = feedCase.id === "a" ? ["25 كيس", "25 bags"] : ["10 بالات", "10 bales"];
+      check(`${label}. report_answers keeps «${ar}» / ${en}`, feed?.answer_ar === ar && feed?.answer === en, feed);
+      check(`${label}. resources.feed: quantity «${ar}», level unknown (not guessed), approximate`, resource?.quantity === ar && resource?.level === "unknown" && resource?.certainty === "approximate", resource);
+      check(`${label}. the summary read to the worker says «${ar}»`, summary.includes(ar), summary);
+    } else if (feedCase.id === "c") {
+      check("C. report_answers: Running low («قارب على النفاد»)", feed?.answer === "Running low" && /قارب على النفاد/.test(feed?.answer_ar ?? ""), feed);
+      check("C. resources.feed: level low, no quantity, reported", resource?.quantity === null && resource?.level === "low" && resource?.certainty === "reported", resource);
+      check("C. no number invented in the feed answer", !/[0-9٠-٩]/.test(feed?.answer_ar ?? ""), feed?.answer_ar);
+    } else {
+      check("D. resources.feed: level unknown, no quantity, certainty unknown", resource?.quantity === null && resource?.level === "unknown" && resource?.certainty === "unknown", resource);
+      check("D. the feed answer is labelled unknown", feed?.certainty === "unknown", feed);
+      check("D. no number invented in the feed answer", !/[0-9٠-٩]/.test(feed?.answer_ar ?? ""), feed?.answer_ar);
+    }
+    if (feedCase.id !== "a") continue;
+
+    // A on screen: the Dashboard's feed line and today's card on the Calls page.
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "ar-SA" });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+    page.on("console", (message) => { if (message.type() === "error") errors.push(`console: ${message.text()}`); });
+    try {
+      await signIn(page);
+      await page.goto(`${ready.app}/ar/app`);
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await sleep(1500);
+      await page.screenshot({ path: join(OUT, "natural-feed-dashboard.png"), fullPage: true });
+      const dash = await page.locator("body").innerText();
+      const lines = dash.split("\n");
+      const feedLines = lines.flatMap((line, index) => (line.includes("العلف") ? [`${line} ⏎ ${lines[index + 1] ?? ""}`] : []));
+      evidence("aDashboardFeedLines", feedLines);
+      check("A. the Dashboard shows «25 كيس»", dash.includes("25 كيس"), feedLines);
+      check("A. the Dashboard's feed line doesn't say «غير معروف»", feedLines.length > 0 && !feedLines.some((line) => line.includes("غير معروف")), feedLines);
+      await page.goto(`${ready.app}/ar/app/calls`);
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await sleep(1500);
+      await page.screenshot({ path: join(OUT, "natural-feed-calls.png"), fullPage: true });
+      const calls = await page.locator("body").innerText();
+      const today = sql("select to_char(now() at time zone 'Asia/Riyadh', 'FMDD')");
+      const card = calls.split(/\n(?=(?:السبت|الأحد|الاثنين|الثلاثاء|الأربعاء|الخميس|الجمعة)، )/).find((block) => new RegExp(`^(?:السبت|الأحد|الاثنين|الثلاثاء|الأربعاء|الخميس|الجمعة)، ${today} `).test(block)) ?? "";
+      evidence("aTodayCard", card.slice(0, 800));
+      check("A. today's call is on the Calls page with «اعرض التقرير»", /تقرير أحمد/.test(card) && /اعرض التقرير/.test(card), card.slice(0, 400));
+      // The card lists only the important notes; the full report, with the supplies, opens from «اعرض التقرير».
+      await page.getByRole("button", { name: "اعرض التقرير" }).first().click();
+      const sheet = page.getByRole("dialog");
+      await sheet.waitFor({ timeout: 10_000 });
+      const sheetText = await sheet.innerText();
+      await page.screenshot({ path: join(OUT, "natural-feed-calls-report.png"), fullPage: false });
+      evidence("aReportSheet", sheetText.slice(0, 1200));
+      check("A. the report opened from the Calls page shows «25 كيس» for the feed", sheetText.includes("25 كيس") && !/العلف\s*\n?\s*غير معروف/.test(sheetText), sheetText.slice(0, 600));
+    } finally {
+      await context.close();
+    }
+    evidence("browserErrors", errors);
+    check("A. no console errors or page errors (sign-in, Dashboard, Calls)", errors.length === 0, errors);
+  }
+}
+
 /* ─────────────────── main ─────────────────── */
 
 let happyEventDelta = null;
@@ -953,6 +1050,8 @@ let browser = null;
 try {
   await startRunner();
   browser = await chromium.launch();
+  // --only 1,9: run just those scenarios (1 includes 5).
+  const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1].split(",").map(Number) : null;
   const steps = [
     async () => {
       const happy = await scenarioHappy(browser);
@@ -964,9 +1063,12 @@ try {
     scenarioFailedSave,
     () => scenarioNumberChange(browser),
     scenarioRateLimit,
+    () => scenarioFeed(browser),
     () => scenarioRepeat(browser), // last: it restarts the runner
   ];
-  for (const step of steps) {
+  const ids = [1, 2, 3, 4, 6, 7, 9, 8];
+  for (const [index, step] of steps.entries()) {
+    if (only && !only.includes(ids[index])) continue;
     try { await step(); } catch (error) {
       console.error(`  ERROR ${error.stack ?? error}`);
       if (current) { current.error = String(error.message ?? error); current.checks.push({ name: "scenario ran to the end", passed: false, detail: current.error }); }
@@ -982,7 +1084,7 @@ try {
   if (open.length) results.push({ id: 0, title: "teardown", checks: [{ name: "the runner stopped everything it started", passed: false, detail: open }], evidence: {} });
 }
 
-const order = [1, 2, 3, 4, 5, 6, 7, 8, 0];
+const order = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
 results.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
 const rows = results.map((entry) => {
   const failed = entry.checks.filter((item) => !item.passed).length;
