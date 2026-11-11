@@ -143,6 +143,8 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
 
     const farm = farmOfCall(call.sid);
     call.farm = farm;
+    // The owner's briefing call (scripts/verify-owner-call-now.mjs): its own script, the worker's path below is untouched.
+    if (new URL(call.url).pathname === "/api/voice/owner") return runOwnerConversation(call, { upstream, stream, connect });
     const first = engineState(call.sid);
     call.queue = (first?.data?.queue ?? []).map((item) => item.id ?? item.questionId ?? item.kind);
 
@@ -352,6 +354,43 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
       call.duplicates = { ...(call.duplicates ?? {}), direct: { same: savedId ? await retry(savedId) : null, fresh: await retry(`call_retry_${randomBytes(4).toString("hex")}`) } };
     }
     if (stream.autoMark === false) { stream.ackAll(); stream.autoMark = true; }
+  }
+
+  /**
+   * Added for scripts/verify-owner-call-now.mjs. The owner hears the briefing (the opening line), then
+   * `call.scenario.owner`: { say, items, confirm } gives one or more instructions and confirms the read-back,
+   * or { say, none: true } has none. Ends like a real call: the bridge's goodbye, /after, then `completed`.
+   */
+  async function runOwnerConversation(call, { upstream, stream, connect }) {
+    const script = call.scenario?.owner ?? { say: "لا ما عندي شي", none: true };
+    const marks = (prefix) => stream.sent("mark").filter((event) => event.mark?.name?.startsWith(prefix)).length;
+    call.owner = { opening: call.provider.opening, steps: [], tools: (call.provider.sessionUpdate?.tools ?? []).map((tool) => tool.name) };
+    call.owner.stepAtStart = engineState(call.sid)?.step ?? null;
+    upstream.workerSays(script.say);
+    if (script.none) {
+      const output = await upstream.toolCall("no_instructions", {});
+      call.owner.steps.push({ name: "no_instructions", output: output === null ? null : JSON.parse(output) });
+    } else {
+      const proposed = await upstream.toolCall("propose_instructions", { items: script.items });
+      const parsed = proposed === null ? null : JSON.parse(proposed);
+      call.owner.steps.push({ name: "propose_instructions", output: parsed });
+      if (parsed?.status !== "ok") throw new Error(`The server refused the instructions: ${String(proposed).slice(0, 300)}`);
+      call.owner.review = { text: parsed.summaryText ?? parsed.summary ?? null, flagged: parsed.isSummary === true || parsed.awaitingConfirmation === true };
+      await waitUntil(() => marks("summary-") >= 1, "the read-back's playback boundary", 20_000);
+      await sleep(100);
+      call.owner.review.readInFull = upstream.spoken.some((line) => call.owner.review.text && line.includes(call.owner.review.text));
+      call.owner.stepBeforeConfirm = engineState(call.sid)?.step ?? null;
+      upstream.workerSays(script.confirm ?? "إيه احفظها");
+      const confirmed = await upstream.toolCall("confirm_instructions", { confirmed: true });
+      call.owner.steps.push({ name: "confirm_instructions", output: confirmed === null ? null : JSON.parse(confirmed) });
+    }
+    const closed = await stream.waitClosed(20_000);
+    call.streamClosed = closed !== null;
+    call.provider.spoken = [...upstream.spoken];
+    const after = await webhook(connect.action, fieldsFor(call));
+    call.after = { http: after.status, hangup: /<Hangup/.test(after.xml), speaks: /<Say|<Gather/.test(after.xml) };
+    await sendStatus(call, "completed", { CallDuration: "37" });
+    call.finished = true;
   }
 
   function waitUntil(probe, label, timeoutMs = 10_000) {

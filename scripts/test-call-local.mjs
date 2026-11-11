@@ -8,6 +8,11 @@
  *
  * --live places REAL, CHARGED calls to the allowed numbers. Options: --bridge-port (live, default 3300), --skip-build,
  * --dry-run (print variable names and non-secret values, start nothing).
+ * --owner-call-now (LOCAL DEMO ONLY, needs --repeat-demo-reports; live also needs --dashboard-call): the presentation
+ *   ranch's Dashboard gets «العامل / المالك» above «اتصال حقيقي». «المالك» calls the ranch's saved owner number now with the
+ *   briefing (instructions per plan). With --owner-approves the owner approves their own number in Settings, with the
+ *   same confirmation and agreement as a worker number. Approved numbers, one call at a time and the call cap apply;
+ *   scheduled owner calls (NAQAH_CALL_OWNER) stay off.
  * Logs: /tmp/naqah-test-call/logs. Nothing from --secrets is printed or written to disk.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -93,6 +98,7 @@ export function parseArgs(argv) {
     else if (name === "--owner-approves") options.ownerApproves = true;
     else if (name === "--repeat-demo-reports") options.repeatDemoReports = true;
     else if (name === "--no-demo-call-limit") options.noDemoCallLimit = true;
+    else if (name === "--owner-call-now") options.ownerCallNow = true;
     else if (name === "--voice") {
       options.voice = takeValue(index, name);
       if (!/^(marin|cedar|alloy|ash|ballad|coral|echo|sage|shimmer|verse)$/.test(options.voice)) throw new UsageError("--voice takes a realtime voice such as marin or cedar");
@@ -119,6 +125,7 @@ export function parseArgs(argv) {
     return options;
   }
 
+  if (options.ownerCallNow && !options.repeatDemoReports) throw new UsageError("--owner-call-now needs --repeat-demo-reports: it is for the presentation ranch only");
   if (options.mode === "mock") {
     for (const [given, name] of [[options.secrets, "--secrets"], [options.publicUrl, "--public-url"], [options.allow.length || null, "--allow"], [options.bridgePort, "--bridge-port"], [options.dashboardCall || null, "--dashboard-call"]]) {
       if (given !== null) throw new UsageError(`${name} is for --live only`);
@@ -137,6 +144,7 @@ export function parseArgs(argv) {
     return number;
   });
   options.allow = [...new Set(options.allow)];
+  if (options.ownerCallNow && !options.dashboardCall) throw new UsageError("--owner-call-now needs --dashboard-call");
   if (options.dashboardCall && options.allow.length < 1 && !options.ownerApproves) throw new UsageError("--dashboard-call needs at least one --allow number, or --owner-approves");
   options.bridgePort ??= PORTS.live.bridge;
   if (options.bridgePort === PORTS.live.next) throw new UsageError(`--bridge-port cannot be ${PORTS.live.next}: Next uses it`);
@@ -246,7 +254,10 @@ export function buildEnvironments(options, stack, secrets = null) {
     // The Dashboard's «اتصال حقيقي» is the demo's call; the Test AI Call page serves only the test ranch, so its menu
     // link would send the demo owner back to the Overview.
     ...(options.dashboardCall ? { NEXT_PUBLIC_NAQAH_TEST_CALL: "0" } : {}),
+    ...(options.ownerCallNow ? { NEXT_PUBLIC_NAQAH_DEMO_OWNER_CALL: "1" } : {}),
   };
+  // LOCAL DEMO ONLY: «المالك» on the presentation ranch's Dashboard (see --owner-call-now). NAQAH_CALL_OWNER stays unset.
+  if (options.ownerCallNow) next.NAQAH_DEMO_OWNER_CALL = "1";
   Object.assign(next, naturalFlag);
   return { build: { ...browserStack, ...accountFlags, ...naturalFlag, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" }, next, bridge, ports, publicBase };
 }

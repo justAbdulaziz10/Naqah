@@ -9,6 +9,7 @@ import type { Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { accountSync, reportCallNow } from "@/store/account";
 import { useIsAccount } from "@/store/workspace";
+import { CallTargetSwitch, OwnerCallNowButton, useOwnerCallDemo, type CallTarget } from "./OwnerCallNow";
 
 /**
  * Where this deployment allows it, the owner's "Call now" for one controlled call. Real accounts
@@ -28,6 +29,9 @@ export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Worksp
   const [approval, setApproval] = useState<{ approved: boolean | null; numbers: string[]; repeat: boolean } | null>(null);
   // A double click on "Call now" must send one request; state updates arrive too late to stop the second.
   const sending = useRef(false);
+  // LOCAL DEMO ONLY (--owner-call-now): «العامل / المالك». The worker stays the default and works exactly as before.
+  const ownerDemo = useOwnerCallDemo(account);
+  const [target, setTarget] = useState<CallTarget>("worker");
   const phone = dialableWorkerPhone(ws); // Shown isolated (U+2066…U+2069) so it reads left to right in Arabic.
 
   const run = latestReportCall(ws);
@@ -131,6 +135,8 @@ export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Worksp
   return (
     // In the call bar the button, the simulation beside it and these notes share one wrapping row.
     <div className={primary ? "contents" : "space-y-2"}>
+      {ownerDemo ? <CallTargetSwitch value={target} onChange={setTarget} /> : null}
+      {ownerDemo && target === "owner" ? <OwnerCallNowButton ws={ws} available={available} primary={primary} /> : <>
       {!active ? (
         <button
           type="button"
@@ -158,6 +164,7 @@ export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Worksp
           tone="primary"
         />
       ) : null}
+      </>}
     </div>
   );
 }

@@ -336,7 +336,7 @@ export default function SettingsPage() {
         <SettingsSection title={m.setup.ranch.title} status={edited === "ranch" ? <SaveState /> : null}>
           <Card>
             <CardBody className="pt-5">
-              <RanchFields {...fields("ranch")} />
+              <RanchFields {...fields("ranch")} confirmPhone />
             </CardBody>
           </Card>
         </SettingsSection>

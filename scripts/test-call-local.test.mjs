@@ -140,6 +140,21 @@ describe("test-call environments", () => {
     expect(() => parseArgs(["--dashboard-call"])).toThrow(/live only/);
   });
 
+  it("turns on the owner call demo only with --owner-call-now, for the presentation ranch, never the scheduled owner calls", () => {
+    expect(live().next).not.toHaveProperty("NAQAH_DEMO_OWNER_CALL");
+    expect(live().build).not.toHaveProperty("NEXT_PUBLIC_NAQAH_DEMO_OWNER_CALL");
+    const args = [...liveArgs, "--dashboard-call", "--owner-approves", "--repeat-demo-reports", "--owner-call-now"];
+    const { next, build, bridge } = buildEnvironments(parseArgs(args), stack, parseSecrets(secretsText));
+    expect(next.NAQAH_DEMO_OWNER_CALL).toBe("1");
+    expect(next.NEXT_PUBLIC_NAQAH_DEMO_OWNER_CALL).toBe("1");
+    expect(build.NEXT_PUBLIC_NAQAH_DEMO_OWNER_CALL).toBe("1");
+    expect(bridge).not.toHaveProperty("NAQAH_DEMO_OWNER_CALL");
+    for (const name of ["CRON_SECRET", "NAQAH_SCHEDULED_CALLS", "NAQAH_CALL_OWNER"]) expect(next).not.toHaveProperty(name);
+    expect(() => parseArgs([...liveArgs, "--dashboard-call", "--owner-call-now"])).toThrow(/--repeat-demo-reports/);
+    expect(() => parseArgs([...liveArgs, "--repeat-demo-reports", "--owner-call-now"])).toThrow(/--dashboard-call/);
+    expect(mock(["--report-path", "--owner-approves", "--repeat-demo-reports", "--owner-call-now"]).next.NAQAH_DEMO_OWNER_CALL).toBe("1");
+  });
+
   it("enables the manual report path only when the verifier asks, and never in live", () => {
     expect(mock(["--report-path"]).next.NAQAH_MANUAL_REPORT_CALLS).toBe("1");
     expect(() => parseArgs([...liveArgs, "--report-path"])).toThrow(/mock only/);

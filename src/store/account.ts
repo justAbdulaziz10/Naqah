@@ -3,6 +3,7 @@ import { browserOwnerId, observeAccountAuth } from "@/lib/account/auth-observer"
 import { loadClient } from "@/lib/supabase/lazy-client";
 import type { OwnerChange } from "@/lib/account/changes";
 import type { CallNowResult } from "@/server/calls/scheduler";
+import type { OwnerCallNowResult } from "@/server/calls/owner-call-now";
 import { createAccountSync, type SavedChanges } from "./accountSync";
 import { accountLink, useSaveStatus } from "./workspace";
 
@@ -23,6 +24,8 @@ export const reportCallNow = {
   available: () => call<boolean>("callNowAvailable"),
   call: () => call<CallNowResult>("callNow"),
   retryUndelivered: (id: string) => call<boolean>("retryUndelivered", undefined, undefined, id),
+  /** LOCAL DEMO ONLY: NAQAH calls the owner now with the briefing. */
+  callOwner: () => call<OwnerCallNowResult>("callOwnerNow"),
 };
 
 export const accountSync = createAccountSync({

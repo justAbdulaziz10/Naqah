@@ -57,6 +57,14 @@ export function demoRepeatReports(farmId: string): boolean {
  */
 export const demoNoCallLimit = (farmId: string) => value("NAQAH_DEMO_NO_CALL_LIMIT") === "1" && demoRepeatReports(farmId);
 
+/**
+ * LOCAL DEMO ONLY: the presentation ranch's owner may ask NAQAH to call them now from the Dashboard («العامل / المالك»),
+ * when the runner sets NAQAH_DEMO_OWNER_CALL=1 (--owner-call-now). Never on Vercel; scheduled owner calls
+ * (NAQAH_CALL_OWNER) stay off. Approved numbers, one call at a time and the call length cap still apply.
+ */
+export const demoOwnerCallNow = (farmId: string) => value("NAQAH_DEMO_OWNER_CALL") === "1" && demoRepeatReports(farmId);
+export const demoOwnerCallNowEnabled = () => value("NAQAH_DEMO_OWNER_CALL") === "1" && process.env.VERCEL === undefined && approvedNumbersFile() !== null;
+
 /** Local demo: the owner approves a worker number in Settings, with the recipient's agreement, instead of a developer. */
 export const ownerApprovesTestNumbers = () => value("NAQAH_OWNER_APPROVES_TEST_NUMBERS") === "1" && approvedNumbersFile() !== null;
 
