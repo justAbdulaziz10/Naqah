@@ -479,6 +479,8 @@ async function scenarioFailedSave() {
     evidence("spokenTail", call.provider?.spoken?.slice(-2));
     evidence("after", call.after);
     check("confirm_report did not claim saved", call.confirm?.output?.status !== "saved", call.confirm);
+    check("the first failure asked for the yes again (one retry, as a guided call)", call.confirmRetried === true, call.toolResults?.map((entry) => entry.name));
+    check("the second failure ended honestly: save_failed", call.confirm?.output?.status === "save_failed", call.confirm);
     const heard = [...(call.provider?.spoken ?? []).slice((call.provider?.spoken ?? []).indexOf(call.summary?.text) + 1), call.after?.say ?? ""].filter(Boolean);
     evidence("goodbyeHeard", heard);
     check("the worker heard a goodbye after the failed save", heard.length > 0, { spoken: call.provider?.spoken?.slice(-2), after: call.after });

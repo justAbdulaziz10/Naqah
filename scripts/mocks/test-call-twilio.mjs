@@ -313,6 +313,14 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
       call.duplicates = { inResponse: { first, second, outputs: turn.outputs } };
     } else {
       confirmed = await upstream.toolCall("confirm_report", { confirmed: true });
+      // A save the server couldn't confirm: the model asks for the yes again, and the worker gives it.
+      if (confirmed && JSON.parse(confirmed).status === "save_not_confirmed") {
+        call.toolResults.push({ name: "confirm_report", output: confirmed });
+        call.confirmRetried = true;
+        await sleep(100);
+        upstream.workerSays(confirmSay);
+        confirmed = await upstream.toolCall("confirm_report", { confirmed: true });
+      }
     }
     call.toolResults.push({ name: "confirm_report", output: confirmed });
     call.confirm = { output: confirmed === null ? null : JSON.parse(confirmed) };
