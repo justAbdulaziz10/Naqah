@@ -60,7 +60,7 @@ function expects(item: Item, locale: Locale): string {
   if (item.answerKind === "level" && item.resource) {
     const levels = LEVEL_VALUES.map((value) => `${value} (${levelLabel(item.resource!, value)[locale]})`).join(" / ");
     const quantity = item.resource === "feed" || item.resource === "water"
-      ? (ar ? " أو number مع unit بكلمة العامل (كيس، بالة، طن…) إذا قال كمية برقم. بدون رقم لا تعطي number" : " or number with unit in the worker's word (bags, bales…) if they gave a quantity. No number said: no number")
+      ? (ar ? " أو number مع unit بكلمة العامل (كيس، بالة، طن…) إذا قال كمية برقم. بدون رقم لا تعطي number. ما يعرف الوحدة: unit: unknown" : " or number with unit in the worker's word (bags, bales…) if they gave a quantity. No number said: no number. Unit not known: unit: unknown")
       : "";
     return `value: ${levels}${quantity}`;
   }
@@ -108,6 +108,7 @@ export function buildNaturalInstructions(base: CallSession, ws: Workspace, local
     "اسأل الأسئلة بنفس الكلمات القصيرة اللي تحت، بدون شرح أو خيارات إلا إذا ما فهم.",
     "«يكفي» و«كافي» = good. «ناقص شوي» و«باقي شوي» و«قليل» = low. «خلص» و«ما بقى شي» = critical. ما تعرف الكمية = unknown.",
     "إذا قال كمية برقم مثل «باقي 25 كيس» أو «عندنا 10 بالات»: number بالرقم وunit بكلمته نفسها (كيس، بالات). لا تخترع رقم ولا وحدة ما قالها.",
+    "إذا قال رقم العلف بدون وحدة («باقي 25»)، اسأله سؤال قصير: «25 إيش؟ أكياس ولا بالات؟». إذا ما يدري، unit: unknown.",
     "«فيه شي خربان؟» عن الشبك: إذا قال ما فيه شي خربان = good. إذا الخربان هو الشبك = low (أو critical إذا كبير). إذا الخربان شي ثاني غير الشبك، سجّل الشبك unknown واذكر الشي الخربان في جواب «فيه شي ثاني» بكلامه.",
     "«سلامتها» بس لناقة تعبانة، مو للعلف أو الماي.",
     `الأسئلة بالترتيب:\n${questions}`,
@@ -142,6 +143,8 @@ export function naturalTools(base: CallSession, ws: Workspace) {
 
 type Given = { question_id: string; value?: string; number?: number; unit?: string; text?: string; camels?: { name: string; status: string; note?: string }[]; rest_well?: boolean; missing?: string };
 export type Replayed = { ok: true; session: CallSession } | { ok: false; error: string; questions: string[] };
+export type ReplayOptions = { urgentNote?: string; feedUnitAsked?: boolean };
+const UNKNOWN_UNIT = /^(unknown|غير معروف|غير محدد|ما أدري|ما ادري|مدري)$/u;
 
 const clean = (text: unknown, max = 300) => (typeof text === "string" ? text.trim().slice(0, max) : "");
 /** The worker's unit word, as said («كيس», «بالات»): letters only, short. Anything else is dropped, never guessed. */
@@ -152,13 +155,15 @@ const valueOf = (session: CallSession, value: unknown) => (typeof value === "str
  * The answers, replayed in order through the engine from the question the call opened on. Every value must be one
  * the engine offers at that step; a missing answer is never filled in. The result is the session at its summary.
  */
-export function replayAnswers(base: CallSession, ws: Workspace, now: Date, args: unknown, urgentNote?: string): Replayed {
+export function replayAnswers(base: CallSession, ws: Workspace, now: Date, args: unknown, options: ReplayOptions = {}): Replayed {
+  const { urgentNote, feedUnitAsked = false } = options;
   const list = typeof args === "object" && args !== null && Array.isArray((args as { answers?: unknown }).answers) ? (args as { answers: Given[] }).answers : null;
   if (!list) return { ok: false, error: "answers_missing", questions: [] };
   const given = new Map(list.filter((entry) => entry && typeof entry.question_id === "string").map((entry) => [entry.question_id, entry]));
   let session: CallSession = urgentNote ? { ...base, draft: { ...base.draft, urgentNote } } : base;
   const missing: string[] = [];
   const invalid: string[] = [];
+  const unitMissing: string[] = [];
   const step = (input: AnswerInput) => { session = answer(session, ws, now, input).session; };
   // Read through a function: each step() moves the session on.
   const at = (): string => session.step;
@@ -200,7 +205,14 @@ export function replayAnswers(base: CallSession, ws: Workspace, now: Date, args:
         if (at() === "herd_count_detail") step(clean(entry.missing) ? { text: clean(entry.missing) } : { value: "unknown" });
         continue;
       }
-      if (typeof entry.number === "number" && entry.number >= 0 && item.kind === "predefined" && (item.resource === "feed" || item.resource === "water")) { step({ text: [String(entry.number), unitOf(entry.unit)].filter(Boolean).join(" ") }); continue; }
+      if (typeof entry.number === "number" && entry.number >= 0 && item.kind === "predefined" && (item.resource === "feed" || item.resource === "water")) {
+        const unknownUnit = UNKNOWN_UNIT.test(clean(entry.unit, 20));
+        const unit = unknownUnit ? "" : unitOf(entry.unit);
+        // A feed amount with no unit: ask once; «ما يدري» or a second hand-over without one keeps the number alone.
+        if (item.resource === "feed" && !unit && !unknownUnit && !feedUnitAsked) unitMissing.push(id);
+        step({ text: [String(entry.number), unit].filter(Boolean).join(" ") });
+        continue;
+      }
       const value = valueOf(session, entry.value);
       if (!value) { invalid.push(id); step({ value: valueOf(session, "unknown") ?? session.replies[0].value }); continue; }
       step({ value });
@@ -211,6 +223,7 @@ export function replayAnswers(base: CallSession, ws: Workspace, now: Date, args:
     if (["health_pick", "health_status", "herd_count_detail"].includes(at())) { step({ value: "unknown" }); continue; }
     return { ok: false, error: "unexpected_step", questions: [at()] };
   }
+  if (!missing.length && !invalid.length && unitMissing.length) return { ok: false, error: "unit_missing", questions: unitMissing };
   if (missing.length || invalid.length) return { ok: false, error: missing.length ? "questions_not_answered" : "values_not_allowed", questions: [...missing, ...invalid] };
   if (session.step !== "report_summary") return { ok: false, error: "no_summary", questions: [] };
   return { ok: true, session };

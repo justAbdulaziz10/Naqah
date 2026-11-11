@@ -52,7 +52,7 @@ describe("Saudi answers that must be taken at once", () => {
     ["feed", "خلص العلف", { value: "critical", topic: "feed" }, "نفد تقريباً"],
     ["feed", "زين بس قرب يخلص", { value: "low", topic: "feed" }, "قارب على النفاد"],
     ["feed", "باقي شوي يكفي يومين", { value: "low", topic: "feed" }, "قارب على النفاد"],
-    ["feed", "فيه عشر أكياس", { text: "10", topic: "feed" }, "10 كيس"],
+    ["feed", "فيه عشر أكياس", { text: "10", topic: "feed" }, "10 (الوحدة غير محددة)"],
     ["water", "نص الخزان", { value: "medium", topic: "water" }, "متوسط"],
     ["water", "الموية قليلة نبي وايت", { value: "low", topic: "water" }, "قارب على النفاد"],
     ["fences", "لا والله ما فيه شي", { value: "good", topic: "fences" }, "سليم"],
@@ -153,7 +153,7 @@ describe("read-back, correction and confirmation", () => {
     call.turn("لا العلف غلط", "correct_report", { item_id: "feed_level" });
     expect(call.said.at(-1)).toBe("طيب، نعدلها. كم باقي من العلف عندكم؟");
     call.turn("ثلاثين كيس", "answer_question", { text: "30", topic: "feed" });
-    expect(call.said.at(-1)).toMatch(/هذا ملخص التحديث: .*العلف: 30 كيس/);
+    expect(call.said.at(-1)).toMatch(/هذا ملخص التحديث: .*العلف: 30 \(الوحدة غير محددة\)/);
     call.turn("إيه احفظه", "confirm_report", { confirmed: true });
     expect(call.committed).toBe(true);
   });
@@ -181,7 +181,7 @@ describe("the presentation call, start to finish", () => {
     // Water was answered with feed, so it was never asked.
     expect(call.said.some((line) => line.includes("كيف الماء"))).toBe(false);
     const summary = call.said.at(-1)!;
-    for (const fact of ["مزون للحين تعبانة", "وضحة ما تاكل زين", "الباقي بخير", "العلف: 25 كيس", "الماء: كافٍ", "قارب على النفاد", "قلت: يمكن ثلاثين لتر", "أحفظه، ولا تبي تعدل شي؟"]) expect(summary).toContain(fact);
+    for (const fact of ["مزون للحين تعبانة", "وضحة ما تاكل زين", "الباقي بخير", "العلف: 25 (الوحدة غير محددة)", "الماء: كافٍ", "قارب على النفاد", "قلت: يمكن ثلاثين لتر", "أحفظه، ولا تبي تعدل شي؟"]) expect(summary).toContain(fact);
     call.turn("إيه احفظه", "confirm_report", { confirmed: true });
     expect(call.committed).toBe(true);
     expect(call.said.length).toBe(11);

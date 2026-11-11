@@ -239,8 +239,8 @@ describe("Saudi Arabic capture regressions", () => {
   it.each(["إيه", "نعم", "ايوه", "yes"])("does not invent a level from a bare affirmation %s", (speech) => {
     expect(mapSpeechToInput(feed, speech, null, "ar")).toBeNull();
   });
-  it.each([["عشرين كيس", "20"], ["باقي كيسين", "2"]])("passes the quantity %s to the feed or water engine", (speech, quantity) => {
-    expect(mapSpeechToInput(feed, speech, null, "ar")).toEqual({ text: quantity });
+  it.each([["عشرين كيس", "20", "20 كيس"], ["باقي كيسين", "2", "2 كيس"], ["عندنا عشر بالات", "10", "10 بالات"], ["باقي عشرين", "20", "20"]])("passes the quantity %s to the feed or water engine, with the feed unit only when said", (speech, quantity, feedText) => {
+    expect(mapSpeechToInput(feed, speech, null, "ar")).toEqual({ text: feedText });
     expect(mapSpeechToInput(water, speech, null, "ar")).toEqual({ text: quantity });
   });
   it.each([["ثلاث مية", 300], ["ألفين", 2000], ["اثنعش", 12], ["خمسطعش", 15], ["ثلاث مية وخمسين", 350], ["ألفين وخمسين", 2050]])("extracts colloquial quantity %s", (speech, quantity) => {

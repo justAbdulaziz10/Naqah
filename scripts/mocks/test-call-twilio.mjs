@@ -236,6 +236,7 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
    *   answers      { [question id | "custom" | "task" | "weather_heat_day"]: submit_report answer fields }
    *   say          the worker's free answer before the hand-over
    *   corrections  [{ say, answers }]  after a summary, the worker corrects; the model hands everything over again
+   *   unitClarifications [{ say, answers }]  each time the server asks for a feed amount's unit, the worker answers
    *   confirm      { say, earlyMs }    the worker's yes; with earlyMs, speech starts that long before the summary's
    *                                   playback mark comes back, as on the real call (VAD prefix padding, late marks)
    *   duplicates   { inResponse, direct, voiceSecret }  after the yes: the same confirm_report twice and a new id in
@@ -251,6 +252,7 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
     });
     call.scenarioLog = { asked: queue.map((item) => ({ id: item.id, kind: item.kind })), summaries: [], submits: [] };
     const corrections = scenario.corrections ?? [];
+    const clarifications = [...(scenario.unitClarifications ?? [])];
     let answers = build();
     let summaryMarks = marks("summary-");
     for (let round = 0; round <= corrections.length; round += 1) {
@@ -258,11 +260,21 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
       // The final summary's playback marks are held, so the worker's yes can start before they come back.
       if (last && scenario.confirm?.earlyMs !== undefined) stream.autoMark = false;
       upstream.workerSays(round === 0 ? scenario.say : corrections[round - 1].say);
-      const output = await upstream.toolCall("submit_report", { answers });
-      if (output === null) throw new Error("No output for submit_report");
-      call.toolResults.push({ name: "submit_report", output });
-      call.scenarioLog.submits.push(answers);
-      const parsed = JSON.parse(output);
+      let output;
+      let parsed;
+      for (;;) {
+        output = await upstream.toolCall("submit_report", { answers });
+        if (output === null) throw new Error("No output for submit_report");
+        call.toolResults.push({ name: "submit_report", output });
+        call.scenarioLog.submits.push(answers);
+        parsed = JSON.parse(output);
+        // The server asked for the feed amount's unit: the model asks, the worker answers, everything goes over again.
+        const clarify = parsed.status === "invalid" && parsed.error === "unit_missing" ? clarifications.shift() : null;
+        if (!clarify) break;
+        (call.unitRefusals ??= []).push(parsed);
+        upstream.workerSays(clarify.say);
+        answers = build(clarify.answers);
+      }
       if (parsed.status !== "ok") throw new Error(`The server refused the hand-over: ${output.slice(0, 300)}`);
       const summary = { text: parsed.summary ?? null, flagged: parsed.isSummary === true, replies: parsed.replies?.map((reply) => reply.value) ?? [] };
       if (last && stream.autoMark === false) {

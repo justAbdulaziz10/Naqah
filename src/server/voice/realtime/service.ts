@@ -234,13 +234,17 @@ async function runTool(client: SupabaseClient, body: ToolBody, secret: string, n
  * checks as a guided call, and the engine's summary is what the worker hears and confirms.
  */
 async function submitNatural(client: SupabaseClient, row: VoiceSessionRow, realtime: RealtimeState, body: ToolBody, workspace: Workspace, now: Date, started: number): Promise<ToolResponse> {
-  const replayed = replayAnswers(realtime.naturalBase!, workspace, now, body.args, row.session.draft.urgentNote ?? undefined);
+  const replayed = replayAnswers(realtime.naturalBase!, workspace, now, body.args, { urgentNote: row.session.draft.urgentNote ?? undefined, feedUnitAsked: realtime.feedUnitAsked === true });
   if (!replayed.ok) {
+    const unit = replayed.error === "unit_missing";
+    const message = unit
+      ? (row.locale === "ar" ? "ما انحفظ شي. اسأل العامل سؤال قصير عن وحدة كمية العلف فقط، مثل «25 إيش؟ أكياس ولا بالات؟»، ثم نادِ submit_report مرة ثانية بكل الأجوبة مع unit. إذا ما يدري، unit: unknown." : "Nothing was recorded. Ask the worker only the unit of the feed amount, briefly (bags or bales?), then call submit_report again with every answer and the unit. If they don't know, unit: unknown.")
+      : "Nothing was recorded. Ask the worker about these questions, briefly, then call submit_report again with every answer.";
     const result: ToolResponse = {
-      output: stringify({ status: "invalid", error: replayed.error, questions: replayed.questions, message: "Nothing was recorded. Ask the worker about these questions, briefly, then call submit_report again with every answer." }),
+      output: stringify({ status: "invalid", error: replayed.error, questions: replayed.questions, message }),
       awaitingConfirmation: false, end: null, goodbye: null, continue: true,
     };
-    const kept = await recordRealtimeResult(client, row, rememberResult(realtime, body.toolCallId, result, false));
+    const kept = await recordRealtimeResult(client, row, rememberResult(unit ? { ...realtime, feedUnitAsked: true } : realtime, body.toolCallId, result, false));
     logTool(body.callSid, "submit_report", replayed.error, Date.now() - started);
     return kept ? result : fallbackResult();
   }

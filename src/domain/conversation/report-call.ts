@@ -16,14 +16,18 @@ import type { ReportItem, CallSession, EngineResult, AnswerInput, OpenFact, Repl
 import { startWorkerCallback } from './worker-callback';
 
 const camelsText = (count: number) => copy(count + (count === 1 ? " camel" : " camels"), count + " من الحلال");
-const quantityUnit = (resource: ResourceKind) => (resource === "feed" ? copy("bags", "كيس") : copy("litres", "لتر"));
+/** A number said with no unit: water is counted in litres; feed comes in bags, bales or tonnes, so none is assumed. */
+function quantityText(resource: ResourceKind, count: string, said: string | null): LocalizedText {
+  if (said) return copy(count + " " + (UNIT_EN[said] ?? said), count + " " + said);
+  return resource === "water" ? copy(count + " litres", count + " لتر") : copy(count + " (unit not given)", count + " (الوحدة غير محددة)");
+}
 /** "25" or "25 بالات": the number, and the worker's own unit word when one was said. */
 function spokenQuantity(text: string): { count: string; unit: string | null } | null {
   const match = text.trim().match(/^(\d+(?:\.\d+)?)(?:\s+([\p{L} ]{1,20}))?$/u);
   return match ? { count: match[1], unit: match[2]?.trim() || null } : null;
 }
 /** English for the usual unit words; any other word is kept as said. */
-const UNIT_EN: Record<string, string> = { "كيس": "bags", "أكياس": "bags", "اكياس": "bags", "كياس": "bags", "بالة": "bales", "باله": "bales", "بالات": "bales", "طن": "tonnes", "أطنان": "tonnes", "كيلو": "kg", "لتر": "litres", "لترات": "litres" };
+const UNIT_EN: Record<string, string> = { bags: "bags", bales: "bales", tonnes: "tonnes", "كيس": "bags", "أكياس": "bags", "اكياس": "bags", "كياس": "bags", "بالة": "bales", "باله": "bales", "بالات": "bales", "طن": "tonnes", "أطنان": "tonnes", "كيلو": "kg", "لتر": "litres", "لترات": "litres" };
 
 /** Herd size the worker's count is compared with: the owner's official count, else the camel list. */
 function expectedHerd(ws: Workspace): number | null {
@@ -744,8 +748,7 @@ function addResourceAnswer(
 }
 
 function storedQuantity(ws: Workspace, resource: ResourceKind, count: string, said: string | null = null) {
-  const unit = said ? copy(UNIT_EN[said] ?? said, said) : quantityUnit(resource);
-  const text = copy(count + " " + unit.en, count + " " + unit.ar);
+  const text = quantityText(resource, count, said);
   return { stored: ws.settings.worker.language === "en" ? text.en : text.ar, text };
 }
 
@@ -1071,8 +1074,7 @@ function applyFact(session: CallSession, ws: Workspace, fact: OpenFact): CallSes
     const { session: withItem, item } = predefinedItem(session, PREDEFINED_QUESTIONS.find((question) => question.requires === fact.resource)?.id ?? "");
     if (!item) return session;
     const level = fact.level ?? "unknown";
-    const unit = fact.resource === "feed" || fact.resource === "water" ? quantityUnit(fact.resource) : null;
-    const text = fact.quantity !== null && unit ? copy(fact.quantity + " " + unit.en, fact.quantity + " " + unit.ar) : null;
+    const text = fact.quantity !== null && (fact.resource === "feed" || fact.resource === "water") ? quantityText(fact.resource, String(fact.quantity), null) : null;
     const quantity = text ? { stored: ws.settings.worker.language === "en" ? text.en : text.ar, text } : null;
     return addResourceAnswer(replaced(withItem, item), item, level, quantity, quantity ? "approximate" : level === "unknown" ? "unknown" : "reported");
   }

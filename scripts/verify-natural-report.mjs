@@ -956,6 +956,10 @@ const FEED_CASES = [
   { id: "b", words: "عندنا 10 بالات", feed: { number: 10, unit: "بالات" } },
   { id: "c", words: "باقي شوي", feed: { value: "low" } },
   { id: "d", words: "ما أدري", feed: { value: "unknown" } },
+  // A number with no unit: one short question for the unit, then the worker's word, «ما أدري», or the number alone.
+  { id: "e", words: "باقي 25", feed: { number: 25 }, clarify: [{ say: "أكياس", answers: { feed_level: { number: 25, unit: "أكياس" } } }], saved: ["25 أكياس", "25 bags"] },
+  { id: "f", words: "باقي 25", feed: { number: 25 }, clarify: [{ say: "والله ما أدري", answers: { feed_level: { number: 25, unit: "unknown" } } }], saved: ["25 (الوحدة غير محددة)", "25 (unit not given)"] },
+  { id: "g", words: "باقي 25", feed: { number: 25 }, clarify: [{ say: "خمسة وعشرين بس", answers: { feed_level: { number: 25 } } }, { say: "-", answers: {} }], saved: ["25 (الوحدة غير محددة)", "25 (unit not given)"] },
 ];
 
 async function scenarioFeed(browser) {
@@ -965,7 +969,7 @@ async function scenarioFeed(browser) {
     const farm = seedRanch();
     const plan = ensurePlan(farm);
     const say = BASE.say.replace("العلف ناقص شوي", feedCase.words);
-    await control({ reset: true, outcome: "full", twilioError: null, dwellMs: 200, natural: { ...BASE, say, answers: { ...BASE.answers, feed_level: feedCase.feed } } });
+    await control({ reset: true, outcome: "full", twilioError: null, dwellMs: 200, natural: { ...BASE, say, answers: { ...BASE.answers, feed_level: feedCase.feed }, unitClarifications: feedCase.clarify } });
     const placed = await callViaApi(await demoCookie());
     check(`${label}. callNow placed the call («${feedCase.words}»)`, placed.json?.data?.status === "placed", placed);
     const call = (await finishedCall()).calls[0];
@@ -983,7 +987,20 @@ async function scenarioFeed(browser) {
     const summary = call.scenarioLog?.summaries?.at(-1)?.text ?? "";
     evidence(`${feedCase.id}Feed`, { answer: feed, resource, summary });
     check(`${label}. the feed answer keeps the question «${FEED_QUESTION}»`, feed?.question_ar === FEED_QUESTION, feed);
-    if (feedCase.id === "a" || feedCase.id === "b") {
+    const refusals = call.unitRefusals ?? [];
+    evidence(`${feedCase.id}UnitRefusals`, refusals);
+    if (feedCase.clarify) {
+      check(`${label}. a number with no unit: the server asked for the unit exactly once (unit_missing on feed_level), nothing saved before`,
+        refusals.length === 1 && JSON.stringify(refusals[0].questions) === JSON.stringify(["feed_level"]) && /وحدة|unit/.test(refusals[0].message ?? ""), refusals);
+    } else {
+      check(`${label}. no unit question was needed`, refusals.length === 0, refusals);
+    }
+    if (feedCase.saved) {
+      const [ar, en] = feedCase.saved;
+      check(`${label}. report_answers keeps «${ar}» / ${en} («كيس» never assumed)`, feed?.answer_ar === ar && feed?.answer === en, feed);
+      check(`${label}. resources.feed: quantity «${ar}», level unknown, approximate`, resource?.quantity === ar && resource?.level === "unknown" && resource?.certainty === "approximate", resource);
+      check(`${label}. the summary read to the worker says «${ar}»`, summary.includes(ar), summary);
+    } else if (feedCase.id === "a" || feedCase.id === "b") {
       const [ar, en] = feedCase.id === "a" ? ["25 كيس", "25 bags"] : ["10 بالات", "10 bales"];
       check(`${label}. report_answers keeps «${ar}» / ${en}`, feed?.answer_ar === ar && feed?.answer === en, feed);
       check(`${label}. resources.feed: quantity «${ar}», level unknown (not guessed), approximate`, resource?.quantity === ar && resource?.level === "unknown" && resource?.certainty === "approximate", resource);

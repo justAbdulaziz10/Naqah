@@ -43,6 +43,8 @@ export interface RealtimeState {
   fallbackPrepared?: boolean;
   /** Natural call: the session on its first question, which every submitted report is replayed from. */
   naturalBase?: CallSession;
+  /** Natural call: the worker was already asked the unit of a feed amount, so a second hand-over without one is kept as given. */
+  feedUnitAsked?: boolean;
   recent: { id: string; result: ToolResponse }[];
 }
 

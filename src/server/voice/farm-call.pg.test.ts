@@ -248,9 +248,9 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
     });
 
     it.each([
-      ["ar", "عشرين", "20"], ["ar", "ثلاثين كيس", "30"], ["ar", "مية وخمسين لتر", "150"],
-      ["ar", "تقريبا عشرة", "10"], ["ar", "٤٠", "40"],
-      ["en", "thirty bags", "30"], ["en", "one hundred and fifty litres", "150"],
+      ["ar", "عشرين", "20 (الوحدة غير محددة)"], ["ar", "ثلاثين كيس", "30 كيس"], ["ar", "مية وخمسين لتر", "150 (الوحدة غير محددة)"],
+      ["ar", "تقريبا عشرة", "10 (الوحدة غير محددة)"], ["ar", "٤٠", "40 (الوحدة غير محددة)"],
+      ["en", "thirty bags", "30 bags"], ["en", "one hundred and fifty litres", "150 (unit not given)"],
     ])("persists %s worker speech «%s» as an approximate quantity, with no extra question", async (language, speech, quantity) => {
       const farm = seedFarm({ language });
       const call = await new Call(farm.worker).start();
@@ -273,7 +273,7 @@ describe.skipIf(!rest)("a real call on a real farm", () => {
         else await call.press("1");
       }
       expect(call.text).toMatch(/Your update is saved|انحفظ التحديث/);
-      expect(sql(`select quantity || ':' || certainty from resources where farm_id = ${q(farm.id)} and kind = 'feed'`)).toBe(`${quantity} ${language === "ar" ? "كيس" : "bags"}:approximate`);
+      expect(sql(`select quantity || ':' || certainty from resources where farm_id = ${q(farm.id)} and kind = 'feed'`)).toBe(`${quantity}:approximate`);
     });
 
     it("clears a call whose end was never reported, on the next inbound call", async () => {

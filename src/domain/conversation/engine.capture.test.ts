@@ -52,7 +52,8 @@ describe("answers captured on a real call", () => {
     const atFeed = advanceTo(session, ws, "feed_level");
     const next = reply(atFeed, ws, { text: "20" });
     expect(next.data.currentQuestionId).not.toBe("feed_level");
-    expect(next.draft.resourceUpdates.at(-1)).toMatchObject({ kind: "feed", level: "unknown", quantity: "20 كيس", certainty: "approximate" });
+    expect(next.draft.resourceUpdates.at(-1)).toMatchObject({ kind: "feed", level: "unknown", quantity: "20 (الوحدة غير محددة)", certainty: "approximate" });
+    expect(reply(atFeed, ws, { text: "20 بالات" }).draft.resourceUpdates.at(-1)).toMatchObject({ kind: "feed", quantity: "20 بالات" });
   });
 
   it("asks again instead of carrying a value the save would refuse", () => {
@@ -97,7 +98,7 @@ describe("answers captured on a real call", () => {
   it("speaks and saves the unit in Arabic for an Arabic worker", () => {
     const { ws, session } = answeredCall();
     let current = advanceTo(session, ws, "feed_level");
-    current = reply(current, ws, { text: "20" });
+    current = reply(current, ws, { text: "20 كيس" });
     const feed = current.draft.answers.find((item) => item.questionId === "feed_level");
     expect(feed?.answerText).toMatchObject({ ar: expect.stringContaining("20 كيس"), en: expect.stringContaining("20 bags") });
     expect(current.draft.resourceUpdates.at(-1)?.quantity).toBe("20 كيس");
@@ -167,7 +168,7 @@ describe("answers that can't both be true", () => {
   it("records a spoken zero as a number, without a level", () => {
     const { ws, session } = answeredCall();
     const next = reply(advanceTo(session, ws, "feed_level"), ws, { text: "0" });
-    expect(next.draft.resourceUpdates.at(-1)).toMatchObject({ kind: "feed", level: "unknown", quantity: "0 كيس", certainty: "approximate" });
+    expect(next.draft.resourceUpdates.at(-1)).toMatchObject({ kind: "feed", level: "unknown", quantity: "0 (الوحدة غير محددة)", certainty: "approximate" });
   });
 
   it("keeps an Arabic herd detail in Arabic", () => {

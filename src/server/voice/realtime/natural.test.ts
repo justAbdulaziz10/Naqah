@@ -18,7 +18,7 @@ const ids = (session: ReturnType<typeof base>["session"]) => (session.data.queue
 function answers(session: ReturnType<typeof base>["session"]) {
   return ids(session).map((id) => {
     if (id === "herd_health") return { question_id: id, value: "no", rest_well: true, camels: [{ name: "مزون", status: "sick", note: "مزون للحين تعبانة" }, { name: "وضحة", status: "watch", note: "وضحة ما تاكل زين" }] };
-    if (id === "feed_level") return { question_id: id, number: 25 };
+    if (id === "feed_level") return { question_id: id, number: 25, unit: "كيس" };
     if (id === "water_level") return { question_id: id, value: "good" };
     if (id === "fences_condition") return { question_id: id, value: "good" };
     if (id.startsWith("task_")) return { question_id: id, value: "yes" };
@@ -87,7 +87,7 @@ describe("the natural call", () => {
   it("takes a correction as a whole new hand-over, from the start", () => {
     const { ws, session } = base();
     const first = replayAnswers(session, ws, NOW, { answers: answers(session) });
-    const corrected = answers(session).map((entry) => (entry.question_id === "feed_level" ? { question_id: "feed_level", number: 30 } : entry));
+    const corrected = answers(session).map((entry) => (entry.question_id === "feed_level" ? { question_id: "feed_level", number: 30, unit: "كيس" } : entry));
     const second = replayAnswers(session, ws, NOW, { answers: corrected });
     expect(first.ok && second.ok).toBe(true);
     if (!second.ok) return;
@@ -97,7 +97,7 @@ describe("the natural call", () => {
 
   it("keeps an urgent concern in the read-back", () => {
     const { ws, session } = base();
-    const replayed = replayAnswers(session, ws, NOW, { answers: answers(session) }, "مزون طايحة ما تقوم");
+    const replayed = replayAnswers(session, ws, NOW, { answers: answers(session) }, { urgentNote: "مزون طايحة ما تقوم" });
     expect(replayed.ok && replayed.session.turns.at(-1)!.text.ar).toContain("أمر عاجل ذكرته: مزون طايحة ما تقوم");
   });
 
@@ -125,7 +125,7 @@ describe("the natural call", () => {
     ["«عندنا 10 بالات»", { number: 10, unit: "بالات" }, { ar: "10 بالات", en: "10 bales" }, { level: "unknown", quantity: "10 بالات", certainty: "approximate" }],
     ["«باقي شوي»", { value: "low" }, { ar: "قارب على النفاد", en: "Running low" }, { level: "low", quantity: null, certainty: "reported" }],
     ["«ما أدري»", { value: "unknown" }, { ar: "غير معروف", en: "Unknown" }, { level: "unknown", quantity: null, certainty: "unknown" }],
-    ["a number with a made-up unit", { number: 7, unit: "<b>x</b>" }, { ar: "7 كيس", en: "7 bags" }, { level: "unknown", quantity: "7 كيس", certainty: "approximate" }],
+    ["«باقي 25»، ثم «ما أدري» عن الوحدة", { number: 25, unit: "unknown" }, { ar: "25 (الوحدة غير محددة)", en: "25 (unit not given)" }, { level: "unknown", quantity: "25 (الوحدة غير محددة)", certainty: "approximate" }],
   ])("keeps the feed amount as said: %s", (_label, feed, answerText, resource) => {
     const { ws, session } = base();
     const given = answers(session).map((entry) => (entry.question_id === "feed_level" ? { question_id: "feed_level", ...feed } : entry));
@@ -145,5 +145,16 @@ describe("the natural call", () => {
     expect(text).toContain("لا تخترع رقم ولا وحدة ما قالها");
     const submit = naturalTools(session, ws).find((entry) => JSON.stringify(entry).includes("submit_report"));
     expect(JSON.stringify(submit)).toContain('"unit":{"type":"string","maxLength":20}');
+  });
+
+  it("asks for the unit once when a feed number comes without one, never assuming «كيس»", () => {
+    const { ws, session } = base();
+    for (const feed of [{ number: 25 }, { number: 7, unit: "<b>x</b>" }]) {
+      const given = answers(session).map((entry) => (entry.question_id === "feed_level" ? { question_id: "feed_level", ...feed } : entry));
+      expect(replayAnswers(session, ws, NOW, { answers: given })).toMatchObject({ ok: false, error: "unit_missing", questions: ["feed_level"] });
+      // Asked already and still no unit: the number is kept alone.
+      const kept = replayAnswers(session, ws, NOW, { answers: given }, { feedUnitAsked: true });
+      expect(kept.ok && kept.session.draft.resourceUpdates.find((update) => update.kind === "feed")).toMatchObject({ quantity: `${feed.number} (الوحدة غير محددة)` });
+    }
   });
 });

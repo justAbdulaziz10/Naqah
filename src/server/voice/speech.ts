@@ -71,6 +71,8 @@ const HUNDREDS: Record<string, number> = {
 };
 
 /** «ما في ولا وحدة», "none", "not a single one": zero, unless it goes on to give a count («إلا وحدة»). */
+const FEED_UNIT = /كيس|كياس|أكياس|اكياس|بالات|بالة|باله|طن|bags?|bales?|tonnes?|tons?/iu;
+const FEED_UNIT_WORD: Record<string, string> = { "كياس": "كيس", "أكياس": "كيس", "اكياس": "كيس", "باله": "بالة", bag: "bags", bale: "bales", tonne: "tonnes", ton: "tonnes", tons: "tonnes" };
 const ZERO = /(?:^|\s)(?:صفر|zero|none|nothing|nobody|not\s+(?:a\s+single(?:\s+one)?|one|any)|no\s+(?:camels?|bags?|one)|ولا\s+(?:وحده|واحده|واحد|ناقه|شي|شيء|كيس|حبه|لتر|نقطه)|ما\s*(?:في|فيه)\s+(?:شي|شيء|احد)|مافي\s+(?:شي|شيء|احد)|محد)(?:\s|$)/u;
 const EXCEPT = /(?:^|\s)(?:الا|غير|بس|only|just|except|but)(?:\s|$)/u;
 
@@ -713,7 +715,9 @@ export function mapSpeechToInput(
   const item = currentItem(session);
   if (item?.kind === "predefined" && item.answerKind === "level" && (item.resource === "feed" || item.resource === "water")) {
     const quantity = extractNumber(raw);
-    if (quantity !== null) return { text: String(quantity) };
+    // Feed comes in bags, bales or tonnes: the unit word said is kept, and none is assumed when it wasn't.
+    const unit = item.resource === "feed" ? FEED_UNIT.exec(raw)?.[0] : undefined;
+    if (quantity !== null) return { text: unit ? `${quantity} ${FEED_UNIT_WORD[unit.toLowerCase()] ?? unit}` : String(quantity) };
   }
   const choice = choiceInput(session, raw, locale);
   // «مريضة، رجلها اليسار وارمة»: the words describe the camel, and the engine keeps them as her note.
