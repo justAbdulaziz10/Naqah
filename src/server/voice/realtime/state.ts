@@ -33,6 +33,10 @@ export interface RealtimeState {
   /** Set once the call fell back to the script. A late tool call must not write after that. */
   closed: boolean;
   confirmationFailures?: number;
+  /** Natural call: confirmations refused for the model's timing, not the worker's words. Capped so a loop still ends. */
+  confirmationMisses?: number;
+  /** Natural call: the summary id the bridge last reported as heard in full, so a re-ask needn't read it again. */
+  summaryHeardId?: string;
   refusalAt?: string;
   refusals?: number;
   /** The answer the model gave when the transcript didn't back it, to accept it when the model hears it again. */

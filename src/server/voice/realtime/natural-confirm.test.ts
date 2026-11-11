@@ -60,3 +60,79 @@ describe("the natural yes filter: waiting, asking and doubting are not a yes", (
     expect(isNaturalConfirmation(heard, summary().session, "ar")).toBe(true);
   });
 });
+
+describe("a natural call's three strikes are the worker's own unclear replies", () => {
+  const confirm = (heard: string, heardSummaryId: string | undefined, counters = {}, spoke = true) => {
+    const { ws, session } = summary();
+    return decideTool({ session: session as VoiceCallSession, counters, workspace: ws, locale: "ar", name: "confirm_report", args: { confirmed: true }, spoke, heard, heardSummaryId, now: NOW, natural: true });
+  };
+  const id = () => reportSummaryId(summary().session, "ar");
+  const said = (decision: ReturnType<typeof decideTool>) => (decision.kind === "reply" ? decision.result : null);
+
+  it("the model asking before the summary was heard is no strike, and the summary is read again in full", () => {
+    const decision = confirm("موقعية", undefined);
+    expect(decision.kind).toBe("reply");
+    expect(decision.counters).toMatchObject({ confirmationFailures: 0, confirmationMisses: 1 });
+    expect(said(decision)?.summaryText).toBeTruthy();
+  });
+
+  it("once the summary was heard in full, a miss asks only «أحفظه؟»", () => {
+    const decision = confirm("", undefined, { summaryHeardId: id() });
+    expect(decision.counters.confirmationFailures).toBe(0);
+    expect(said(decision)?.summaryText).toBeUndefined();
+    expect(said(decision)?.sayText).toBe("أحفظه؟");
+  });
+
+  it("an older summary heard in full doesn't spare a new one its reading", () => {
+    expect(said(confirm("", undefined, { summaryHeardId: "0:older" }))?.summaryText).toBeTruthy();
+  });
+
+  it("a request carrying the heard summary remembers it for later re-asks", () => {
+    expect(confirm("موقعية", id()).counters.summaryHeardId).toBe(id());
+  });
+
+  it("the worker's own unclear reply to the heard summary is a strike, asked again briefly", () => {
+    const decision = confirm("بالعراق", id());
+    expect(decision.counters.confirmationFailures).toBe(1);
+    expect(said(decision)?.summaryText).toBeUndefined();
+  });
+
+  it("the model confirming with no worker words is no strike", () => {
+    expect(confirm("", id(), {}, false).counters).toMatchObject({ confirmationFailures: 0, confirmationMisses: 1 });
+  });
+
+  it("a long run of timing misses still ends the call, unsaved", () => {
+    expect(confirm("", undefined, { confirmationMisses: 5 }).kind).toBe("end");
+    expect(confirm("", undefined, { confirmationMisses: 4 }).kind).toBe("reply");
+  });
+
+  it("the guided call still counts every miss", () => {
+    const { ws, session } = summary();
+    const decision = decideTool({ session: session as VoiceCallSession, counters: {}, workspace: ws, locale: "ar", name: "confirm_report", args: { confirmed: true }, spoke: true, heard: "إيه احفظه", heardSummaryId: undefined, now: NOW });
+    expect(decision.counters.confirmationFailures).toBe(1);
+  });
+
+  /** Each step: what the worker was transcribed saying, and whether the bridge says the summary was heard first. */
+  const replay = (steps: [string, boolean][]) => {
+    let counters = {};
+    return steps.map(([heard, heardFirst]) => {
+      const decision = confirm(heard, heardFirst ? id() : undefined, counters);
+      counters = { ...counters, ...decision.counters };
+      return decision.kind;
+    });
+  };
+
+  it("call 050ac3 now saves: a stray word before the summary, then «أحفظ… احفظ» sent together", () => {
+    expect(replay([["موقعية", false], ["أحفظ احفظ", true]])).toEqual(["reply", "apply"]);
+  });
+
+  it("call 050ac3 as the old bridge sent it no longer ends the call: its yes still saves", () => {
+    expect(replay([["موقعية", false], ["", false], ["بالعراق", true], ["احفظ", true]])).toEqual(["reply", "reply", "reply", "apply"]);
+  });
+
+  it("call 4f6a40 now saves: two early confirms, then «احفظ» over the closing question", () => {
+    expect(replay([["أهلا بكم", false], ["عفوا", false], ["احفظ", true]])).toEqual(["reply", "reply", "apply"]);
+    // Even if those two words came after the summary was heard, they are two strikes, not three.
+    expect(replay([["أهلا بكم", true], ["عفوا", true], ["احفظ", true]])).toEqual(["reply", "reply", "apply"]);
+  });
+});

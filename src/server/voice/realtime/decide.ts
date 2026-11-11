@@ -38,6 +38,10 @@ const URGENT: Record<Locale, string> = {
   en: "If this is urgent, call the ranch owner directly now. NAQAH does not report emergencies to anyone. ",
 };
 const CONFIRM_AGAIN: Record<Locale, string> = { ar: "ما سمعتك زين. أحفظه؟ قل إيه، أو اضغط واحد.", en: "I didn't catch that. Shall I save it? Say yes, or press 1." };
+/** A natural call whose worker already heard this summary in full: only the question is asked again. */
+const SAVE_IT: Record<Locale, string> = { ar: "أحفظه؟", en: "Shall I save it?" };
+/** A natural call ends unsaved after this many confirmations refused for timing alone, so a model loop can't run on. */
+const NATURAL_MISSES = 6;
 const isDeny = (heard: string) => /(?:^| )(?:لا|غلط|عدل|عدله|تعديل|no|wrong|change)(?: |$)/.test(evidenceWords(heard));
 const SAVE_OR_CORRECT: Record<Locale, string> = { ar: "أحفظ التحديث، ولا تبي تعدل شي؟", en: "Shall I save the update, or would you like to correct something?" };
 const SECOND_TRY: Record<Locale, string> = { ar: "قلها لي بكلمة. ", en: "In a word, please. " };
@@ -134,7 +138,7 @@ export function promptResult(session: CallSession, workspace: Workspace, locale:
   };
 }
 
-export type ToolCounters = Partial<Pick<RealtimeState, "confirmationFailures" | "refusalAt" | "refusals" | "refusedAnswer" | "noiseAt" | "noiseCount" | "closed">>;
+export type ToolCounters = Partial<Pick<RealtimeState, "confirmationFailures" | "confirmationMisses" | "summaryHeardId" | "refusalAt" | "refusals" | "refusedAnswer" | "noiseAt" | "noiseCount" | "closed">>;
 
 export type ToolTurn = {
   session: CallSession;
@@ -208,11 +212,25 @@ export function decideTool({ session: current, counters, workspace, locale, name
   if (name === "end_call" && !askedToStop(heard)) {
     return reply(promptResult(current, workspace, locale, "invalid", "worker_has_not_asked_to_stop", evidenceWords(heard) ? PREFIXES.unclear[locale] : "", undefined, !evidenceWords(heard)), "worker_has_not_asked_to_stop");
   }
-  if (confirming && current.step === SUMMARY_STEP && (!verified || heardSummaryId !== reportSummaryId(current, locale))) {
-    const error = heardSummaryId !== reportSummaryId(current, locale) ? "summary_not_finished" : "worker_has_not_confirmed";
+  const summaryId = current.step === SUMMARY_STEP ? reportSummaryId(current, locale) : undefined;
+  if (natural && summaryId && heardSummaryId === summaryId) next = { ...next, summaryHeardId: summaryId };
+  if (confirming && current.step === SUMMARY_STEP && (!verified || heardSummaryId !== summaryId)) {
+    const error = heardSummaryId !== summaryId ? "summary_not_finished" : "worker_has_not_confirmed";
+    if (natural) {
+      // Only the worker's own unclear reply to a summary they heard is a strike. The model asking too early, or a
+      // reply over the summary, is the call's timing: the summary or the question is asked again, with no strike.
+      const strike = error === "worker_has_not_confirmed" && spoke;
+      const failures = (counters.confirmationFailures ?? 0) + (strike ? 1 : 0);
+      const misses = (counters.confirmationMisses ?? 0) + (strike ? 0 : 1);
+      next = { ...next, confirmationFailures: failures, confirmationMisses: misses };
+      // No keypad to fall back to: it says plainly nothing was saved and ends.
+      if (failures >= 3 || misses >= NATURAL_MISSES) return { kind: "end", session: { ...current, voiceSilences: 0 }, counters: next, checkError: error };
+      // A summary the worker already heard in full isn't read again: only «أحفظه؟». One never heard is read in full.
+      const again = error === "worker_has_not_confirmed" ? CONFIRM_AGAIN[locale] : counters.summaryHeardId === summaryId ? SAVE_IT[locale] : null;
+      if (again) return reply({ ...promptResult(current, workspace, locale, "invalid", error), summaryText: undefined, summaryId: undefined, sayText: again, repromptText: again }, error);
+      return reply(promptResult(current, workspace, locale, "invalid", error), error);
+    }
     const failures = (counters.confirmationFailures ?? 0) + 1;
-    // A natural call has no keypad to fall back to: after three tries it says plainly nothing was saved and ends.
-    if (natural && failures >= 3) return { kind: "end", session: { ...current, voiceSilences: 0 }, counters: { ...next, confirmationFailures: failures }, checkError: error };
     next = { ...next, confirmationFailures: failures, closed: failures >= 3 };
     if (failures >= 3) return reply(fallbackResult(), error);
     // The summary was heard, so only the question needs asking again.
