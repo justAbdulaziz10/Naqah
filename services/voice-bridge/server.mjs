@@ -13,6 +13,9 @@ const DELIVERY = Object.freeze({
 });
 /** How close to the end of the summary a natural call's answer may start and still have heard all of it. */
 const HEARD_GRACE_MS = 800;
+/** What a natural call's tool request carries of the worker's words so far: the latest, within the internal body limit. */
+const TRANSCRIPT_COUNT = 40;
+const TRANSCRIPT_BYTES = 6 * 1024;
 
 /** A natural call's silence prompt: the model checks in, in its own words. */
 const NUDGE = Object.freeze({
@@ -43,6 +46,8 @@ const DEFAULT_LIMITS = Object.freeze({
   socketBufferBytes: 256 * 1024,
   maxMarks: 1024,
   maxTools: 128,
+  /** Natural call: how long a tool waits for words the worker said after its turn («احفظ… لا لحظة»). */
+  laterSpeechMs: 4_000,
 });
 
 function audioBytes(payload, maximum) {
@@ -65,6 +70,18 @@ function isObject(value) {
 function summaryWords(value) {
   return value.normalize('NFKC').toLowerCase().replace(/\p{M}/gu, '').replace(/[أإآٱ]/gu, 'ا').replace(/ى/gu, 'ي').replace(/ة/gu, 'ه')
     .replace(/[٠-٩]/gu, (digit) => String(digit.charCodeAt(0) - 0x0660)).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+/**
+ * A natural call's summary ends on its question («أحفظه، ولا تبي تعدل شي؟»). Spoken apart, the facts count as heard
+ * once they have played, so a worker answering the question as soon as they understand it has still heard them.
+ */
+function splitClosing(text) {
+  const end = text.lastIndexOf('. ');
+  if (end < 1) return null;
+  const facts = text.slice(0, end + 1).trim();
+  const closing = text.slice(end + 2).trim();
+  return facts && /^[^.]+[?؟]$/u.test(closing) ? { facts, closing } : null;
 }
 
 function validSession(session) {
@@ -137,6 +154,9 @@ class CallStream {
     this.outputFrames = 0;
     this.userSpoke = false;
     this.workerTurn = null;
+    /** Recent worker turns in the order they were said; a natural call's tool reads its own turn and any after it. */
+    this.turnLog = [];
+    this.speechWaiters = new Set();
     this.speechEpoch = 0;
     this.summaryPlayback = null;
     this.responseSummary = null;
@@ -231,8 +251,9 @@ class CallStream {
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     this.abort.abort();
-    this.workerTurn?.settle('');
+    for (const turn of this.turnLog) turn.settle('');
     this.workerTurn = null;
+    this.wakeSpeechWaiters();
     if (this.calls.get(this.callSid) === this) this.calls.delete(this.callSid);
     this.streams.delete(this);
     this.log(event);
@@ -447,6 +468,7 @@ class CallStream {
       this.responsePrompt = next.prompt ?? {
         kind: next.kind, text: next.text, summaryId: next.summaryId,
         repromptText: next.repromptText ?? (next.kind === 'summary' ? null : next.text),
+        ...(next.closing ? { closing: next.closing } : {}),
       };
       this.lastPrompt = this.responsePrompt;
       this.responsePrompt.played = false;
@@ -474,6 +496,8 @@ class CallStream {
     if (!this.responseAudible && !this.items.size) return this.log('speech_before_audio', { kind: this.responseKind });
     if (this.lastPrompt && !this.lastPrompt.played) this.lastPrompt.cutOff = true;
     if (this.summaryPlayback && !this.summaryPlayback.heard) this.summaryPlayback.cancelled = true;
+    // The summary's question is asked only after its facts; the worker is talking now.
+    if (this.nextResponse?.kind === 'closing') this.nextResponse = null;
     this.send(this.twilio, { event: 'clear', streamSid: this.streamSid });
     if (this.responseId && this.responseAudible) {
       this.ignoredResponses.add(this.responseId);
@@ -600,6 +624,7 @@ class CallStream {
       this.clearTimer('speech');
       this.activity();
       this.log('speech_stopped');
+      this.wakeSpeechWaiters();
     } else if (event.type === 'input_audio_buffer.committed') {
       if (this.ending) return;
       this.clearTimer('speech');
@@ -607,20 +632,25 @@ class CallStream {
       this.recoveryCommit = null;
       this.speaking = false;
       this.reprompts = 0;
-      this.workerTurn?.settle('');
+      // A natural call's earlier turn keeps waiting for its words: a tool may still be reading them.
+      if (!this.natural) this.workerTurn?.settle('');
       const turn = {
         id: event.item_id, epoch: this.speechEpoch, heardSummary: this.turnHeardSummary === true,
-        heardSummaryId: this.turnHeardSummaryId, settled: false, transcript: '',
+        heardSummaryId: this.turnHeardSummaryId, settled: false, transcript: '', final: '', used: false,
       };
       turn.promise = new Promise((resolve) => {
         turn.settle = (transcript) => {
           if (turn.settled) return;
           turn.settled = true;
           turn.transcript = transcript;
+          turn.final = transcript;
           resolve(transcript);
+          this.wakeSpeechWaiters();
         };
       });
       this.workerTurn = turn;
+      this.turnLog.push(turn);
+      if (this.turnLog.length > TRANSCRIPT_COUNT * 2) this.turnLog.shift().settle('');
       this.turnHeardSummary = undefined;
       this.turnHeardSummaryId = undefined;
       this.activity();
@@ -630,17 +660,21 @@ class CallStream {
       }
       this.userSpoke = true;
       this.log('input_committed');
+      this.wakeSpeechWaiters();
+      // The worker answered before the summary's question was asked: the question isn't needed.
+      if (this.nextResponse?.kind === 'closing') this.nextResponse = null;
       // Words said while the server's next line was waiting must not replace it: that question was never heard.
       if (this.nextResponse?.text) {
         this.userSpoke = false;
+        turn.used = true;
         this.log('turn_discarded_for_prompt');
         return this.flushResponse();
       }
       this.requestResponse('turn');
     } else if (event.type === 'conversation.item.input_audio_transcription.completed'
       || event.type === 'conversation.item.input_audio_transcription.failed') {
-      const turn = this.workerTurn;
-      if (!turn || typeof turn.id !== 'string' || event.item_id !== turn.id || event.content_index !== 0) return;
+      const turn = typeof event.item_id === 'string' ? this.turnLog.find((entry) => entry.id === event.item_id) : undefined;
+      if (!turn || event.content_index !== 0) return;
       const transcript = event.type.endsWith('.completed') && typeof event.transcript === 'string'
         && event.transcript.length <= 1000 && !/[\u0000-\u001f\u007f]/u.test(event.transcript) ? event.transcript : '';
       this.trace('worker', transcript);
@@ -658,10 +692,15 @@ class CallStream {
         return this.finish('provider_response_failed');
       }
       const kind = this.responseKind;
-      if (this.responsePrompt && !interrupted && this.responseAudible && !this.responsePrompt.cutOff) {
+      const played = this.responsePrompt && !interrupted && this.responseAudible && !this.responsePrompt.cutOff;
+      if (played) {
         const name = `prompt-${++this.markCount}`;
         this.marks.set(name, { prompt: this.responsePrompt });
         this.send(this.twilio, { event: 'mark', streamSid: this.streamSid, mark: { name } });
+      }
+      // The facts are on their way to the caller: the summary's question follows them, word for word too.
+      if (played && this.responsePrompt.closing && !this.nextResponse && !this.ending) {
+        this.nextResponse = { kind: 'closing', text: this.responsePrompt.closing, repromptText: this.responsePrompt.repromptText };
       }
       this.responsePrompt = null;
       const summaryKeys = [...(this.responseSummary?.audioKeys ?? [])];
@@ -735,6 +774,7 @@ class CallStream {
         this.clearTimer('transcription');
       }
       if (this.closed) return;
+      if (this.natural) return await this.sendNaturalTool(event, args, turn, spoke);
       const current = this.workerTurn === turn && this.speechEpoch === epoch && !this.speaking;
       const result = await this.internal('/api/voice/realtime/tool', {
         ticket: this.ticket, callSid: this.callSid, toolCallId: event.call_id,
@@ -755,6 +795,80 @@ class CallStream {
       this.flushResponse();
       this.activity();
     });
+  }
+
+  /**
+   * A natural call's tool belongs to the turn it answered. If the worker said more before it ran («أحفظ… احفظ»,
+   * «احفظ… لا لحظة»), those words are waited for and sent with it, never dropped: a second yes still saves with the
+   * first one's words and heard summary, and a second thought still blocks. Words that never arrive count as unsaid.
+   */
+  async sendNaturalTool(event, args, turn, spoke) {
+    const later = () => (turn && this.turnLog.includes(turn) ? this.turnLog.slice(this.turnLog.indexOf(turn) + 1).filter((entry) => !entry.used) : []);
+    // Speech that has stopped but isn't committed yet is still on its way.
+    const uncommitted = () => this.speaking || (this.turnLog.at(-1)?.epoch ?? -1) < this.speechEpoch;
+    const more = () => Boolean(turn) && (uncommitted() || later().some((entry) => !entry.settled));
+    if (spoke && more()) {
+      this.log('tool_waits_for_later_speech');
+      await this.waitForSpeech(() => this.closed || !more(), this.limits.laterSpeechMs);
+      if (this.closed) return;
+    }
+    const after = spoke && turn ? later() : [];
+    // Still talking, or words that never came through: nobody can tell what was said, so it isn't taken as a yes.
+    const unclear = Boolean(turn) && (uncommitted() || after.some((entry) => !entry.settled || !entry.transcript));
+    const own = [turn, ...after].filter(Boolean);
+    const words = own.map((entry) => entry.transcript).filter(Boolean).join(' ').slice(0, 1000);
+    const confirmation = event.name === 'confirm_report' && args.confirmed === true;
+    const result = await this.internal('/api/voice/realtime/tool', {
+      ticket: this.ticket, callSid: this.callSid, toolCallId: event.call_id,
+      name: event.name, args, userSpokeSinceLastTool: spoke && Boolean(turn) && !turn.used && !unclear,
+      workerUtterance: turn && !turn.used ? words : '',
+      workerTranscripts: this.workerTranscripts(),
+      ...(confirmation ? { heardSummary: turn?.heardSummary === true } : {}),
+      ...(turn?.heardSummary && turn.heardSummaryId !== undefined ? { heardSummaryId: turn.heardSummaryId } : {}),
+    });
+    if (this.closed) return;
+    for (const entry of own) {
+      entry.used = true;
+      entry.settle('');
+      entry.transcript = '';
+    }
+    if (own.includes(this.workerTurn)) this.userSpoke = false;
+    this.applyToolResult(result, event.call_id);
+  }
+
+  /** Every final transcript of the worker so far, in the order said: the latest 40, within a byte budget. */
+  workerTranscripts() {
+    const transcripts = [];
+    let bytes = 0;
+    for (const entry of [...this.turnLog].reverse()) {
+      if (!entry.final) continue;
+      bytes += Buffer.byteLength(entry.final) + 4;
+      if (transcripts.length >= TRANSCRIPT_COUNT || bytes > TRANSCRIPT_BYTES) break;
+      transcripts.unshift(entry.final);
+    }
+    return transcripts;
+  }
+
+  waitForSpeech(done, milliseconds) {
+    if (done()) return Promise.resolve();
+    return new Promise((resolve) => {
+      const waiter = { done, resolve };
+      waiter.timeout = setTimeout(() => {
+        this.speechWaiters.delete(waiter);
+        resolve();
+      }, milliseconds);
+      waiter.timeout.unref();
+      this.speechWaiters.add(waiter);
+    });
+  }
+
+  wakeSpeechWaiters() {
+    for (const waiter of this.speechWaiters) {
+      if (!waiter.done()) continue;
+      clearTimeout(waiter.timeout);
+      this.speechWaiters.delete(waiter);
+      waiter.resolve();
+    }
   }
 
   /** Key 1 at the summary: the same save path as a spoken yes, with no model turn to wait for. */
@@ -804,7 +918,10 @@ class CallStream {
         this.speaking = false;
         this.timer('goodbye', this.limits.goodbyeMs, () => this.finish('goodbye_timeout'));
         this.requestResponse('goodbye', result.goodbye);
-      } else if (summary) this.requestResponse('summary', summary, { summaryId: result.summaryId, repromptText: result.repromptText });
+      } else if (summary) {
+        const parts = this.natural ? splitClosing(summary) : null;
+        this.requestResponse('summary', parts?.facts ?? summary, { summaryId: result.summaryId, repromptText: result.repromptText, closing: parts?.closing });
+      }
       else if (question) this.requestResponse('question', question, { repromptText: result.repromptText });
       // The model was told what happened and answers in its own words.
       else if (result.continue) this.requestResponse('turn');
