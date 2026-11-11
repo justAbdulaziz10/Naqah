@@ -142,7 +142,8 @@ function Onboarding() {
   })();
   // "Ready" only when NAQAH has everything it needs to call.
   const heads = m.onboarding.flow.heads;
-  const head = current === "ready" && getCallSetupGaps(ws).length ? heads.almost : heads[current];
+  // In the demo the ranch step opens with the plan cards, so its line names the plan first.
+  const head = current === "ready" && getCallSetupGaps(ws).length ? heads.almost : current === "ranch" && !account ? heads.ranchDemo : heads[current];
 
   return (
     <div className="min-h-dvh bg-ivory lg:grid lg:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[25rem_minmax(0,1fr)]">
@@ -185,7 +186,7 @@ function Onboarding() {
               type="button"
               data-step-next={isLast ? undefined : ""}
               onClick={isLast ? finish : nextStep}
-              className={buttonClass({ size: "lg", className: "naqah-press px-8 shadow-none max-sm:flex-1" })}
+              className={buttonClass({ size: "lg", className: "naqah-press px-8 shadow-none! max-sm:flex-1" })}
             >
               {isLast ? (
                 <>

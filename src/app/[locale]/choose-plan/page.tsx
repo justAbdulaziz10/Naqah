@@ -47,7 +47,7 @@ async function ChoosePlanContent({ params, searchParams }: Props) {
       <AuthFrame demoLink={false}>
         <AuthHeading title={m.onboarding.plans.title} lead={m.auth.unavailable} />
         <p role="alert" className="mt-5 leading-relaxed text-danger">{m.account.loadFailed}</p>
-        <ButtonLink size="lg" href={`/${locale}/choose-plan${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="mt-6 w-full">{m.setup.plans.initial.retry}</ButtonLink>
+        <ButtonLink size="lg" href={`/${locale}/choose-plan${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="mt-6 w-full shadow-none!">{m.setup.plans.initial.retry}</ButtonLink>
       </AuthFrame>
     );
   }

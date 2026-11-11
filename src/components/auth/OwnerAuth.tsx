@@ -137,7 +137,7 @@ function PhoneAuth({ mode, next }: { mode: 'login' | 'signup'; next: string | nu
       </div>}
       {captchaKey && configured && <CaptchaField siteKey={captchaKey} resetKey={captchaReset} onToken={setCaptchaToken} onFailed={() => setIssue('captcha')} />}
       <p id={errorId} data-auth-error role="alert" className="-mt-1 text-sm leading-relaxed text-danger" hidden={!error}>{error ? m[error] : ''}</p>
-      <Button type="submit" size="lg" className="naqah-press w-full" disabled={!!busy || googlePending || !configured || (!sentPhone && (remaining > 0 || (!!captchaKey && !captchaToken)))}>{busy ? m[busy] : sentPhone ? m.verify : m.send}</Button>
+      <Button type="submit" size="lg" className="naqah-press w-full shadow-none!" disabled={!!busy || googlePending || !configured || (!sentPhone && (remaining > 0 || (!!captchaKey && !captchaToken)))}>{busy ? m[busy] : sentPhone ? m.verify : m.send}</Button>
       {sentPhone && <div className="-mt-1 flex flex-col gap-2">
         <Button variant="secondary" size="lg" className="w-full" disabled={!!busy || remaining > 0 || (!!captchaKey && !captchaToken)} onClick={() => void send()}>{remaining ? <span className="ltr-nums">{m.cooldown(remaining)}</span> : m.resend}</Button>
         <Button variant="ghost" size="lg" className="w-full" disabled={!!busy} onClick={() => { setSentPhone(''); setCode(''); setIssue(null); setNotice(false); writePending(null); }}>{m.change}</Button>

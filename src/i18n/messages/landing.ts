@@ -30,7 +30,7 @@ export const landing = defineMessages({
     },
     /** The hero's key visual: one evening on a line. Times match the sample call below. */
     evening: {
-      label: "A sample evening",
+      label: "An evening on the ranch",
       steps: [
         { time: "5:40 PM", title: "NAQAH calls your worker", detail: "On their ordinary phone" },
         { time: "5:44 PM", title: "The report is saved", detail: "Facts only, no recording" },
@@ -41,7 +41,7 @@ export const landing = defineMessages({
     pending: "Opening the demo…",
     story: {
       title: "From your worker’s phone to yours",
-      line: "One sample evening, step by step.",
+      line: "One evening on a sample ranch, step by step.",
       progress: "The evening, step by step",
       steps: [
         {
@@ -184,7 +184,7 @@ export const landing = defineMessages({
     nav: {
       how: "كيف تعمل",
       principles: "التزاماتنا",
-      plans: "الخطط",
+      plans: "الباقات",
       signIn: "دخول المالك",
       menu: "فتح قائمة التنقل",
       menuLabel: "التنقل في الصفحة",
@@ -196,7 +196,7 @@ export const landing = defineMessages({
       description: "ناقة تتصل على عاملك في الوقت اللي تختاره، تحفظ المعلومات، وبعدها تتصل عليك بالمهم.",
     },
     evening: {
-      label: "مساء من مثال",
+      label: "مساء في العزبة",
       steps: [
         { time: "5:40 م", title: "ناقة تتصل على عاملك", detail: "على جواله العادي" },
         { time: "5:44 م", title: "ينحفظ التقرير", detail: "معلومات بس، بدون تسجيل" },
@@ -207,7 +207,7 @@ export const landing = defineMessages({
     pending: "جاري فتح العرض…",
     story: {
       title: "من جوال عاملك إلى جوالك",
-      line: "مساء واحد من مثال، خطوة بخطوة.",
+      line: "مساء واحد في عزبة تجريبية، خطوة بخطوة.",
       progress: "المساء خطوة بخطوة",
       steps: [
         {

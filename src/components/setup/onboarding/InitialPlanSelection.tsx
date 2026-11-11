@@ -53,7 +53,7 @@ export function InitialPlanSelection({ ownerId, existingFarm, next }: Props) {
           </p>
         ) : null}
         {error === "changed" || error === "save" ? <Button type="button" variant="ghost" onClick={() => window.location.reload()}>{copy.retry}</Button> : null}
-        <Button type="submit" size="lg" className="naqah-press w-full" disabled={!selected || pending}>
+        <Button type="submit" size="lg" className="naqah-press w-full shadow-none!" disabled={!selected || pending}>
           {pending ? copy.saving : copy.continue}
         </Button>
       </form>

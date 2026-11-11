@@ -27,6 +27,7 @@ export const onboarding = defineMessages({
       next: (step: string) => `Next: ${step}`,
       heads: {
         ranch: { title: "Your ranch", lead: "Its name, and the number NAQAH calls you on." },
+        ranchDemo: { title: "Your ranch", lead: "Pick a plan to try, then your ranch’s name and your number." },
         team: { title: "Workers and herd", lead: "Who NAQAH calls, and what the ranch has." },
         call: { title: "When should NAQAH call?", lead: "Your worker for the report, then you with the summary." },
         ready: { title: "Your ranch is ready", lead: "Have a look. You can change anything later in Settings." },
@@ -72,6 +73,7 @@ export const onboarding = defineMessages({
       next: (step: string) => `التالي: ${step}`,
       heads: {
         ranch: { title: "عزبتك", lead: "اسمها، والرقم اللي تتصل عليه ناقة." },
+        ranchDemo: { title: "عزبتك", lead: "اختر باقة تجرّبها، وبعدها اسم العزبة ورقمك." },
         team: { title: "العمال والحلال", lead: "مين تتصل عليه ناقة، ووش عندك في العزبة." },
         call: { title: "متى تتصل ناقة؟", lead: "على عاملك للتقرير، وبعدها عليك بالملخص." },
         ready: { title: "عزبتك جاهزة", lead: "ألقِ نظرة. تقدر تغيّر أي شي بعدين من الإعدادات." },

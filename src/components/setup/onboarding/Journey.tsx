@@ -39,7 +39,7 @@ export function JourneyPanel({ ws, step, onGo }: { ws: Workspace; step: number; 
         <Logo locale={locale} href={href("/")} tone="light" />
         <nav aria-label={f.stepsNav} className="mt-14">
           <p className="text-2xl font-semibold leading-snug">{f.title}</p>
-          <p className="mt-2 max-w-[18rem] text-[0.9375rem] leading-relaxed text-cream/70">{m.onboarding.flow.panelLine}</p>
+          <p className="mt-2 max-w-[18rem] text-balance text-[0.9375rem] leading-relaxed text-cream/70">{m.onboarding.flow.panelLine}</p>
           <ol className="relative mt-10">
             {WIZARD_STEPS.map((key, index) => {
               const done = index < step && !stepNeedsFixing(key, ws);
