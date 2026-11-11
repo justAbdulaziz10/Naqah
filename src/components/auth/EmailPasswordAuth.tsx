@@ -108,7 +108,7 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
           {error === 'accountExists' ? <Link className="flex min-h-11 w-fit items-center font-semibold text-espresso underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown" href={`${href('/login')}?${query}`}>{m.accountExistsAction}</Link> : null}
         </div>
         {captchaKey && configured && <CaptchaField siteKey={captchaKey} resetKey={captchaReset} onToken={setCaptchaToken} onFailed={() => setIssue('captcha')} />}
-        <Button type="submit" size="lg" className="w-full" disabled={busy || (!!captchaKey && !captchaToken)}>{pending ? m.emailPending : mode === 'signup' ? m.emailSignup : m.emailLogin}</Button>
+        <Button type="submit" size="lg" className="naqah-press w-full" disabled={busy || (!!captchaKey && !captchaToken)}>{pending ? m.emailPending : mode === 'signup' ? m.emailSignup : m.emailLogin}</Button>
       </form>
       </AuthMethods>
       <AuthSwitch href={`${href(mode === 'login' ? '/signup' : '/login')}?${alternateQuery}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</AuthSwitch>

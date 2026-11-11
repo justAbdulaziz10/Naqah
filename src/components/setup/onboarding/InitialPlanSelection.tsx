@@ -44,17 +44,16 @@ export function InitialPlanSelection({ ownerId, existingFarm, next }: Props) {
 
   return (
     <AuthFrame demoLink={false} wide>
-      <AuthHeading title={copy.title} lead={existingFarm ? copy.existingLead : copy.newLead} />
+      <AuthHeading title={m.onboarding.plans.title} lead={existingFarm ? copy.existingLead : m.onboarding.plans.lead} />
       <form onSubmit={(event) => void submit(event)} className="mt-7 flex flex-col gap-6" aria-busy={pending}>
         <PlanChoice mode="initial" selected={selected} onSelect={setSelected} disabled={pending || (error !== null && error !== "limit")} />
-        <p className="text-[0.9375rem] leading-relaxed text-muted">{copy.lockNote}</p>
         {error ? (
           <p role="alert" className="text-sm leading-relaxed text-danger">
             {error === "limit" ? copy.limitReached : error === "changed" ? copy.changedAccount : copy.saveFailed}
           </p>
         ) : null}
         {error === "changed" || error === "save" ? <Button type="button" variant="ghost" onClick={() => window.location.reload()}>{copy.retry}</Button> : null}
-        <Button type="submit" size="lg" className="w-full" disabled={!selected || pending}>
+        <Button type="submit" size="lg" className="naqah-press w-full" disabled={!selected || pending}>
           {pending ? copy.saving : copy.continue}
         </Button>
       </form>

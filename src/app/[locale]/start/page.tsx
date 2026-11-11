@@ -56,6 +56,9 @@ function Onboarding() {
   const step = stepFromQuery(params.get("step"));
   const [showErrors, setShowErrors] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  // Which way the last step change went, so the new step slides in from the matching side.
+  const [seen, setSeen] = useState({ step, back: false });
+  if (seen.step !== step) setSeen({ step, back: step < seen.step });
   const finished = ws?.setupComplete === true;
   const editing = Boolean(ws) && !finished;
 
@@ -138,7 +141,8 @@ function Onboarding() {
     }
   })();
   // "Ready" only when NAQAH has everything it needs to call.
-  const head = current === "ready" && getCallSetupGaps(ws).length ? f.heads.almost : f.heads[current];
+  const heads = m.onboarding.flow.heads;
+  const head = current === "ready" && getCallSetupGaps(ws).length ? heads.almost : heads[current];
 
   return (
     <div className="min-h-dvh bg-ivory lg:grid lg:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[25rem_minmax(0,1fr)]">
@@ -157,7 +161,7 @@ function Onboarding() {
         <main className="flex flex-1 flex-col">
           <JourneyBar step={step} />
           <div className="mx-auto w-full max-w-[44rem] flex-1 px-4 pb-12 pt-8 sm:px-6 sm:pt-10 lg:pt-[max(2rem,7vh)]">
-          <div key={current} className="naqah-step-in">
+          <div key={current} className={seen.back ? "naqah-step-back" : "naqah-step-in"}>
             <StepHead title={head.title} lead={head.lead} />
             {content}
           </div>
@@ -171,7 +175,7 @@ function Onboarding() {
               <button
                 type="button"
                 onClick={() => go(step - 1)}
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full px-4 text-[1rem] font-semibold text-espresso transition hover:bg-espresso/5 active:scale-[0.98]"
+                className="naqah-press inline-flex min-h-12 items-center justify-center gap-2 rounded-full px-4 text-[1rem] font-semibold text-espresso hover:bg-espresso/5"
               >
                 <ArrowLeft size={18} className="rtl:-scale-x-100" aria-hidden />
                 {m.common.actions.back}
@@ -181,7 +185,7 @@ function Onboarding() {
               type="button"
               data-step-next={isLast ? undefined : ""}
               onClick={isLast ? finish : nextStep}
-              className={buttonClass({ size: "lg", className: "px-8 shadow-none max-sm:flex-1" })}
+              className={buttonClass({ size: "lg", className: "naqah-press px-8 shadow-none max-sm:flex-1" })}
             >
               {isLast ? (
                 <>
