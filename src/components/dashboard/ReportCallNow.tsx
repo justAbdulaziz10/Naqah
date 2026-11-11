@@ -129,7 +129,8 @@ export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Worksp
     : notApproved ? d.callNowResult.notApproved(approval!.numbers.map((number) => `\u2066${number}\u2069`).join("، "))
     : null;
   return (
-    <div className="space-y-2">
+    // In the call bar the button, the simulation beside it and these notes share one wrapping row.
+    <div className={primary ? "contents" : "space-y-2"}>
       {!active ? (
         <button
           type="button"
@@ -137,15 +138,15 @@ export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Worksp
           disabled={pending || off}
           aria-describedby={reason ? "call-now-reason" : undefined}
           className={primary
-            ? "inline-flex min-h-11 items-center gap-2 rounded-full bg-cream px-5 text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:cursor-not-allowed disabled:bg-cream/40 disabled:text-espresso/70 disabled:active:scale-100"
+            ? "inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-cream px-5 max-sm:w-full text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:cursor-not-allowed disabled:bg-cream/40 disabled:text-espresso/70 disabled:active:scale-100"
             : "inline-flex min-h-11 items-center gap-2 rounded-full border border-cream/40 px-5 text-sm font-semibold text-cream transition hover:border-cream active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-cream/40 disabled:active:scale-100"}
         >
           <PhoneOutgoing size={16} aria-hidden />
           {pending ? d.calling : d.callNow}
         </button>
       ) : null}
-      {reason && !active ? <p id="call-now-reason" className="text-sm text-cream/75">{reason}</p> : null}
-      {message ? <p className="text-sm text-cream/80" role="status">{message}</p> : null}
+      {reason && !active ? <p id="call-now-reason" className="order-last basis-full text-[0.8125rem] leading-snug text-cream/70">{reason}</p> : null}
+      {message ? <p className="order-last basis-full text-sm text-cream/80" role="status">{message}</p> : null}
       {confirming && phone ? (
         <ConfirmDialog
           title={d.confirmTitle(worker)}

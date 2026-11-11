@@ -102,7 +102,7 @@ export default function OverviewPage() {
   const rhythm = showStrip ? <RhythmStrip slots={slots} weekly={ws.settings.plan === "basic"} now={now} planned={scheduledOff} /> : null;
 
   return (
-    <div className="space-y-5 pb-8">
+    <div className="naqah-page space-y-5 pb-8">
       <EstateHeader name={estateName} answer={answer} tone={tone} provenance={provenance} call={<CallBar ws={ws} worker={worker} now={now} />} rhythm={rhythm} next={nextBlock} />
 
       <CallSetupStatus ws={ws} />
