@@ -511,7 +511,15 @@ async function main() {
 
     if (options.repeatDemoReports) {
       // Only the presentation ranch (named «… (عرض تجريبي)») may take another call after today's report.
-      const ids = localSql(base)(`select coalesce(string_agg(id::text, ','), '') from farms where name like '%(عرض تجريبي)%'`);
+      // The demo login's ranch counts too, so renaming it in Settings (e.g. «تعبئة تجريبية» → «عزبة الوسم») keeps it the demo.
+      const demoOwner = (() => {
+        try {
+          const users = JSON.parse(readFileSync(join(ROOT, "users.json"), "utf8"));
+          const id = users.find((entry) => entry?.user?.email === "demo@naqah.demo")?.user?.id;
+          return /^[0-9a-f-]{36}$/i.test(id ?? "") ? id : null;
+        } catch { return null; }
+      })();
+      const ids = localSql(base)(`select coalesce(string_agg(id::text, ','), '') from farms where name like '%(عرض تجريبي)%'${demoOwner ? ` or owner_id = '${demoOwner}'` : ""}`);
       envs.next.NAQAH_DEMO_REPEAT_FARMS = ids;
       // Until the presentation: no hourly or daily limit on the presentation ranch's «اتصال حقيقي».
       if (options.noDemoCallLimit) envs.next.NAQAH_DEMO_NO_CALL_LIMIT = "1";
