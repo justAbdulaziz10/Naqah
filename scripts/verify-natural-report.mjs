@@ -13,7 +13,11 @@
  *     report insert for that one ranch in the disposable database)
  *   6 the owner changes the worker's number in Settings (with the recipient's consent), then the Dashboard calls exactly
  *     that number   7 «اتصال حقيقي» rate limit: a 4th placed call in an hour is refused
+ *   8 repeat demo calls: the presentation ranch takes a second report call today (two reports, the Dashboard shows the
+ *     latest); the test ranch with a report today stays blocked; in_progress and the hourly limit still apply
  *
+ * The runner is started with --keep-data --repeat-demo-reports (its database emptied before the first start), and scenario 8
+ * restarts it after seeding, because the repeat list holds the ranch ids present when the runner starts.
  * The runner is started with --owner-approves, so the build must include NEXT_PUBLIC_NAQAH_OWNER_APPROVES_NUMBERS: run once
  * without --skip-build after switching branches or flags.
  *
@@ -22,12 +26,12 @@
  * Results: /tmp/naqah-test-call-iso/verify/natural-report.json and screenshots there. Exit code 1 on any failure.
  */
 import { execFileSync, spawn } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect as tcpConnect } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { APPROVED_FILE, GATEWAY, MOCK_ALLOWED, READY_FILE, ROOT } from "./test-call-local.mjs";
+import { APPROVED_FILE, GATEWAY, MOCK_ALLOWED, READY_FILE, ROOT, TEST_FARM, TESTER } from "./test-call-local.mjs";
 
 if (process.env.NAQAH_TEST_CALL_ISOLATED !== "1") {
   console.error("Run with NAQAH_TEST_CALL_ISOLATED=1: this verifier only uses the isolated stack.");
@@ -99,15 +103,26 @@ const portOpen = (port) => new Promise((resolve) => {
   socket.once("error", () => resolve(false));
 });
 
-async function startRunner() {
+/**
+ * --repeat-demo-reports reads the presentation ranch's id once, when the runner starts, and every scenario reseeds the
+ * ranch under a new id. So the runner always keeps its database (--keep-data, emptied before the first start) and
+ * scenario 8 restarts it after seeding, so that ranch's id is the one on the repeat list.
+ */
+async function startRunner({ restart = false } = {}) {
   if (existsSync(READY_FILE)) throw new Error(`A runner already looks active (${READY_FILE}). Stop it first.`);
-  runnerLog = openSync(join(OUT, "natural-report-runner.log"), "w");
-  const args = [join(REPO, "scripts/test-call-local.mjs"), "--mock", "--report-path", "--natural", "--owner-approves", ...(flag("skip-build") ? ["--skip-build"] : [])];
+  if (!restart) {
+    if (await portOpen(Number(PG_PORT))) throw new Error(`Port ${PG_PORT} is in use: another isolated stack is running.`);
+    rmSync(join(ROOT, "pg"), { recursive: true, force: true }); // a fresh database, as before --keep-data
+  }
+  const logName = restart ? "natural-report-runner-repeat.log" : "natural-report-runner.log";
+  runnerLog = openSync(join(OUT, logName), "w");
+  const args = [join(REPO, "scripts/test-call-local.mjs"), "--mock", "--report-path", "--natural", "--owner-approves", "--keep-data", "--repeat-demo-reports",
+    ...(restart || flag("skip-build") ? ["--skip-build"] : [])];
   runner = spawn(process.execPath, args, { cwd: REPO, stdio: ["ignore", runnerLog, runnerLog], env: { ...process.env, NAQAH_TEST_CALL_ISOLATED: "1" } });
   await waitFor(() => {
     if (runner.exitCode !== null) throw Object.assign(new Error("runner exited"), { fatal: true });
     return existsSync(READY_FILE);
-  }, "the runner", 420_000).catch((error) => { throw new Error(`The runner did not become ready (${error.message}); see ${join(OUT, "natural-report-runner.log")}`); });
+  }, "the runner", 420_000).catch((error) => { throw new Error(`The runner did not become ready (${error.message}); see ${join(OUT, logName)}`); });
   ready = JSON.parse(readFileSync(READY_FILE, "utf8"));
   if (ready.app !== "http://127.0.0.1:3411" || ready.provider !== "http://127.0.0.1:3413") throw new Error(`Not the isolated stack: ${JSON.stringify(ready)}`);
 }
@@ -154,18 +169,24 @@ function ensurePlan(farm) {
   return { other, plan: json(`select question_plan from farms where id = ${q(farm)}`), wasAsSeeded: JSON.stringify(enabled) === JSON.stringify(wanted) };
 }
 
-async function demoCookie() {
-  const session = await postJson(`${GATEWAY}/auth/v1/token?grant_type=password`, DEMO);
-  if (session.status !== 200) throw new Error(`Could not sign in ${DEMO.email}: ${session.status}`);
+async function demoCookie(account = DEMO) {
+  const session = await postJson(`${GATEWAY}/auth/v1/token?grant_type=password`, account);
+  if (session.status !== 200) throw new Error(`Could not sign in ${account.email}: ${session.status}`);
   return `sb-127-auth-token=base64-${Buffer.from(JSON.stringify(session.json)).toString("base64url")}`;
 }
 
-async function signIn(page) {
+async function signIn(page, account = DEMO) {
   await page.goto(`${ready.app}/ar/login?method=email`);
-  await page.locator('input[name="email"]:visible').fill(DEMO.email);
-  await page.locator('input[name="password"]:visible').fill(DEMO.password);
+  await page.locator('input[name="email"]:visible').fill(account.email);
+  await page.locator('input[name="password"]:visible').fill(account.password);
   await page.getByRole("button", { name: "تسجيل الدخول", exact: true }).click();
   await page.waitForURL((url) => url.pathname.startsWith("/ar/app"), { timeout: 30_000 });
+}
+
+/** A freshly started Next can take a press before the form has hydrated: load the pages once, then sign in (one retry). */
+async function signInAfterStart(page, account = DEMO) {
+  for (const path of ["/ar/login?method=email", "/ar/app", "/ar/app/calls"]) await fetch(`${ready.app}${path}`).catch(() => {});
+  try { await signIn(page, account); } catch { await signIn(page, account); }
 }
 
 /** Everything a call may write, as text, so "unchanged" means byte-identical. */
@@ -727,6 +748,203 @@ async function scenarioRateLimit() {
   check("no 4th run was opened", runCount(farm) === 3, runCount(farm));
 }
 
+/* ─────────────────── scenario 8: repeat demo calls ─────────────────── */
+
+/** Report #2 differs from #1: feed about half («متوسط»), a new note for مزون and new words for «فيه شي ثاني». */
+const SECOND = {
+  ...BASE,
+  say: "مزون أحسن شوي بس للحين تعبانة، ووضحة ما تاكل زين، والباقي بخير. العلف نص، الماي يكفي، ما فيه شي خربان، وجبت تبن اليوم",
+  answers: {
+    ...BASE.answers,
+    herd_health: { ...BASE.answers.herd_health, camels: [{ name: "مزون", status: "sick", note: "مزون أحسن شوي بس للحين تعبانة" }, BASE.answers.herd_health.camels[1]] },
+    feed_level: { value: "medium" },
+    custom: { text: "جبت تبن اليوم" },
+  },
+};
+const ALREADY = "تقرير هذي الفترة وصل";
+const reportAnswers = (report) => json(`select coalesce(json_agg(row_to_json(a) order by a.sort_order), '[]') from (select question_id, answer, answer_ar, certainty, sort_order from report_answers where report_id = ${q(report)}) a`) ?? [];
+
+/** Opens the Dashboard and returns the button, its reason line and the owner's GET /api/report-call-now detail. */
+async function dashboardCallState(page) {
+  const detail = page.waitForResponse((response) => /\/api\/report-call-now$/.test(new URL(response.url()).pathname) && !response.url().includes("preflight") && response.request().method() === "GET", { timeout: 20_000 })
+    .then((response) => response.json()).catch(() => null);
+  await page.goto(`${ready.app}/ar/app`);
+  const button = page.getByRole("button", { name: "اتصال حقيقي", exact: true });
+  await button.waitFor({ timeout: 20_000 });
+  const body = await detail;
+  await sleep(2500); // the component asks once more after 2 s
+  const reason = await page.locator("#call-now-reason").innerText().catch(() => "");
+  return { button, body, reason, enabled: await button.isEnabled() };
+}
+
+async function scenarioRepeat(browser) {
+  section(8, "Repeat demo call: the presentation ranch takes a second report call today; other ranches and limits unchanged");
+  // The ranch first, then a runner restart, so its new id is on the runner's repeat list (computed at start).
+  const farm = seedRanch();
+  const plan = ensurePlan(farm);
+  evidence("farm", farm);
+  const open = await stopRunner();
+  check("the runner stopped before the restart", open.length === 0, open);
+  await startRunner({ restart: true });
+  const log = readFileSync(join(OUT, "natural-report-runner-repeat.log"), "utf8");
+  evidence("runnerRepeatLine", log.match(/Repeat demo calls:[^\n]*/)?.[0] ?? null);
+  check("the restarted runner put one presentation ranch on the repeat list", /Repeat demo calls: on for 1 presentation ranch/.test(log), log.match(/Repeat demo calls:[^\n]*/)?.[0]);
+  check("the restart kept the data: the same ranch id, the test ranch still there", sql(`select id from farms where name = ${q(RANCH)}`) === farm && sql(`select count(*) from farms where id = ${q(TEST_FARM)}`) === "1");
+
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "ar-SA" });
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("console", (message) => { if (message.type() === "error") errors.push(`console: ${message.text()}`); });
+  await page.route("**/api/report-call-now?preflight=1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, ready: true, checks: [], message: null }) }));
+  try {
+    // a. Report #1 from the Dashboard.
+    await control({ reset: true, outcome: "full", twilioError: null, dwellMs: 200, natural: BASE });
+    await signInAfterStart(page);
+    let state = await dashboardCallState(page);
+    evidence("aBefore", { detail: state.body, reason: state.reason });
+    check("a. before any report: «اتصال حقيقي» enabled and GET says repeatReports true", state.enabled && state.body?.repeatReports === true, { enabled: state.enabled, body: state.body, reason: state.reason });
+    await state.button.click();
+    await page.getByRole("dialog").getByRole("button", { name: "اتصل الآن", exact: true }).click();
+    await waitFor(async () => (await mockState()).requests.length > 0, "call 1 to reach mock Twilio", 20_000);
+    const first = (await finishedCall()).calls[0];
+    writeFileSync(join(OUT, "natural-repeat-call-1.json"), JSON.stringify(first, null, 2));
+    check("a. call 1 ran: submit_report then confirm_report saved", first.finished && !first.error && first.confirm?.output?.status === "saved"
+      && JSON.stringify(first.toolResults.map((entry) => entry.name)) === JSON.stringify(["submit_report", "confirm_report"]), { error: first.error, confirm: first.confirm?.output });
+    const run1 = run(farm);
+    const todayReports = () => json(`select coalesce(json_agg(row_to_json(r) order by r.at), '[]') from (select id, at, call_id from reports where farm_id = ${q(farm)}
+      and (at at time zone 'Asia/Riyadh')::date = (now() at time zone 'Asia/Riyadh')::date) r`) ?? [];
+    check("a. report #1 saved today, run completed and linked", todayReports().length === 1 && run1?.state === "completed" && run1.report_id === todayReports()[0]?.id, { reports: todayReports(), run1 });
+    const report1 = run1?.report_id;
+    const answers1 = reportAnswers(report1);
+    const answers1Text = JSON.stringify(answers1);
+
+    // b. Still callable on the Dashboard after today's report.
+    state = await dashboardCallState(page);
+    evidence("bAfterReport1", { detail: state.body, reason: state.reason });
+    await page.screenshot({ path: join(OUT, "natural-repeat-after-report-1.png"), fullPage: true });
+    check("b. GET /api/report-call-now has repeatReports true", state.body?.ok === true && state.body.repeatReports === true, state.body);
+    check("b. «اتصال حقيقي» is STILL enabled after report #1", state.enabled, state.reason);
+    check(`b. no «${ALREADY}» reason on the Dashboard`, !state.reason.includes(ALREADY) && !(await page.locator("body").innerText()).includes(ALREADY), state.reason);
+
+    // c. Report #2 from the Dashboard; meanwhile a second press is refused as in progress (f).
+    await control({ reset: true, outcome: "full", twilioError: null, dwellMs: 200, natural: SECOND });
+    await state.button.click();
+    await page.getByRole("dialog").getByRole("button", { name: "اتصل الآن", exact: true }).click();
+    await waitFor(async () => (await mockState()).requests.length > 0, "call 2 to reach mock Twilio", 20_000);
+    const runState = run(farm)?.state;
+    const during = await callViaApi(await demoCookie());
+    evidence("fDuring", { api: during.json, runStateWhenAsked: runState });
+    check("f. a call while call 2 is live is refused: in_progress, no Twilio request", during.json?.data?.status === "blocked" && during.json.data.reason === "in_progress", { api: during.json, runState });
+    const stateAfter2 = await finishedCall();
+    const second = stateAfter2.calls[0];
+    writeFileSync(join(OUT, "natural-repeat-call-2.json"), JSON.stringify(second, null, 2));
+    const tos = stateAfter2.requests.map((request) => request.To);
+    check("c. mock Twilio got exactly ONE more request, to the saved worker number", tos.length === 1 && tos[0] === WORKER && compact(primaryPhone(farm)) === WORKER, tos.map(masked));
+    callBasics(second, plan.other);
+    check("c. call 2 ran: submit_report then confirm_report saved", second.finished && !second.error && second.confirm?.output?.status === "saved"
+      && JSON.stringify(second.toolResults.map((entry) => entry.name)) === JSON.stringify(["submit_report", "confirm_report"]), { error: second.error, confirm: second.confirm?.output });
+    check("c. the goodbye says it was saved", SAVED_WORDS.test((second.provider?.spoken ?? []).at(-1) ?? ""), second.provider?.spoken?.slice(-1));
+    const reports = todayReports();
+    const runs = json(`select coalesce(json_agg(row_to_json(r) order by r.created_at), '[]') from (select id, state, report_id, trigger, created_at from report_call_runs where farm_id = ${q(farm)}) r`) ?? [];
+    const callRows = json(`select coalesce(json_agg(row_to_json(c) order by c.at), '[]') from (select id, kind, outcome, report_id, at from calls where farm_id = ${q(farm)}
+      and (at at time zone 'Asia/Riyadh')::date = (now() at time zone 'Asia/Riyadh')::date) c`) ?? [];
+    evidence("cReports", reports);
+    evidence("cRuns", runs);
+    evidence("cCalls", callRows);
+    check("c. Postgres: 2 reports today for this ranch, different ids", reports.length === 2 && reports[0].id !== reports[1].id && reports[0].id === report1, reports);
+    check("c. 2 report_call_runs, both completed, manual, each linked to its own report", runs.length === 2 && runs.every((r) => r.state === "completed" && r.trigger === "manual")
+      && runs[0].report_id === reports[0]?.id && runs[1].report_id === reports[1]?.id, runs);
+    check("c. 2 completed calls rows today, each linked to its own report", callRows.length === 2 && callRows.every((c) => c.outcome === "completed")
+      && callRows[0].report_id === reports[0]?.id && callRows[1].report_id === reports[1]?.id, callRows);
+    check("c. report #1's answers are unchanged (nothing deleted or overwritten)", JSON.stringify(reportAnswers(report1)) === answers1Text, { before: answers1, after: reportAnswers(report1) });
+    const answers2 = reportAnswers(reports[1]?.id);
+    evidence("cAnswers", { first: answers1, second: answers2 });
+    const feedOf = (rows) => rows.find((row) => row.question_id === "feed_level");
+    check("c. report #1 says feed low, report #2 says feed about half («متوسط»)", feedOf(answers1)?.answer === "Running low" && feedOf(answers2)?.answer === "About half" && /متوسط/.test(feedOf(answers2)?.answer_ar ?? ""), { first: feedOf(answers1), second: feedOf(answers2) });
+    check("c. report #2 keeps the worker's new words for «فيه شي ثاني»", answers2.find((row) => row.question_id === plan.other)?.answer === SECOND.answers.custom.text, answers2.find((row) => row.question_id === plan.other));
+    check("c. resources.feed is now medium (from report #2)", sql(`select level from resources where farm_id = ${q(farm)} and kind = 'feed'`) === "medium");
+
+    // d. The Dashboard shows the latest report; the Calls page lists both.
+    await page.goto(`${ready.app}/ar/app`);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await sleep(1500);
+    await page.screenshot({ path: join(OUT, "natural-repeat-dashboard.png"), fullPage: true });
+    const dash = await page.locator("body").innerText();
+    evidence("dDashboard", dash.slice(0, 3000));
+    check("d. the Dashboard shows report #2's feed («متوسط») and not report #1's («قارب على النفاد»)", dash.includes(feedOf(answers2)?.answer_ar ?? "∅") && !dash.includes("قارب على النفاد"),
+      dash.split("\n").filter((line) => /العلف|متوسط|قارب/.test(line)).slice(0, 6));
+    check("d. the Dashboard shows report #2's note for مزون", /مزون أحسن شوي بس للحين تعبانة/.test(dash), dash.match(/مزون[^\n]*/g)?.slice(0, 5));
+    await page.goto(`${ready.app}/ar/app/calls`);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await sleep(1500);
+    await page.screenshot({ path: join(OUT, "natural-repeat-calls.png"), fullPage: true });
+    const calls = await page.locator("body").innerText();
+    const today = sql("select to_char(now() at time zone 'Asia/Riyadh', 'FMDD')");
+    const card = calls.split(/\n(?=(?:السبت|الأحد|الاثنين|الثلاثاء|الأربعاء|الخميس|الجمعة)، )/).find((block) => new RegExp(`^(?:السبت|الأحد|الاثنين|الثلاثاء|الأربعاء|الخميس|الجمعة)، ${today} `).test(block)) ?? "";
+    evidence("dTodayCard", card.slice(0, 1200));
+    check("d. the Calls page lists both of today's report calls", (card.match(/اعرض التقرير/g) ?? []).length === 2 && (card.match(/انحفظ التقرير/g) ?? []).length === 2, card.slice(0, 800));
+    check("d. both calls' notes are there (report #1 and report #2)", /مزون للحين تعبانة/.test(card) && /مزون أحسن شوي بس للحين تعبانة/.test(card), card.slice(0, 800));
+
+    // f. The hourly limit still applies: call 3 (unanswered) is placed, call 4 is refused before Twilio.
+    await control({ reset: true, outcome: "no-answer", twilioError: null, dwellMs: 100, natural: null });
+    const cookie = await demoCookie();
+    const third = await callViaApi(cookie);
+    await waitFor(async () => (await mockState()).calls.some((entry) => entry.finished), "call 3 to end", 30_000).catch(() => {});
+    await waitFor(() => !["calling", "queued", "ringing", "in_progress", "answered"].includes(run(farm)?.state), "run 3 to end", 15_000).catch(() => {});
+    await sleep(500);
+    const fourth = await callViaApi(cookie);
+    evidence("fLimit", { third: third.json, fourth: fourth.json });
+    check("f. call 3 within the hour is placed", third.json?.data?.status === "placed", third.json);
+    check("f. call 4 within the hour is refused: rate_limited, no 4th Twilio request or run", fourth.json?.data?.status === "blocked" && fourth.json.data.reason === "rate_limited"
+      && (await mockState()).requests.length === 1 && runCount(farm) === 3, { api: fourth.json, requests: (await mockState()).requests.length, runs: runCount(farm) });
+    // The Dashboard shows the refusal with its reason after a press.
+    state = await dashboardCallState(page);
+    let notice = "";
+    if (state.enabled) {
+      await state.button.click();
+      await page.getByRole("dialog").getByRole("button", { name: "اتصل الآن", exact: true }).click();
+      notice = await waitFor(async () => { const text = await page.getByRole("status").allInnerTexts().then((all) => all.join(" ")).catch(() => ""); return /حد المكالمات/.test(text) ? text : null; }, "the rate-limit notice", 15_000).catch(() => "");
+      await page.screenshot({ path: join(OUT, "natural-repeat-rate-limited.png"), fullPage: false });
+    }
+    evidence("fNotice", notice);
+    check("f. pressing «اتصال حقيقي» again shows a clear reason («…3 بالساعة و10 باليوم…»)", /3 بالساعة و10 باليوم/.test(notice), { enabled: state.enabled, reason: state.reason, notice });
+    check("f. still no 4th Twilio request", (await mockState()).requests.length === 1 && runCount(farm) === 3, (await mockState()).requests.length);
+    evidence("browserErrors", errors);
+    check("no console errors or page errors on the demo ranch", errors.length === 0, errors);
+  } finally {
+    await context.close();
+  }
+
+  // e. A ranch NOT on the repeat list, with a report today, stays blocked.
+  const testWorker = "+966500000002"; // approved, so the refusal can only be the period's report
+  sql(`begin;
+    update workers set phone = ${q(testWorker)} where id = (select primary_worker_id from farms where id = ${q(TEST_FARM)});
+    with c as (insert into calls (farm_id, kind, direction, party, at, outcome, attempt, summary_ar, summary_en)
+      values (${q(TEST_FARM)}, 'worker_report', 'outbound', 'worker', now() - interval '5 minutes', 'completed', 1, 'تقرير اليوم (تحقق)', 'Today''s report (verify)') returning id)
+    insert into reports (farm_id, call_id, at, herd_count_reported) select ${q(TEST_FARM)}, id, now() - interval '5 minutes', 20 from c;
+    update farms set last_update_at = now() - interval '5 minutes', revision = revision + 1 where id = ${q(TEST_FARM)};
+    commit;`);
+  const testRuns = runCount(TEST_FARM);
+  await control({ reset: true, outcome: "full", twilioError: null, dwellMs: 200, natural: null });
+  const testContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "ar-SA" });
+  const testPage = await testContext.newPage();
+  try {
+    await signInAfterStart(testPage, TESTER);
+    const state = await dashboardCallState(testPage);
+    await testPage.screenshot({ path: join(OUT, "natural-repeat-test-ranch-blocked.png"), fullPage: true });
+    evidence("eTestRanch", { detail: state.body, reason: state.reason, enabled: state.enabled });
+    check("e. test ranch: GET /api/report-call-now has repeatReports false", state.body?.ok === true && state.body.repeatReports === false, state.body);
+    check(`e. test ranch: the Dashboard shows «${ALREADY}» and «اتصال حقيقي» is disabled`, state.reason.includes(ALREADY) && !state.enabled, state);
+    const refused = await callViaApi(await demoCookie(TESTER));
+    evidence("eApi", refused.json);
+    check("e. test ranch: callNow returns blocked already_reported, no run, no Twilio request", refused.json?.data?.status === "blocked" && refused.json.data.reason === "already_reported"
+      && runCount(TEST_FARM) === testRuns && (await mockState()).requests.length === 0, { api: refused.json, runs: runCount(TEST_FARM), requests: (await mockState()).requests.length });
+  } finally {
+    await testContext.close();
+  }
+}
+
 /* ─────────────────── main ─────────────────── */
 
 let happyEventDelta = null;
@@ -746,6 +964,7 @@ try {
     scenarioFailedSave,
     () => scenarioNumberChange(browser),
     scenarioRateLimit,
+    () => scenarioRepeat(browser), // last: it restarts the runner
   ];
   for (const step of steps) {
     try { await step(); } catch (error) {
@@ -763,7 +982,7 @@ try {
   if (open.length) results.push({ id: 0, title: "teardown", checks: [{ name: "the runner stopped everything it started", passed: false, detail: open }], evidence: {} });
 }
 
-const order = [1, 2, 3, 4, 5, 6, 7, 0];
+const order = [1, 2, 3, 4, 5, 6, 7, 8, 0];
 results.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
 const rows = results.map((entry) => {
   const failed = entry.checks.filter((item) => !item.passed).length;
