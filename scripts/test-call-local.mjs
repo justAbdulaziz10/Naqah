@@ -243,6 +243,9 @@ export function buildEnvironments(options, stack, secrets = null) {
   const naturalFlag = {
     ...(options.natural ? { NEXT_PUBLIC_NAQAH_NATURAL_CALLS: "1" } : {}),
     ...(options.ownerApproves ? { NEXT_PUBLIC_NAQAH_OWNER_APPROVES_NUMBERS: "1" } : {}),
+    // The Dashboard's «اتصال حقيقي» is the demo's call; the Test AI Call page serves only the test ranch, so its menu
+    // link would send the demo owner back to the Overview.
+    ...(options.dashboardCall ? { NEXT_PUBLIC_NAQAH_TEST_CALL: "0" } : {}),
   };
   Object.assign(next, naturalFlag);
   return { build: { ...browserStack, ...accountFlags, ...naturalFlag, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" }, next, bridge, ports, publicBase };
