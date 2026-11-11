@@ -49,6 +49,8 @@ export interface RealtimeState {
   naturalBase?: CallSession;
   /** Natural call: the worker was already asked the unit of a feed amount, so a second hand-over without one is kept as given. */
   feedUnitAsked?: boolean;
+  /** Natural call: answers the worker was already asked to confirm once («خمسين كيس، صح؟»); they are never checked again. */
+  checkedAnswers?: string[];
   recent: { id: string; result: ToolResponse }[];
 }
 

@@ -7,7 +7,9 @@
 import { levelLabel } from "@/domain/catalog";
 import { answer, type AnswerInput, type CallSession } from "@/domain/conversation/engine";
 import { makePersonalizer } from "@/domain/conversation/personalize";
+import { isHerdCount } from "@/domain/herd";
 import type { Level, Locale, Workspace } from "@/domain/types";
+import { camelNameKey, namedCamels, numbersSaid, wordBacking } from "../speech";
 import { naturalGuardrails } from "./natural-guardrails";
 import { object, tool } from "./tools";
 import type { ToolResponse } from "./state";
@@ -46,18 +48,30 @@ const NATURAL_WORDING: Record<string, string> = {
   medicine_stock: "الأدوية تكفي؟",
 };
 
+/** The herd size the worker's count is compared with, as the engine does: the owner's count, else the camel list. */
+function expectedHerd(ws: Workspace): number | null {
+  if (isHerdCount(ws.settings.herdCount)) return ws.settings.herdCount;
+  return ws.camels.length > 0 ? ws.camels.length : null;
+}
+
 /** What the model may record for one question, in words it can match the worker's answer to. */
-function expects(item: Item, locale: Locale): string {
+function expects(item: Item, ws: Workspace, locale: Locale): string {
   const ar = locale === "ar";
   if (item.kind === "task") return ar ? "value: yes (خلّصها) / no (لسا) / unknown" : "value: yes (done) / no (not yet) / unknown";
   if (item.kind === "weather_heat_day") return ar ? "value: yes / not_enough / unknown" : "value: yes / not_enough / unknown";
-  if (item.kind === "custom") return ar ? "text: كلام العامل باختصار، أو value: unknown" : "text: the worker's words in short, or value: unknown";
+  if (item.kind === "custom") return ar ? "text: كلام العامل نفسه زي ما قاله، بدون إضافة ولا تفسير، أو value: unknown" : "text: the worker's own words as said, nothing added or explained, or value: unknown";
   if (item.answerKind === "herd-health") {
     return ar
       ? "value: yes (كلها بخير) / no (فيه وحدة أو أكثر تحتاج متابعة) / unknown. مع no اذكر camels: لكل ناقة name من الأسماء، status: sick أو watch، وnote بكلام العامل. rest_well: true إذا قال الباقي بخير."
       : "value: yes (all well) / no (one or more need attention) / unknown. With no, give camels: for each a name from the list, status sick or watch, and a note in the worker's words. rest_well: true if they said the rest are well.";
   }
-  if (item.id === "herd_count") return ar ? "number: العدد، أو value: unknown. إذا أقل من المسجل: missing بكلامه عن الناقصة" : "number: the count, or value: unknown. If fewer than on record: missing, in their words";
+  if (item.id === "herd_count") {
+    const expected = expectedHerd(ws);
+    if (expected === null) return ar ? "number: العدد، أو value: unknown" : "number: the count, or value: unknown";
+    return ar
+      ? `number: العدد، أو value: unknown. المسجل ${expected}. إذا قال أقل من ${expected}، اسأله «تعرف أي النوق ناقصة؟» وحط جوابه في missing بكلامه، أو missing: unknown إذا ما يدري`
+      : `number: the count, or value: unknown. On record: ${expected}. If they say fewer than ${expected}, ask "Do you know which camels are missing?" and put the answer in missing, in their words, or missing: unknown if they don't know`;
+  }
   if (item.answerKind === "level" && item.resource) {
     const levels = LEVEL_VALUES.map((value) => `${value} (${levelLabel(item.resource!, value)[locale]})`).join(" / ");
     const quantity = item.resource === "feed" || item.resource === "water"
@@ -79,7 +93,7 @@ export function buildNaturalInstructions(base: CallSession, ws: Workspace, local
   while (tail > 0 && planned[tail - 1].kind === "custom") tail -= 1;
   const queue = [...planned.slice(0, tail), ...tasks, ...planned.slice(tail)];
   const wording = (item: Item) => (locale === "ar" && item.kind === "predefined" && NATURAL_WORDING[item.id]) || personalize(item.question[locale]);
-  const questions = queue.map((item, index) => `${index + 1}. [${item.id}] «${wording(item)}» → ${expects(item, locale)}`).join("\n");
+  const questions = queue.map((item, index) => `${index + 1}. [${item.id}] «${wording(item)}» → ${expects(item, ws, locale)}`).join("\n");
   const camels = ws.camels.map((camel) => camel.name).join("، ");
   const worker = ws.settings.worker.name;
   const owner = ws.settings.owner.name;
@@ -90,6 +104,7 @@ export function buildNaturalInstructions(base: CallSession, ws: Workspace, local
       "If the worker cut the greeting short ('hello?', 'who is this?'), greet briefly, say who you are and ask about the camels.",
       "The greeting and the first question have already been said. Listen to the answer, react in a few words, then ask the next question that hasn't been answered.",
       "Understand meaning, not keywords. One reply can answer several questions: never ask again what was clearly answered. Ask a short clarification only when the answer is genuinely unclear.",
+      "For the owner's own questions, record the worker's words as they said them. Never add a word they didn't say.",
       "Never guess. 'I don't know' is unknown. Never call a camel healthy that the worker didn't say is well. Never diagnose or advise treatment. If something is urgent, call flag_urgent and tell them to call the owner directly now.",
       `Questions, in order:\n${questions}`,
       `Camel names on this ranch: ${camels}. Use only these names.`,
@@ -109,6 +124,7 @@ export function buildNaturalInstructions(base: CallSession, ws: Workspace, local
     "انطق أسماء النوق والأرقام بوضوح، وقل الأرقام بالعربي.",
     "اسأل الأسئلة بنفس الكلمات القصيرة اللي تحت، بدون شرح أو خيارات إلا إذا ما فهم.",
     "«يكفي» و«كافي» = good. «ناقص شوي» و«باقي شوي» و«قليل» = low. «خلص» و«ما بقى شي» = critical. ما تعرف الكمية = unknown.",
+    "أجوبة أسئلة صاحب العزبة: انقل كلام العامل نفسه زي ما قاله، ولا تزيد كلمة ما قالها.",
     "إذا قال كمية برقم مثل «باقي 25 كيس» أو «عندنا 10 بالات»: number بالرقم وunit بكلمته نفسها (كيس، بالات). لا تخترع رقم ولا وحدة ما قالها.",
     "إذا قال رقم العلف بدون وحدة («باقي 25»)، اسأله سؤال قصير: «25 إيش؟ أكياس ولا بالات؟». إذا ما يدري، unit: unknown.",
     "«فيه شي خربان؟» عن الشبك: إذا قال ما فيه شي خربان = good. إذا الخربان هو الشبك = low (أو critical إذا كبير). إذا الخربان شي ثاني غير الشبك، سجّل الشبك unknown واذكر الشي الخربان في جواب «فيه شي ثاني» بكلامه.",
@@ -131,10 +147,10 @@ export function naturalTools(base: CallSession, ws: Workspace) {
     value: { type: "string" },
     number: { type: "number", minimum: 0 },
     unit: { type: "string", maxLength: 20 },
-    text: { type: "string" },
+    text: { type: "string", description: "The worker's own words as said, nothing added." },
     camels: { type: "array", maxItems: 30, items: camel },
     rest_well: { type: "boolean" },
-    missing: { type: "string" },
+    missing: { type: "string", description: "Which camels are missing, in the worker's own words." },
   }, ["question_id"]);
   return [
     tool("submit_report", "Every answer so far, once all questions are answered, or again after a correction. Speak nothing with it.", { answers: { type: "array", maxItems: 40, items: answerItem } }, ["answers"]),
@@ -229,7 +245,119 @@ export function replayAnswers(base: CallSession, ws: Workspace, now: Date, args:
   if (!missing.length && !invalid.length && unitMissing.length) return { ok: false, error: "unit_missing", questions: unitMissing };
   if (missing.length || invalid.length) return { ok: false, error: missing.length ? "questions_not_answered" : "values_not_allowed", questions: [...missing, ...invalid] };
   if (session.step !== "report_summary") return { ok: false, error: "no_summary", questions: [] };
-  return { ok: true, session };
+  return { ok: true, session: shortfallBesideCount(session) };
+}
+
+const SHORTFALL = { ar: { line: "الحلال غير مكتمل العدد", join: "، " }, en: { line: "not all camels are accounted for", join: "; " } } as const;
+
+/**
+ * The engine reads «الحلال غير مكتمل العدد» at the end of the summary, far from the count it is about. A natural call
+ * reads it right after the count («18 من الحلال — مزون ما رجعت، الحلال غير مكتمل العدد»), so the worker hears the
+ * shortfall where they can correct it. The words are the engine's; only their place changes, and only here.
+ */
+function shortfallBesideCount(session: CallSession): CallSession {
+  if (session.draft.herdAccountedFor !== false) return session;
+  const counted = session.draft.answers.find((entry) => entry.questionId === "herd_count");
+  const last = session.turns.at(-1);
+  if (!counted || !last || last.speaker !== "agent") return session;
+  const text = { ...last.text };
+  for (const locale of ["ar", "en"] as const) {
+    const { line, join } = SHORTFALL[locale];
+    const count = counted.answerText?.[locale] ?? counted.answer;
+    const moved = text[locale].lastIndexOf(join + line);
+    if (moved < 0) continue;
+    const without = text[locale].slice(0, moved) + text[locale].slice(moved + join.length + line.length);
+    const at = [join, ": "].map((before) => without.indexOf(before + count + join)).find((index) => index >= 0);
+    if (at === undefined) continue;
+    const after = at + without.slice(at).indexOf(count) + count.length;
+    text[locale] = without.slice(0, after) + join + line + without.slice(after);
+  }
+  return { ...session, turns: [...session.turns.slice(0, -1), { ...last, text }] };
+}
+
+/** One answer the worker's words don't back, to be checked once in a short natural line before the summary. */
+export type Doubt = { key: string; questionId: string; reason: "number_not_heard" | "other_number_heard" | "camel_not_named" | "words_not_said" | "missing_not_asked"; line: string };
+
+const words = (text: unknown) => clean(text, 300);
+const trimmed = (text: string, max = 60) => {
+  const said = text.replace(/[\s.,،;؛!?؟]+$/u, "");
+  return said.length > max ? said.slice(0, max).replace(/\s+\S*$/u, "") + "…" : said;
+};
+
+/**
+ * The answers in a hand-over that the worker's words don't back: a number nobody said («الآن» became «عشرة»), a number
+ * when the worker said another one («باقي خمسين» became «2 كيس»), a camel never named, or a text with words the worker
+ * didn't say («سوى كشف»). Plain answers are never checked, and nothing here refuses: the model asks once, then hands
+ * over again. A short herd count with no word on which camels are missing is asked once too («تعرف أي النوق ناقصة؟»).
+ * `said` is null when the bridge sends no transcripts: then there is no evidence and only that question is asked.
+ */
+export function doubtfulAnswers(base: CallSession, ws: Workspace, args: unknown, said: readonly string[] | null, locale: Locale): Doubt[] {
+  const list = typeof args === "object" && args !== null && Array.isArray((args as { answers?: unknown }).answers) ? (args as { answers: Given[] }).answers : [];
+  const queue = new Map((base.data.queue ?? []).map((item) => [item.id, item]));
+  const given = list.filter((entry): entry is Given => Boolean(entry) && typeof entry.question_id === "string" && queue.has(entry.question_id));
+  const ar = locale === "ar";
+  const doubts: Doubt[] = [];
+  const asked = (item: Item) => [item.question.ar, item.question.en, NATURAL_WORDING[item.id] ?? ""];
+  const textDoubt = (text: string, context: string[]) => {
+    if (!said || !text || /^(?:unknown|غير معروف|ما أدري|ما ادري|مدري)$/u.test(text)) return false;
+    const backing = wordBacking(text, said, context);
+    // Only words that say something are weighed: «ما فيه شي» for «لا» is not a new fact.
+    return backing.content > 0 && (!backing.fromWorker || backing.unbacked.length / backing.content >= 0.2);
+  };
+  // Every number the report uses; a transcript that holds one of them is about it, whatever else it says
+  // («عشرين إلا وحدة» is 19, not 20 and 1).
+  const used = new Set<number>();
+  for (const entry of given) {
+    if (typeof entry.number === "number") used.add(entry.number);
+    for (const text of [entry.text, entry.missing, ...(entry.camels ?? []).map((camel) => camel.note)]) for (const value of numbersSaid(words(text))) used.add(value);
+  }
+  const heard = new Set<number>();
+  const stray = new Set<number>();
+  for (const transcript of said ?? []) {
+    const values = numbersSaid(transcript);
+    values.forEach((value) => heard.add(value));
+    // 0, 1 and 2 are also ordinary words («ما في أحد», «وحدة منهم», «كيسين»), never a sign of a misheard count.
+    if (![...values].some((value) => used.has(value))) values.forEach((value) => { if (value > 2) stray.add(value); });
+  }
+  for (const entry of given) {
+    const item = queue.get(entry.question_id)!;
+    const id = entry.question_id;
+    if (entry.value === "unknown") continue;
+    if (said && typeof entry.number === "number") {
+      const reason = !heard.has(entry.number) ? "number_not_heard" : stray.size ? "other_number_heard" : null;
+      const unit = id === "herd_count" ? (ar ? "راس" : "camels") : unitOf(entry.unit);
+      if (reason) doubts.push({ key: `${id}:number`, questionId: id, reason, line: [String(entry.number), unit].filter(Boolean).join(" ") });
+    }
+    if (item.kind === "predefined" && item.answerKind === "herd-health") {
+      for (const camel of entry.camels ?? []) {
+        if (!ws.camels.some((known) => known.name === camel.name)) continue;
+        const state = camel.status === "watch" ? (ar ? "تحتاج متابعة" : "needs watching") : (ar ? "تعبانة" : "is unwell");
+        const named = !said || said.some((transcript) => namedCamels(transcript, [camel]).length > 0);
+        if (!named) { doubts.push({ key: `camel:${camelNameKey(camel.name)}`, questionId: id, reason: "camel_not_named", line: `${camel.name} ${state}` }); continue; }
+        const note = words(camel.note);
+        if (textDoubt(note, [camel.name])) doubts.push({ key: `note:${camelNameKey(camel.name)}`, questionId: id, reason: "words_not_said", line: `${camel.name}: ${trimmed(note)}` });
+      }
+    }
+    if (item.kind === "custom" && textDoubt(words(entry.text), asked(item))) doubts.push({ key: `${id}:text`, questionId: id, reason: "words_not_said", line: trimmed(words(entry.text)) });
+    if (id === "herd_count" && typeof entry.number === "number") {
+      const expected = expectedHerd(ws);
+      const missing = words(entry.missing);
+      if (expected !== null && entry.number < expected) {
+        if (!missing) doubts.push({ key: `${id}:missing`, questionId: id, reason: "missing_not_asked", line: ar ? "تعرف أي النوق ناقصة؟" : "Do you know which camels are missing?" });
+        else if (textDoubt(missing, ws.camels.map((camel) => camel.name))) doubts.push({ key: `${id}:missing`, questionId: id, reason: "words_not_said", line: trimmed(missing) });
+      }
+    }
+  }
+  return doubts;
+}
+
+/** The one short line the model says to check the doubtful items: «خمسين كيس، ومزون تعبانة، صح؟». */
+export function checkLine(doubts: Doubt[], locale: Locale): string {
+  const ar = locale === "ar";
+  const facts = doubts.filter((doubt) => doubt.reason !== "missing_not_asked").map((doubt) => doubt.line);
+  const ask = doubts.find((doubt) => doubt.reason === "missing_not_asked")?.line;
+  const confirm = facts.length ? facts.join(ar ? "، و" : ", and ") + (ar ? "، صح؟" : ", right?") : "";
+  return [confirm, ask && (ar ? (confirm ? "و" : "") + ask : ask)].filter(Boolean).join(" ");
 }
 
 /**

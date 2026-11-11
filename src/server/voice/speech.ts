@@ -723,3 +723,86 @@ export function mapSpeechToInput(
   // «مريضة، رجلها اليسار وارمة»: the words describe the camel, and the engine keeps them as her note.
   return choice?.value !== undefined && session.step === "health_status" ? { ...choice, text: transcript.trim().slice(0, 300) } : choice;
 }
+
+/** Words that carry no fact of their own: a recorded text made only of these adds nothing the worker didn't say. */
+const FILLER_WORDS = new Set([
+  "ما", "في", "فيه", "مافي", "مافيه", "لا", "ايه", "اي", "ايوه", "نعم", "يا", "و", "او", "ثم", "هو", "هي", "هم", "انا", "احنا",
+  "كل", "شي", "بس", "لكن", "الحين", "من", "علي", "عن", "الي", "اللي", "ان", "انه", "قد", "كان", "هذا", "هذي", "ذا", "مع",
+  "والله", "الحمد", "لله", "الله", "الحمدلله", "تمام", "طيب", "يعني", "مره", "شوي", "عاد", "ترا", "تراه",
+  "the", "a", "an", "is", "are", "was", "were", "be", "it", "its", "they", "them", "he", "she", "we", "i", "you", "and", "or",
+  "but", "to", "of", "in", "on", "at", "for", "with", "not", "no", "yes", "did", "do", "does", "has", "have", "had", "there",
+  "this", "that", "so", "just", "ok", "okay",
+]);
+
+/** «شيء» and «شي», «جاء» and «جا» are one word on the phone. */
+const wordKey = (word: string) => word.replace(/ء/gu, "").replace(/ؤ/gu, "و").replace(/ئ/gu, "ي");
+
+/** The spellings one spoken word takes: «وسوى» is «سوى», «البيطري» is «بيطري», «أبوه» and «أبوي» meet at «ابو». */
+function wordForms(word: string): Set<string> {
+  const forms = new Set([word]);
+  const bare = /^[وفب]/u.test(word) && word.length > 3 ? word.slice(1) : word;
+  for (const form of [word, bare]) {
+    forms.add(form);
+    if (form.startsWith("ال") && form.length > 4) forms.add(form.slice(2));
+  }
+  for (const form of [...forms]) if (form.length > 2) forms.add(form.replace(/[اهيى]$/u, ""));
+  return forms;
+}
+
+function oneEditApart(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i += 1; j += 1; continue; }
+    edits += 1;
+    if (edits > 1) return false;
+    if (a.length > b.length) i += 1;
+    else if (b.length > a.length) j += 1;
+    else { i += 1; j += 1; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+function sameWord(a: string, b: string): boolean {
+  const left = wordForms(a);
+  for (const form of wordForms(b)) if (left.has(form)) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  // «جا» for «جال», and one letter the transcriber got wrong («امتاز» for «ممتاز»).
+  if (short.length >= 2 && long.length - short.length <= 2 && long.startsWith(short)) return true;
+  return long.length >= 4 && oneEditApart(a, b);
+}
+
+export type WordBacking = {
+  /** Words that say something (not «ما», «ايه», «كل شي»). */
+  content: number;
+  /** Content words found neither in what the worker said nor in the question asked. */
+  unbacked: string[];
+  /** At least one word of the text, filler included, is the worker's. */
+  fromWorker: boolean;
+};
+
+/**
+ * How far a recorded text is the worker's own words. Used to ask once about a doubtful answer, never to rewrite it:
+ * «إيه جا البيطري وسوى كشف» against «ايه جال حمد الله هو سوى كل شي» has «كشف» from nowhere.
+ * The question's own words count as backed, since «إيه، جا البيطري» only repeats what was asked.
+ */
+export function wordBacking(text: string, said: readonly string[], asked: readonly string[] = []): WordBacking {
+  const tokens = (input: string) => (compact(input).match(/[\p{L}\p{N}]+/gu) ?? []).map(wordKey).filter(Boolean);
+  const worker = said.flatMap(tokens);
+  const joined = worker.join("");
+  const context = asked.flatMap(tokens);
+  const inWorker = (word: string) => worker.some((other) => sameWord(word, other)) || (word.length >= 4 && joined.includes(word));
+  let content = 0;
+  let fromWorker = false;
+  const unbacked: string[] = [];
+  for (const word of tokens(text)) {
+    const own = inWorker(word);
+    if (own) fromWorker = true;
+    if (FILLER_WORDS.has(word) || /^\d+$/u.test(word)) continue;
+    content += 1;
+    if (!own && !context.some((other) => sameWord(word, other))) unbacked.push(word);
+  }
+  return { content, unbacked, fromWorker };
+}
