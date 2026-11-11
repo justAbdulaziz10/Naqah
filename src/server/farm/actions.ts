@@ -10,7 +10,7 @@ import { isAccountDataEnabled } from "./account-mode";
 import type { AccountWorkspace } from "@/lib/account/types";
 import type { LoadedFarm } from "@/server/db/queries";
 import { isUuid } from "@/server/db/ids";
-import { manualCallsEnabled, outboundCallMissing, outboundConfig } from "@/server/calls/config";
+import { manualCallsEnabled, outboundCallMissing, outboundConfig, demoRepeatReports } from "@/server/calls/config";
 import { withCallNowLimit } from "@/server/calls/call-now-limit";
 import { requestReportCallNow, type CallNowResult } from "@/server/calls/scheduler";
 import { createTwilioCaller } from "@/server/calls/twilio";
@@ -163,6 +163,6 @@ export async function callWorkerNow(): Promise<ActionResult<CallNowResult>> {
     if (!service || !config) throw new DbError("unavailable");
     const now = new Date();
     return withCallNowLimit(farmId, now, () =>
-      requestReportCallNow(service, createTwilioCaller(config), farmId, { baseUrl: config.baseUrl, now, allowlist: config.allowlist }));
+      requestReportCallNow(service, createTwilioCaller(config), farmId, { baseUrl: config.baseUrl, now, allowlist: config.allowlist, repeatReports: demoRepeatReports(farmId) }));
   });
 }

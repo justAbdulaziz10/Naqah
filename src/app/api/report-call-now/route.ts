@@ -1,5 +1,5 @@
 import { getOwner } from "@/lib/supabase/server";
-import { callAllowlist, manualCallsEnabled } from "@/server/calls/config";
+import { callAllowlist, demoRepeatReports, manualCallsEnabled } from "@/server/calls/config";
 import { dialableWorkerPhone } from "@/domain/reportCalls";
 import { callDiagnostic, cleanStaleReportCalls } from "@/server/calls/reliability";
 import { createServiceClient } from "@/server/db/service-client";
@@ -27,7 +27,7 @@ export async function GET(request: Request): Promise<Response> {
     // Whether the saved worker number may be called here, so the Dashboard says so before the owner presses.
     const allowlist = callAllowlist();
     const phone = dialableWorkerPhone(workspace);
-    const approved = { numberApproved: phone === null ? null : allowlist.includes(phone), approvedNumbers: allowlist.map((number) => `+966 ${number.slice(4, 6)}•••••${number.slice(-3)}`) };
+    const approved = { repeatReports: demoRepeatReports(data.id), numberApproved: phone === null ? null : allowlist.includes(phone), approvedNumbers: allowlist.map((number) => `+966 ${number.slice(4, 6)}•••••${number.slice(-3)}`) };
     return json({ ok: true, runId: run?.id ?? null, state: run?.state ?? null, message: run && !run.reportId ? callDiagnostic(workspace, data.id, run.id) : null, ...approved });
   } catch { return json({ ok: false }, 503); }
 }

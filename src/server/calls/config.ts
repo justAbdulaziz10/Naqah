@@ -40,6 +40,16 @@ function approvedNumbersFile(): string | null {
   return /^\/(?:tmp|private\/tmp|var\/folders)\/[\w./-]+$/.test(file) && !file.includes("..") ? file : null;
 }
 
+/**
+ * LOCAL DEMO ONLY: farms (ids in NAQAH_DEMO_REPEAT_FARMS, set by the local runner for the presentation ranch) that
+ * may take another manual report call after this period's report is in. Never on Vercel; every other ranch keeps
+ * one report a period.
+ */
+export function demoRepeatReports(farmId: string): boolean {
+  if (process.env.VERCEL !== undefined || !approvedNumbersFile()) return false;
+  return value("NAQAH_DEMO_REPEAT_FARMS").split(",").map((id) => id.trim()).filter(Boolean).includes(farmId);
+}
+
 /** Local demo: the owner approves a worker number in Settings, with the recipient's agreement, instead of a developer. */
 export const ownerApprovesTestNumbers = () => value("NAQAH_OWNER_APPROVES_TEST_NUMBERS") === "1" && approvedNumbersFile() !== null;
 

@@ -180,7 +180,7 @@ export async function requestReportCallNow(
   client: SupabaseClient,
   caller: OutboundCaller,
   farmId: string,
-  options: { baseUrl: string; now: Date; allowlist?: string[] | null; to?: string; onRunOpened?: (runId: string) => Promise<void> },
+  options: { baseUrl: string; now: Date; allowlist?: string[] | null; to?: string; onRunOpened?: (runId: string) => Promise<void>; repeatReports?: boolean },
 ): Promise<CallNowResult> {
   const { now, allowlist } = options;
   type Opened = { blocked: ReportCallBlock | "duplicate" | "not_allowed" } | { claim: Claim };
@@ -190,7 +190,7 @@ export async function requestReportCallNow(
     const saved = options.to ?? dialableWorkerPhone(ws);
     if (saved && allowlist && !allowlist.includes(saved)) return { ws, result: { blocked: "not_allowed" as const } };
     const input = options.to ? { ...ws, settings: { ...ws.settings, worker: { ...ws.settings.worker, phone: options.to } } } : ws;
-    const opened = startReportCall(input, now, "manual");
+    const opened = startReportCall(input, now, "manual", now, { repeatReports: options.repeatReports === true });
     if (!opened.run) return { ws, result: { blocked: opened.blocked ?? ("duplicate" as const) } };
     opened.ws.settings = ws.settings;
     const placed = placeReportCallAttempt(opened.ws, now, opened.run.id);

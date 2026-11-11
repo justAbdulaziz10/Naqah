@@ -25,7 +25,7 @@ export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Worksp
   // Which run was latest when a call was placed, so "NAQAH is calling" ends with that call.
   const [placedAfter, setPlacedAfter] = useState<{ runId: string | null } | null>(null);
   // Whether the saved number may be called on this computer; checked again whenever the saved number changes.
-  const [approval, setApproval] = useState<{ approved: boolean | null; numbers: string[] } | null>(null);
+  const [approval, setApproval] = useState<{ approved: boolean | null; numbers: string[]; repeat: boolean } | null>(null);
   // A double click on "Call now" must send one request; state updates arrive too late to stop the second.
   const sending = useRef(false);
   const phone = dialableWorkerPhone(ws); // Shown isolated (U+2066…U+2069) so it reads left to right in Arabic.
@@ -46,7 +46,7 @@ export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Worksp
     // A just-saved number may still be on its way to the database: ask once now and once shortly after.
     const ask = () => fetch("/api/report-call-now", { cache: "no-store", signal: AbortSignal.timeout(10_000) })
       .then((response) => (response.ok ? response.json() : null))
-      .then((detail) => { if (live && detail?.ok) setApproval({ approved: detail.numberApproved ?? null, numbers: detail.approvedNumbers ?? [] }); })
+      .then((detail) => { if (live && detail?.ok) setApproval({ approved: detail.numberApproved ?? null, numbers: detail.approvedNumbers ?? [], repeat: detail.repeatReports === true }); })
       .catch(() => {});
     void ask();
     const again = setTimeout(() => void ask(), 2_000);
@@ -119,7 +119,8 @@ export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Worksp
   // Always shown in an account, so the owner can find it; it only calls where this site allows it.
   // The same rule the server applies (e.g. this period's report is already in) is shown before the
   // press, so the owner never confirms a call that will be refused.
-  const block = reportCallBlock(ws, now);
+  // The local presentation ranch may call again after today's report; the server applies the same rule.
+  const block = reportCallBlock(ws, now, { repeatReports: approval?.repeat === true });
   const notApproved = approval?.approved === false;
   const off = available !== true || (block !== null && block !== "no_worker_phone") || notApproved;
   const reason = available === null ? m.app.overview.callBar.checking

@@ -50,11 +50,17 @@ export function dialableWorkerPhone(ws: Workspace): string | null {
 
 export type ReportCallBlock = "no_worker_phone" | "already_reported" | "in_progress" | "no_questions";
 
+/**
+ * repeatReports: a local presentation ranch may take another manual report call after this period's report is in.
+ * Each call and each confirmed report stays a separate record. Never set for a real ranch (see demoRepeatReports).
+ */
+export type ReportCallOptions = { repeatReports?: boolean };
+
 /** Why a report call can't start now, or null when it can. Shared by "Call now" and the scheduler. */
-export function reportCallBlock(ws: Workspace, now: Date): ReportCallBlock | null {
+export function reportCallBlock(ws: Workspace, now: Date, options: ReportCallOptions = {}): ReportCallBlock | null {
   if (!dialableWorkerPhone(ws)) return "no_worker_phone";
   if (reportCallRuns(ws).some((run) => reportCallIsLive(run, now))) return "in_progress";
-  if (reportDoneThisPeriod(ws, now)) return "already_reported";
+  if (reportDoneThisPeriod(ws, now) && !options.repeatReports) return "already_reported";
   if (!reportPlanHasContent(ws, now)) return "no_questions";
   return null;
 }
@@ -80,8 +86,9 @@ export function startReportCall(
   now: Date,
   trigger: ReportCallRun["trigger"],
   occurrence: Date = now,
+  options: ReportCallOptions = {},
 ): { ws: Workspace; run: ReportCallRun | null; blocked: ReportCallBlock | "duplicate" | null } {
-  const blocked = reportCallBlock(input, now);
+  const blocked = reportCallBlock(input, now, options);
   if (blocked) return { ws: input, run: null, blocked };
   if (reportCallRuns(input).some((r) => r.occurrence === iso(occurrence))) return { ws: input, run: null, blocked: "duplicate" };
   const ws = structuredClone(input);

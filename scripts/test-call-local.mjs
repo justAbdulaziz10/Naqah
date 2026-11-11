@@ -91,6 +91,7 @@ export function parseArgs(argv) {
     else if (name === "--natural") options.natural = true;
     else if (name === "--keep-data") options.keepData = true;
     else if (name === "--owner-approves") options.ownerApproves = true;
+    else if (name === "--repeat-demo-reports") options.repeatDemoReports = true;
     else if (name === "--voice") {
       options.voice = takeValue(index, name);
       if (!/^(marin|cedar|alloy|ash|ballad|coral|echo|sage|shimmer|verse)$/.test(options.voice)) throw new UsageError("--voice takes a realtime voice such as marin or cedar");
@@ -488,6 +489,13 @@ async function main() {
       seed(base, testerId, controlId);
       // A fresh test ranch starts on the first approved number; after that the owner's saved number is used.
       if (options.dashboardCall && options.allow[0]) localSql(base)(`update workers set phone = '${options.allow[0]}' where farm_id = '${TEST_FARM}'`);
+    }
+
+    if (options.repeatDemoReports) {
+      // Only the presentation ranch (named «… (عرض تجريبي)») may take another call after today's report.
+      const ids = localSql(base)(`select coalesce(string_agg(id::text, ','), '') from farms where name like '%(عرض تجريبي)%'`);
+      envs.next.NAQAH_DEMO_REPEAT_FARMS = ids;
+      console.log(ids ? `Repeat demo calls: on for ${ids.split(",").length} presentation ranch(es).` : "Repeat demo calls: no presentation ranch yet (seed it, then restart).");
     }
 
     if (options.skipBuild && existsSync(join(REPO, ".next/BUILD_ID"))) {
