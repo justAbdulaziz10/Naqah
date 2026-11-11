@@ -3,14 +3,10 @@
 import type { Camel, HealthStatus } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
+import { healthMark } from "./HerdMarks";
 
 const ORDER: HealthStatus[] = ["sick", "watch", "unknown", "healthy"];
-const mark: Record<HealthStatus, string> = {
-  sick: "bg-danger",
-  watch: "bg-warn",
-  unknown: "border border-dashed border-faint",
-  healthy: "bg-ok",
-};
+const mark = healthMark;
 /** Past this, one dot per camel stops being readable. */
 export const HERD_DOTS_MAX = 150;
 

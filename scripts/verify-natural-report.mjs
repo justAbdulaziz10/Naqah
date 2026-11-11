@@ -24,6 +24,7 @@
  * without --skip-build after switching branches or flags.
  *
  * Always run with NAQAH_TEST_CALL_ISOLATED=1 (ports +100, /tmp/naqah-test-call-iso), so the running demo is untouched.
+ * 2–5 pick another separate stack (ports +200…+500, /tmp/naqah-test-call-iso<n>) when stack 1 is busy.
  * A mock proves wiring only. It cannot prove the real model's Arabic or real telephony.
  * Results: /tmp/naqah-test-call-iso/verify/natural-report.json and screenshots there. Exit code 1 on any failure.
  */
@@ -35,8 +36,8 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { APPROVED_FILE, GATEWAY, MOCK_ALLOWED, READY_FILE, ROOT, TEST_FARM, TESTER } from "./test-call-local.mjs";
 
-if (process.env.NAQAH_TEST_CALL_ISOLATED !== "1") {
-  console.error("Run with NAQAH_TEST_CALL_ISOLATED=1: this verifier only uses the isolated stack.");
+if (!/^[1-5]$/.test(process.env.NAQAH_TEST_CALL_ISOLATED ?? "")) {
+  console.error("Run with NAQAH_TEST_CALL_ISOLATED=1 (or 2–5): this verifier only uses an isolated stack.");
   process.exit(2);
 }
 
@@ -45,8 +46,10 @@ const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const OUT = join(ROOT, "verify");
 const PG_BIN = "/opt/homebrew/opt/postgresql@17/bin";
 const DB = "naqah_test_call";
-const PG_PORT = "54450";
-const STOP_PORTS = [54450, 54451, 54452, 3410, 3411, 3413];
+const ISOLATED = process.env.NAQAH_TEST_CALL_ISOLATED;
+const SHIFT = Number(ISOLATED) * 100;
+const PG_PORT = String(54350 + SHIFT);
+const STOP_PORTS = [54350, 54351, 54352, 3310, 3311, 3313].map((port) => port + SHIFT);
 const WORKER = MOCK_ALLOWED[0]; // +966500000001
 const DEMO = { email: "demo@naqah.demo", password: "naqah-demo-2026" };
 const RANCH = "عزبة الوسم (عرض تجريبي)";
@@ -56,7 +59,7 @@ const CUSTOM_OTHER = "فيه شي ثاني تبي تبلغ عنه؟";
 const SAVED_WORDS = /انحفظ|حفظت|تم الحفظ|سجلت|سجّلت/;
 const CONNECTION_EXCUSE = /الاتصال|الشبكة|النت\b|الإنترنت|الانترنت|الخط/;
 mkdirSync(OUT, { recursive: true });
-if (GATEWAY !== "http://127.0.0.1:54452") throw new Error(`Unexpected gateway ${GATEWAY}`);
+if (GATEWAY !== `http://127.0.0.1:${54352 + SHIFT}`) throw new Error(`Unexpected gateway ${GATEWAY}`);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const pgEnv = { PATH: `${PG_BIN}:${process.env.PATH}`, LC_ALL: "en_US.UTF-8", PGHOST: "127.0.0.1", PGPORT: PG_PORT, PGUSER: "postgres" };
@@ -120,13 +123,13 @@ async function startRunner({ restart = false } = {}) {
   runnerLog = openSync(join(OUT, logName), "w");
   const args = [join(REPO, "scripts/test-call-local.mjs"), "--mock", "--report-path", "--natural", "--owner-approves", "--keep-data", "--repeat-demo-reports",
     ...(restart || flag("skip-build") ? ["--skip-build"] : [])];
-  runner = spawn(process.execPath, args, { cwd: REPO, stdio: ["ignore", runnerLog, runnerLog], env: { ...process.env, NAQAH_TEST_CALL_ISOLATED: "1" } });
+  runner = spawn(process.execPath, args, { cwd: REPO, stdio: ["ignore", runnerLog, runnerLog], env: { ...process.env, NAQAH_TEST_CALL_ISOLATED: ISOLATED } });
   await waitFor(() => {
     if (runner.exitCode !== null) throw Object.assign(new Error("runner exited"), { fatal: true });
     return existsSync(READY_FILE);
   }, "the runner", 420_000).catch((error) => { throw new Error(`The runner did not become ready (${error.message}); see ${join(OUT, logName)}`); });
   ready = JSON.parse(readFileSync(READY_FILE, "utf8"));
-  if (ready.app !== "http://127.0.0.1:3411" || ready.provider !== "http://127.0.0.1:3413") throw new Error(`Not the isolated stack: ${JSON.stringify(ready)}`);
+  if (ready.app !== `http://127.0.0.1:${3311 + SHIFT}` || ready.provider !== `http://127.0.0.1:${3313 + SHIFT}`) throw new Error(`Not the isolated stack: ${JSON.stringify(ready)}`);
 }
 
 async function stopRunner() {

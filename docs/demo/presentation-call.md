@@ -10,6 +10,13 @@
 4. Free checks, no call: `node scripts/preflight-call.mjs --providers --secrets /tmp/naqah-live-call/secrets.env --base https://playing-saucy-frail.ngrok-free.dev --farm <demo farm id>`. All nine must say PASS.
 5. Open `http://127.0.0.1:3301/ar/app`, sign in `demo@naqah.demo` / `naqah-demo-2026`.
 
+The seed writes about three weeks of history: daily reports and findings, briefings, instructions with retries, a
+missed report call the worker returned, a No Answer ticket closed by a callback, closed tasks and owner inquiries.
+To add the same history to a ranch seeded before it existed, without reseeding (back up first; it only adds rows, and
+running it again adds nothing):
+`node scripts/demo/enrich-presentation.mjs --db-url postgresql://postgres@127.0.0.1:54350/naqah_test_call --dry-run`,
+then the same without `--dry-run`. Reload the Dashboard afterwards.
+
 **Run again after a call:** add `--reset` to step 3, then run step 3 again. A ranch takes one report a day, so
 this is the only way to repeat the call. Limits stay: 3 calls an hour, 10 a day, no automatic redial.
 
