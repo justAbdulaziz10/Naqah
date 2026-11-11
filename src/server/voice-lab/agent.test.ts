@@ -475,7 +475,7 @@ describe("Voice Lab stays in step with the phone call", () => {
     expect(decide).toContain('"summary_not_finished"');
     expect(decide).toContain("isVerifiedConfirmation");
     expect(decide).toContain("summaryText");
-    expect(bridge).toContain("requestResponse('summary', summary,");
+    expect(bridge).toContain("requestResponse('summary', parts?.facts ?? summary,");
     for (const limit of ["transcriptionMs: 2_500", "speechMs: 10_000"]) expect(bridge).toContain(limit);
     for (const value of ["TRANSCRIPTION_MS = 2_500", "SPEECH_MS = 10_000"]) expect(loop).toContain(value);
   });

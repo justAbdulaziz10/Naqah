@@ -18,7 +18,7 @@ export function isGarbled(words: string, locale: Locale): boolean {
   return words.split(" ").some((word) => /[a-z]{2,}/.test(word) && !FOREIGN_OK.has(word));
 }
 
-const STOP_WORDS = /(?:^| )(?:وقف|اوقف|اقفل|اقفلها|سكر|سكرها|مع السلامه|ما ابي اكمل|ما ابي احفظ|لا تحفظ|لا تحفظه|لا تحفظها|الغ|الغها|الغيها|بعدين|مشغول|مو فاضي|مب فاضي|stop|goodbye|bye|hang up|not now|later|busy)(?: |$)/;
+const STOP_WORDS = /(?:^| )(?:وقف|اوقف|اقفل|اقفلها|سكر|سكرها|مع السلامه|ما ابي اكمل|ما ابي احفظ|لا تحفظ|لا تحفظه|لا تحفظها|لا تسجل|لا تسجله|لا تسجلها|الغ|الغها|الغيها|بعدين|مشغول|مو فاضي|مب فاضي|stop|goodbye|bye|hang up|not now|later|busy)(?: |$)/;
 
 /** Only the person on the line can end the call, in words that say so. */
 export const askedToStop = (heard: string) => STOP_WORDS.test(evidenceWords(heard));

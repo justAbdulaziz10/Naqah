@@ -1329,6 +1329,44 @@ describe("the natural call (local presentation style)", () => {
     expect(result.result.summaryText).toBeUndefined();
   });
 
+  it("checks a count the worker's words don't back once, then accepts the next hand-over after their reply", async () => {
+    const { ticket } = await openNatural();
+    const base = realtimeOf(row().session)!.naturalBase!;
+    const farm = answeredFarm();
+    const herd = farm.settings.herdCount ?? farm.camels.length;
+    expect(base.data.queue?.some((item) => item.id === "herd_count")).toBe(true);
+    const args = { answers: handOver(base.data.queue ?? [], herd) };
+    const said = ["الحمد لله كلهم بخير", "ما فيه شي جديد"];
+    const checked = await tool(ticket, "submit_report", args, { workerUtterance: "ما فيه شي جديد", workerTranscripts: said });
+    expect(checked.output).toMatchObject({ status: "check", items: [{ question_id: "herd_count", reason: "number_not_heard" }] });
+    expect(checked.output.say).toBe(`${herd} راس، صح؟`);
+    expect(checked.result.continue).toBe(true);
+    expect(checked.result.summaryText).toBeUndefined();
+    // Handed over again before the worker answered: still the same check, never the summary.
+    const early = await tool(ticket, "submit_report", args, { userSpokeSinceLastTool: false, workerTranscripts: said });
+    expect(early.output.status).toBe("check");
+    const confirmed = await tool(ticket, "submit_report", args, { workerUtterance: "إيه صح", workerTranscripts: [...said, "إيه صح"] });
+    expect(confirmed.result.summaryText).toContain(`${herd} من الحلال`);
+    expect(realtimeOf(row().session)!.checkedAnswers).toEqual(["herd_count:number"]);
+  });
+
+  it("doesn't check a correction after the summary: it is read back in full instead", async () => {
+    const { ticket } = await openNatural();
+    const base = realtimeOf(row().session)!.naturalBase!;
+    const farm = answeredFarm();
+    const herd = farm.settings.herdCount ?? farm.camels.length;
+    await readSummary(ticket);
+    const corrected = await tool(ticket, "submit_report", { answers: handOver(base.data.queue ?? [], herd + 3) }, { workerUtterance: "لا العدد غلط", workerTranscripts: ["ما فيه شي جديد", "لا العدد غلط"] });
+    expect(corrected.result.summaryText).toContain(`${herd + 3} من الحلال`);
+  });
+
+  it("accepts the worker's transcripts only as a short list of plain strings", async () => {
+    const { ticket } = await openNatural();
+    const send = (workerTranscripts: unknown) => tool(ticket, "submit_report", { answers: [] }, { workerTranscripts });
+    expect((await send(["إيه", "عشرين"])).status).toBe(200);
+    for (const bad of ["عشرين", [1], ["a\u0007"], ["x".repeat(1001)], Array.from({ length: 41 }, () => "إيه")]) expect((await send(bad)).status).toBe(400);
+  });
+
   it("never confirms on a keypad press", async () => {
     const { ticket } = await openNatural();
     const pressed = await tool(ticket, "keypad_confirm", {}, { keypad: true });

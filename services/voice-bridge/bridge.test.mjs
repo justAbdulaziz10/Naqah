@@ -1549,3 +1549,186 @@ test('natural: so has one whose playback mark arrives just after the worker star
 test('the guided call keeps its strict rule for the same timing', async () => {
   assert.deepEqual(await answerRightAfterSummary(undefined), { heard: false, id: undefined });
 });
+
+/** A natural call at a summary the worker has heard in full, ready for their yes. */
+async function heardNaturalSummary(options = {}) {
+  const state = await fixture({ session: { style: 'natural' }, ...options, toolResult: (body) => body.name === 'confirm_report'
+    ? { output: '{"status":"saved"}', awaitingConfirmation: false, end: 'hangup', goodbye: SAVED_GOODBYE }
+    : { output: '{}', awaitingConfirmation: true, end: null, goodbye: null, summaryText: 'Mock summary', summaryId: 'revision-1' } });
+  const connection = await state.connect();
+  await state.ready(connection.socket);
+  await playPrompt(state, connection);
+  await workerTool(state, 'to-summary', 'submit_report');
+  for (let frame = 0; frame < 50; frame += 1) media(connection.socket);
+  await delay(20);
+  const offset = connection.messages.received.length;
+  const itemId = `audio-${state.responseId}`;
+  state.audio(160, itemId);
+  send(state.provider, { type: 'response.output_audio.done', item_id: itemId, content_index: 0 });
+  send(state.provider, { type: 'response.output_audio_transcript.done', response_id: state.responseId, item_id: itemId, content_index: 0, transcript: 'Mock summary' });
+  state.complete();
+  await waitFor(() => connection.messages.received.slice(offset).some((event) => event.mark?.name.startsWith('summary-')));
+  for (const event of connection.messages.received.slice(offset).filter((event) => event.event === 'mark')) send(connection.socket, { event: 'mark', streamSid: STREAM_SID, mark: event.mark });
+  await delay(15);
+  return { state, connection };
+}
+
+/**
+ * Call 050ac3: the worker said «أحفظ», and said it again while the model's confirm_report waited on the first
+ * transcript. The tool still belongs to the first yes: its words, its spoke flag and its heard summary go with it.
+ */
+async function yesThenMore(second, { stops = true, laterSpeechMs } = {}) {
+  const { state } = await heardNaturalSummary({ limits: { transcriptionMs: 500, ...(laterSpeechMs ? { laterSpeechMs } : {}) } });
+  try {
+    send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 1500 });
+    send(state.provider, { type: 'input_audio_buffer.speech_stopped' });
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'yes-1' });
+    await delay(10);
+    // The model hears audio, not text: it confirms before the transcript arrives.
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'confirm-1', name: 'confirm_report', arguments: '{"confirmed":true}' });
+    state.complete();
+    await delay(10);
+    if (second !== undefined) send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 2600 });
+    await delay(10);
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'yes-1', content_index: 0, transcript: 'أحفظ' });
+    if (second !== undefined && stops) {
+      await delay(10);
+      send(state.provider, { type: 'input_audio_buffer.speech_stopped' });
+      send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'yes-2' });
+      await delay(10);
+      assert.equal(state.requests.some((request) => request.body?.toolCallId === 'confirm-1'), false, 'waits for the second words');
+      send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'yes-2', content_index: 0, transcript: second });
+    }
+    await waitFor(() => state.requests.some((request) => request.body?.toolCallId === 'confirm-1'));
+    const body = state.requests.find((request) => request.body?.toolCallId === 'confirm-1').body;
+    return { utterance: body.workerUtterance, spoke: body.userSpokeSinceLastTool, heardSummaryId: body.heardSummaryId };
+  } finally { await state.close(); }
+}
+
+test('natural: one yes reaches the server with its words and the heard summary', async () => {
+  assert.deepEqual(await yesThenMore(undefined), { utterance: 'أحفظ', spoke: true, heardSummaryId: 'revision-1' });
+});
+
+test('natural: a second «احفظ» before the tool runs keeps the first yes and is sent with it', async () => {
+  assert.deepEqual(await yesThenMore('احفظ'), { utterance: 'أحفظ احفظ', spoke: true, heardSummaryId: 'revision-1' });
+});
+
+test('natural: a second thought after the yes goes with it, so the server can refuse the save', async () => {
+  assert.deepEqual(await yesThenMore('لا لحظة'), { utterance: 'أحفظ لا لحظة', spoke: true, heardSummaryId: 'revision-1' });
+});
+
+test('natural: words still being said when the wait ends are never taken as a yes', async () => {
+  assert.deepEqual(await yesThenMore('…', { stops: false, laterSpeechMs: 60 }), { utterance: 'أحفظ', spoke: false, heardSummaryId: 'revision-1' });
+});
+
+test('natural: every tool request carries the worker\'s transcripts so far, in order and within limits', async () => {
+  const state = await fixture({ session: { style: 'natural' }, toolResult: { output: '{}', awaitingConfirmation: false, end: null, goodbye: null, continue: true } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    // The model answers each continue result in its own words before the worker speaks again.
+    const turn = async (id, words) => {
+      const body = await workerTool(state, id, 'submit_report', words);
+      state.complete();
+      await delay(5);
+      return body;
+    };
+    const first = await turn('turn-1', 'الحلال بخير');
+    assert.deepEqual(first.workerTranscripts, ['الحلال بخير']);
+    assert.equal(first.workerUtterance, 'الحلال بخير');
+    const second = await turn('turn-2', 'العلف خمسين كيس');
+    assert.deepEqual(second.workerTranscripts, ['الحلال بخير', 'العلف خمسين كيس']);
+    for (let index = 3; index <= 45; index += 1) await turn(`turn-${index}`, `جواب ${index}`);
+    const many = state.requests.find((request) => request.body?.toolCallId === 'turn-45').body.workerTranscripts;
+    assert.equal(many.length, 40);
+    assert.equal(many[0], 'جواب 6');
+    assert.equal(many.at(-1), 'جواب 45');
+    const long = 'ع'.repeat(1000);
+    for (let index = 0; index < 5; index += 1) await turn(`long-${index}`, long);
+    const capped = state.requests.find((request) => request.body?.toolCallId === 'long-4').body.workerTranscripts;
+    assert.deepEqual(capped, [long, long, long]);
+    assert.ok(Buffer.byteLength(JSON.stringify(state.requests.find((request) => request.body?.toolCallId === 'long-4').body)) < 16 * 1024);
+  } finally { await state.close(); }
+});
+
+test('the guided call sends no transcript history', async () => {
+  const state = await fixture();
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    assert.equal('workerTranscripts' in await workerTool(state, 'guided-1'), false);
+  } finally { await state.close(); }
+});
+
+const SPLIT_SUMMARY = 'هذا ملخص التحديث: الحلال كله بخير، العلف: 50 كيس. أحفظه، ولا تبي تعدل شي؟';
+const SPLIT_FACTS = 'هذا ملخص التحديث: الحلال كله بخير، العلف: 50 كيس.';
+
+/** Calls 050ac3 and 4f6a40: the worker answered over «أحفظه، ولا تبي تعدل شي؟», after every fact had played. */
+async function answerOverClosing(style, { cutFacts = false } = {}) {
+  const state = await fixture({ session: style ? { style } : {}, limits: { transcriptionMs: 500 }, toolResult: (body) => body.name === 'confirm_report'
+    ? { output: '{"status":"saved"}', awaitingConfirmation: false, end: 'hangup', goodbye: SAVED_GOODBYE }
+    : { output: '{}', awaitingConfirmation: true, end: null, goodbye: null, summaryText: SPLIT_SUMMARY, summaryId: 'revision-1', repromptText: 'أحفظ التحديث، ولا تبي تعدل شي؟' } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'to-summary', style ? 'submit_report' : 'answer_question');
+    const factsRequest = await state.providerInbox.wait((event) => event.type === 'response.create' && /ملخص/.test(event.response.instructions || ''));
+    for (let frame = 0; frame < 50; frame += 1) media(connection.socket);
+    await delay(20);
+    const offset = connection.messages.received.length;
+    const factsId = state.responseId;
+    state.audio(160, 'facts');
+    send(state.provider, { type: 'response.output_audio.done', item_id: 'facts', content_index: 0 });
+    if (cutFacts) {
+      // The worker talks over the facts themselves: nothing was heard, and the question is never asked.
+      send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 600 });
+      await connection.messages.wait((event) => event.event === 'clear');
+      send(state.provider, { type: 'response.done', response: { id: factsId, status: 'cancelled' } });
+    } else {
+      send(state.provider, { type: 'response.output_audio_transcript.done', response_id: factsId, item_id: 'facts', content_index: 0, transcript: style ? SPLIT_FACTS : SPLIT_SUMMARY });
+      state.complete();
+      await waitFor(() => connection.messages.received.slice(offset).some((event) => event.mark?.name.startsWith('summary-')));
+      for (const event of connection.messages.received.slice(offset).filter((event) => event.event === 'mark')) send(connection.socket, { event: 'mark', streamSid: STREAM_SID, mark: event.mark });
+      await delay(15);
+    }
+    const closingRequest = state.providerEvents.find((event) => event.type === 'response.create' && /تبي تعدل/.test(event.response.instructions || '') && !/ملخص/.test(event.response.instructions));
+    if (style && !cutFacts) {
+      // The question plays; the worker answers over it.
+      assert.ok(closingRequest);
+      state.audio(160, 'closing');
+      send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 1300 });
+      await connection.messages.wait((event) => event.event === 'clear');
+      send(state.provider, { type: 'response.done', response: { id: state.responseId, status: 'cancelled' } });
+    } else if (!cutFacts) {
+      send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 1300 });
+    }
+    send(state.provider, { type: 'input_audio_buffer.speech_stopped' });
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'yes' });
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'yes', content_index: 0, transcript: 'إيه احفظه' });
+    await delay(15);
+    send(state.provider, { type: 'response.function_call_arguments.done', call_id: 'yes-confirm', name: 'confirm_report', arguments: '{"confirmed":true}' });
+    await waitFor(() => state.requests.some((request) => request.body?.toolCallId === 'yes-confirm'));
+    const body = state.requests.find((request) => request.body?.toolCallId === 'yes-confirm').body;
+    return {
+      factsOnly: !/تبي تعدل/.test(factsRequest.response.instructions), closingAsked: Boolean(closingRequest),
+      heard: body.heardSummary, id: body.heardSummaryId,
+    };
+  } finally { await state.close(); }
+}
+
+test('natural: the summary\'s question is spoken after its facts, and an answer over the question has heard them', async () => {
+  assert.deepEqual(await answerOverClosing('natural'), { factsOnly: true, closingAsked: true, heard: true, id: 'revision-1' });
+});
+
+test('natural: talking over the facts still means the summary was not heard, and its question is dropped', async () => {
+  assert.deepEqual(await answerOverClosing('natural', { cutFacts: true }), { factsOnly: true, closingAsked: false, heard: false, id: undefined });
+});
+
+test('the guided call still speaks its summary as one line', async () => {
+  const result = await answerOverClosing(undefined);
+  assert.equal(result.factsOnly, false);
+  assert.equal(result.closingAsked, false);
+});

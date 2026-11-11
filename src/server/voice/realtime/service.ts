@@ -21,7 +21,7 @@ import { OWNER_TOOLS, ownerPromptFor } from "./owner-tools";
 import { claimRealtime, realtimeOf, recordRealtimeResult, rememberResult, withRealtime, type RealtimeState, type ToolResponse } from "./state";
 import { REALTIME_MAX_SECONDS, TICKET_CALL_MS, TICKET_CLAIM_MS, verifyRealtimeTicket, type RealtimeTicket } from "./ticket";
 import { promptFor, REALTIME_TOOLS } from "./tools";
-import { buildNaturalInstructions, naturalize, naturalTools, replayAnswers } from "./natural";
+import { buildNaturalInstructions, checkLine, doubtfulAnswers, naturalize, naturalTools, replayAnswers } from "./natural";
 import { spokenFrom } from "./decide";
 
 export { fallbackResult };
@@ -112,18 +112,28 @@ export async function openRealtimeSession(client: SupabaseClient, body: Record<s
   };
 }
 
-export type ToolBody = { ticket: unknown; callSid: string; toolCallId: string; name: unknown; args: unknown; userSpokeSinceLastTool: boolean; workerUtterance?: string; heardSummary?: boolean; heardSummaryId?: string; keypad?: boolean };
+export type ToolBody = {
+  ticket: unknown; callSid: string; toolCallId: string; name: unknown; args: unknown; userSpokeSinceLastTool: boolean;
+  workerUtterance?: string; heardSummary?: boolean; heardSummaryId?: string; keypad?: boolean;
+  /** Natural call: every final worker transcript so far, in order (the bridge keeps the last 40). */
+  workerTranscripts?: string[];
+};
+
+const MAX_TRANSCRIPTS = 40;
+const MAX_TRANSCRIPT = 1000;
+const isTranscript = (value: unknown): value is string => typeof value === "string" && value.length <= MAX_TRANSCRIPT && !/[\u0000-\u001f\u007f]/u.test(value);
 
 export function parseToolBody(body: Record<string, unknown>): ToolBody | null {
-  const { ticket, callSid, toolCallId, name, args, userSpokeSinceLastTool, workerUtterance, heardSummary, heardSummaryId, keypad } = body;
+  const { ticket, callSid, toolCallId, name, args, userSpokeSinceLastTool, workerUtterance, heardSummary, heardSummaryId, keypad, workerTranscripts } = body;
   if (typeof callSid !== "string" || !CALL_SID.test(callSid)) return null;
   if (typeof toolCallId !== "string" || !TOOL_CALL_ID.test(toolCallId)) return null;
   if (typeof userSpokeSinceLastTool !== "boolean") return null;
-  if (workerUtterance !== undefined && (typeof workerUtterance !== "string" || workerUtterance.length > 1000 || /[\u0000-\u001f\u007f]/u.test(workerUtterance))) return null;
+  if (workerUtterance !== undefined && !isTranscript(workerUtterance)) return null;
   if (heardSummary !== undefined && typeof heardSummary !== "boolean") return null;
   if (heardSummaryId !== undefined && (typeof heardSummaryId !== "string" || heardSummaryId.length > 200)) return null;
   if (keypad !== undefined && typeof keypad !== "boolean") return null;
-  return { ticket, callSid, toolCallId, name, args, userSpokeSinceLastTool, workerUtterance, heardSummary, heardSummaryId, keypad };
+  if (workerTranscripts !== undefined && (!Array.isArray(workerTranscripts) || workerTranscripts.length > MAX_TRANSCRIPTS || !workerTranscripts.every(isTranscript))) return null;
+  return { ticket, callSid, toolCallId, name, args, userSpokeSinceLastTool, workerUtterance, heardSummary, heardSummaryId, keypad, ...(workerTranscripts ? { workerTranscripts } : {}) };
 }
 
 /** The script can't sort free speech, so what it resumes must never wait on an open update. */
@@ -246,6 +256,30 @@ async function submitNatural(client: SupabaseClient, row: VoiceSessionRow, realt
     };
     const kept = await recordRealtimeResult(client, row, rememberResult(unit ? { ...realtime, feedUnitAsked: true } : realtime, body.toolCallId, result, false));
     logTool(body.callSid, "submit_report", replayed.error, Date.now() - started);
+    return kept ? result : fallbackResult();
+  }
+  // "Check once": an answer the worker's words don't back is confirmed in one short line before the summary. The
+  // evidence is every worker transcript the bridge sends. An older bridge sends none, and its single last utterance
+  // can't speak for earlier answers, so then nothing is checked against words and saving is never held up.
+  // Only before the first summary: a correction is read back in full anyway, and a check there would leave the old
+  // summary current, so a yes to the check could confirm what the worker just corrected.
+  const said = body.workerTranscripts ? [...body.workerTranscripts, ...(body.workerUtterance ? [body.workerUtterance] : [])] : null;
+  const checked = new Set(realtime.checkedAnswers ?? []);
+  // Mirrors the guided call's "heard twice" rule: once the worker was asked, the model's next hand-over is what it
+  // heard in reply, so an item is never checked twice. A hand-over with no reply in between is not that second hearing.
+  const doubts = row.session.step === "report_summary" ? [] : doubtfulAnswers(realtime.naturalBase!, workspace, body.args, said, row.locale).filter((doubt) => !(checked.has(doubt.key) && body.userSpokeSinceLastTool));
+  if (doubts.length) {
+    const line = checkLine(doubts, row.locale);
+    const message = row.locale === "ar"
+      ? `ما انحفظ شي وما انقرا الملخص. تأكد من العامل بسطر واحد قصير وطبيعي، مثل: «${line}». لا تسأل شي غيره ولا تعيد الأسئلة. بعد رده نادِ submit_report مرة ثانية بكل الأجوبة: إذا أكد خلّها، إذا صحّح حط تصحيحه بكلامه، إذا ما يدري unknown.`
+      : `Nothing was recorded and no summary was read. Check with the worker in one short, natural line, like: "${line}". Ask nothing else and don't repeat the questions. After their reply, call submit_report again with every answer: keep what they confirm, put any correction in their words, unknown if they don't know.`;
+    const result: ToolResponse = {
+      output: stringify({ status: "check", items: doubts.map(({ questionId, reason }) => ({ question_id: questionId, reason })), say: line, message }),
+      awaitingConfirmation: false, end: null, goodbye: null, continue: true,
+    };
+    const asked = { ...realtime, checkedAnswers: [...new Set([...checked, ...doubts.map((doubt) => doubt.key)])] };
+    const kept = await recordRealtimeResult(client, row, rememberResult(asked, body.toolCallId, result, false));
+    logTool(body.callSid, "submit_report", "check:" + [...new Set(doubts.map((doubt) => doubt.reason))].join("+"), Date.now() - started);
     return kept ? result : fallbackResult();
   }
   const session = { ...replayed.session, data: { ...replayed.session.data, draftRevision: (row.session.data.draftRevision ?? 0) + 1 } } as VoiceCallSession;
