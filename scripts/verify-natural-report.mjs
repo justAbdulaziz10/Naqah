@@ -11,6 +11,11 @@
  *     Dashboard's «اتصال حقيقي» → «اتصل الآن» in Playwright)   5 the Dashboard and Calls page after scenario 1
  *   2 a correction after the summary   3 duplicate confirmations   4 a failed save (a test-only trigger refuses the
  *     report insert for that one ranch in the disposable database)
+ *   6 the owner changes the worker's number in Settings (with the recipient's consent), then the Dashboard calls exactly
+ *     that number   7 «اتصال حقيقي» rate limit: a 4th placed call in an hour is refused
+ *
+ * The runner is started with --owner-approves, so the build must include NEXT_PUBLIC_NAQAH_OWNER_APPROVES_NUMBERS: run once
+ * without --skip-build after switching branches or flags.
  *
  * Always run with NAQAH_TEST_CALL_ISOLATED=1 (ports +100, /tmp/naqah-test-call-iso), so the running demo is untouched.
  * A mock proves wiring only. It cannot prove the real model's Arabic or real telephony.
@@ -22,7 +27,7 @@ import { connect as tcpConnect } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { GATEWAY, MOCK_ALLOWED, READY_FILE, ROOT } from "./test-call-local.mjs";
+import { APPROVED_FILE, GATEWAY, MOCK_ALLOWED, READY_FILE, ROOT } from "./test-call-local.mjs";
 
 if (process.env.NAQAH_TEST_CALL_ISOLATED !== "1") {
   console.error("Run with NAQAH_TEST_CALL_ISOLATED=1: this verifier only uses the isolated stack.");
@@ -97,7 +102,7 @@ const portOpen = (port) => new Promise((resolve) => {
 async function startRunner() {
   if (existsSync(READY_FILE)) throw new Error(`A runner already looks active (${READY_FILE}). Stop it first.`);
   runnerLog = openSync(join(OUT, "natural-report-runner.log"), "w");
-  const args = [join(REPO, "scripts/test-call-local.mjs"), "--mock", "--report-path", "--natural", ...(flag("skip-build") ? ["--skip-build"] : [])];
+  const args = [join(REPO, "scripts/test-call-local.mjs"), "--mock", "--report-path", "--natural", "--owner-approves", ...(flag("skip-build") ? ["--skip-build"] : [])];
   runner = spawn(process.execPath, args, { cwd: REPO, stdio: ["ignore", runnerLog, runnerLog], env: { ...process.env, NAQAH_TEST_CALL_ISOLATED: "1" } });
   await waitFor(() => {
     if (runner.exitCode !== null) throw Object.assign(new Error("runner exited"), { fatal: true });
@@ -502,6 +507,226 @@ async function scenarioFailedSave() {
   }
 }
 
+/* ─────────────────── scenario 6: the owner changes the worker's number ─────────────────── */
+
+const NEW_NUMBER = "+966500000177";
+const OTHER_VALID = "+966500000166"; // typed, then edited away: never confirmed
+const UNAPPROVED = "+966500000155"; // written straight to Postgres, never approved
+const FILLER = "+966500000188"; // fills the local approved list to its limit
+const OVER_LIMIT = "+966500000199";
+const MAX_APPROVED_NUMBERS = 5; // src/server/calls/config.ts
+const AUDIT_FILE = `${APPROVED_FILE.replace(/\.txt$/, "")}.audit.jsonl`;
+const approvedList = () => (existsSync(APPROVED_FILE) ? readFileSync(APPROVED_FILE, "utf8").split("\n").map((line) => line.trim()).filter(Boolean) : []);
+const auditLines = () => (existsSync(AUDIT_FILE) ? readFileSync(AUDIT_FILE, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)) : []);
+const masked = (number) => `${number.slice(0, 6)}•••••${number.slice(-3)}`;
+const primaryPhone = (farm) => sql(`select w.phone from farms f join workers w on w.id = f.primary_worker_id where f.id = ${q(farm)}`);
+const compact = (phone) => phone.replace(/[\s-]/g, "");
+const runCount = (farm) => Number(sql(`select count(*) from report_call_runs where farm_id = ${q(farm)}`));
+
+/** The primary worker's row in Settings → team, with its number shown and «تغيير الرقم» ready. */
+async function teamRow(page) {
+  await page.goto(`${ready.app}/ar/app/settings#settings-team`);
+  const row = page.locator("#settings-team li").first();
+  await row.getByRole("button", { name: "تغيير الرقم", exact: true }).waitFor({ timeout: 20_000 });
+  return row;
+}
+/** The «ناقة بتتصل على … على هذا الرقم:» card (the row also holds a fieldset and a details, both role=group). */
+const checkCard = (row) => row.locator('div[role="group"][aria-label^="ناقة بتتصل على"]');
+async function typeNumber(row, local) {
+  await row.getByRole("button", { name: "تغيير الرقم", exact: true }).click();
+  await row.locator('input[type="tel"]').fill(local);
+}
+
+async function scenarioNumberChange(browser) {
+  section(6, "Number change: Settings → consent → saved + approved, no call; the Dashboard then calls exactly the new number");
+  const farm = seedRanch();
+  const plan = ensurePlan(farm);
+  evidence("farm", farm);
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "ar-SA" });
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("console", (message) => { if (message.type() === "error") errors.push(`console: ${message.text()}`); });
+  await page.route("**/api/report-call-now?preflight=1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, ready: true, checks: [], message: null }) }));
+  try {
+    await control({ reset: true, outcome: "full", twilioError: null, dwellMs: 200, natural: BASE });
+    const approvedAtStart = approvedList();
+    evidence("approvedAtStart", approvedAtStart.map(masked));
+    check("pre: the new number is not approved yet", !approvedAtStart.includes(NEW_NUMBER), approvedAtStart.map(masked));
+    check("pre: the worker's saved number is the old one", compact(primaryPhone(farm)) === WORKER, masked(compact(primaryPhone(farm))));
+    const runsBefore = runCount(farm);
+    const auditBefore = auditLines().length;
+    await signIn(page);
+
+    // a. Settings: «تغيير الرقم» → type → «احفظ الرقم» → full number + consent → «إيه، احفظه».
+    let row = await teamRow(page);
+    await typeNumber(row, "50 000 0177");
+    await row.getByRole("button", { name: "احفظ الرقم", exact: true }).click();
+    const card = checkCard(row);
+    await card.waitFor({ timeout: 5_000 });
+    const cardText = await card.innerText();
+    evidence("aCard", cardText.replace(/0177/g, "•177"));
+    check("a. the check card shows the full new number", /\+966 50 000 0177/.test(cardText.replace(/[⁦-⁩]/g, "")), cardText);
+    check("a. the card shows the consent sentence", /صاحب الرقم موافق يستقبل مكالمات تجريبية من ناقة/.test(cardText), cardText);
+    const confirmButton = card.getByRole("button", { name: "إيه، احفظه", exact: true });
+    check("a. «إيه، احفظه» is DISABLED before consent", await confirmButton.isDisabled());
+    await card.getByRole("checkbox").check();
+    check("a. «إيه، احفظه» is enabled once the box is ticked", await confirmButton.isEnabled());
+    await page.screenshot({ path: join(OUT, "number-change-consent.png"), fullPage: false });
+    await confirmButton.click();
+    const stored = await waitFor(() => { const phone = primaryPhone(farm); return compact(phone) === NEW_NUMBER ? phone : null; }, "workers.phone to change", 15_000).catch(() => null);
+    evidence("aStoredPhone", stored && stored.replace(/0177$/, "•177"));
+    check("a. workers.phone in Postgres is the new number (stored as formatted «+966 50 000 0177»)", stored !== null, masked(compact(primaryPhone(farm))));
+    check("a. the stored form normalizes to the dialable +966500000177", stored !== null && compact(stored) === NEW_NUMBER);
+    check("a. Settings says it was saved", await row.getByRole("status").filter({ hasText: "انحفظ" }).isVisible().catch(() => false));
+    const approvedAfterA = approvedList();
+    check("a. the new number is now in approved-numbers.txt", approvedAfterA.includes(NEW_NUMBER), approvedAfterA.map(masked));
+    const newAudit = auditLines().slice(auditBefore);
+    evidence("aAudit", newAudit);
+    check("a. one audit line: consent true, this farm, number masked (never in full)", newAudit.length === 1 && newAudit[0].consent === true && newAudit[0].farm === farm && newAudit[0].number === masked(NEW_NUMBER)
+      && !readFileSync(AUDIT_FILE, "utf8").includes(NEW_NUMBER), newAudit);
+
+    // b. Saving placed no call.
+    await sleep(1500);
+    check("b. no new report_call_runs row", runCount(farm) === runsBefore, { before: runsBefore, after: runCount(farm) });
+    check("b. mock Twilio received no request", (await mockState()).requests.length === 0, (await mockState()).requests.map((r) => masked(r.To)));
+
+    // c. «تعديل» back to typing, an invalid number can't be saved, cancel keeps the saved one.
+    row = await teamRow(page);
+    await typeNumber(row, "50 000 0166");
+    await row.getByRole("button", { name: "احفظ الرقم", exact: true }).click();
+    await checkCard(row).getByRole("button", { name: "تعديل", exact: true }).click();
+    const input = row.locator('input[type="tel"]');
+    check("c. «تعديل» returns to the number field", await input.isVisible());
+    await input.fill("12345");
+    check("c. an invalid number (12345): «احفظ الرقم» is disabled", await row.getByRole("button", { name: "احفظ الرقم", exact: true }).isDisabled());
+    await row.getByRole("button", { name: "إلغاء", exact: true }).click();
+    const shown = (await row.innerText()).replace(/[⁦-⁩]/g, "");
+    check("c. cancel shows the saved number again", /\+966 50 000 0177/.test(shown), shown.slice(0, 200));
+    await sleep(1500);
+    check("c. Postgres still has the new number", compact(primaryPhone(farm)) === NEW_NUMBER, masked(compact(primaryPhone(farm))));
+    check("c. the edited-away number was never approved", !approvedList().includes(OTHER_VALID) && auditLines().length === auditBefore + 1);
+
+    // f. A number written without approval (an old or onboarding save) can't be called.
+    sql(`update workers set phone = ${q(UNAPPROVED)} where id = (select primary_worker_id from farms where id = ${q(farm)}); update farms set revision = revision + 1 where id = ${q(farm)}`);
+    await page.goto(`${ready.app}/ar/app`);
+    const dashButton = page.getByRole("button", { name: "اتصال حقيقي", exact: true });
+    await dashButton.waitFor({ timeout: 20_000 });
+    const reasonText = await waitFor(async () => { const text = await page.locator("#call-now-reason").innerText().catch(() => ""); return /مو معتمد/.test(text) ? text : null; }, "the not-approved reason", 15_000).catch(() => page.locator("#call-now-reason").innerText().catch(() => ""));
+    evidence("fReason", reasonText);
+    check("f. the Dashboard says the saved number is not approved", /مو معتمد/.test(reasonText), reasonText);
+    check("f. the reason lists approved numbers masked only", !/0177|0001/.test(reasonText.replace(/[⁦-⁩]/g, "").replace(/\s/g, "")) && /•••••/.test(reasonText), reasonText);
+    check("f. «اتصال حقيقي» is disabled", await dashButton.isDisabled());
+    await page.screenshot({ path: join(OUT, "number-change-not-approved.png"), fullPage: false });
+    const refused = await callViaApi(await demoCookie());
+    evidence("fApi", refused.json);
+    check("f. the callNow op itself refuses (not_allowed), no run opened, no Twilio request", refused.json?.data?.status === "blocked" && refused.json.data.reason === "not_allowed"
+      && runCount(farm) === runsBefore && (await mockState()).requests.length === 0, { api: refused.json, runs: runCount(farm) });
+    sql(`update workers set phone = ${q(stored ?? "+966 50 000 0177")} where id = (select primary_worker_id from farms where id = ${q(farm)}); update farms set revision = revision + 1 where id = ${q(farm)}`);
+
+    // d. The Dashboard calls exactly the new number, and the natural call saves one report.
+    const reportsBefore = counts(farm).reports;
+    await page.goto(`${ready.app}/ar/app`);
+    await dashButton.waitFor({ timeout: 20_000 });
+    const enabled = await waitFor(async () => dashButton.isEnabled(), "«اتصال حقيقي» to be enabled", 20_000).catch(() => false);
+    check("d. «اتصال حقيقي» is enabled for the approved new number", enabled, await page.locator("#call-now-reason").innerText().catch(() => null));
+    await dashButton.click();
+    const dialog = page.getByRole("dialog");
+    const dialogText = (await dialog.innerText()).replace(/[⁦-⁩]/g, "");
+    evidence("dDialog", dialogText.replace(/0177/g, "•177"));
+    check("d. the dialog shows the new destination (…177), not the old one", /\+966 50 000 0177/.test(dialogText) && !/0001/.test(dialogText), dialogText.replace(/0177/g, "•177"));
+    await dialog.getByRole("button", { name: "اتصل الآن", exact: true }).click();
+    await waitFor(async () => (await mockState()).requests.length > 0, "the call to reach mock Twilio", 20_000);
+    const state = await finishedCall();
+    await sleep(1000);
+    const finalState = await mockState();
+    const tos = finalState.requests.map((request) => request.To);
+    evidence("dTwilioTo", tos.map(masked));
+    check("d. mock Twilio got exactly ONE call, To +966500000177", tos.length === 1 && tos[0] === NEW_NUMBER, tos.map(masked));
+    check("d. the old number (+966500000001) was never dialled", !tos.includes(WORKER));
+    const call = state.calls[0];
+    writeFileSync(join(OUT, "natural-number-change-call.json"), JSON.stringify(call, null, 2));
+    check("d. the natural call ran: submit_report then confirm_report saved", call.finished && !call.error && JSON.stringify(call.toolResults.map((entry) => entry.name)) === JSON.stringify(["submit_report", "confirm_report"]) && call.confirm?.output?.status === "saved", { error: call.error, tools: call.toolResults?.map((entry) => entry.name), confirm: call.confirm?.output });
+    check("d. only the ranch's enabled topics were asked", JSON.stringify((call.scenarioLog?.asked ?? []).map((item) => item.id).filter((id) => !id.startsWith("open_note_"))) === JSON.stringify(["herd_health", "feed_level", "water_level", "fences_condition", plan.other]));
+    const runRow = run(farm);
+    evidence("dRun", runRow);
+    check("d. exactly ONE new report, run completed, manual, linked", counts(farm).reports === reportsBefore + 1 && runRow?.state === "completed" && runRow.trigger === "manual" && Boolean(runRow.report_id), { reports: counts(farm).reports, reportsBefore, runRow });
+    const attempts = json(`select coalesce(json_agg(a), '[]') from report_call_runs r, jsonb_array_elements(r.attempts) a where r.id = ${q(runRow?.id)}`) ?? [];
+    evidence("dAttempts", attempts);
+
+    // e. Previously approved numbers stay approved; a new one beyond the limit is refused and nothing is saved.
+    const list = approvedList();
+    check("e. earlier approved numbers are still approved (…001, …002, …010) next to …177", [WORKER, "+966500000002", "+966500000010", NEW_NUMBER].every((number) => list.includes(number)), list.map(masked));
+    const filled = [...list];
+    for (const filler of [FILLER, "+966500000187", "+966500000186"]) if (filled.length < MAX_APPROVED_NUMBERS && !filled.includes(filler)) filled.push(filler);
+    writeFileSync(APPROVED_FILE, `${filled.join("\n")}\n`, { mode: 0o600 });
+    evidence("eFilled", filled.map(masked));
+    check(`e. pre: the local approved list is full (${MAX_APPROVED_NUMBERS})`, approvedList().length === MAX_APPROVED_NUMBERS, approvedList().length);
+    const auditBeforeE = auditLines().length;
+    row = await teamRow(page);
+    await typeNumber(row, "50 000 0199");
+    await row.getByRole("button", { name: "احفظ الرقم", exact: true }).click();
+    await checkCard(row).getByRole("checkbox").check();
+    await checkCard(row).getByRole("button", { name: "إيه، احفظه", exact: true }).click();
+    const alert = await waitFor(async () => { const text = await row.getByRole("alert").innerText().catch(() => ""); return text || null; }, "the limit message", 10_000).catch(() => "");
+    evidence("eAlert", alert);
+    await page.screenshot({ path: join(OUT, "number-change-limit.png"), fullPage: false });
+    check("e. the limit message «…للحد الأعلى… ما انحفظ شي» is shown", /حد الأعلى/.test(alert) && /ما انحفظ شي/.test(alert), alert);
+    await sleep(2000);
+    check("e. nothing saved: Postgres keeps …177", compact(primaryPhone(farm)) === NEW_NUMBER, masked(compact(primaryPhone(farm))));
+    check("e. nothing approved: the list is unchanged and has no …199", JSON.stringify(approvedList()) === JSON.stringify(filled) && !approvedList().includes(OVER_LIMIT), approvedList().map(masked));
+    check("e. no audit line for the refused number", auditLines().length === auditBeforeE);
+    // A number approved before can still be chosen at the limit.
+    await row.getByRole("button", { name: "إلغاء", exact: true }).click().catch(async () => { await checkCard(row).getByRole("button", { name: "تعديل", exact: true }).click(); await row.getByRole("button", { name: "إلغاء", exact: true }).click(); });
+    row = await teamRow(page);
+    await typeNumber(row, "50 000 0002");
+    await row.getByRole("button", { name: "احفظ الرقم", exact: true }).click();
+    await checkCard(row).getByRole("checkbox").check();
+    await checkCard(row).getByRole("button", { name: "إيه، احفظه", exact: true }).click();
+    const back = await waitFor(() => compact(primaryPhone(farm)) === "+966500000002", "the earlier number to save", 15_000).catch(() => false);
+    check("e. an already-approved number (…002) can still be saved at the limit", back && approvedList().length === MAX_APPROVED_NUMBERS, { phone: masked(compact(primaryPhone(farm))), list: approvedList().map(masked) });
+    check("e. still no Twilio request beyond the one call in d", (await mockState()).requests.length === 1, (await mockState()).requests.length);
+
+    // The browser logs the refused approval in e (409 from /api/test-number) as a console error: expected, once.
+    const expected = errors.filter((line) => /status of 409/.test(line));
+    const unexpected = errors.filter((line) => !/status of 409/.test(line));
+    evidence("browserErrors", errors);
+    check("the only console error is the one expected 409 from the refused approval in e", expected.length === 1 && unexpected.length === 0, errors);
+  } finally {
+    // Leave the approved list as the runner wrote it plus …177, so a later scenario is not at the limit.
+    const keep = approvedList().filter((number) => ![FILLER, "+966500000187", "+966500000186"].includes(number));
+    writeFileSync(APPROVED_FILE, `${keep.join("\n")}\n`, { mode: 0o600 });
+    await context.close();
+  }
+}
+
+/* ─────────────────── scenario 7: «اتصال حقيقي» rate limit ─────────────────── */
+
+async function scenarioRateLimit() {
+  section(7, "Rate limit: 3 placed calls an hour per ranch, the 4th is refused before Twilio");
+  const farm = seedRanch();
+  ensurePlan(farm);
+  await control({ reset: true, outcome: "no-answer", twilioError: null, dwellMs: 100, natural: null });
+  const cookie = await demoCookie();
+  const results = [];
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const placed = await callViaApi(cookie);
+    results.push(placed.json?.data ?? placed);
+    await waitFor(async () => (await mockState()).calls.filter((entry) => entry.finished).length >= attempt, `call ${attempt} to end`, 30_000).catch(() => {});
+    await waitFor(() => !["calling", "queued", "ringing", "in_progress"].includes(run(farm)?.state), `run ${attempt} to end`, 15_000).catch(() => {});
+    await sleep(500);
+  }
+  const fourth = await callViaApi(cookie);
+  results.push(fourth.json?.data ?? fourth);
+  evidence("results", results);
+  evidence("runs", json(`select json_agg(state order by created_at) from report_call_runs where farm_id = ${q(farm)}`));
+  check("calls 1–3 were placed (each unanswered, so nothing blocks the next)", results.slice(0, 3).every((result) => result.status === "placed"), results);
+  check("the 4th within the hour is refused: rate_limited", fourth.json?.data?.status === "blocked" && fourth.json.data.reason === "rate_limited", fourth.json);
+  const requests = (await mockState()).requests;
+  check("mock Twilio received exactly 3 requests, all to the worker", requests.length === 3 && requests.every((request) => request.To === WORKER), requests.map((request) => masked(request.To)));
+  check("no 4th run was opened", runCount(farm) === 3, runCount(farm));
+}
+
 /* ─────────────────── main ─────────────────── */
 
 let happyEventDelta = null;
@@ -519,6 +744,8 @@ try {
     scenarioCorrection,
     scenarioDuplicates,
     scenarioFailedSave,
+    () => scenarioNumberChange(browser),
+    scenarioRateLimit,
   ];
   for (const step of steps) {
     try { await step(); } catch (error) {
@@ -536,7 +763,7 @@ try {
   if (open.length) results.push({ id: 0, title: "teardown", checks: [{ name: "the runner stopped everything it started", passed: false, detail: open }], evidence: {} });
 }
 
-const order = [1, 2, 3, 4, 5, 0];
+const order = [1, 2, 3, 4, 5, 6, 7, 0];
 results.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
 const rows = results.map((entry) => {
   const failed = entry.checks.filter((item) => !item.passed).length;
