@@ -28,6 +28,8 @@ import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { accountSync } from "@/store/account";
 import { useIsAccount, useNow, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
+import { SettingsDemoDraft } from "./SettingsDemoDraft";
+import { callSample, criteriaSample, emergenciesSample, questionsSample, ranchSample, resourcesSample, teamSample } from "./demo-samples";
 
 /** Jump targets clear the app's sticky header and the section nav (measured below). */
 const anchor = "scroll-mt-[var(--settings-offset,9rem)]";
@@ -68,7 +70,7 @@ const PlanComparison = dynamic(
 );
 
 const IntegrationsSection = dynamic(
-  () => import("@/components/integrations/IntegrationsSection").then((module) => module.IntegrationsSection),
+  () => import("./SettingsConnections").then((module) => module.SettingsConnections),
   { loading: IntegrationsLoading },
 );
 
@@ -76,13 +78,13 @@ const IntegrationsSection = dynamic(
  * One Settings section: its title (with the save state once the owner has changed something) above its
  * surface. Matches the Connections section, so every group reads the same way.
  */
-function SettingsSection({ id, title, status, className, children }: { id?: string; title: string; status?: ReactNode; className?: string; children: ReactNode }) {
+function SettingsSection({ id, title, status, actions, className, children }: { id?: string; title: string; status?: ReactNode; actions?: ReactNode; className?: string; children: ReactNode }) {
   const titleId = `${id ?? title}-title`;
   return (
     <section id={id} aria-labelledby={titleId} className={cn(anchor, "space-y-3", className)}>
       <div className="flex min-h-7 flex-wrap items-center justify-between gap-x-3">
         <h2 id={titleId} className="text-lg font-semibold text-espresso">{title}</h2>
-        {status}
+        {actions ? <div className="flex flex-wrap items-center gap-3">{actions}{status}</div> : status}
       </div>
       {children}
     </section>
@@ -296,12 +298,14 @@ export default function SettingsPage() {
 
       {/* The answer first: the week NAQAH keeps for this ranch, redrawn live as the call changes. */}
       <div id="settings-report-call" className={cn(anchor, "space-y-6")}>
-        <RanchWeek ws={ws} />
-        <SettingsSection title={m.setup.call.title} status={edited === "call" ? <SaveState /> : null}>
+        <SettingsDemoDraft {...fields("call")} sample={() => callSample}>
+        {(draft, controls, preview) => <>
+        <RanchWeek ws={draft.ws} />
+        <SettingsSection title={m.setup.call.title} actions={controls} status={edited === "call" && !preview ? <SaveState /> : null}>
           <Card>
             <CardBody className="space-y-10 pt-5">
               <div id="settings-plan" className={anchor}>
-                <PlanChoice {...fields("call")} />
+                <PlanChoice {...draft} />
                 <details className="group mt-3" onToggle={(event) => setShowPlanComparison(event.currentTarget.open)}>
                   <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-[0.9375rem] font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown [&::-webkit-details-marker]:hidden">
                     {m.setup.plans.compare}
@@ -311,49 +315,70 @@ export default function SettingsPage() {
                 </details>
               </div>
               <div className="border-t border-stone/80 pt-8">
-                <ReportCallFields {...fields("call")} showSummary={false} />
-                {account ? <CallingStateNote ws={ws} className="mt-5" /> : <p className="mt-5 text-sm leading-relaxed text-muted">{m.setup.ready.demoCalls}</p>}
+                <ReportCallFields {...draft} showSummary={false} />
+                {!preview ? account ? <CallingStateNote ws={ws} className="mt-5" /> : <p className="mt-5 text-sm leading-relaxed text-muted">{m.setup.ready.demoCalls}</p> : null}
               </div>
             </CardBody>
           </Card>
         </SettingsSection>
+        </>}
+        </SettingsDemoDraft>
       </div>
 
+      <SettingsDemoDraft {...fields("questions")} sample={questionsSample}>
+      {(draft, controls, preview) =>
       <SettingsSection
         id="settings-questions"
         title={m.setup.questions.title}
-        status={edited === "questions" && reportPlanHasContent(ws, now) ? <SaveState /> : null}
+        actions={controls}
+        status={edited === "questions" && !preview && reportPlanHasContent(ws, now) ? <SaveState /> : null}
       >
         <Card>
           <CardBody className="space-y-8 pt-5">
-            <ReportModeField {...fields("questions")} />
-            <QuestionsFields {...fields("questions")} />
+            <ReportModeField {...draft} />
+            <QuestionsFields {...draft} />
           </CardBody>
         </Card>
       </SettingsSection>
+      }
+      </SettingsDemoDraft>
 
       <div id="settings-ranch" className={cn(anchor, "space-y-10")}>
-        <SettingsSection title={m.setup.ranch.title} status={edited === "ranch" ? <SaveState /> : null}>
+        <SettingsDemoDraft {...fields("ranch")} sample={() => ranchSample}>
+        {(draft, controls, preview) =>
+        <SettingsSection title={m.setup.ranch.title} actions={controls} status={edited === "ranch" && !preview ? <SaveState /> : null}>
           <Card>
             <CardBody className="pt-5">
-              <RanchFields {...fields("ranch")} confirmPhone />
+              <RanchFields {...draft} confirmPhone />
             </CardBody>
           </Card>
         </SettingsSection>
-        <SettingsSection id="settings-team" title={m.setup.team.title} status={edited === "team" ? <SaveState /> : null}>
+        }
+        </SettingsDemoDraft>
+        <SettingsDemoDraft {...fields("team")} sample={() => teamSample}>
+        {(draft, controls, preview) =>
+        <SettingsSection id="settings-team" title={m.setup.team.title} actions={controls} status={edited === "team" && !preview ? <SaveState /> : null}>
           <Card>
             <CardBody className="pt-2">
-              <TeamFields {...fields("team")} confirmPhone />
+              <TeamFields {...draft} confirmPhone />
             </CardBody>
           </Card>
         </SettingsSection>
+        }
+        </SettingsDemoDraft>
       </div>
 
       <SettingsSection id="settings-more" title={s.more}>
         <Card className="divide-y divide-stone/70 overflow-hidden">
-          <ResourcesSection {...section("resources")} />
-          <WhatMattersSection {...section("criteria")} />
-          <EmergencySection {...section("emergencies")} />
+          <SettingsDemoDraft {...fields("resources")} sample={() => resourcesSample}>
+            {(draft, controls, preview) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<ResourcesSection {...draft} showSaved={!preview && edited === "resources"} /></div>}
+          </SettingsDemoDraft>
+          <SettingsDemoDraft {...fields("criteria")} sample={criteriaSample}>
+            {(draft, controls, preview) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<WhatMattersSection {...draft} showSaved={!preview && edited === "criteria"} /></div>}
+          </SettingsDemoDraft>
+          <SettingsDemoDraft {...fields("emergencies")} sample={emergenciesSample}>
+            {(draft, controls, preview) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<EmergencySection {...draft} showSaved={!preview && edited === "emergencies"} /></div>}
+          </SettingsDemoDraft>
         </Card>
       </SettingsSection>
 

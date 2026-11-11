@@ -11,6 +11,7 @@ import { planSelectionResumePath } from "@/lib/account/plan-selection-paths";
 import { safeReturnPath } from "@/lib/supabase/auth-input";
 import { initialPlanState } from "@/server/farm/actions";
 import { ACCOUNT_DATA } from "@/components/entry/paths";
+import { DemoPlanSelection } from "./DemoPlanSelection";
 
 type Props = {
   params: Promise<{ locale: string }>;
@@ -54,5 +55,5 @@ async function ChoosePlanContent({ params, searchParams }: Props) {
 
   const { ownerId, state } = result.data;
   if (!state.required) redirect(planSelectionResumePath(locale, state.setupComplete, next));
-  return <InitialPlanSelection ownerId={ownerId} existingFarm={state.existingFarm} next={next} />;
+  return <DemoPlanSelection><InitialPlanSelection ownerId={ownerId} existingFarm={state.existingFarm} next={next} /></DemoPlanSelection>;
 }
