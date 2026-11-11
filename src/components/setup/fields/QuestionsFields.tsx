@@ -131,15 +131,15 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
   return (
     <div>
       <Heading className="ps-8 text-[1.0625rem] font-bold text-espresso">{open ? q.openTitle(worker) : v.title(worker)}</Heading>
-      <p className="mt-0.5 ps-8 text-[0.9375rem] text-muted">{q.listNote}</p>
-      {open ? null : <p className="mt-1 ps-8 text-[0.9375rem] leading-relaxed text-muted">{q.requiredNote}</p>}
+      <p className="mt-1 ps-8 text-[0.9375rem] leading-relaxed text-muted">
+        {open ? q.listNote : <>{q.requiredNote} {q.listNote}</>}
+      </p>
       <div className="relative mt-5">
         {/* One line through the whole call, from NAQAH's greeting to its call to the owner. */}
         <span aria-hidden className="absolute -bottom-[2.4rem] start-[5.5px] top-[0.75rem] w-px bg-stone" />
         <div className="relative ps-8">
           <Marker kind="end" />
           <p className="leading-relaxed text-espresso">{v.intro}</p>
-          {open ? null : <p className="mt-0.5 text-[0.9375rem] text-muted">{v.introDetail}</p>}
         </div>
 
         <ol ref={listRef} className="mt-4">
@@ -211,7 +211,7 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
               <button
                 type="submit"
                 disabled={!draft.trim()}
-                className="inline-flex h-12 shrink-0 items-center justify-center gap-2 self-start rounded-full border border-stone bg-cream px-5 font-semibold text-espresso transition hover:border-sand disabled:cursor-not-allowed disabled:text-muted sm:h-14 sm:self-auto"
+                className="naqah-press inline-flex h-12 shrink-0 items-center justify-center gap-2 self-start rounded-full border border-stone bg-cream px-5 font-semibold text-espresso transition hover:border-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown disabled:cursor-not-allowed disabled:text-muted sm:h-14 sm:self-auto"
               >
                 <Plus size={18} weight="bold" aria-hidden />
                 {m.common.actions.add}
@@ -257,12 +257,14 @@ function QuestionRow({ row, position, total, open, onToggle, onRequired, onMove,
   const text = row.kind === "custom" ? row.question.text : t(row.question.text);
   // Said on the question, not on the checkbox: "Must answer · optional" would contradict itself.
   const optional = row.enabled && !row.required && !open;
+  const custom = row.kind === "custom";
   return (
     <li data-question={row.question.id} className="relative py-3 ps-8">
-      <Marker kind={row.kind === "custom" ? "owner" : "naqah"} muted={!row.enabled} />
-      <div className="flex items-start gap-3">
-        {row.kind === "custom" ? (
-          <StepField label={<span className="sr-only">{q.question(position)}</span>} hint={optional ? q.optional : undefined} className="min-w-0 flex-1 gap-0">
+      <Marker kind={custom ? "owner" : "naqah"} muted={!row.enabled} className={custom ? "top-[2.125rem]!" : "top-[1.45rem]!"} />
+      {/* Phone: question and switch, then "must answer" and the order buttons. Wider: order buttons beside the switch. */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+        {custom ? (
+          <StepField label={<span className="sr-only">{q.question(position)}</span>} hint={optional ? q.optional : undefined} className="col-start-1 row-start-1 min-w-0 gap-0">
             {({ id }) => (
               <textarea
                 id={id}
@@ -276,32 +278,37 @@ function QuestionRow({ row, position, total, open, onToggle, onRequired, onMove,
             )}
           </StepField>
         ) : (
-          <p className={cn("min-w-0 flex-1 leading-relaxed", row.enabled ? "text-espresso" : "text-muted")}>
+          <p className={cn("col-start-1 row-start-1 min-w-0 pt-1 leading-relaxed", row.enabled ? "text-espresso" : "text-muted")}>
             {text}
             {optional ? <span className="block text-[0.9375rem] text-muted">{q.optional}</span> : null}
           </p>
         )}
-        <Switch checked={row.enabled} onChange={onToggle} label={q.ask(position, text)} className={row.kind === "custom" ? "mt-3.5" : "mt-0.5"} />
-      </div>
-      <div className="mt-0.5 flex flex-wrap items-center justify-between gap-x-3">
-        {open && row.enabled ? <span /> : row.enabled ? (
-          <label className="-ms-1 inline-flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[0.9375rem]">
-            <input type="checkbox" checked={row.required} onChange={(event) => onRequired(event.target.checked)} className="size-[1.125rem] shrink-0 accent-brown" />
-            <span className={row.required ? "font-medium text-espresso" : "text-muted"}>
-              {q.mustAnswer}<span className="sr-only"> · {q.nth(position)}</span>
-            </span>
-          </label>
-        ) : (
-          <span className="inline-flex min-h-11 items-center text-[0.9375rem] text-muted">{q.off}</span>
-        )}
-        <div className="-me-2 flex items-center">
+        <Switch
+          checked={row.enabled}
+          onChange={onToggle}
+          label={q.ask(position, text)}
+          className={cn("col-start-2 row-start-1 sm:col-start-3", custom ? "mt-3.5" : "mt-1")}
+        />
+        <div className="col-start-1 row-start-2 -mt-1 min-w-0">
+          {open && row.enabled ? null : row.enabled ? (
+            <label className="-ms-1 inline-flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[0.9375rem]">
+              <input type="checkbox" checked={row.required} onChange={(event) => onRequired(event.target.checked)} className="size-[1.125rem] shrink-0 accent-brown" />
+              <span className={row.required ? "font-medium text-espresso" : "text-muted"}>
+                {q.mustAnswer}<span className="sr-only"> · {q.nth(position)}</span>
+              </span>
+            </label>
+          ) : (
+            <span className="inline-flex min-h-11 items-center text-[0.9375rem] text-muted">{q.off}</span>
+          )}
+        </div>
+        <div className={cn("col-start-2 row-start-2 -me-2 flex items-center justify-end sm:row-start-1 sm:me-0", custom ? "sm:mt-1.5" : "sm:-mb-2 sm:-mt-1.5")}>
           <button type="button" data-move="-1" aria-label={q.moveUp(position)} title={q.moveUp(position)} disabled={position === 1} onClick={() => onMove(-1)} className={moveButton}>
             <CaretUp size={18} aria-hidden />
           </button>
           <button type="button" data-move="1" aria-label={q.moveDown(position)} title={q.moveDown(position)} disabled={position === total} onClick={() => onMove(1)} className={moveButton}>
             <CaretDown size={18} aria-hidden />
           </button>
-          {row.kind === "custom" ? (
+          {custom ? (
             <button type="button" aria-label={q.remove(position)} title={q.remove(position)} onClick={onRemove} className={cn(iconButton, "hover:bg-danger-soft hover:text-danger")}>
               <Trash size={18} aria-hidden />
             </button>
@@ -313,7 +320,7 @@ function QuestionRow({ row, position, total, open, onToggle, onRequired, onMove,
 }
 
 /** Rail marks: open rings where the call starts and ends, brown for NAQAH's questions, gold for the owner's. */
-function Marker({ kind, muted }: { kind: "end" | "naqah" | "owner"; muted?: boolean }) {
+function Marker({ kind, muted, className }: { kind: "end" | "naqah" | "owner"; muted?: boolean; className?: string }) {
   return (
     <span
       aria-hidden
@@ -322,6 +329,7 @@ function Marker({ kind, muted }: { kind: "end" | "naqah" | "owner"; muted?: bool
         kind === "end" && "top-[0.4rem] size-3 border-2 border-brown bg-cream",
         kind === "naqah" && cn("start-[2px] top-[1.15rem] size-2", muted ? "bg-stone" : "bg-brown"),
         kind === "owner" && cn("start-[1.5px] top-[1.5rem] size-2.5", muted ? "bg-stone" : "bg-gold"),
+        className,
       )}
     />
   );
