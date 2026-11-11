@@ -98,6 +98,7 @@ export function parseArgs(argv) {
     else if (name === "--owner-approves") options.ownerApproves = true;
     else if (name === "--repeat-demo-reports") options.repeatDemoReports = true;
     else if (name === "--no-demo-call-limit") options.noDemoCallLimit = true;
+    else if (name === "--demo-autofill") options.demoAutofill = true;
     else if (name === "--owner-call-now") options.ownerCallNow = true;
     else if (name === "--voice") {
       options.voice = takeValue(index, name);
@@ -255,6 +256,8 @@ export function buildEnvironments(options, stack, secrets = null) {
     // link would send the demo owner back to the Overview.
     ...(options.dashboardCall ? { NEXT_PUBLIC_NAQAH_TEST_CALL: "0" } : {}),
     ...(options.ownerCallNow ? { NEXT_PUBLIC_NAQAH_DEMO_OWNER_CALL: "1" } : {}),
+    // «تعبئة تجريبية» buttons in onboarding, sign-in and Settings (fill only, never save).
+    ...(options.demoAutofill ? { NEXT_PUBLIC_NAQAH_DEMO_AUTOFILL: "1" } : {}),
   };
   // LOCAL DEMO ONLY: «المالك» on the presentation ranch's Dashboard (see --owner-call-now). NAQAH_CALL_OWNER stays unset.
   if (options.ownerCallNow) next.NAQAH_DEMO_OWNER_CALL = "1";

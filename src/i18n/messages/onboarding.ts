@@ -34,6 +34,8 @@ export const onboarding = defineMessages({
         almost: { title: "Almost there", lead: "Open your dashboard now and finish the rest in Settings." },
       },
       finishLine: "NAQAH knows who to call, when, and what to ask.",
+      /** Local demo only: said after «Fill with sample» fills a step; the owner still presses Next. */
+      demoFilled: "Sample details filled in. Check them, then continue.",
     },
     /** The plan cards: price first, then the week, then two facts. */
     plans: {
@@ -80,6 +82,7 @@ export const onboarding = defineMessages({
         almost: { title: "باقي القليل", lead: "افتح لوحتك الحين، وكمّل الباقي من الإعدادات." },
       },
       finishLine: "ناقة تعرف على مين تتصل، ومتى، ووش تسأل.",
+      demoFilled: "تمت تعبئة البيانات التجريبية. راجعها، وبعدها كمّل.",
     },
     plans: {
       title: "اختر باقتك",
