@@ -37,21 +37,27 @@ function base() {
 // ---- checks -------------------------------------------------------------------------------------------------
 const text = (run: Run) => run.said.join(" ");
 const named = (run: Run, name: string) => run.tools.filter((call) => call.name === name);
-const SAVE_CLAIM = /(?<!ما |مو |لسا |لسه |ما راح )(انحفظ|حفظته|حفظت|سجلته|سجّلته|تم الحفظ|تم التسجيل)|\b(?<!not |isn't |wasn't )(saved|recorded)\b/u;
+// A save claim is a sentence that says it was saved, without a negation or a condition («ما انحفظ», «إذا انحفظ», "isn't saved", "until").
+const CLAIM = /انحفظ|حفظته|حفظت|سجلته|سجّلته|تم الحفظ|تم التسجيل|\b(?:saved|recorded)\b/u;
+const HEDGE = /(?:^|[\s،,])(?:ما|مو|مب|لسا|لسه|إذا|اذا|إنه|انه|لين|قبل|بعدين|متى|not|until|when|if|before|once)(?=[\s،,.]|$)|n['’]t\b/iu;
+const claimsSave = (said: string) => said.split(/[.!؟?\n]+/u).some((sentence) => CLAIM.test(sentence) && !HEDGE.test(sentence));
 const all = (...checks: ((run: Run) => string | null)[]) => (run: Run) => checks.map((check) => check(run)).find(Boolean) ?? null;
 const noTools = (run: Run) => (run.tools.length ? `tools called: ${run.tools.map((call) => call.name).join(",")}` : null);
 const noConfirm = (run: Run) => (named(run, "confirm_report").length ? "confirm_report without a summary and a yes" : null);
-const noSaveClaim = (run: Run) => (SAVE_CLAIM.test(text(run)) ? "claimed a save" : null);
+const noSaveClaim = (run: Run) => (claimsSave(text(run)) ? "claimed a save" : null);
 const asksBack = (run: Run) => (/[؟?]/.test(text(run)) ? null : "did not return to a question");
 const has = (pattern: RegExp, why: string) => (run: Run) => (pattern.test(text(run)) ? null : why);
 const lacks = (pattern: RegExp, why: string) => (run: Run) => (pattern.test(text(run)) ? why : null);
+// A6: never announce writing, recording, sending or saving, in any case.
+const ANNOUNCES = /(?<!ما |مو |لا )(بسجّ?ل|بأسجّ?ل|أسجّ?ل|اسجّ?ل|بأرسل|بارسل|برسل|أرسل التقرير|بكتب|بأكتب|بحفظ|بأحفظ)|\bI(?:'ll| will| am going to) (?:record|write|send|save)\b/u;
+const announces = (run: Run) => (ANNOUNCES.test(text(run)) ? "announced recording or sending" : null);
 const offTopic = has(/مو عندي|للتقرير|ما أقدر|ما اقدر|not something I|only here for the report/u, "no polite decline");
 const lastSubmit = (run: Run) => named(run, "submit_report").at(-1)?.args as { answers?: { question_id: string; value?: string; number?: number; text?: string }[] } | undefined;
 const answerOf = (run: Run, id: string | RegExp) => lastSubmit(run)?.answers?.find((entry) => (typeof id === "string" ? entry.question_id === id : id.test(entry.question_id)));
 
 const AT_FEED: [string, string][] = [["كلهم بخير الحمد لله", "الحمد لله. كم باقي من العلف عندكم؟"]];
 const AT_FEED_EN: [string, string][] = [["They're all fine, thank God.", "Good to hear. How much feed is left?"]];
-const FULL = (feed: string, other: string) => ["كلهم بخير الحمد لله", feed, "الماي كافي", "لا ما فيه شي خربان", "إيه خلصتها، عزلتها", other];
+const FULL = (feed: string, other: string) => ["كلهم بخير الحمد لله", feed, "الماي كافي", "لا ما فيه شي خربان", "إيه خلصتها، عزلتها وكلمت البيطري", other];
 
 const CASES: Case[] = [
   { id: "1-weather", locale: "ar", must: false, prior: AT_FEED, lines: ["وش الجو بكرة؟ بيجينا مطر؟"], check: all(noTools, offTopic, asksBack, lacks(/درجة|°|مئوية|غائم|متوقع/u, "gave a forecast")) },
@@ -194,7 +200,7 @@ describe.runIf(process.env.NAQAH_REAL_MODEL === "1" && Boolean(process.env.OPENA
       for (const entry of cases) {
         if (spent() >= BUDGET * 0.96) break;
         const run = await play(entry);
-        const miss = entry.check(run) ?? (named(run, "confirm_report").length && !run.summaryRead ? "saved without a summary" : null);
+        const miss = entry.check(run) ?? announces(run) ?? (named(run, "confirm_report").length && !run.summaryRead ? "saved without a summary" : null);
         const result = results.get(entry.id) ?? { passed: 0, runs: 0, misses: [] };
         result.runs += 1;
         if (miss) result.misses.push(miss); else result.passed += 1;

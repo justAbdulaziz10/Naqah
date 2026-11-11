@@ -3,7 +3,7 @@ import { answer, start, type CallSession } from "@/domain/conversation/engine";
 import { fromRiyadh } from "@/domain/clock";
 import { createDemoWorkspace } from "@/domain/seed";
 import { mapSpeechToInput } from "../speech";
-import { refuseAnswer } from "./answer-check";
+import { askedToStop, refuseAnswer } from "./answer-check";
 import { validateFacts } from "./facts";
 import { askedTopic, isOffTopicAnswer } from "@/domain/conversation/answer-topic";
 
@@ -195,5 +195,14 @@ describe("natural Arabic answers", () => {
 
   it("does not let another topic in the sentence contradict the answer", () => {
     expect(refuseAnswer(feed, { value: "good" }, "العلف زين بس الماء قرب يخلص", "ar")).toBeNull();
+  });
+});
+
+describe("asking not to record", () => {
+  it.each(["تراني بلغت المعزب، لا تسجل شي", "لا تسجله", "لا تحفظ شي"])("«%s» lets the call end without saving", (heard) => {
+    expect(askedToStop(heard)).toBe(true);
+  });
+  it.each(["سجل إن مزون تعبانة", "تسجل كل شي؟"])("«%s» is not a stop", (heard) => {
+    expect(askedToStop(heard)).toBe(false);
   });
 });
