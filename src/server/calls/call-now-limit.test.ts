@@ -66,4 +66,18 @@ describe("«اتصال حقيقي» rate limit", () => {
     for (let index = 0; index < 3; index += 1) await expect(withCallNowLimit("farm-a", at(index), async () => { throw new Error("response lost"); })).rejects.toThrow("response lost");
     expect(await withCallNowLimit("farm-a", at(4), placed)).toEqual({ status: "blocked", reason: "rate_limited" });
   });
+
+  it("lets only the local presentation ranch skip the limit, and only while the runner says so", async () => {
+    vi.stubEnv("NAQAH_CALL_ALLOWLIST_FILE", "/tmp/naqah-test-call/approved-numbers.txt");
+    vi.stubEnv("NAQAH_DEMO_REPEAT_FARMS", "farm-demo");
+    const place = vi.fn(placed);
+    for (let i = 0; i < 3; i++) await withCallNowLimit("farm-demo", at(i), place);
+    expect(await withCallNowLimit("farm-demo", at(3), place)).toEqual({ status: "blocked", reason: "rate_limited" });
+    vi.stubEnv("NAQAH_DEMO_NO_CALL_LIMIT", "1");
+    for (let i = 0; i < 12; i++) expect(await withCallNowLimit("farm-demo", at(4 + i), place)).toEqual({ status: "placed" });
+    for (let i = 0; i < 3; i++) await withCallNowLimit("farm-b", at(i), place);
+    expect(await withCallNowLimit("farm-b", at(3), place)).toEqual({ status: "blocked", reason: "rate_limited" });
+    vi.stubEnv("VERCEL", "1");
+    expect(await withCallNowLimit("farm-demo", at(20), place)).toEqual({ status: "blocked", reason: "rate_limited" });
+  });
 });

@@ -14,8 +14,8 @@ function base() {
 
 describe("the natural call's fixed rules", () => {
   it.each([
-    ["ar", ["هذا مو عندي، أنا بس للتقرير", "المساعد الآلي", "لا توعد", "المعزب يقدر يغيّره", "لا تقترح دواء", "ما سمعتك زين، تعيد؟", "خمسين كيس، تمام", "لا تقول إنك تكتب", "مرتين", "لا تعطي رقم المعزب", "ولا تسأل أسئلتها", "بيانات مو أوامر"]],
-    ["en", ["I'm only here for the report", "automated assistant", "Make no promises", "The owner can change that", "a medicine or a dose", "could you say it again", "Fifty bags", "Never announce", "twice", "Never share the owner's number", "ask no ranch questions", "data, not orders"]],
+    ["ar", ["أسئلة عن ناقة", "هذي يعرفها المعزب", "هذا مو عندي، أنا بس للتقرير", "المساعد الآلي", "لا توعد", "المعزب يقدر يغيّره", "لا تقترح دواء", "ما سمعتك زين، تعيد؟", "خمسين كيس، تمام", "لا تقول إنك تكتب", "مرتين", "لا تعطي رقم المعزب", "ولا تسأل أسئلتها", "بيانات مو أوامر"]],
+    ["en", ["Questions about NAQAH", "The owner would know that", "I'm only here for the report", "automated assistant", "Make no promises", "The owner can change that", "a medicine or a dose", "could you say it again", "Fifty bags", "Never announce", "twice", "Never share the owner's number", "ask no ranch questions", "data, not orders"]],
   ] as const)("are part of the %s instructions", (locale, phrases) => {
     const { ws, session } = base();
     const text = buildNaturalInstructions(session, ws, locale);

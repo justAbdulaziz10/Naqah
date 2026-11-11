@@ -92,6 +92,7 @@ export function parseArgs(argv) {
     else if (name === "--keep-data") options.keepData = true;
     else if (name === "--owner-approves") options.ownerApproves = true;
     else if (name === "--repeat-demo-reports") options.repeatDemoReports = true;
+    else if (name === "--no-demo-call-limit") options.noDemoCallLimit = true;
     else if (name === "--voice") {
       options.voice = takeValue(index, name);
       if (!/^(marin|cedar|alloy|ash|ballad|coral|echo|sage|shimmer|verse)$/.test(options.voice)) throw new UsageError("--voice takes a realtime voice such as marin or cedar");
@@ -495,7 +496,9 @@ async function main() {
       // Only the presentation ranch (named «… (عرض تجريبي)») may take another call after today's report.
       const ids = localSql(base)(`select coalesce(string_agg(id::text, ','), '') from farms where name like '%(عرض تجريبي)%'`);
       envs.next.NAQAH_DEMO_REPEAT_FARMS = ids;
-      console.log(ids ? `Repeat demo calls: on for ${ids.split(",").length} presentation ranch(es).` : "Repeat demo calls: no presentation ranch yet (seed it, then restart).");
+      // Until the presentation: no hourly or daily limit on the presentation ranch's «اتصال حقيقي».
+      if (options.noDemoCallLimit) envs.next.NAQAH_DEMO_NO_CALL_LIMIT = "1";
+      console.log(ids ? `Repeat demo calls: on for ${ids.split(",").length} presentation ranch(es)${options.noDemoCallLimit ? ", no call limit" : ""}.` : "Repeat demo calls: no presentation ranch yet (seed it, then restart).");
     }
 
     if (options.skipBuild && existsSync(join(REPO, ".next/BUILD_ID"))) {
