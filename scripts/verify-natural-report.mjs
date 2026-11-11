@@ -961,8 +961,10 @@ const FEED_CASES = [
   { id: "c", words: "باقي شوي", feed: { value: "low" } },
   { id: "d", words: "ما أدري", feed: { value: "unknown" } },
   // A number with no unit: one short question for the unit, then the worker's word, «ما أدري», or the number alone.
-  { id: "e", words: "باقي 25", feed: { number: 25 }, clarify: [{ say: "أكياس", answers: { feed_level: { number: 25, unit: "أكياس" } } }], saved: ["25 أكياس", "25 bags"] },
+  { id: "e", words: "باقي 25", feed: { number: 25 }, clarify: [{ say: "أكياس", answers: { feed_level: { number: 25, unit: "أكياس" } } }], saved: ["25 كيس", "25 bags"] }, // «أكياس» said; 25 takes the singular in Saudi Arabic
   { id: "f", words: "باقي 25", feed: { number: 25 }, clarify: [{ say: "والله ما أدري", answers: { feed_level: { number: 25, unit: "unknown" } } }], saved: ["25 (الوحدة غير محددة)", "25 (unit not given)"] },
+  // 3–10 take the plural, whatever form the worker used («أربع كيس» on call 02d1b8).
+  { id: "h", words: "باقي أربع كيس", feed: { number: 4, unit: "كيس" }, saved: ["4 أكياس", "4 bags"] },
   { id: "g", words: "باقي 25", feed: { number: 25 }, clarify: [{ say: "خمسة وعشرين بس", answers: { feed_level: { number: 25 } } }, { say: "-", answers: {} }], saved: ["25 (الوحدة غير محددة)", "25 (unit not given)"] },
 ];
 
