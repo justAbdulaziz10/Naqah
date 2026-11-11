@@ -16,8 +16,18 @@ import type { ReportItem, CallSession, EngineResult, AnswerInput, OpenFact, Repl
 import { startWorkerCallback } from './worker-callback';
 
 const camelsText = (count: number) => copy(count + (count === 1 ? " camel" : " camels"), count + " من الحلال");
-const isQuantity = (text: string) => text !== "" && Number.isFinite(Number(text)) && Number(text) >= 0;
-const quantityUnit = (resource: ResourceKind) => (resource === "feed" ? copy("bags", "كيس") : copy("litres", "لتر"));
+/** A number said with no unit: water is counted in litres; feed comes in bags, bales or tonnes, so none is assumed. */
+function quantityText(resource: ResourceKind, count: string, said: string | null): LocalizedText {
+  if (said) return copy(count + " " + (UNIT_EN[said] ?? said), count + " " + said);
+  return resource === "water" ? copy(count + " litres", count + " لتر") : copy(count + " (unit not given)", count + " (الوحدة غير محددة)");
+}
+/** "25" or "25 بالات": the number, and the worker's own unit word when one was said. */
+function spokenQuantity(text: string): { count: string; unit: string | null } | null {
+  const match = text.trim().match(/^(\d+(?:\.\d+)?)(?:\s+([\p{L} ]{1,20}))?$/u);
+  return match ? { count: match[1], unit: match[2]?.trim() || null } : null;
+}
+/** English for the usual unit words; any other word is kept as said. */
+const UNIT_EN: Record<string, string> = { bags: "bags", bales: "bales", tonnes: "tonnes", "كيس": "bags", "أكياس": "bags", "اكياس": "bags", "كياس": "bags", "بالة": "bales", "باله": "bales", "بالات": "bales", "طن": "tonnes", "أطنان": "tonnes", "كيلو": "kg", "لتر": "litres", "لترات": "litres" };
 
 /** Herd size the worker's count is compared with: the owner's official count, else the camel list. */
 function expectedHerd(ws: Workspace): number | null {
@@ -47,7 +57,7 @@ function reportQueue(ws: Workspace, now: Date): ReportItem[] {
       kind: "task" as const,
       id: "task_" + task.id,
       taskId: task.id,
-      question: copy("Did you finish: " + task.instruction + "?", "خلصت المهمة: " + task.instruction + "؟"),
+      question: copy("About the task: " + task.instruction + ". Is it done?", "وبخصوص المهمة: " + task.instruction + ". خلصت؟"),
     })),
   );
   return queue;
@@ -76,7 +86,7 @@ function startOpen(session: CallSession, now: Date): CallSession {
 }
 
 /** The worker is on the line: greet, then the report in the way the owner chose, or the worker chooses. */
-function beginReportQuestions(session: CallSession, ws: Workspace, now: Date, returning = false, modesAvailable = false): CallSession {
+function beginReportQuestions(session: CallSession, ws: Workspace, now: Date, returning = false, modesAvailable = false, greetFirst = false): CallSession {
   // The owner may have switched everything off after the call was placed, or before the worker called back.
   if (!reportPlanHasContent(ws, now)) {
     return say(session, copy("There’s nothing to report on this call. Thank you, Ahmed.", "ما فيه شي مطلوب في هالمكالمة. يعطيك العافية يا أحمد."), now, true);
@@ -91,15 +101,49 @@ function beginReportQuestions(session: CallSession, ws: Workspace, now: Date, re
         "Hello Ahmed, this is NAQAH’s automated assistant for the ranch report.",
         "هلا أحمد، معك مساعد ناقة الآلي لتقرير العزبة.",
       );
+  // A live voice call greets first and waits: someone who just picked up says «ألو» before they listen.
+  if (greetFirst && !returning) return askReady({ ...withQueue, data: { ...withQueue.data, readyModes: modesAvailable } }, ws, now);
+  return startReport(say(withQueue, greeting, now), ws, now, modesAvailable);
+}
+
+/** «جاهز؟» comes after a greeting that names the ranch, so the worker knows who is calling and why. */
+export function readyGreeting(ws: Workspace): LocalizedText {
+  const name = ws.settings.farm.name.replace(/\s*[(（][^)）]*[)）]\s*/gu, " ").trim();
+  const ranchAr = !name ? "" : /^(?:عزبة|عزبه|مزرعة|مزرعه)\s/u.test(name) ? " ل" + name : " لعزبة " + name;
+  const ranchEn = name ? " for " + name : "";
+  return copy(
+    "Peace be upon you, Ahmed. This is NAQAH, the automated assistant" + ranchEn + ". I'm checking on the camels today. Ready?",
+    "السلام عليكم يا أحمد، معك ناقة، المساعد الآلي" + ranchAr + ". بتطمن على الحلال اليوم، جاهز؟",
+  );
+}
+
+function askReady(session: CallSession, ws: Workspace, now: Date, prefix?: LocalizedText): CallSession {
+  const greeting = readyGreeting(ws);
+  const text = prefix ? copy(prefix.en + greeting.en, prefix.ar + greeting.ar) : greeting;
+  return ask(session, text, now, "report_ready", [reply("ready", "Ready", "جاهز"), reply("busy", "Not now", "مو الحين")]);
+}
+
+/** Anything but «مو الحين» means go ahead. «ألو؟» right after picking up means the greeting wasn't heard: say it again, twice at most. */
+function handleReady(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
+  const current = workerTurn(session, input, now);
+  if (current.value === "busy") return endWithoutSaving(current.session, session, ws, now, copy("No problem. Thank you, Ahmed. Goodbye.", "ما عليه، يعطيك العافية يا أحمد. مع السلامة."));
+  const repeats = session.data.readyRepeats ?? 0;
+  if (current.value === "again" && repeats < 2) {
+    return { session: askReady({ ...current.session, data: { ...current.session.data, readyRepeats: repeats + 1 } }, ws, now, copy("Hello. ", "هلا. ")) };
+  }
+  return { session: startReport(current.session, ws, now, Boolean(session.data.readyModes)) };
+}
+
+function startReport(withQueue: CallSession, ws: Workspace, now: Date, modesAvailable: boolean): CallSession {
   const mode = chosenMode(ws, modesAvailable);
   if (mode === "ask") {
-    return ask(say(withQueue, greeting, now), MODE_CHOICE, now, "report_mode_choice", [
+    return ask(withQueue, MODE_CHOICE, now, "report_mode_choice", [
       reply("mode_guided", "One question at a time", "سؤال سؤال"),
       reply("mode_open", "In my own words", "أقول اللي صار"),
     ]);
   }
-  if (mode === "open") return startOpen(say(withQueue, greeting, now), now);
-  return startGuided(say(withQueue, greeting, now), ws, now);
+  if (mode === "open") return startOpen(withQueue, now);
+  return startGuided(withQueue, ws, now);
 }
 
 function blockedReportCallText(reason: ReportCallBlock | "duplicate" | null): LocalizedText {
@@ -123,7 +167,7 @@ function blockedReportCallText(reason: ReportCallBlock | "duplicate" | null): Lo
  * start at once. Without it, the Call Lab simulates the ringing: open or reuse a run, then let the
  * investor choose whether Ahmed answers. Every ringing line says it is a simulation.
  */
-export function startReportCallScenario(ws: Workspace, now: Date, reportCallId?: string, modesAvailable = false): EngineResult {
+export function startReportCallScenario(ws: Workspace, now: Date, reportCallId?: string, modesAvailable = false, greetFirst = false): EngineResult {
   const session = blank("report_call", now);
   if (reportCallId) {
     const run = reportCallRuns(ws).find((item) => item.id === reportCallId);
@@ -133,7 +177,7 @@ export function startReportCallScenario(ws: Workspace, now: Date, reportCallId?:
     }
     const prepared = ringing ? resolveReportCallAttempt(ws, now, run.id, true).ws : ws;
     return {
-      session: beginReportQuestions({ ...session, data: { reportCallId: run.id } }, prepared, now, false, modesAvailable),
+      session: beginReportQuestions({ ...session, data: { reportCallId: run.id } }, prepared, now, false, modesAvailable, greetFirst),
       ...(prepared !== ws ? { commit: commitTo(prepared) } : {}),
     };
   }
@@ -488,7 +532,7 @@ function handleReportQuestion(
     const named = (input.camelIds ?? []).filter((id) => ws.camels.some((camel) => camel.id === id));
     if (named.length > 1 || (named.length === 1 && input.restWell)) return { session: namedCamels(current.session, ws, now, named, input) };
     if (input.camelId && ws.camels.some((camel) => camel.id === input.camelId)) {
-      return handleHealthStatus({ ...session, data: { ...session.data, askedCamelIds: [], tempCamelId: input.camelId } }, ws, now, { value: "sick", text: input.text });
+      return handleHealthStatus({ ...session, data: { ...session.data, askedCamelIds: [], tempCamelId: input.camelId } }, ws, now, { value: "sick", text: input.camelNotes?.[input.camelId] ?? input.text });
     }
     const picking = {
       ...current.session,
@@ -505,8 +549,9 @@ function handleReportQuestion(
     if (!LEVELS.includes(value as Level)) {
       // "How much is left?" answered with a number: keep it, without inventing a level.
       const count = (input.text ?? value).trim();
-      if ((item.resource === "feed" || item.resource === "water") && isQuantity(count)) {
-        return { session: nextReportItem(addResourceAnswer(current.session, item, "unknown", storedQuantity(ws, item.resource, count), "approximate"), ws, now) };
+      const said = spokenQuantity(count);
+      if ((item.resource === "feed" || item.resource === "water") && said) {
+        return { session: nextReportItem(addResourceAnswer(current.session, item, "unknown", storedQuantity(ws, item.resource, said.count, said.unit), "approximate"), ws, now) };
       }
       // Never carry a value that isn't a level: the save would refuse the whole report.
       return { session: askReportItem(current.session, ws, now) };
@@ -659,6 +704,8 @@ function finishCamelHealth(session: CallSession, ws: Workspace, now: Date): Call
 function withCamelAnswer(session: CallSession, ws: Workspace, item: ReportItem, updates: CallSession["draft"]["camelUpdates"]): CallSession {
   const line = (locale: "en" | "ar", join: string) => updates.map((update) => {
     const name = ws.camels.find((entry) => entry.id === update.camelId)?.name ?? "";
+    // «مزون للحين تعبانة» already says who and how, in the worker's words.
+    if (update.note && name && update.note.includes(name)) return update.note;
     return name + ": " + HEALTH_LABELS[update.health][locale] + (update.note ? " — " + update.note : "");
   }).join(join);
   const answer = updates.length ? copy(line("en", "; "), line("ar", "؛ ")) : UNKNOWN_ANSWER;
@@ -700,9 +747,8 @@ function addResourceAnswer(
   return next;
 }
 
-function storedQuantity(ws: Workspace, resource: ResourceKind, count: string) {
-  const unit = quantityUnit(resource);
-  const text = copy(count + " " + unit.en, count + " " + unit.ar);
+function storedQuantity(ws: Workspace, resource: ResourceKind, count: string, said: string | null = null) {
+  const text = quantityText(resource, count, said);
   return { stored: ws.settings.worker.language === "en" ? text.en : text.ar, text };
 }
 
@@ -711,10 +757,13 @@ function summaryLine(item: ReportItem, answer: CallSession["draft"]["answers"][n
   const said = answer.answerText ?? copy(answer.answer, answer.answer);
   const labelled = (label: LocalizedText) => copy(label.en + ": " + said.en, label.ar + ": " + said.ar);
   if (isOpenNote(item)) return labelled(NOTE_LABEL);
-  if (item.kind === "custom" || item.kind === "weather_heat_day") return copy(item.question.en + " " + said.en, item.question.ar + " " + said.ar);
+  if (item.kind === "custom" || item.kind === "weather_heat_day") {
+    const asked = (text: string) => text.trim().replace(/[?؟]+$/u, "");
+    return copy(asked(item.question.en) + ": " + said.en, asked(item.question.ar) + "، قلت: " + said.ar);
+  }
   if (item.kind === "task") {
     const instruction = ws.taskTickets.find((task) => task.id === item.taskId)?.instruction ?? "";
-    return labelled(copy("Task: " + instruction, "مهمة: " + instruction));
+    return labelled(copy("Task: " + instruction, "المهمة: " + instruction));
   }
   if (item.resource) return labelled(RESOURCE_LABELS[item.resource]);
   return answer.certainty === "unknown" ? labelled(TOPIC_LABELS[item.id] ?? item.question) : said;
@@ -791,8 +840,8 @@ function completeReport(session: CallSession, ws: Workspace, now: Date): EngineR
 const CORRECT = "correct";
 const CORRECT_PREFIX = "correct:";
 
-function endWithoutSaving(current: CallSession, session: CallSession, ws: Workspace, now: Date): EngineResult {
-  const ended = say(current, copy("The update was not saved. Thank you, Ahmed.", "ما انحفظ التحديث. يعطيك العافية يا أحمد."), now, true);
+function endWithoutSaving(current: CallSession, session: CallSession, ws: Workspace, now: Date, goodbye = copy("The update was not saved. Thank you, Ahmed.", "ما انحفظ التحديث. يعطيك العافية يا أحمد.")): EngineResult {
+  const ended = say(current, goodbye, now, true);
   const runId = session.scenario === "report_call" ? session.data.reportCallId : undefined;
   const updated = runId ? endReportCallWithoutReport(ws, now, runId) : ws;
   return { session: ended, ...(updated !== ws ? { commit: commitTo(updated) } : {}) };
@@ -959,7 +1008,7 @@ function recordCamel(session: CallSession, ws: Workspace, update: CallSession["d
  */
 function namedCamels(session: CallSession, ws: Workspace, now: Date, camelIds: string[], input: AnswerInput): CallSession {
   const note = input.text?.trim() || null;
-  const named = camelIds.reduce((current, camelId) => recordCamel(current, ws, { camelId, health: "sick", note, certainty: "reported" }), session);
+  const named = camelIds.reduce((current, camelId) => recordCamel(current, ws, { camelId, health: "sick", note: input.camelNotes?.[camelId] ?? note, certainty: "reported" }), session);
   if (input.restWell) {
     const herd = recordWholeHerd(named, ws, { type: "camel_health", camelId: null, scope: "all", status: "healthy", note: null, evidence: note ?? "" }, "reported");
     return nextReportItem(herd, ws, now);
@@ -1025,8 +1074,7 @@ function applyFact(session: CallSession, ws: Workspace, fact: OpenFact): CallSes
     const { session: withItem, item } = predefinedItem(session, PREDEFINED_QUESTIONS.find((question) => question.requires === fact.resource)?.id ?? "");
     if (!item) return session;
     const level = fact.level ?? "unknown";
-    const unit = fact.resource === "feed" || fact.resource === "water" ? quantityUnit(fact.resource) : null;
-    const text = fact.quantity !== null && unit ? copy(fact.quantity + " " + unit.en, fact.quantity + " " + unit.ar) : null;
+    const text = fact.quantity !== null && (fact.resource === "feed" || fact.resource === "water") ? quantityText(fact.resource, String(fact.quantity), null) : null;
     const quantity = text ? { stored: ws.settings.worker.language === "en" ? text.en : text.ar, text } : null;
     return addResourceAnswer(replaced(withItem, item), item, level, quantity, quantity ? "approximate" : level === "unknown" ? "unknown" : "reported");
   }
@@ -1082,6 +1130,7 @@ export function resumeOpenAsGuided(session: CallSession, ws: Workspace, now: Dat
 
 export function answerReportScenario(session: CallSession, ws: Workspace, now: Date, input: AnswerInput): EngineResult {
   if (session.step === "report_ring" || session.step === "report_wait") return handleReportRinging(session, ws, now, input);
+  if (session.step === "report_ready") return handleReady(session, ws, now, input);
   if (session.step === "report_mode_choice") return handleModeChoice(session, ws, now, input);
   if (session.step === "open_listen" || session.step === "open_more") return handleOpen(session, ws, now, input);
   if (session.step === "open_clarify") return handleOpenClarify(session, ws, now, input);

@@ -5,6 +5,7 @@
  * server resolves the farm from the caller and uses its own clock, so neither can be forged by
  * a model or a replayed webhook. See docs/integrations/voice-data-contract.md.
  */
+import { demoRepeatReports } from "@/server/calls/config";
 import { completeWorkerCallback, completeWorkerReport, confirmTask, recordOwnerInquiry, recordOwnerNotification, rejectOwnerInquiry, rejectWorkerReport, resolveWorkerCallAttempt, startTaskVerification, submitOwnerInstruction, submitOwnerInstructionBatch, type AttemptOutcome, type InstructionInput, type RejectReason } from "@/domain/actions";
 import { reportDraftIssue, type ReportDraft } from "@/domain/findings";
 import { isHerdCount } from "@/domain/herd";
@@ -325,7 +326,7 @@ function runAcceptsReport(run: ReportCallRun, now: Date): boolean {
 }
 
 /** Every decision is the domain's. This only picks the action and states the outcome. */
-export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
+export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent, repeatReports = false): Step {
   const saved: VoiceOutcome = { status: "saved" };
   if (ULTIMATE_ONLY.has(event.type) && !taskTicketsEnabled(ws)) return { ws, result: { status: "rejected", reason: "not_allowed" } };
   switch (event.type) {
@@ -336,7 +337,8 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent): Step {
         // NAQAH placed this call: the run, not caller ID, says whose report it is.
         const run = reportCallRuns(ws).find((item) => item.id === event.reportCallId);
         if (!run || !runAcceptsReport(run, now)) return { ws, result: { status: "rejected", reason: "call_not_active" } };
-        if (reportDoneThisPeriod(ws, now)) {
+        // The local presentation ranch keeps each confirmed report as its own record (demoRepeatReports).
+        if (reportDoneThisPeriod(ws, now) && !repeatReports) {
           const reason = ws.settings.plan === "basic" ? "weekly_done" : "daily_done";
           return { ws: rejectWorkerReport(ws, now, reason), result: { status: "rejected", reason } };
         }
@@ -431,7 +433,7 @@ export async function applyVoiceEvent(
     client,
     farmId,
     (ws) => {
-      const step = voiceStep(ws, now, event);
+      const step = voiceStep(ws, now, event, demoRepeatReports(farmId));
       appliedWorkspace = step.ws;
       const same = JSON.stringify(step.ws) === JSON.stringify(ws);
       return { ws: step.ws, result: same && step.result.status === "saved" ? { status: "unchanged" } : step.result };

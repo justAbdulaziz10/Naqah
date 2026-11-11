@@ -9,7 +9,8 @@
  * confirmation, then `completed`. Everything observed is kept as evidence for scripts/verify-test-call.mjs.
  *
  *   GET  /__test/state     { requests, calls, control }
- *   POST /__test/control   { outcome?: "full" | "no-answer" | "hold", twilioError?: number | null, dwellMs?: number, reset?: true }
+ *   POST /__test/control   { outcome?: "full" | "no-answer" | "hold", twilioError?: number | null, dwellMs?: number, reset?: true,
+ *                            natural?: NaturalScenario | null }   (natural: see runNaturalScenario; used by verify-natural-report.mjs)
  *   POST /__test/release   { status?: "completed" | "no-answer" }  ends the call being held
  *
  * This proves wiring. A scripted model and a fake phone network say nothing about real Arabic quality or carriers.
@@ -17,6 +18,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { startMockRealtime } from "./realtime-provider.mjs";
 import { connectStream, FRAME_BYTES, VOICED } from "./twilio-media.mjs";
+import { internalHeaders } from "../../services/voice-bridge/security.mjs";
 
 export const FAKE_ACCOUNT_SID = `AC${"0".repeat(32)}`;
 export const FAKE_AUTH_TOKEN = "local-test-auth-token";
@@ -141,14 +143,44 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
 
     const farm = farmOfCall(call.sid);
     call.farm = farm;
+    // The owner's briefing call (scripts/verify-owner-call-now.mjs): its own script, the worker's path below is untouched.
+    if (new URL(call.url).pathname === "/api/voice/owner") return runOwnerConversation(call, { upstream, stream, connect });
     const first = engineState(call.sid);
     call.queue = (first?.data?.queue ?? []).map((item) => item.id ?? item.questionId ?? item.kind);
 
     let lastOutput = null;
-    for (let turn = 0; turn < 30; turn += 1) {
+    // A natural call: the worker answers freely and the model hands the whole report over once.
+    call.natural = call.provider.sessionUpdate?.tool_choice === "auto";
+    if (call.natural && call.scenario) {
+      // A scripted natural scenario from verify-natural-report.mjs: answers, corrections, the confirmation timing.
+      await runNaturalScenario(call, { upstream, stream, connect, farm, queue: first?.data?.queue ?? [] });
+    } else if (call.natural) {
+      const answers = (first?.data?.queue ?? []).map((item) => {
+        const plan = ANSWER_PLAN.find((entry) => entry.when({ step: "report_question", q: item.id }));
+        if (!plan) throw new Error(`The scripted worker has no answer for ${item.id}`);
+        if (item.id === "herd_count") return { question_id: item.id, number: Number(plan.args.text) };
+        return { question_id: item.id, ...(plan.args.text !== undefined ? { text: plan.args.text } : { value: plan.args.value }) };
+      });
+      upstream.workerSays("كلها بخير، عشرين راس، العلف باقي منه شوي، الموية كافية، الشبك سليم، ولا والله ما جا أحد اليوم");
+      lastOutput = await upstream.toolCall("submit_report", { answers });
+      if (lastOutput === null) throw new Error("No output for submit_report");
+      call.toolResults.push({ name: "submit_report", output: lastOutput });
+      if (JSON.parse(lastOutput).status !== "ok") throw new Error(`The server refused the hand-over: ${lastOutput.slice(0, 300)}`);
+    }
+    for (let turn = 0; turn < 30 && !call.natural; turn += 1) {
       const state = engineState(call.sid);
       if (!state) throw new Error("The voice session row disappeared mid-call");
       if (state.step === "report_summary") break;
+      // The phone call greets and asks «جاهز؟» before the first question.
+      if (state.step === "report_ready") {
+        const [spoken, prompts] = [upstream.spoken.length, marks("prompt-")];
+        upstream.workerSays("إيه جاهز");
+        const output = await upstream.toolCall("answer_question", { value: "ready", topic: "herd" });
+        if (output === null || JSON.parse(output).status !== "ok") throw new Error("The server refused «جاهز»");
+        call.readyAnswered = true;
+        await waitUntil(() => upstream.spoken.length > spoken && marks("prompt-") > prompts, "the first question", 20_000);
+        continue;
+      }
       const plan = state.step === "report_question" ? ANSWER_PLAN.find((entry) => entry.when(state)) : null;
       if (!plan) throw new Error(`The scripted worker has no answer for ${state.step}/${state.q}`);
       call.questions.push({ step: state.step, q: state.q });
@@ -164,6 +196,7 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
       await waitUntil(() => upstream.spoken.length > spoken && marks("prompt-") > prompts, `the line after ${state.q}`, 20_000);
       call.linesAfterAnswers.push({ expected: parsed.question, spoken: upstream.spoken.at(-1) });
     }
+    if (!call.scenario) {
     if (engineState(call.sid)?.step !== "report_summary") throw new Error("The call never reached the summary");
 
     const parsed = JSON.parse(lastOutput ?? "{}");
@@ -177,6 +210,7 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
     const confirmed = await upstream.toolCall("confirm_report", { confirmed: true });
     call.toolResults.push({ name: "confirm_report", output: confirmed });
     call.confirm = { output: confirmed === null ? null : JSON.parse(confirmed) };
+    }
 
     const closed = await stream.waitClosed(20_000);
     call.streamClosed = closed !== null;
@@ -194,8 +228,168 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
     call.reportsAfterConfirm = reportCount(farm);
 
     const after = await webhook(connect.action, fieldsFor(call));
-    call.after = { http: after.status, hangup: /<Hangup/.test(after.xml), speaks: /<Say|<Gather/.test(after.xml) };
+    call.after = { http: after.status, hangup: /<Hangup/.test(after.xml), speaks: /<Say|<Gather/.test(after.xml), say: decode(after.xml.match(/<Say\b[^>]*>([\s\S]*?)<\/Say>/)?.[1] ?? "") || undefined };
     await sendStatus(call, "completed", { CallDuration: "42" });
+    call.finished = true;
+  }
+
+  /**
+   * Added for scripts/verify-natural-report.mjs. A natural call driven by a JSON scenario:
+   *   answers      { [question id | "custom" | "task" | "weather_heat_day"]: submit_report answer fields }
+   *   say          the worker's free answer before the hand-over
+   *   corrections  [{ say, answers }]  after a summary, the worker corrects; the model hands everything over again
+   *   unitClarifications [{ say, answers }]  each time the server asks for a feed amount's unit, the worker answers
+   *   confirm      { say, earlyMs }    the worker's yes; with earlyMs, speech starts that long before the summary's
+   *                                   playback mark comes back, as on the real call (VAD prefix padding, late marks)
+   *   duplicates   { inResponse, direct, voiceSecret }  after the yes: the same confirm_report twice and a new id in
+   *                                   the model's turn, and signed bridge retries straight to the tool route
+   */
+  async function runNaturalScenario(call, { upstream, stream, connect, farm, queue }) {
+    const scenario = call.scenario;
+    const marks = (prefix) => stream.sent("mark").filter((event) => event.mark?.name?.startsWith(prefix)).length;
+    const build = (overrides = {}) => queue.filter((item) => !item.id.startsWith("open_note_")).map((item) => {
+      const given = overrides[item.id] ?? overrides[item.kind] ?? scenario.answers[item.id] ?? scenario.answers[item.kind];
+      if (!given) throw new Error(`The scenario has no answer for ${item.id} (${item.kind})`);
+      return { question_id: item.id, ...given };
+    });
+    call.scenarioLog = { asked: queue.map((item) => ({ id: item.id, kind: item.kind })), summaries: [], submits: [] };
+    const corrections = scenario.corrections ?? [];
+    const clarifications = [...(scenario.unitClarifications ?? [])];
+    let answers = build();
+    let summaryMarks = marks("summary-");
+    for (let round = 0; round <= corrections.length; round += 1) {
+      const last = round === corrections.length;
+      // The final summary's playback marks are held, so the worker's yes can start before they come back.
+      if (last && scenario.confirm?.earlyMs !== undefined) stream.autoMark = false;
+      upstream.workerSays(round === 0 ? scenario.say : corrections[round - 1].say);
+      let output;
+      let parsed;
+      for (;;) {
+        output = await upstream.toolCall("submit_report", { answers });
+        if (output === null) throw new Error("No output for submit_report");
+        call.toolResults.push({ name: "submit_report", output });
+        call.scenarioLog.submits.push(answers);
+        parsed = JSON.parse(output);
+        // The server asked for the feed amount's unit: the model asks, the worker answers, everything goes over again.
+        const clarify = parsed.status === "invalid" && parsed.error === "unit_missing" ? clarifications.shift() : null;
+        if (!clarify) break;
+        (call.unitRefusals ??= []).push(parsed);
+        upstream.workerSays(clarify.say);
+        answers = build(clarify.answers);
+      }
+      if (parsed.status !== "ok") throw new Error(`The server refused the hand-over: ${output.slice(0, 300)}`);
+      const summary = { text: parsed.summary ?? null, flagged: parsed.isSummary === true, replies: parsed.replies?.map((reply) => reply.value) ?? [] };
+      if (last && stream.autoMark === false) {
+        await waitUntil(() => stream.pendingMarks.some((name) => name.startsWith("summary-")), "the summary's playback mark", 20_000);
+      } else {
+        await waitUntil(() => marks("summary-") > summaryMarks, "summary playback boundary", 20_000);
+        await sleep(100);
+      }
+      summaryMarks = marks("summary-");
+      // A natural summary is spoken as its facts, then the closing question as a second line.
+      summary.readInFull = upstream.spoken.includes(summary.text) || upstream.spoken.some((line, index) => `${line} ${upstream.spoken[index + 1] ?? ""}`.trim() === summary.text);
+      call.scenarioLog.summaries.push(summary);
+      call.summary = summary;
+      if (!last) answers = build(corrections[round].answers);
+    }
+    call.reportsBeforeConfirm = reportCount(farm);
+
+    const confirmSay = scenario.confirm?.say ?? CONFIRMATION;
+    if (scenario.confirm?.earlyMs !== undefined) {
+      // Half a second of the worker's line while the summary's last audio plays, then speech starts before the mark.
+      const before = upstream.audioIn.length;
+      for (let frame = 0; frame < 25; frame += 1) stream.media(VOICED);
+      await waitUntil(() => upstream.audioIn.length >= before + 25, "caller audio during the summary");
+      const inputMs = (upstream.audioIn.length * FRAME_BYTES) / 8;
+      const speechStartMs = inputMs - scenario.confirm.earlyMs;
+      upstream.speechStarted(speechStartMs);
+      await sleep(40);
+      const held = [...stream.pendingMarks];
+      stream.ackAll();
+      await sleep(40);
+      call.immediate = { inputMs, speechStartMs, marksAckedAfterSpeech: held };
+      if (!scenario.duplicates) stream.autoMark = true;
+      upstream.workerFinishes(confirmSay);
+    } else {
+      if (scenario.duplicates) stream.autoMark = false;
+      upstream.workerSays(confirmSay);
+    }
+
+    let confirmed;
+    if (scenario.duplicates?.inResponse) {
+      const first = `call_dup_${randomBytes(4).toString("hex")}`;
+      const second = `call_dup_${randomBytes(4).toString("hex")}`;
+      const turn = await upstream.toolCalls([
+        { name: "confirm_report", args: { confirmed: true }, callId: first },
+        { name: "confirm_report", args: { confirmed: true }, callId: first },
+        { name: "confirm_report", args: { confirmed: true }, callId: second },
+      ], { waitMs: 4000 });
+      confirmed = turn.outputs[first];
+      call.duplicates = { inResponse: { first, second, outputs: turn.outputs } };
+    } else {
+      confirmed = await upstream.toolCall("confirm_report", { confirmed: true });
+      // A save the server couldn't confirm: the model asks for the yes again, and the worker gives it.
+      if (confirmed && JSON.parse(confirmed).status === "save_not_confirmed") {
+        call.toolResults.push({ name: "confirm_report", output: confirmed });
+        call.confirmRetried = true;
+        await sleep(100);
+        upstream.workerSays(confirmSay);
+        confirmed = await upstream.toolCall("confirm_report", { confirmed: true });
+      }
+    }
+    call.toolResults.push({ name: "confirm_report", output: confirmed });
+    call.confirm = { output: confirmed === null ? null : JSON.parse(confirmed) };
+
+    if (scenario.duplicates?.direct) {
+      // What a retrying bridge would send: signed, same ticket, once with the saved call's id and once with a new one.
+      const retry = async (toolCallId) => {
+        const body = JSON.stringify({ ticket: connect.ticket, callSid: call.sid, toolCallId, name: "confirm_report", args: { confirmed: true }, userSpokeSinceLastTool: true, workerUtterance: confirmSay, heardSummary: true });
+        const response = await fetch(`${appOrigin}/api/voice/realtime/tool`, { method: "POST", headers: internalHeaders(body, scenario.duplicates.voiceSecret), body });
+        const text = await response.text();
+        let json = null;
+        try { json = JSON.parse(text); } catch { /* not json */ }
+        return { http: response.status, output: json?.output ? JSON.parse(json.output) : null, end: json?.end ?? null, goodbye: json?.goodbye ?? null };
+      };
+      const savedId = call.duplicates?.inResponse?.first ?? null;
+      call.duplicates = { ...(call.duplicates ?? {}), direct: { same: savedId ? await retry(savedId) : null, fresh: await retry(`call_retry_${randomBytes(4).toString("hex")}`) } };
+    }
+    if (stream.autoMark === false) { stream.ackAll(); stream.autoMark = true; }
+  }
+
+  /**
+   * Added for scripts/verify-owner-call-now.mjs. The owner hears the briefing (the opening line), then
+   * `call.scenario.owner`: { say, items, confirm } gives one or more instructions and confirms the read-back,
+   * or { say, none: true } has none. Ends like a real call: the bridge's goodbye, /after, then `completed`.
+   */
+  async function runOwnerConversation(call, { upstream, stream, connect }) {
+    const script = call.scenario?.owner ?? { say: "لا ما عندي شي", none: true };
+    const marks = (prefix) => stream.sent("mark").filter((event) => event.mark?.name?.startsWith(prefix)).length;
+    call.owner = { opening: call.provider.opening, steps: [], tools: (call.provider.sessionUpdate?.tools ?? []).map((tool) => tool.name) };
+    call.owner.stepAtStart = engineState(call.sid)?.step ?? null;
+    upstream.workerSays(script.say);
+    if (script.none) {
+      const output = await upstream.toolCall("no_instructions", {});
+      call.owner.steps.push({ name: "no_instructions", output: output === null ? null : JSON.parse(output) });
+    } else {
+      const proposed = await upstream.toolCall("propose_instructions", { items: script.items });
+      const parsed = proposed === null ? null : JSON.parse(proposed);
+      call.owner.steps.push({ name: "propose_instructions", output: parsed });
+      if (parsed?.status !== "ok") throw new Error(`The server refused the instructions: ${String(proposed).slice(0, 300)}`);
+      call.owner.review = { text: parsed.summaryText ?? parsed.summary ?? null, flagged: parsed.isSummary === true || parsed.awaitingConfirmation === true };
+      await waitUntil(() => marks("summary-") >= 1, "the read-back's playback boundary", 20_000);
+      await sleep(100);
+      call.owner.review.readInFull = upstream.spoken.some((line) => call.owner.review.text && line.includes(call.owner.review.text));
+      call.owner.stepBeforeConfirm = engineState(call.sid)?.step ?? null;
+      upstream.workerSays(script.confirm ?? "إيه احفظها");
+      const confirmed = await upstream.toolCall("confirm_instructions", { confirmed: true });
+      call.owner.steps.push({ name: "confirm_instructions", output: confirmed === null ? null : JSON.parse(confirmed) });
+    }
+    const closed = await stream.waitClosed(20_000);
+    call.streamClosed = closed !== null;
+    call.provider.spoken = [...upstream.spoken];
+    const after = await webhook(connect.action, fieldsFor(call));
+    call.after = { http: after.status, hangup: /<Hangup/.test(after.xml), speaks: /<Say|<Gather/.test(after.xml) };
+    await sendStatus(call, "completed", { CallDuration: "37" });
     call.finished = true;
   }
 
@@ -266,7 +460,7 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
     record.sid = sid;
     const call = {
       sid, to: fields.To, from: fields.From, url: fields.Url, statusCallback: fields.StatusCallback, record: fields.Record,
-      requestedEvents: form.getAll("StatusCallbackEvent"), outcome: control.outcome, statuses: [], questions: [], toolResults: [], linesAfterAnswers: [],
+      requestedEvents: form.getAll("StatusCallbackEvent"), outcome: control.outcome, scenario: control.natural ?? null, statuses: [], questions: [], toolResults: [], linesAfterAnswers: [],
       provider: {}, finished: false,
     };
     calls.push(call);
@@ -286,6 +480,7 @@ export async function startTestCallMock({ port, appOrigin, publicBase, bridgePor
         if (input.outcome !== undefined) control.outcome = input.outcome;
         if (input.twilioError !== undefined) control.twilioError = input.twilioError;
         if (input.dwellMs !== undefined) control.dwellMs = input.dwellMs;
+        if (input.natural !== undefined) control.natural = input.natural;
         return sendJson(response, 200, control);
       }
       if (url.pathname === "/__test/release" && request.method === "POST") {

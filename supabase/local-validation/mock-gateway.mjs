@@ -9,6 +9,7 @@
 // Env: NAQAH_TEST_JWT_SECRET, NAQAH_TEST_GATEWAY_PORT, NAQAH_TEST_POSTGREST, NAQAH_TEST_DB and the PG* variables.
 import { execFile } from "node:child_process";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 
 const SECRET = process.env.NAQAH_TEST_JWT_SECRET ?? "";
@@ -63,6 +64,15 @@ const usersById = new Map(); // id -> { user, password }
 const usersByEmail = new Map(); // email -> id
 const sessions = new Map(); // session id -> user id
 const refreshTokens = new Map(); // token -> { sessionId, usedAt }
+// NAQAH_TEST_USERS_FILE (the test-call runner's --keep-data): local test accounts survive a restart with the database.
+const USERS_FILE = /^\/(?:tmp|private\/tmp)\/[\w./-]+$/.test(process.env.NAQAH_TEST_USERS_FILE ?? "") ? process.env.NAQAH_TEST_USERS_FILE : null;
+if (USERS_FILE && existsSync(USERS_FILE)) {
+  for (const { user, password } of JSON.parse(readFileSync(USERS_FILE, "utf8"))) {
+    usersById.set(user.id, { user, password });
+    usersByEmail.set(user.email, user.id);
+  }
+}
+const saveUsers = () => { if (USERS_FILE) writeFileSync(USERS_FILE, JSON.stringify([...usersById.values()]), { mode: 0o600 }); };
 const outboundRequests = [];
 let outboundStatus = 201;
 let restFailure = false;
@@ -151,7 +161,35 @@ async function handleTestUsers(req, res) {
   };
   usersById.set(id, { user, password });
   usersByEmail.set(key, id);
+  saveUsers();
   sendJson(res, 201, user);
+}
+
+/**
+ * POST /auth/v1/signup, as Supabase Auth answers it with email confirmation off: the user exists and is signed in at
+ * once. Only the local stack has this gateway, so a new owner can try sign-up and onboarding on a laptop.
+ */
+async function handleSignup(req, res) {
+  if (req.method !== "POST") return sendJson(res, 405, { msg: "POST only" });
+  const { email, password, data } = await readJson(req);
+  if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+$/.test(email.trim())) return sendAuthError(res, 400, "validation_failed", "Unable to validate email address: invalid format");
+  if (typeof password !== "string" || password.length < 8) return sendAuthError(res, 422, "weak_password", "Password should be at least 8 characters.");
+  const key = email.trim().toLowerCase();
+  if (usersByEmail.has(key)) return sendAuthError(res, 422, "user_already_exists", "User already registered");
+  const id = randomUUID();
+  await insertAuthUser(id);
+  const now = new Date().toISOString();
+  const user = {
+    id, aud: "authenticated", role: "authenticated", email: key, email_confirmed_at: now, phone: "",
+    confirmed_at: now, last_sign_in_at: now, app_metadata: { provider: "email", providers: ["email"] },
+    user_metadata: data && typeof data === "object" && !Array.isArray(data) ? data : {}, identities: [], created_at: now, updated_at: now, is_anonymous: false,
+  };
+  usersById.set(id, { user, password });
+  usersByEmail.set(key, id);
+  saveUsers();
+  const sessionId = randomUUID();
+  sessions.set(sessionId, id);
+  sendJson(res, 200, sessionResponse(user, sessionId, issueRefreshToken(sessionId)));
 }
 
 async function handleToken(req, res, grantType) {
@@ -194,6 +232,7 @@ async function handleAuth(req, res, url) {
   const path = url.pathname.slice("/auth/v1".length);
   if (path === "/.well-known/jwks.json") return sendJson(res, 200, { keys: [] });
   if (path === "/token") return handleToken(req, res, url.searchParams.get("grant_type"));
+  if (path === "/signup") return handleSignup(req, res);
   if (path === "/logout") return handleLogout(req, res, url.searchParams.get("scope") ?? "global");
   if (path === "/user" && req.method === "GET") {
     const current = authenticate(req);
@@ -244,7 +283,7 @@ const server = http.createServer(async (req, res) => {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
       const fields = Object.fromEntries(new URLSearchParams(Buffer.concat(chunks).toString()));
-      if (!["+15555550101", "+15555550102"].includes(fields.To)) return sendJson(res, 403, { message: "Fake numbers only" });
+      if (!["+966500000101", "+966500000102", "+15555550101", "+15555550102"].includes(fields.To)) return sendJson(res, 403, { message: "Fake numbers only" });
       const sid = `CA${randomBytes(16).toString("hex")}`;
       outboundRequests.push({ ...fields, sid });
       return sendJson(res, outboundStatus, outboundStatus === 201 ? { sid } : { message: "Mock provider unavailable" });

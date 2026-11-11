@@ -2,6 +2,9 @@
 import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { internalHeaders } from "../services/voice-bridge/security.mjs";
+import { parseSecrets, TEST_FARM } from "./test-call-local.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const option = (name) => {
@@ -18,7 +21,22 @@ const numbers = (raw) => raw.split(",").map((item) => item.trim()).sort();
 const validNumbers = (items) => items.length > 0 && items.every((item) => /^\+[1-9]\d{7,14}$/.test(item)) && new Set(items).size === items.length;
 const request = (url, init) => fetch(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(10_000) });
 
-try {
+if (process.argv.includes("--providers") || process.argv.length === 2) {
+  try {
+    const secretsFile = option("secrets");
+    const secrets = secretsFile ? parseSecrets(readFileSync(secretsFile, "utf8")) : {};
+    const secret = secrets.NAQAH_VOICE_SECRET || env("NAQAH_VOICE_SECRET");
+    const base = new URL(option("base") || env("NAQAH_PUBLIC_BASE_URL"));
+    if (!secret || base.protocol !== "https:" || base.username || base.password || base.pathname !== "/" || base.search || base.hash) throw new Error("configuration");
+    const body = JSON.stringify({ farmId: option("farm") || env("NAQAH_PREFLIGHT_FARM_ID") || TEST_FARM });
+    const response = await request(new URL("/api/report-call-now", base), { method: "POST", body, headers: internalHeaders(body, secret) });
+    const result = response.ok ? await response.json() : null;
+    const names = ["worker_allowlisted", "no_active_run", "public_bridge_url", "twilio_account", "twilio_voice_number", "openai_key", "openai_realtime", "bridge_health", "bridge_configuration"];
+    check("authenticated free preflight", result?.ok === true);
+    for (const name of names) check(name, result?.checks?.some((entry) => entry.name === name && entry.passed === true) === true);
+  } catch { check("free preflight reachable and configured", false); }
+  console.log(failures ? "NOT READY. No call placed." : "READY for owner review only. Free GET checks only; no call placed.");
+} else try {
   const base = new URL(option("base"));
   const expected = numbers(option("expect"));
   const locale = option("locale");
@@ -61,5 +79,5 @@ try {
 } catch {
   check("preflight completed (check arguments, env, build and reachability)", false);
 }
-console.log(failures ? `NOT READY: ${failures} check(s) failed. No call placed.` : "READY for owner review only. No call placed; no Twilio API or messaging requests made.");
+if (!process.argv.includes("--providers") && process.argv.length !== 2) console.log(failures ? `NOT READY: ${failures} check(s) failed. No call placed.` : "READY for owner review only. No call placed; no Twilio API or messaging requests made.");
 process.exitCode = failures ? 1 : 0;

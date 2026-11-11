@@ -646,7 +646,7 @@ describe("Call Lab conversation engine", () => {
 
     session = answer(session, heated, NOW, { value: "unknown" }).session;
     expect(session.step).toBe("report_summary");
-    expect(session.turns.at(-1)?.text.en).toContain("Do the camels have enough water and shade? Not enough");
+    expect(session.turns.at(-1)?.text.en).toContain("Do the camels have enough water and shade: Not enough");
     const saved = answer(session, heated, NOW, { value: "confirm_save" });
     const committed = saved.commit?.(heated) ?? heated;
     const finding = committed.reports.at(-1)?.findings.find((item) => item.criterionId === "weather_heat_day");

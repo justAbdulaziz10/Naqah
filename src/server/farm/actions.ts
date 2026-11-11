@@ -10,7 +10,9 @@ import { isAccountDataEnabled } from "./account-mode";
 import type { AccountWorkspace } from "@/lib/account/types";
 import type { LoadedFarm } from "@/server/db/queries";
 import { isUuid } from "@/server/db/ids";
-import { manualCallsEnabled, outboundCallMissing, outboundConfig } from "@/server/calls/config";
+import { manualCallsEnabled, outboundCallMissing, outboundConfig, demoRepeatReports, demoOwnerCallNow, demoOwnerCallNowEnabled } from "@/server/calls/config";
+import { requestOwnerCallNow, type OwnerCallNowResult } from "@/server/calls/owner-call-now";
+import { withCallNowLimit } from "@/server/calls/call-now-limit";
 import { requestReportCallNow, type CallNowResult } from "@/server/calls/scheduler";
 import { createTwilioCaller } from "@/server/calls/twilio";
 import { createServiceClient } from "@/server/db/service-client";
@@ -160,6 +162,26 @@ export async function callWorkerNow(): Promise<ActionResult<CallNowResult>> {
     const service = createServiceClient();
     const config = outboundConfig();
     if (!service || !config) throw new DbError("unavailable");
-    return requestReportCallNow(service, createTwilioCaller(config), farmId, { baseUrl: config.baseUrl, now: new Date(), allowlist: config.allowlist });
+    const now = new Date();
+    return withCallNowLimit(farmId, now, () =>
+      requestReportCallNow(service, createTwilioCaller(config), farmId, { baseUrl: config.baseUrl, now, allowlist: config.allowlist, repeatReports: demoRepeatReports(farmId) }));
+  });
+}
+
+/**
+ * LOCAL DEMO ONLY: NAQAH calls the signed-in owner now with the briefing («العامل / المالك» on the Dashboard). Its own
+ * path beside callWorkerNow. Off unless the local runner set NAQAH_DEMO_OWNER_CALL=1 (never on Vercel), real calls
+ * are fully configured, and the farm is the presentation ranch. The number is the farm's own saved owner number,
+ * and it must be approved on this computer; nothing in the request chooses who is called.
+ */
+export async function callOwnerNow(): Promise<ActionResult<OwnerCallNowResult>> {
+  if (!demoOwnerCallNowEnabled() || !callNowReady()) return { ok: false, error: "unavailable" };
+  return asOwner(async (r) => {
+    const { farmId } = await r.load(); // Proves the session owns this farm, under RLS.
+    if (!demoOwnerCallNow(farmId)) throw new DbError("unavailable");
+    const service = createServiceClient();
+    const config = outboundConfig();
+    if (!service || !config) throw new DbError("unavailable");
+    return requestOwnerCallNow(service, createTwilioCaller(config), farmId, { baseUrl: config.baseUrl, now: new Date(), allowlist: config.allowlist });
   });
 }

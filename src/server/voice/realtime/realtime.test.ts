@@ -111,11 +111,14 @@ async function answerCall() {
   return answerReportCall(db.client, { token: token(), callSid: CALL, now: new Date() });
 }
 
-async function open() {
+/** Opens the stream and, unless `greeted` is false, answers «جاهز؟» so the report's first question is current. */
+async function open(greeted = true) {
   const ticket = ticketIn(await answerCall());
   const response = await sessionRoute(signed("/api/voice/realtime/session", { ticket, callSid: CALL }));
   expect(response.status).toBe(200);
-  return { ticket, opened: await response.json() };
+  const opened = await response.json();
+  if (greeted) expect((await tool(ticket, "answer_question", { value: "ready" }, { workerUtterance: "إيه جاهز" })).status).toBe(200);
+  return { ticket, opened };
 }
 
 async function tool(ticket: string, name: unknown, args: unknown, extra: Record<string, unknown> = {}) {
@@ -209,7 +212,9 @@ describe("configuration", () => {
     vi.stubEnv("NAQAH_VOICE_ENGINE", "realtime");
     const streamed = await answerCall();
     expect(streamed).toContain("<Connect");
-    expect(row().last_response).toBe(scripted);
+    // The phone call greets and waits for «جاهز؟» first; the script it falls back to starts the same way.
+    expect(row().last_response).toContain("جاهز؟");
+    expect(scripted).not.toContain("جاهز؟");
   });
 
   it("keeps the bridge routes closed when off", async () => {
@@ -411,10 +416,10 @@ describe("session response", () => {
   it("returns the rules, tools, opening, locale and a time limit", async () => {
     const { opened } = await open();
     expect(opened.locale).toBe("ar");
-    expect(opened.maxSeconds).toBe(600);
+    expect(opened.maxSeconds).toBe(300);
     expect(opened.tools.map((item: { name: string }) => item.name)).toEqual(REALTIME_TOOLS.map((item) => item.name));
     expect(opened.repromptText).toBeTruthy();
-    expect(opened.opening).toContain("مساعد ناقة الآلي");
+    expect(opened.opening).toContain("المساعد الآلي");
     expect(opened.instructions).toContain("بيانات");
     expect(opened.instructions).not.toContain("currentStep");
     expect(firstPrompt(opened).replies.length).toBeGreaterThan(0);
@@ -453,7 +458,7 @@ describe("server-owned report tool protocol", () => {
     const label = repeated.output.replies.find((reply: { value: string }) => reply.value === "unknown").label;
     if (reason === "asked_meaning") expect(repeated.result.sayText).toContain(label);
     else expect(repeated.result.sayText).not.toContain(label);
-    expect(row().seq).toBe(0);
+    expect(row().seq).toBe(1); // «جاهز؟» was the one step taken
   });
 
   it.each(["", "ضجيج", "background noise"])("is silent first, then re-asks on repeated noise %j", async (workerUtterance) => {
@@ -481,7 +486,7 @@ describe("server-owned report tool protocol", () => {
     expect(result.output.status).toBe("invalid");
     expect(result.result.sayText).toContain(firstPrompt(opened).question);
     expect(speechFields(result.result)).toEqual(["sayText"]);
-    expect(row().seq).toBe(0);
+    expect(row().seq).toBe(1); // «جاهز؟» was the one step taken
   });
 
   it("ends the four-refused-yes replay as unknown and never invents a sick camel on a wordless no", async () => {
@@ -1223,5 +1228,217 @@ describe("after the stream", () => {
     expect((await afterRoute(twilio("/api/voice/realtime/after?s=nope", { CallSid: CALL }))).status).toBe(403);
     const other = encodeURIComponent(signCallToken({ ...token(), f: "00000000-0000-4000-8000-000000000009" }, SECRET));
     expect(await (await afterRoute(twilio(`/api/voice/realtime/after?s=${other}`, { CallSid: CALL }))).text()).toContain("<Hangup/>");
+  });
+});
+
+describe("the natural call (local presentation style)", () => {
+  type Queue = NonNullable<CallSession["data"]["queue"]>;
+  const handOver = (queue: Queue, herd: number) => queue.map((item) => {
+    if (item.kind === "custom") return { question_id: item.id, text: "ما فيه شي جديد" };
+    if (item.kind === "predefined" && item.answerKind === "herd-health") return { question_id: item.id, value: "yes" };
+    if (item.id === "herd_count") return { question_id: item.id, number: herd };
+    if (item.kind === "predefined" && item.answerKind === "level") return { question_id: item.id, value: "good" };
+    return { question_id: item.id, value: "yes" };
+  });
+
+  beforeEach(() => vi.stubEnv("NAQAH_VOICE_STYLE", "natural"));
+
+  async function openNatural() {
+    const ticket = ticketIn(await answerCall());
+    const response = await sessionRoute(signed("/api/voice/realtime/session", { ticket, callSid: CALL }));
+    expect(response.status).toBe(200);
+    return { ticket, opened: await response.json() };
+  }
+
+  it("opens one natural conversation: own words, four tools, no keypad", async () => {
+    const { opened } = await openNatural();
+    expect(opened.style).toBe("natural");
+    expect(opened.opening).toMatch(/^هلا والله يا .+، معك ناقة، المساعد الآلي/);
+    expect(opened.opening).toContain("بشّر، كيف الحلال اليوم؟");
+    expect(opened.tools.map((item: { name: string }) => item.name)).toEqual(["submit_report", "confirm_report", "flag_urgent", "end_call"]);
+    expect(opened.instructions).toContain("لا تعيد سؤال انجاوب");
+  });
+
+  it("hands over the report once, reads the engine's summary, saves on a spoken yes and says goodbye", async () => {
+    const { ticket } = await openNatural();
+    const base = realtimeOf(row().session)!.naturalBase!;
+    const farm = answeredFarm();
+    const submitted = await tool(ticket, "submit_report", { answers: handOver(base.data.queue ?? [], farm.settings.herdCount ?? farm.camels.length) }, { workerUtterance: "إيه هذا كل شي" });
+    expect(submitted.status).toBe(200);
+    expect(submitted.result.summaryText).toMatch(/^هذا اللي فهمته: .*\. أحفظه؟$/u);
+    expect(submitted.result.repromptText).toBe("أحفظه؟");
+    expect(submitted.result.summaryId).toBe(reportSummaryId(row().session, "ar"));
+    expect(mock.save).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), expect.objectContaining({ type: "worker_report" }), expect.anything());
+    const saved = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "إيه احفظه", heardSummary: true, heardSummaryId: submitted.result.summaryId });
+    expect(saved.output.status).toBe("saved");
+    expect(saved.result.end).toBe("hangup");
+    expect(saved.result.goodbye).toBe("انحفظ، الله يعطيك العافية. مع السلامة.");
+  });
+
+  async function readSummary(ticket: string) {
+    const base = realtimeOf(row().session)!.naturalBase!;
+    const farm = answeredFarm();
+    return tool(ticket, "submit_report", { answers: handOver(base.data.queue ?? [], farm.settings.herdCount ?? farm.camels.length) }, { workerUtterance: "هذا كل شي" });
+  }
+
+  it("saves once on a casual Saudi yes the transcriber garbled, as on the 11 Nov call", async () => {
+    const { ticket } = await openNatural();
+    const submitted = await readSummary(ticket);
+    const saved = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "كل شيء تمام. لا تتعدى لأحفظك.", heardSummary: true, heardSummaryId: submitted.result.summaryId });
+    expect(saved.output.status).toBe("saved");
+    expect(saved.result.end).toBe("hangup");
+    expect(mock.save.mock.calls.filter((call) => call[3]?.type === "worker_report")).toHaveLength(1);
+  });
+
+  it("after three unclear replies says nothing was saved and hangs up, never a connection problem", async () => {
+    const { ticket } = await openNatural();
+    const submitted = await readSummary(ticket);
+    let last;
+    for (let turn = 0; turn < 3; turn += 1) last = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "كل شيء نام", heardSummary: true, heardSummaryId: submitted.result.summaryId });
+    expect(last!.output.status).toBe("ended_without_saving");
+    expect(last!.result.goodbye).toContain("ما انحفظ التحديث");
+    expect(last!.result.end).toBe("hangup");
+    expect(mock.save.mock.calls.some((call) => call[3]?.type === "worker_report")).toBe(false);
+    const after = await (await afterRoute(twilio(`/api/voice/realtime/after?s=${encodeURIComponent(signCallToken(token(), SECRET))}`, { CallSid: CALL }))).text();
+    expect(after).not.toContain("معليش");
+  });
+
+  it("a save that fails asks once more, then ends honestly, never blaming the connection", async () => {
+    const { ticket } = await openNatural();
+    const submitted = await readSummary(ticket);
+    mock.save.mockImplementation(async (_client: unknown, _farm: unknown, _party: unknown, event: { type?: string }) => {
+      if (event?.type === "worker_report") throw new Error("database unavailable");
+      return { status: "saved" };
+    });
+    const heard = { heardSummary: true, heardSummaryId: submitted.result.summaryId };
+    const first = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "إيه احفظه", ...heard });
+    expect(first.output.status).toBe("save_not_confirmed");
+    expect(first.result.continue).toBe(true);
+    expect(first.result.end).toBeNull();
+    const second = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "إيه احفظه", ...heard });
+    expect(second.output.status).toBe("save_failed");
+    expect(second.result.end).toBe("hangup");
+    expect(second.result.goodbye).toContain("ما قدرت أتأكد من حفظ شيء");
+    expect(second.result.goodbye).not.toContain("الاتصال");
+  });
+
+  it("asks the model to get missing answers instead of saving a partial report", async () => {
+    const { ticket } = await openNatural();
+    const result = await tool(ticket, "submit_report", { answers: [] }, { workerUtterance: "خلاص" });
+    expect(result.output).toMatchObject({ status: "invalid", error: "questions_not_answered" });
+    expect(result.result.continue).toBe(true);
+    expect(result.result.summaryText).toBeUndefined();
+  });
+
+  it("checks a count the worker's words don't back once, then accepts the next hand-over after their reply", async () => {
+    const { ticket } = await openNatural();
+    const base = realtimeOf(row().session)!.naturalBase!;
+    const farm = answeredFarm();
+    const herd = farm.settings.herdCount ?? farm.camels.length;
+    expect(base.data.queue?.some((item) => item.id === "herd_count")).toBe(true);
+    const args = { answers: handOver(base.data.queue ?? [], herd) };
+    const said = ["الحمد لله كلهم بخير", "ما فيه شي جديد"];
+    const checked = await tool(ticket, "submit_report", args, { workerUtterance: "ما فيه شي جديد", workerTranscripts: said });
+    expect(checked.output).toMatchObject({ status: "check", items: [{ question_id: "herd_count", reason: "number_not_heard" }] });
+    expect(checked.output.say).toBe(`${herd} راس، صح؟`);
+    expect(checked.result.continue).toBe(true);
+    expect(checked.result.summaryText).toBeUndefined();
+    // Handed over again before the worker answered: still the same check, never the summary.
+    const early = await tool(ticket, "submit_report", args, { userSpokeSinceLastTool: false, workerTranscripts: said });
+    expect(early.output.status).toBe("check");
+    const confirmed = await tool(ticket, "submit_report", args, { workerUtterance: "إيه صح", workerTranscripts: [...said, "إيه صح"] });
+    expect(confirmed.result.summaryText).toContain(`${herd} من الحلال`);
+    expect(realtimeOf(row().session)!.checkedAnswers).toEqual(["herd_count:number"]);
+  });
+
+  it("doesn't check a correction after the summary: it is read back in full instead", async () => {
+    const { ticket } = await openNatural();
+    const base = realtimeOf(row().session)!.naturalBase!;
+    const farm = answeredFarm();
+    const herd = farm.settings.herdCount ?? farm.camels.length;
+    await readSummary(ticket);
+    const corrected = await tool(ticket, "submit_report", { answers: handOver(base.data.queue ?? [], herd + 3) }, { workerUtterance: "لا العدد غلط", workerTranscripts: ["ما فيه شي جديد", "لا العدد غلط"] });
+    expect(corrected.result.summaryText).toContain(`${herd + 3} من الحلال`);
+  });
+
+  it("never reads the same summary twice: an identical hand-over is 'unchanged', and the first summary still saves", async () => {
+    const { ticket } = await openNatural();
+    const submitted = await readSummary(ticket);
+    const id = submitted.result.summaryId;
+    const again = await readSummary(ticket);
+    expect(again.output.status).toBe("unchanged");
+    expect(again.output.message).toContain("Nothing changed. If the worker agreed, call confirm_report; otherwise ask briefly what to change.");
+    expect(again.result).toMatchObject({ continue: true, end: null });
+    expect(again.result.summaryText).toBeUndefined();
+    expect(again.result.sayText).toBeUndefined();
+    expect(reportSummaryId(row().session, "ar")).toBe(id);
+    const saved = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "تمام", heardSummary: true, heardSummaryId: id });
+    expect(saved.output.status).toBe("saved");
+    expect(mock.save.mock.calls.filter((call) => call[3]?.type === "worker_report")).toHaveLength(1);
+  });
+
+  it("a hand-over that changes an answer is read in full once, and only its new summary can be confirmed", async () => {
+    const { ticket } = await openNatural();
+    const base = realtimeOf(row().session)!.naturalBase!;
+    const herd = answeredFarm().settings.herdCount ?? answeredFarm().camels.length;
+    const first = await readSummary(ticket);
+    const changed = await tool(ticket, "submit_report", { answers: handOver(base.data.queue ?? [], herd + 2) }, { workerUtterance: "لا العدد غلط", workerTranscripts: ["لا العدد غلط"] });
+    expect(changed.result.summaryText).toContain(`${herd + 2} من الحلال`);
+    expect(changed.result.summaryId).not.toBe(first.result.summaryId);
+    const stale = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "تمام", heardSummary: true, heardSummaryId: first.result.summaryId });
+    expect(stale.output.status).not.toBe("saved");
+    const saved = await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "تمام", heardSummary: true, heardSummaryId: changed.result.summaryId });
+    expect(saved.output.status).toBe("saved");
+  });
+
+  /**
+   * Call b8fd64 (11 Nov), its ending as the new rules take it. Then: a 24-second summary the worker talked over twice at
+   * its question-sounding «فيه شي ثاني تبي تبلغ عنه» line, so it was read three times. Now the summary is short, has no
+   * question before «أحفظه؟», and is read once; «لا شكرا… احفظ» and «لا» ask what to change; «أحفظ» saves, once.
+   */
+  it("call b8fd64's ending: one summary read, «لا» asks what to change, «أحفظ» saves once", async () => {
+    const { ticket } = await openNatural();
+    const submitted = await readSummary(ticket);
+    const heard = { heardSummary: true, heardSummaryId: submitted.result.summaryId };
+    expect(submitted.result.summaryText).not.toMatch(/فيه شي ثاني|ولا تبي تعدل/u);
+    expect(submitted.result.summaryText.match(/[?؟]/gu)).toEqual(["؟"]);
+    expect(submitted.result.summaryText).toMatch(/أحفظه؟$/u);
+    const reads = [submitted.result.summaryText];
+    const steps = [
+      await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "لا شكرا احفظ.", ...heard }),
+      await readSummary(ticket),
+      await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "لا", ...heard }),
+      await tool(ticket, "confirm_report", { confirmed: true }, { workerUtterance: "أحفظ.", ...heard }),
+    ];
+    for (const step of steps) if (step.result.summaryText) reads.push(step.result.summaryText);
+    expect(reads).toHaveLength(1);
+    expect(JSON.parse(steps[0].result.output).say).toContain("وش تبي نعدل؟");
+    expect(steps[1].output.status).toBe("unchanged");
+    expect(JSON.parse(steps[2].result.output).say).toContain("وش تبي نعدل؟");
+    expect(steps[3].output.status).toBe("saved");
+    expect(steps[3].result.goodbye).toBe("انحفظ، الله يعطيك العافية. مع السلامة.");
+    expect(mock.save.mock.calls.filter((call) => call[3]?.type === "worker_report")).toHaveLength(1);
+  });
+
+  it("accepts the worker's transcripts only as a short list of plain strings", async () => {
+    const { ticket } = await openNatural();
+    const send = (workerTranscripts: unknown) => tool(ticket, "submit_report", { answers: [] }, { workerTranscripts });
+    expect((await send(["إيه", "عشرين"])).status).toBe(200);
+    for (const bad of ["عشرين", [1], ["a\u0007"], ["x".repeat(1001)], Array.from({ length: 41 }, () => "إيه")]) expect((await send(bad)).status).toBe(400);
+  });
+
+  it("never confirms on a keypad press", async () => {
+    const { ticket } = await openNatural();
+    const pressed = await tool(ticket, "keypad_confirm", {}, { keypad: true });
+    expect(pressed.status).not.toBe(200);
+  });
+
+  it("ends with a short apology, no keypad script, if the stream drops", async () => {
+    await openNatural();
+    const response = await afterRoute(twilio(`/api/voice/realtime/after?s=${encodeURIComponent(signCallToken(token(), SECRET))}`, { CallSid: CALL }));
+    const xml = await response.text();
+    expect(xml).toContain("معليش");
+    expect(xml).not.toContain("<Gather");
+    expect(xml).toContain("<Hangup");
   });
 });

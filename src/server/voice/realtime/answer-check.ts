@@ -1,7 +1,7 @@
 import { askedTopic, isOffTopicAnswer, topicsInWords } from "@/domain/conversation/answer-topic";
 import type { AnswerInput, CallSession } from "@/domain/conversation/engine";
 import type { Locale } from "@/domain/types";
-import { camelNameKey, extractNumber, mapSpeechToInput, normalizeSpeech } from "../speech";
+import { camelNameKey, extractNumber, mapSpeechToInput, normalizeSpeech, numbersSaid } from "../speech";
 
 export type AnswerRefusal = "answer_off_topic" | "answer_unclear" | "number_not_in_answer" | "answer_conflicts_with_words";
 export const ANSWER_REFUSAL_MESSAGE = "Nothing was recorded. The worker's words did not support this answer. Do not change the answer to get past a refusal.";
@@ -18,7 +18,7 @@ export function isGarbled(words: string, locale: Locale): boolean {
   return words.split(" ").some((word) => /[a-z]{2,}/.test(word) && !FOREIGN_OK.has(word));
 }
 
-const STOP_WORDS = /(?:^| )(?:وقف|اوقف|اقفل|اقفلها|سكر|سكرها|مع السلامه|ما ابي اكمل|ما ابي احفظ|لا تحفظ|لا تحفظه|لا تحفظها|الغ|الغها|الغيها|بعدين|مشغول|مو فاضي|مب فاضي|stop|goodbye|bye|hang up|not now|later|busy)(?: |$)/;
+const STOP_WORDS = /(?:^| )(?:وقف|اوقف|اقفل|اقفلها|سكر|سكرها|مع السلامه|ما ابي اكمل|ما ابي احفظ|لا تحفظ|لا تحفظه|لا تحفظها|لا تسجل|لا تسجله|لا تسجلها|الغ|الغها|الغيها|بعدين|مشغول|مو فاضي|مب فاضي|stop|goodbye|bye|hang up|not now|later|busy)(?: |$)/;
 
 /** Only the person on the line can end the call, in words that say so. */
 export const askedToStop = (heard: string) => STOP_WORDS.test(evidenceWords(heard));
@@ -38,7 +38,7 @@ export function refuseAnswer(session: CallSession, input: AnswerInput, heard: st
   const namesCamel = words.split(" ").some((word) => camelNames.some((name) => camelNameKey(word) === camelNameKey(name)));
   if (health && input.value === "no" && namesCamel) return null;
   if (closesTask && mapped?.value !== "yes") return "answer_unclear";
-  if (numeric && extractNumber(heard ?? "") !== Number(input.text)) return "number_not_in_answer";
+  if (numeric && !numbersSaid(heard ?? "").has(Number(input.text))) return "number_not_in_answer";
   if (input.value !== undefined) {
     if (session.inputMode === "number" && extractNumber(heard ?? "") !== null) return "answer_conflicts_with_words";
     // A clear contradiction, unless another topic in the sentence is what the words were about.

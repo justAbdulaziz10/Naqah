@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, ArrowRight, CheckCircle } from "@phosphor-icons/react";
-import { Suspense, useEffect, useState } from "react";
+import { Fragment, Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Logo } from "@/components/brand/Logo";
 import type { WorkspaceUpdate } from "@/components/setup";
@@ -15,6 +15,7 @@ import {
   type WizardStepKey,
 } from "@/components/setup/onboarding/WizardSteps";
 import { StepHead } from "@/components/setup/onboarding/WizardParts";
+import { StepDemoFill } from "@/components/setup/onboarding/StepDemoFill";
 import { FinishMoment, JourneyBar, JourneyPanel } from "@/components/setup/onboarding/Journey";
 import { getCallSetupGaps } from "@/components/setup/CallSetupStatus";
 import { buttonClass } from "@/components/ui/Button";
@@ -56,6 +57,11 @@ function Onboarding() {
   const step = stepFromQuery(params.get("step"));
   const [showErrors, setShowErrors] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  // Local demo: bumped by «تعبئة تجريبية» so the fields drop what they held locally (a half-typed herd count).
+  const [fills, setFills] = useState(0);
+  // Which way the last step change went, so the new step slides in from the matching side.
+  const [seen, setSeen] = useState({ step, back: false });
+  if (seen.step !== step) setSeen({ step, back: step < seen.step });
   const finished = ws?.setupComplete === true;
   const editing = Boolean(ws) && !finished;
 
@@ -138,7 +144,9 @@ function Onboarding() {
     }
   })();
   // "Ready" only when NAQAH has everything it needs to call.
-  const head = current === "ready" && getCallSetupGaps(ws).length ? f.heads.almost : f.heads[current];
+  const heads = m.onboarding.flow.heads;
+  // In the demo the ranch step opens with the plan cards, so its line names the plan first.
+  const head = current === "ready" && getCallSetupGaps(ws).length ? heads.almost : current === "ranch" && !account ? heads.ranchDemo : heads[current];
 
   return (
     <div className="min-h-dvh bg-ivory lg:grid lg:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[25rem_minmax(0,1fr)]">
@@ -157,9 +165,10 @@ function Onboarding() {
         <main className="flex flex-1 flex-col">
           <JourneyBar step={step} />
           <div className="mx-auto w-full max-w-[44rem] flex-1 px-4 pb-12 pt-8 sm:px-6 sm:pt-10 lg:pt-[max(2rem,7vh)]">
-          <div key={current} className="naqah-step-in">
+          <div key={current} className={seen.back ? "naqah-step-back" : "naqah-step-in"}>
             <StepHead title={head.title} lead={head.lead} />
-            {content}
+            <StepDemoFill step={current} onFilled={() => setFills((count) => count + 1)} />
+            <Fragment key={fills}>{content}</Fragment>
           </div>
           {saveFailed ? <p className="mt-6 text-[0.975rem] leading-relaxed text-danger" role="alert">{f.notSaved}</p> : null}
 
@@ -171,7 +180,7 @@ function Onboarding() {
               <button
                 type="button"
                 onClick={() => go(step - 1)}
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full px-4 text-[1rem] font-semibold text-espresso transition hover:bg-espresso/5 active:scale-[0.98]"
+                className="naqah-press inline-flex min-h-12 items-center justify-center gap-2 rounded-full px-4 text-[1rem] font-semibold text-espresso hover:bg-espresso/5"
               >
                 <ArrowLeft size={18} className="rtl:-scale-x-100" aria-hidden />
                 {m.common.actions.back}
@@ -179,9 +188,10 @@ function Onboarding() {
             ) : <span />}
             <button
               type="button"
+              id="step-primary"
               data-step-next={isLast ? undefined : ""}
               onClick={isLast ? finish : nextStep}
-              className={buttonClass({ size: "lg", className: "px-8 shadow-none max-sm:flex-1" })}
+              className={buttonClass({ size: "lg", className: "naqah-press px-8 shadow-none! max-sm:flex-1" })}
             >
               {isLast ? (
                 <>

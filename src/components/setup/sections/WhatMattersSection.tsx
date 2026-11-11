@@ -116,9 +116,9 @@ export function WhatMattersSection({ ws, onChange, showSaved }: SetupSectionProp
               type="button"
               onClick={addCustomCriterion}
               disabled={!customLabel.trim()}
-              className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-stone px-4 text-sm font-semibold text-espresso transition hover:border-sand hover:bg-ivory focus-visible:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown disabled:cursor-not-allowed disabled:opacity-45"
+              className="naqah-press inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-stone bg-cream px-5 font-semibold text-espresso transition hover:border-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown disabled:cursor-not-allowed disabled:text-muted"
             >
-              <Plus size={18} weight="fill" aria-hidden />
+              <Plus size={18} weight="bold" aria-hidden />
               <span>{m.common.actions.add}</span>
             </button>
           </div>

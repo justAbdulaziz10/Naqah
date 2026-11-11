@@ -155,7 +155,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </span>
                 <span className="flex-1">{m.common.nav[item.key]}</span>
                 {item.key === "tickets" && openTasks > 0 ? (
-                  <span className="ltr-nums text-xs font-semibold tabular-nums text-brown">
+                  <span className="ltr-nums inline-flex min-w-6 justify-center rounded-full bg-brown/10 px-1.5 text-xs font-semibold leading-5 tabular-nums text-brown">
                     {openTasks}
                   </span>
                 ) : null}
@@ -183,6 +183,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           </div>
         )}
+        {/* Call tools are not places on the ranch: they sit apart from the owner's main navigation. */}
+        {voiceLab || testCall ? <div aria-hidden className="mx-3 mt-6 border-t border-stone/70" /> : null}
         {voiceLab ? (
           <Link
             href={href("/app/voice-lab")}

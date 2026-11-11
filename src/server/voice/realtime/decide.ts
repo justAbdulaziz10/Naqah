@@ -8,11 +8,12 @@ import { makePersonalizer } from "@/domain/conversation/personalize";
 import { PREDEFINED_QUESTIONS } from "@/domain/catalog";
 import type { Locale, Workspace } from "@/domain/types";
 import type { VoiceCallSession } from "../farm-call";
-import { mapSpeechToInput, namedCamels, saysRestAreWell, topicSegments, unknownReply } from "../speech";
+import { camelClauses, mapSpeechToInput, namedCamels, numbersSaid, saysRestAreWell, topicSegments, unknownReply } from "../speech";
 import { spokenWording } from "../twiml";
 import { askedToStop, evidenceWords, isGarbled, isLeakedHint, refuseAnswer } from "./answer-check";
-import { isVerifiedConfirmation } from "./confirmation";
+import { isNaturalConfirmation, isVerifiedConfirmation } from "./confirmation";
 import { validateFacts } from "./facts";
+import { withNaturalSummary } from "./natural";
 import type { RealtimeState, ToolResponse } from "./state";
 import { checkTool, promptFor, SUMMARY_STEP, toolsFor, type ClarifyReason } from "./tools";
 
@@ -38,6 +39,12 @@ const URGENT: Record<Locale, string> = {
   en: "If this is urgent, call the ranch owner directly now. NAQAH does not report emergencies to anyone. ",
 };
 const CONFIRM_AGAIN: Record<Locale, string> = { ar: "ما سمعتك زين. أحفظه؟ قل إيه، أو اضغط واحد.", en: "I didn't catch that. Shall I save it? Say yes, or press 1." };
+/** A natural call whose worker already heard this summary in full: only the question is asked again. */
+const SAVE_IT: Record<Locale, string> = { ar: "أحفظه؟", en: "Shall I save it?" };
+/** A natural call's «لا» to «أحفظه؟»: not yet, so what to change, never a save or an ending. */
+const WHAT_TO_CHANGE: Record<Locale, string> = { ar: "وش تبي نعدل؟", en: "What should we change?" };
+/** A natural call ends unsaved after this many confirmations refused for timing alone, so a model loop can't run on. */
+const NATURAL_MISSES = 6;
 const isDeny = (heard: string) => /(?:^| )(?:لا|غلط|عدل|عدله|تعديل|no|wrong|change)(?: |$)/.test(evidenceWords(heard));
 const SAVE_OR_CORRECT: Record<Locale, string> = { ar: "أحفظ التحديث، ولا تبي تعدل شي؟", en: "Shall I save the update, or would you like to correct something?" };
 const SECOND_TRY: Record<Locale, string> = { ar: "قلها لي بكلمة. ", en: "In a word, please. " };
@@ -78,6 +85,30 @@ function coveredAhead(session: CallSession, heard: string, workspace: Workspace,
   }
   return { facts, rest };
 }
+const ACK: Record<Locale, string[]> = { ar: ["تمام. ", "زين. ", "طيب. "], en: ["Okay. ", "Got it. ", "Thanks. "] };
+const ACKNOWLEDGEMENTS = new Set([...ACK.ar, ...ACK.en, "ما عليه. ", "That's fine. ", "الحمد لله. ", "Good to hear. ", "سلامتها. ", "سلامته. ", "سلامتهم. ", "Sorry to hear that. ", "الله يعطيك العافية. ", "Thank you. ", "عدلتها. ", "Changed. "]);
+const isAcknowledgement = (prefix: string) => ACKNOWLEDGEMENTS.has(prefix);
+
+/**
+ * A word that shows the answer was heard before the next question, the way a person would say it. It never
+ * claims anything was saved, and nothing is said at the summary, where the next words are the save or a goodbye.
+ */
+function acknowledge(session: CallSession, chosen: AnswerInput, workspace: Workspace, locale: Locale): string {
+  if (chosen.value?.startsWith("correct:")) return locale === "ar" ? "طيب، نعدلها. " : "Sure, let's fix that. ";
+  if (session.step === SUMMARY_STEP || session.step === "report_correct_pick" || session.step === "report_mode_choice") return "";
+  if (session.data.correcting) return locale === "ar" ? "عدلتها. " : "Changed. ";
+  if (chosen.value === "unknown") return locale === "ar" ? "ما عليه. " : "That's fine. ";
+  if (isHerdHealth(session) && chosen.value === "yes") return locale === "ar" ? "الحمد لله. " : "Good to hear. ";
+  if (isHerdHealth(session) && chosen.value === "no") {
+    if (locale === "en") return "Sorry to hear that. ";
+    const camels = workspace.camels.filter((camel) => chosen.camelIds?.includes(camel.id));
+    return camels.length > 1 ? "سلامتهم. " : camels[0]?.sex === "male" ? "سلامته. " : "سلامتها. ";
+  }
+  const item = session.step === "report_question" ? session.data.queue?.[session.data.reportIndex ?? 0] : undefined;
+  if (item?.kind === "task" && chosen.value === "yes") return locale === "ar" ? "الله يعطيك العافية. " : "Thank you. ";
+  const turn = session.turns.filter((entry) => entry.speaker === "worker").length;
+  return ACK[locale][turn % ACK[locale].length];
+}
 const positionOf = (session: CallSession) => [session.step, session.data.reportIndex ?? 0, session.data.tempCamelId ?? "", session.data.draftRevision ?? 0].join(":");
 
 /** The agent's lines from a turn onwards, with the farm's real names. Here and not imported, because farm-call brings in the write paths. */
@@ -98,7 +129,8 @@ function afterRefusals(session: CallSession, locale: Locale): { input: AnswerInp
 export function promptResult(session: CallSession, workspace: Workspace, locale: Locale, status = "ok", error?: string, prefix = "", reason?: ClarifyReason, silent = false, spoken?: string[]): ToolResponse {
   const prompt = promptFor(session, spoken ?? spokenFrom(session, Math.max(0, session.turns.length - 1), workspace, locale), workspace, locale);
   const labels = reason === "asked_meaning" && prompt.replies.length ? " " + prompt.replies.map((reply) => reply.label).join(locale === "ar" ? "، " : ", ") : "";
-  const words = prefix + prompt.question + labels;
+  // The summary is read exactly as the engine wrote it, so what the worker confirms is what is saved.
+  const words = (prompt.isSummary && isAcknowledgement(prefix) ? "" : prefix) + prompt.question + labels;
   return {
     output: stringify({ status, ...(error ? { error } : {}), ...prompt }),
     awaitingConfirmation: session.step === SUMMARY_STEP,
@@ -109,7 +141,7 @@ export function promptResult(session: CallSession, workspace: Workspace, locale:
   };
 }
 
-export type ToolCounters = Partial<Pick<RealtimeState, "confirmationFailures" | "refusalAt" | "refusals" | "noiseAt" | "noiseCount" | "closed">>;
+export type ToolCounters = Partial<Pick<RealtimeState, "confirmationFailures" | "confirmationMisses" | "summaryHeardId" | "refusalAt" | "refusals" | "refusedAnswer" | "noiseAt" | "noiseCount" | "closed">>;
 
 export type ToolTurn = {
   session: CallSession;
@@ -126,6 +158,8 @@ export type ToolTurn = {
   now: Date;
   /** Key 1, pressed after the whole summary was heard. */
   keypad?: boolean;
+  /** A natural call: its own confirmation rule, and no keypad fallback after three tries. */
+  natural?: boolean;
 };
 
 export type ToolDecision = { counters: ToolCounters; checkError: string | null } & (
@@ -138,7 +172,24 @@ export type ToolDecision = { counters: ToolCounters; checkError: string | null }
   | { kind: "end"; session: VoiceCallSession }
 );
 
-export function decideTool({ session: current, counters, workspace, locale, name, args, spoke, heard, heardSummaryId, now, keypad = false }: ToolTurn): ToolDecision {
+const BUSY = /(?:^| )(?:مشغول|مو فاضي|مب فاضي|بعدين|مو الحين|مب الحين|موب الحين|not now|busy|later)(?: |$)/;
+const DIDNT_HEAR = /^(?:الو|الوو|هلو|الو الو|مين|مين معي|من معي|مين معاي|مين انت|alo|hello|hello hello|who is this)$/;
+
+/**
+ * «جاهز؟» right after the greeting. The words decide, not the tool: anything but «مو الحين» starts the report,
+ * and «ألو؟», «مين؟» or no words at all mean the greeting wasn't heard over the line.
+ */
+function readyChoice(heard: string): "ready" | "busy" | "again" {
+  const words = evidenceWords(heard);
+  if (BUSY.test(words) || askedToStop(heard)) return "busy";
+  if (!words || isLeakedHint(heard) || DIDNT_HEAR.test(words) || /^(?:نعم|ايوه|ايه)\s*[?؟]$/u.test(heard.trim())) return "again";
+  return "ready";
+}
+
+export function decideTool({ session: current, counters, workspace, locale, name, args, spoke, heard, heardSummaryId, now, keypad = false, natural = false }: ToolTurn): ToolDecision {
+  if (current.step === "report_ready" && name !== "flag_urgent" && (spoke || name === "end_call")) {
+    return { kind: "apply", session: { ...current, voiceSilences: 0 }, chosen: { value: name === "end_call" ? "busy" : readyChoice(heard) }, prefix: "", counters: {}, checkError: null };
+  }
   const position = positionOf(current);
   let next: ToolCounters = {};
   let checkError: string | null = null;
@@ -160,12 +211,30 @@ export function decideTool({ session: current, counters, workspace, locale, name
     return reply(promptResult(current, workspace, locale, "ok", undefined, count > 1 ? PREFIXES.noise[locale] : "", undefined, explicitNoise || count === 1), "noise");
   }
   const confirming = name === "confirm_report" && typeof args === "object" && args !== null && "confirmed" in args && args.confirmed === true;
-  const verified = keypad || (spoke && Boolean(heard) && isVerifiedConfirmation(heard, current, locale));
+  const verified = keypad || (spoke && Boolean(heard) && (isVerifiedConfirmation(heard, current, locale) || (natural && isNaturalConfirmation(heard, current, locale, workspace.camels))));
   if (name === "end_call" && !askedToStop(heard)) {
     return reply(promptResult(current, workspace, locale, "invalid", "worker_has_not_asked_to_stop", evidenceWords(heard) ? PREFIXES.unclear[locale] : "", undefined, !evidenceWords(heard)), "worker_has_not_asked_to_stop");
   }
-  if (confirming && current.step === SUMMARY_STEP && (!verified || heardSummaryId !== reportSummaryId(current, locale))) {
-    const error = heardSummaryId !== reportSummaryId(current, locale) ? "summary_not_finished" : "worker_has_not_confirmed";
+  const summaryId = current.step === SUMMARY_STEP ? reportSummaryId(current, locale) : undefined;
+  if (natural && summaryId && heardSummaryId === summaryId) next = { ...next, summaryHeardId: summaryId };
+  if (confirming && current.step === SUMMARY_STEP && (!verified || heardSummaryId !== summaryId)) {
+    const error = heardSummaryId !== summaryId ? "summary_not_finished" : "worker_has_not_confirmed";
+    if (natural) {
+      // A clear «لا» to the heard summary is an answer, not an unclear one: ask what to change, with no strike.
+      const declined = error === "worker_has_not_confirmed" && spoke && isDeny(heard);
+      // Only the worker's own unclear reply to a summary they heard is a strike. The model asking too early, or a
+      // reply over the summary, is the call's timing: the summary or the question is asked again, with no strike.
+      const strike = error === "worker_has_not_confirmed" && spoke && !declined;
+      const failures = (counters.confirmationFailures ?? 0) + (strike ? 1 : 0);
+      const misses = (counters.confirmationMisses ?? 0) + (strike ? 0 : 1);
+      next = { ...next, confirmationFailures: failures, confirmationMisses: misses };
+      // No keypad to fall back to: it says plainly nothing was saved and ends.
+      if (failures >= 3 || misses >= NATURAL_MISSES) return { kind: "end", session: { ...current, voiceSilences: 0 }, counters: next, checkError: error };
+      // A summary the worker already heard in full isn't read again: only «أحفظه؟». One never heard is read in full.
+      const again = declined ? WHAT_TO_CHANGE[locale] : error === "worker_has_not_confirmed" ? CONFIRM_AGAIN[locale] : counters.summaryHeardId === summaryId ? SAVE_IT[locale] : null;
+      if (again) return reply({ ...promptResult(current, workspace, locale, "invalid", declined ? "worker_declined" : error), summaryText: undefined, summaryId: undefined, sayText: again, repromptText: again }, error);
+      return reply({ ...promptResult(current, workspace, locale, "invalid", error), repromptText: SAVE_IT[locale] }, error);
+    }
     const failures = (counters.confirmationFailures ?? 0) + 1;
     next = { ...next, confirmationFailures: failures, closed: failures >= 3 };
     if (failures >= 3) return reply(fallbackResult(), error);
@@ -246,10 +315,19 @@ export function decideTool({ session: current, counters, workspace, locale, name
     chosen = action.input;
   }
   if (action.kind === "answer" && name === "answer_question" && gaveUp === null) {
-    const refused = refuseAnswer(session, action.input, heard, locale, workspace.camels.map((camel) => camel.name));
+    let refused = refuseAnswer(session, action.input, heard, locale, workspace.camels.map((camel) => camel.name));
+    // Phone transcription misses short replies the model heard («عشرين»). The model hearing the same answer twice,
+    // from two separate replies, outweighs the transcript; the read-back still lets the worker correct it.
+    const said = JSON.stringify(action.input);
+    // A task still closes only on words that say it is done.
+    const closesTask = askedTopic(session) === "task";
+    // Only a count: a different number in the transcript is a contradiction, and words that say nothing about the
+    // camels («الجو حار») must never become "all well".
+    const missed = refused === "number_not_in_answer" && numbersSaid(heard).size === 0;
+    if (refused && missed && !closesTask && counters.refusalAt === position && counters.refusedAnswer === said) refused = null;
     if (refused) {
       const refusals = counters.refusalAt === position ? (counters.refusals ?? 0) + 1 : 1;
-      next = { ...next, refusalAt: position, refusals };
+      next = { ...next, refusalAt: position, refusals, refusedAnswer: said };
       if (refused === "answer_off_topic") {
         const noted = addWorkerNote(session, heard);
         if (refusals < 3) return { kind: "stay", session: noted, result: promptResult(noted, workspace, locale, "invalid", refused, NOTED_BACK[locale]), refused, counters: next, checkError };
@@ -264,17 +342,20 @@ export function decideTool({ session: current, counters, workspace, locale, name
   if (chosen?.value === "no" && isHerdHealth(current)) {
     const named = namedCamels(heard, workspace.camels);
     const restWell = saysRestAreWell(heard);
+    const notes = Object.fromEntries(Object.entries(camelClauses(heard, named)).map(([id, note]) => [id, note.slice(0, 300)]));
     chosen = named.length
-      ? { value: "no", text: heard.trim().slice(0, 300), camelIds: named.map((camel) => camel.id), restWell, ...(named.length === 1 ? { camelId: named[0].id } : {}) }
+      ? { value: "no", text: heard.trim().slice(0, 300), camelIds: named.map((camel) => camel.id), restWell, ...(Object.keys(notes).length ? { camelNotes: notes } : {}), ...(named.length === 1 ? { camelId: named[0].id } : {}) }
       : { ...chosen, restWell };
   }
   if (chosen && ahead.length && current.step === "report_question") chosen = { ...chosen, heardAhead: ahead };
   if (action.kind === "urgent") {
     // The model heard the audio and the note may word it differently, so what is kept is what was transcribed.
     const note = heard.trim().slice(0, 300);
+    // At the summary the engine reads it again with the concern in it; a natural call reads its own short one.
     if (note) session = addUrgentNote(session, workspace, now, note);
+    if (note && natural) session = withNaturalSummary(session, workspace) as VoiceCallSession;
     return { kind: "stay", session, result: promptResult(session, workspace, locale, "ok", undefined, URGENT[locale]), counters: next, checkError };
   }
   if (!chosen) return { kind: "end", session, counters: next, checkError };
-  return { kind: "apply", session, chosen, prefix: droppedFacts ? NOTED[locale] : prefix, counters: next, checkError };
+  return { kind: "apply", session, chosen, prefix: droppedFacts ? NOTED[locale] : prefix || acknowledge(current, chosen, workspace, locale), counters: next, checkError };
 }

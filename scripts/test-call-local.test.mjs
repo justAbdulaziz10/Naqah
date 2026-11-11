@@ -1,7 +1,7 @@
 import { createServer } from "node:net";
 import { describe, expect, it } from "vitest";
 import {
-  buildEnvironments, cleanBaseEnv, describeEnvironment, FORBIDDEN_LIVE, parseArgs, parseSecrets, portHolder, UsageError, validatePublicUrl,
+  APPROVED_FILE, buildEnvironments, cleanBaseEnv, describeEnvironment, FORBIDDEN_LIVE, parseArgs, parseSecrets, portHolder, resetLocalReport, TEST_FARM, UsageError, validatePublicUrl,
 } from "./test-call-local.mjs";
 
 const SID = `AC${"a1".repeat(16)}`;
@@ -101,7 +101,7 @@ describe("test-call environments", () => {
     expect(bridge.NAQAH_BRIDGE_UPSTREAM).toBe("http://127.0.0.1:3301");
     expect(next.NAQAH_CALL_ALLOWLIST).toBe("+966512345678");
     for (const env of [next, bridge]) {
-      expect(env).not.toHaveProperty("NODE_OPTIONS");
+      expect(env.NODE_OPTIONS).toBe("--dns-result-order=ipv4first");
       expect(env).not.toHaveProperty("NAQAH_TEST_OUTBOUND_GATEWAY");
       expect(env).not.toHaveProperty("NAQAH_REALTIME_URL");
     }
@@ -126,6 +126,33 @@ describe("test-call environments", () => {
     expect(bridge.NODE_OPTIONS).toContain("loopback-guard.mjs");
     expect(bridge.NAQAH_REALTIME_URL).toBe("ws://127.0.0.1:3313/v1/realtime");
     for (const name of FORBIDDEN_LIVE) expect(next).not.toHaveProperty(name);
+  });
+
+  it("enables «اتصال حقيقي» in live mode only with --dashboard-call, for approved numbers read from a file", () => {
+    expect(live().next).not.toHaveProperty("NAQAH_MANUAL_REPORT_CALLS");
+    const { next } = buildEnvironments(parseArgs([...liveArgs, "--dashboard-call"]), stack, parseSecrets(secretsText));
+    expect(next.NAQAH_MANUAL_REPORT_CALLS).toBe("1");
+    for (const name of ["CRON_SECRET", "NAQAH_SCHEDULED_CALLS", "NAQAH_CALL_OWNER"]) expect(next).not.toHaveProperty(name);
+    expect(next.NAQAH_CALL_ALLOWLIST).toBe("+966512345678");
+    // Several approved numbers; the app reads them from the file on every call, so approving one needs no restart.
+    expect(parseArgs([...liveArgs, "--allow", "+966512345679", "--dashboard-call"]).allow).toEqual(["+966512345678", "+966512345679"]);
+    expect(next.NAQAH_CALL_ALLOWLIST_FILE).toBe(APPROVED_FILE);
+    expect(() => parseArgs(["--dashboard-call"])).toThrow(/live only/);
+  });
+
+  it("turns on the owner call demo only with --owner-call-now, for the presentation ranch, never the scheduled owner calls", () => {
+    expect(live().next).not.toHaveProperty("NAQAH_DEMO_OWNER_CALL");
+    expect(live().build).not.toHaveProperty("NEXT_PUBLIC_NAQAH_DEMO_OWNER_CALL");
+    const args = [...liveArgs, "--dashboard-call", "--owner-approves", "--repeat-demo-reports", "--owner-call-now"];
+    const { next, build, bridge } = buildEnvironments(parseArgs(args), stack, parseSecrets(secretsText));
+    expect(next.NAQAH_DEMO_OWNER_CALL).toBe("1");
+    expect(next.NEXT_PUBLIC_NAQAH_DEMO_OWNER_CALL).toBe("1");
+    expect(build.NEXT_PUBLIC_NAQAH_DEMO_OWNER_CALL).toBe("1");
+    expect(bridge).not.toHaveProperty("NAQAH_DEMO_OWNER_CALL");
+    for (const name of ["CRON_SECRET", "NAQAH_SCHEDULED_CALLS", "NAQAH_CALL_OWNER"]) expect(next).not.toHaveProperty(name);
+    expect(() => parseArgs([...liveArgs, "--dashboard-call", "--owner-call-now"])).toThrow(/--repeat-demo-reports/);
+    expect(() => parseArgs([...liveArgs, "--repeat-demo-reports", "--owner-call-now"])).toThrow(/--dashboard-call/);
+    expect(mock(["--report-path", "--owner-approves", "--repeat-demo-reports", "--owner-call-now"]).next.NAQAH_DEMO_OWNER_CALL).toBe("1");
   });
 
   it("enables the manual report path only when the verifier asks, and never in live", () => {
@@ -162,5 +189,48 @@ describe("port check", () => {
     expect(portHolder(port)).toMatch(new RegExp(`\\(pid ${process.pid}\\)`));
     await new Promise((resolve) => server.close(resolve));
     expect(portHolder(port)).toBeNull();
+  });
+});
+
+describe("local report reset", () => {
+  it("accepts only the standalone reset command", () => {
+    expect(parseArgs(["--reset-report"]).resetReport).toBe(true);
+    expect(() => parseArgs(["--reset-report", "--live"])).toThrow(/on its own/);
+  });
+  it.each(["https://hosted.supabase.co", "https://localhost.evil.test", "http://192.168.1.10", "not a URL"])("refuses %s before executing SQL", (url) => {
+    let called = false;
+    expect(() => resetLocalReport({ NEXT_PUBLIC_SUPABASE_URL: url }, () => { called = true; })).toThrow();
+    expect(called).toBe(false);
+  });
+  it("guards the marked fixed test ranch, active calls and this period without resetting rate limits", () => {
+    let sql;
+    resetLocalReport(stack, (query) => { sql = query; });
+    expect(sql).toContain(TEST_FARM);
+    expect(sql).toContain("inet_server_addr()");
+    expect(sql).toContain("test_call_ranches");
+    expect(sql).toContain("A call is still active");
+    expect(sql).toContain("Asia/Riyadh");
+    expect(sql).not.toMatch(/rate_limit|22222222/);
+    expect(sql).toMatch(/^begin;[\s\S]*commit;$/);
+  });
+  it("keeps the bridge and Twilio duration caps aligned", () => {
+    const envs = buildEnvironments(parseArgs([...liveArgs, "--max-call-seconds", "180"]), stack, parseSecrets(secretsText));
+    expect(envs.next.NAQAH_CALL_TIME_LIMIT_SECONDS).toBe("180");
+    expect(envs.bridge.NAQAH_CALL_TIME_LIMIT_SECONDS).toBe("180");
+  });
+});
+
+describe("voice choice", () => {
+  it("passes a known realtime voice to the bridge only", () => {
+    const envs = buildEnvironments(parseArgs([...liveArgs, "--voice", "cedar"]), stack, parseSecrets(secretsText));
+    expect(envs.bridge.NAQAH_REALTIME_VOICE).toBe("cedar");
+    expect(envs.next).not.toHaveProperty("NAQAH_REALTIME_VOICE");
+    expect(() => parseArgs([...liveArgs, "--voice", "nova"])).toThrow(/realtime voice/);
+  });
+});
+
+describe("kept local data", () => {
+  it("parses --keep-data", () => {
+    expect(parseArgs([...liveArgs, "--dashboard-call", "--keep-data"]).keepData).toBe(true);
   });
 });

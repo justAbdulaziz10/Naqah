@@ -35,6 +35,7 @@ export const common = defineMessages({
     },
     demo: {
       badge: "Demo ranch",
+      fill: "Fill with sample",
       label: "Demo",
       noticeShort: "Demo ranch. Calls here are simulated.",
       simulateCall: "Simulate a call",
@@ -92,6 +93,7 @@ export const common = defineMessages({
     },
     demo: {
       badge: "عزبة تجريبية",
+      fill: "تعبئة تجريبية",
       label: "عرض تجريبي",
       noticeShort: "عزبة تجريبية. المكالمات هنا محاكاة.",
       simulateCall: "محاكاة مكالمة",

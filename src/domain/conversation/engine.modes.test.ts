@@ -55,7 +55,7 @@ describe("read-back", () => {
     const summary = answerEverything(session, ws);
     const text = lastLine(summary);
     expect(text).toContain("عدد الحلال: ما أدري");
-    expect(text).toContain("جا البيطري اليوم؟ لا ما جا");
+    expect(text).toContain("جا البيطري اليوم، قلت: لا ما جا");
     expect(text).toContain("العلف");
     expect(summary.draft.answers.length).toBeGreaterThan(3);
     for (const entry of summary.draft.answers) {
@@ -89,7 +89,7 @@ describe("corrections", () => {
     expect(again.draft.resourceUpdates.filter((entry) => entry.kind === "feed")).toHaveLength(1);
     expect(again.draft.resourceUpdates.find((entry) => entry.kind === "feed")?.level).toBe("good");
     expect(again.draft.answers.filter((entry) => entry.questionId === "feed_level")).toHaveLength(1);
-    expect(lastLine(again)).toContain("جا البيطري اليوم؟ لا ما جا");
+    expect(lastLine(again)).toContain("جا البيطري اليوم، قلت: لا ما جا");
   });
 
   it("changes the summary id after a correction, so an old confirmation can't apply", () => {

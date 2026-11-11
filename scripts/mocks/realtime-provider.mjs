@@ -76,7 +76,8 @@ export class Upstream extends EventEmitter {
   #onResponseCreate(event) {
     const instructions = event.response?.instructions;
     if (typeof instructions === "string") {
-      const quoted = instructions.match(/"(?:[^"\\]|\\.)*"$/)?.[0];
+      // The words are the JSON string after "verbatim, with no additions:"; a delivery note may follow it.
+      const quoted = instructions.match(/no additions: ("(?:[^"\\]|\\.)*")/)?.[1] ?? instructions.match(/"(?:[^"\\]|\\.)*"$/)?.[0];
       let line = instructions;
       try { line = quoted ? JSON.parse(quoted) : instructions; } catch { /* keep the raw text */ }
       this.spoken.push(line);
@@ -224,6 +225,34 @@ export class Upstream extends EventEmitter {
       this.once("closed", onClosed);
       this.toolWaiters.set(callId, (output) => { clearTimeout(timer); this.off("closed", onClosed); resolve(output); });
     });
+  }
+
+  /**
+   * Added for scripts/verify-natural-report.mjs: one model turn holding several function calls (e.g. the same
+   * confirm_report twice). Resolves with one output per call, or null for a call the bridge never answered.
+   */
+  async toolCalls(list, { waitMs = 20_000, slotMs } = {}) {
+    await this.#takeSlot(slotMs);
+    const response = this.#beginResponse();
+    const items = list.map((entry, index) => ({ ...entry, callId: entry.callId ?? id("call"), itemId: id("item"), index, text: JSON.stringify(entry.args) }));
+    for (const item of items) {
+      this.emitEvent({ type: "response.output_item.added", response_id: response.responseId, output_index: item.index, item: { id: item.itemId, type: "function_call", status: "in_progress", call_id: item.callId, name: item.name, arguments: "" } });
+      this.emitEvent({ type: "response.function_call_arguments.done", response_id: response.responseId, item_id: item.itemId, output_index: item.index, call_id: item.callId, name: item.name, arguments: item.text });
+      this.emitEvent({ type: "response.output_item.done", response_id: response.responseId, output_index: item.index, item: { id: item.itemId, type: "function_call", status: "completed", call_id: item.callId, name: item.name, arguments: item.text } });
+    }
+    this.emitEvent({ type: "response.done", response: { id: response.responseId, status: "completed", output: items.map((item) => ({ id: item.itemId, type: "function_call", status: "completed", call_id: item.callId, name: item.name, arguments: item.text })) } });
+    if (this.openResponse === response) this.openResponse = null;
+    // Several items may share a call id; each distinct id gets at most one output.
+    const ids = [...new Set(items.map((item) => item.callId))];
+    const outputs = await Promise.all(ids.map((callId) => new Promise((resolve) => {
+      if (this.closed) { resolve([callId, null]); return; }
+      const done = (output) => { clearTimeout(timer); this.off("closed", onClosed); this.toolWaiters.delete(callId); resolve([callId, output]); };
+      const timer = setTimeout(() => done(null), waitMs);
+      const onClosed = () => done(null);
+      this.once("closed", onClosed);
+      this.toolWaiters.set(callId, done);
+    })));
+    return { callIds: items.map((item) => item.callId), outputs: Object.fromEntries(outputs) };
   }
 
   errorMidCall() { this.emitEvent({ type: "error", error: { type: "server_error", code: "server_error", message: "mock provider failure" } }); }

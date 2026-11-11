@@ -65,6 +65,7 @@ function ownerCallRunFrom(value: unknown): OwnerCallRun | null | undefined {
     attempts: run.attempts.map((a) => ({ at: a.at, result: a.result })),
     nextAttemptAt: run.nextAttemptAt ?? null,
     state: run.state,
+    ...(run.trigger === "manual" ? { trigger: "manual" as const } : {}),
   };
 }
 

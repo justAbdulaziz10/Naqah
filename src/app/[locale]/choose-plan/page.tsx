@@ -11,6 +11,7 @@ import { planSelectionResumePath } from "@/lib/account/plan-selection-paths";
 import { safeReturnPath } from "@/lib/supabase/auth-input";
 import { initialPlanState } from "@/server/farm/actions";
 import { ACCOUNT_DATA } from "@/components/entry/paths";
+import { DemoPlanSelection } from "./DemoPlanSelection";
 
 type Props = {
   params: Promise<{ locale: string }>;
@@ -20,7 +21,7 @@ type Props = {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale } = await params;
   const messages = getMessages(isLocale(locale) ? locale : "ar");
-  return { title: messages.setup.plans.initial.title, robots: { index: false } };
+  return { title: messages.onboarding.plans.title, robots: { index: false } };
 }
 
 export default function ChoosePlanPage(props: Props) {
@@ -45,14 +46,14 @@ async function ChoosePlanContent({ params, searchParams }: Props) {
     }
     return (
       <AuthFrame demoLink={false}>
-        <AuthHeading title={m.setup.plans.initial.title} lead={m.auth.unavailable} />
+        <AuthHeading title={m.onboarding.plans.title} lead={m.auth.unavailable} />
         <p role="alert" className="mt-5 leading-relaxed text-danger">{m.account.loadFailed}</p>
-        <ButtonLink size="lg" href={`/${locale}/choose-plan${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="mt-6 w-full">{m.setup.plans.initial.retry}</ButtonLink>
+        <ButtonLink size="lg" href={`/${locale}/choose-plan${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="mt-6 w-full shadow-none!">{m.setup.plans.initial.retry}</ButtonLink>
       </AuthFrame>
     );
   }
 
   const { ownerId, state } = result.data;
   if (!state.required) redirect(planSelectionResumePath(locale, state.setupComplete, next));
-  return <InitialPlanSelection ownerId={ownerId} existingFarm={state.existingFarm} next={next} />;
+  return <DemoPlanSelection><InitialPlanSelection ownerId={ownerId} existingFarm={state.existingFarm} next={next} /></DemoPlanSelection>;
 }

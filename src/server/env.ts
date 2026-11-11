@@ -111,7 +111,7 @@ export function integrationsStatus() {
       configured: mode === "farm" && !farmVoiceMissing().length && !outboundCallMissing().length,
       manualCalls: manualCallsEnabled(),
       scheduledCalls: scheduledCallsEnabled(),
-      allowlistedNumbers: callAllowlist()?.length ?? null,
+      allowlistedNumbers: callAllowlist().length,
     },
   };
 }

@@ -56,7 +56,7 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
   let index = 0;
 
   return (
-    <section aria-labelledby="report-ledger" className="naqah-rise rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 pb-3 pt-5 sm:px-8 sm:pt-7">
+    <section aria-labelledby="report-ledger" className="rounded-[var(--radius-card)] border border-stone/70 bg-cream px-5 pb-3 pt-5 sm:px-8 sm:pt-7">
       <figure>
         <figcaption className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 pb-4">
           <div className="min-w-0">

@@ -4,6 +4,7 @@ import { Eye, EyeSlash } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button, Input } from '@/components/ui';
+import { DEMO_AUTOFILL, DemoFillButton } from '@/components/demo/DemoFill';
 import { useI18n } from '@/i18n/client';
 import { auth } from '@/i18n/messages/auth';
 import { createClient } from '@/lib/supabase/client';
@@ -18,7 +19,7 @@ import { CaptchaField } from './CaptchaField';
 const MIN_PASSWORD = 8;
 
 export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; next: string | null }) {
-  const { locale, href } = useI18n();
+  const { locale, href, m: messages } = useI18n();
   const m = auth[locale];
   const id = useId();
   const emailId = `${id}-email`;
@@ -30,6 +31,8 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
   const [captchaToken, setCaptchaToken] = useState('');
   const [captchaReset, setCaptchaReset] = useState(0);
   const [email, setEmail] = useState('');
+  const [sampleOwner, setSampleOwner] = useState('');
+  const [sampleFilled, setSampleFilled] = useState(false);
   const [password, setPassword] = useState('');
   const [visible, setVisible] = useState(false);
   const [pending, setPending] = useState(false);
@@ -37,6 +40,7 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
   const [confirmation, setConfirmation] = useState(false);
   const [issue, setIssue] = useState<EmailIssue | 'shortPassword' | null>(null);
   const locked = useRef(false);
+  const submitRef = useRef<HTMLButtonElement>(null);
   // After a failed submit, focus moves to what needs fixing: the password for password problems,
   // otherwise the error itself (it can hold the "Log in instead" link). Inputs re-enable first.
   const [focusIssue, setFocusIssue] = useState(0);
@@ -84,8 +88,21 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
       <Link className="mt-5 inline-flex min-h-11 items-center font-medium underline underline-offset-4" href={`${href('/login')}?${query}`}>{m.otherLogin}</Link>
     </> : <>
       <AuthHeading title={m[mode]} lead={mode === 'signup' ? m.signupLead : m.loginLead} />
+      <DemoFillButton className="mt-4" onFill={() => {
+        if (busy) return;
+        setEmail(mode === 'login' ? 'demo@naqah.demo' : 'owner+demo@naqah.demo');
+        setPassword(mode === 'login' ? 'naqah-demo-2026' : 'Naqah-Sample-2026!Owner');
+        if (mode === 'signup') setSampleOwner('فهد العتيبي');
+        setSampleFilled(true);
+        submitRef.current?.focus();
+      }} />
+      <span role="status" className="sr-only">{sampleFilled ? `${messages.common.demo.label} · ${email}` : ''}</span>
       <AuthMethods mode={mode} active="email" next={next} disabled={pending || !configured} onPendingChange={setGooglePending}>
       <form onSubmit={(event) => void submit(event)} className="mt-7 flex flex-col gap-5" aria-busy={pending || googlePending}>
+        {DEMO_AUTOFILL && mode === 'signup' ? <div className="flex flex-col gap-2">
+          <label htmlFor={`${id}-sample-owner`} className="text-sm font-semibold">{messages.setup.ranch.ownerName} · {messages.common.demo.label}</label>
+          <Input id={`${id}-sample-owner`} dir="auto" autoComplete="name" value={sampleOwner} onChange={(event) => setSampleOwner(event.target.value)} />
+        </div> : null}
         <div className="flex flex-col gap-2">
           <label htmlFor={emailId} className="text-sm font-semibold">{m.email}</label>
           <Input id={emailId} name="email" type="email" dir="ltr" className="text-start" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} required value={email} onChange={(event) => { setEmail(event.target.value); setIssue(null); }} disabled={busy} aria-invalid={issue === 'credentials' || issue === 'accountExists'} aria-describedby={errorId} />
@@ -108,7 +125,7 @@ export function EmailPasswordAuth({ mode, next }: { mode: 'login' | 'signup'; ne
           {error === 'accountExists' ? <Link className="flex min-h-11 w-fit items-center font-semibold text-espresso underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown" href={`${href('/login')}?${query}`}>{m.accountExistsAction}</Link> : null}
         </div>
         {captchaKey && configured && <CaptchaField siteKey={captchaKey} resetKey={captchaReset} onToken={setCaptchaToken} onFailed={() => setIssue('captcha')} />}
-        <Button type="submit" size="lg" className="w-full" disabled={busy || (!!captchaKey && !captchaToken)}>{pending ? m.emailPending : mode === 'signup' ? m.emailSignup : m.emailLogin}</Button>
+        <Button ref={submitRef} type="submit" size="lg" className="naqah-press w-full shadow-none!" disabled={busy || (!!captchaKey && !captchaToken)}>{pending ? m.emailPending : mode === 'signup' ? m.emailSignup : m.emailLogin}</Button>
       </form>
       </AuthMethods>
       <AuthSwitch href={`${href(mode === 'login' ? '/signup' : '/login')}?${alternateQuery}`}>{mode === 'login' ? m.otherSignup : m.otherLogin}</AuthSwitch>

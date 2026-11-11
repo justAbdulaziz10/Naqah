@@ -89,8 +89,8 @@ export const PREDEFINED_QUESTIONS: PredefinedQuestion[] = [
     requires: "feed",
     answerKind: "level",
     text: {
-      ar: "كيف العلف؟",
-      en: "How is the feed?",
+      ar: "كم باقي من العلف عندكم؟",
+      en: "How much feed is left?",
     },
   },
   {

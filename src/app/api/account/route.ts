@@ -1,4 +1,4 @@
-import { callNowAvailable, callWorkerNow, retryUndelivered, loadWorkspace, openAccount, saveOwnerEdits } from "@/server/farm/actions";
+import { callNowAvailable, callOwnerNow, callWorkerNow, retryUndelivered, loadWorkspace, openAccount, saveOwnerEdits } from "@/server/farm/actions";
 import { isAccountDataEnabled } from "@/server/farm/account-mode";
 import { MAX_JSON_BODY_BYTES, readBoundedJson } from "@/lib/http/body";
 import { hasSameOrigin } from "@/lib/http/origin";
@@ -25,6 +25,8 @@ export async function POST(request: Request): Promise<Response> {
     // One real report call to this owner's own saved primary worker; see callWorkerNow.
     : body?.op === "callNow" ? await callWorkerNow()
     : body?.op === "retryUndelivered" ? await retryUndelivered(body.id)
+    // LOCAL DEMO ONLY: NAQAH calls this owner's own saved, approved number now; see callOwnerNow.
+    : body?.op === "callOwnerNow" ? await callOwnerNow()
     : null;
   if (!result) return Response.json({ ok: false, error: "invalid_input" }, { status: 400, headers: NO_STORE });
   return Response.json(result, { headers: NO_STORE });

@@ -30,14 +30,16 @@ export function SupplyGauges({ resources, className }: { resources: Resource[]; 
     <ul className={cn("divide-y divide-stone/60", className)}>
       {present.map((resource) => {
         const condition = isCondition(resource);
-        const level = t(levelLabel(resource.kind, resource.level));
-        const note = [resource.quantity, resource.certainty !== "reported" ? t(CERTAINTY_LABELS[resource.certainty]) : null].filter(Boolean).join(" · ");
+        // A reported amount with no level ("25 كيس") is the answer itself, not «غير معروف».
+        const amountOnly = resource.level === "unknown" && Boolean(resource.quantity);
+        const level = amountOnly ? resource.quantity! : t(levelLabel(resource.kind, resource.level));
+        const note = [amountOnly ? null : resource.quantity, resource.certainty !== "reported" ? t(CERTAINTY_LABELS[resource.certainty]) : null].filter(Boolean).join(" · ");
         return (
           <li key={resource.kind} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-3 first:pt-0 last:pb-0">
             <div className="min-w-0">
               <p className="flex flex-wrap items-baseline gap-x-2.5">
                 <span className="font-semibold text-espresso">{t(RESOURCE_LABELS[resource.kind])}</span>
-                <span className={cn("text-[0.9375rem] font-medium", condition ? conditionTone[resource.level] : tone[resource.level].text)}>{level}</span>
+                <span className={cn("text-[0.9375rem] font-medium", condition ? conditionTone[resource.level] : amountOnly ? "text-espresso" : tone[resource.level].text)}>{level}</span>
               </p>
               {note ? <p className="mt-0.5 text-[0.8125rem] text-muted">{note}</p> : null}
             </div>

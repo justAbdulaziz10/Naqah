@@ -18,6 +18,7 @@ import { DbError } from "@/server/db/errors";
 import { loadFarm, requireFarm } from "@/server/db/queries";
 import { findCaller, findReportCallRun, recordedOutcome, runFarmAction } from "@/server/db/service-repository";
 import { afterResponse } from "@/server/calls/after";
+import { recordCallFailure } from "@/server/calls/reliability";
 import { signCallToken, type CallToken } from "@/server/calls/token";
 import {
   advanceVoiceSession, createVoiceSession, deleteStaleVoiceSessions, deleteVoiceSession, readVoiceSession,
@@ -32,8 +33,9 @@ import { newRealtimeState, realtimeOf } from "./realtime/state";
 import { isOffTopicAnswer } from "@/domain/conversation/answer-topic";
 import { evidenceWords } from "./realtime/answer-check";
 import { isVerifiedConfirmation } from "./realtime/confirmation";
-import { rememberCallWorkspace } from "./realtime/call-workspace";
+import { forgetCallWorkspace, rememberCallWorkspace } from "./realtime/call-workspace";
 import { buildInstructions } from "./realtime/instructions";
+import { buildNaturalInstructions, naturalOpening, naturalStyle } from "./realtime/natural";
 import { buildOwnerInstructions } from "./realtime/owner-instructions";
 import { ownerPromptFor } from "./realtime/owner-tools";
 import { promptFor } from "./realtime/tools";
@@ -434,13 +436,22 @@ export async function answerReportCall(client: SupabaseClient, input: { token: R
     return twimlGoodbye(locale, NOT_READY[locale]);
   }
 
-  const result = start(workspace, now, "report_call", { reportCallId: run.id, modesAvailable: Boolean(realtime) });
+  // A phone call greets and waits for «جاهز؟»: whoever picks up often says «ألو» over the first words.
+  const result = start(workspace, now, "report_call", naturalStyle()
+    ? { reportCallId: run.id }
+    : { reportCallId: run.id, modesAvailable: Boolean(realtime), greetFirst: Boolean(realtime) });
   // The run was answered above, so the engine has nothing left to commit at the start.
   if (result.commit) throw new DbError("invalid_input", "report call start has no voice event");
   const response = respond(result.session, 0, workspace, locale, 0);
   if (result.session.done) return response;
-  const state = realtime ? newRealtimeState(spokenLines(result.session, 0, workspace, locale).join(" ")) : null;
-  if (state) {
+  const natural = Boolean(realtime) && naturalStyle();
+  const state = realtime ? newRealtimeState(natural ? naturalOpening(workspace, locale) : spokenLines(result.session, 0, workspace, locale).join(" ")) : null;
+  if (state && natural) {
+    // One conversation in the model's words; the engine only replays what it hands over.
+    state.naturalBase = withoutTranscript(result.session);
+    state.instructions = buildNaturalInstructions(result.session, workspace, locale);
+    rememberCallWorkspace(callSid, workspace, now);
+  } else if (state) {
     const firstStep = promptFor(result.session, spokenLines(result.session, result.session.turns.length - 1, workspace, locale), workspace, locale);
     state.instructions = buildInstructions(locale, { worker: workspace.settings.worker.name, owner: workspace.settings.owner.name }, firstStep);
     rememberCallWorkspace(callSid, workspace, now);
@@ -479,7 +490,11 @@ export async function reportCallStatus(
   const base = { version: 1, eventId: `${callSid}:final:${status}`, providerCallId: callSid, reportCallId: token.r, attempt: token.n };
   const event = status === "completed" ? { ...base, type: "report_call_ended" } : { ...base, type: "report_call_attempt", answered: false };
   await save(client, token.f, { party: "system" }, event, now);
+  try {
+    await recordCallFailure(client, token.f, token.r, status === "completed" ? "not_saved" : status === "busy" ? "busy" : status === "no-answer" ? "no_answer" : "provider_rejected", now);
+  } catch { console.error("[NAQAH] call diagnostic storage failed"); }
   await deleteVoiceSession(client, callSid);
+  forgetCallWorkspace(callSid);
 }
 
 async function openLiveCall(
