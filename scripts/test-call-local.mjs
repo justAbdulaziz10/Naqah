@@ -22,9 +22,9 @@ const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
  * NAQAH_TEST_CALL_ISOLATED=1: a second, separate stack (its own folder and ports +100) for mock checks, so they
  * never touch the running demo's kept database.
  */
-const ISOLATED = process.env.NAQAH_TEST_CALL_ISOLATED === "1";
-const SHIFT = ISOLATED ? 100 : 0;
-export const ROOT = ISOLATED ? "/tmp/naqah-test-call-iso" : "/tmp/naqah-test-call";
+const ISOLATED = /^[1-5]$/.test(process.env.NAQAH_TEST_CALL_ISOLATED ?? "") ? Number(process.env.NAQAH_TEST_CALL_ISOLATED) : 0;
+const SHIFT = ISOLATED * 100;
+export const ROOT = ISOLATED === 0 ? "/tmp/naqah-test-call" : ISOLATED === 1 ? "/tmp/naqah-test-call-iso" : `/tmp/naqah-test-call-iso${ISOLATED}`;
 const LOGS = join(ROOT, "logs");
 const PGDATA = join(ROOT, "pg");
 /** Approved numbers, read by the app on every call: approving one needs no restart (see scripts/demo/approve-number.mjs). */

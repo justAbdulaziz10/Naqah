@@ -102,6 +102,10 @@
     background: var(--color-sand);
     color: var(--color-espresso);
   }
+  input,
+  textarea {
+    caret-color: var(--color-brown);
+  }
   /* Follows the element's text colour, so it stays visible on ivory, cream and espresso. */
   :focus-visible {
     outline: 2px solid currentColor;
@@ -363,6 +367,55 @@ html:has(.naqah-app #settings-ranch) {
   }
   .naqah-nudge-icon {
     transition: translate var(--duration-micro) var(--ease-standard);
+  }
+  /* A page arriving: one short rise for the whole view, not per section. */
+  .naqah-page {
+    animation: naqah-rise 420ms var(--ease-expo) both;
+  }
+  /* A wizard step moving forward slides in from the reading direction's end; back, from its start. */
+  .naqah-step-in {
+    animation: naqah-step-forward 380ms var(--ease-expo) both;
+  }
+  .naqah-step-in:dir(rtl) {
+    animation-name: naqah-step-forward-rtl;
+  }
+  .naqah-step-back {
+    animation: naqah-step-forward-rtl 380ms var(--ease-expo) both;
+  }
+  .naqah-step-back:dir(rtl) {
+    animation-name: naqah-step-forward;
+  }
+  /* A press is felt: the control gives a little under the finger, and springs back. */
+  .naqah-press {
+    transition: scale var(--duration-micro) var(--ease-standard), background-color var(--duration-micro) var(--ease-standard), border-color var(--duration-micro) var(--ease-standard), color var(--duration-micro) var(--ease-standard);
+  }
+  .naqah-press:active:not(:disabled) {
+    scale: 0.97;
+  }
+  /* Something just saved or done: its mark pops once. */
+  .naqah-done {
+    animation: naqah-pop 420ms var(--ease-expo) both;
+  }
+}
+
+@keyframes naqah-step-forward {
+  from {
+    opacity: 0;
+    translate: 24px 0;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes naqah-step-forward-rtl {
+  from {
+    opacity: 0;
+    translate: -24px 0;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
   }
 }
 

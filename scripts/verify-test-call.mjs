@@ -43,7 +43,7 @@ const SECOND_ALLOWED = MOCK_ALLOWED[1];
 const OUTSIDE_ALLOWLIST = "+966500000003";
 const NON_SAUDI_ALLOWED = MOCK_ALLOWED[2];
 const CONTROL_REPORT = "22222222-2222-4222-8222-2222222222dd";
-const SHIFT = process.env.NAQAH_TEST_CALL_ISOLATED === "1" ? 100 : 0;
+const SHIFT = /^[1-5]$/.test(process.env.NAQAH_TEST_CALL_ISOLATED ?? "") ? Number(process.env.NAQAH_TEST_CALL_ISOLATED) * 100 : 0;
 const STOP_PORTS = [54350, 54351, 54352, 3310, 3311, 3313].map((port) => port + SHIFT);
 if (!["all", "report", "route"].includes(PHASE)) throw new Error("--phase must be all, report or route");
 mkdirSync(OUT, { recursive: true });
