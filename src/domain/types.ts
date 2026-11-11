@@ -349,6 +349,8 @@ export interface OwnerCallRun {
   /** When the next attempt should be placed; null while ringing or when finished. */
   nextAttemptAt: string | null;
   state: "calling" | "answered" | "completed" | "missed";
+  /** LOCAL DEMO ONLY: opened from the Dashboard, not the schedule. One attempt, never retried. Absent: scheduled. */
+  trigger?: "manual";
 }
 
 /** A message relayed to the worker (Basic relays without a ticket). */

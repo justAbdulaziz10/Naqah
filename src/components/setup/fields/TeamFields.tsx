@@ -39,7 +39,7 @@ const OWNER_APPROVES_NUMBERS = process.env.NEXT_PUBLIC_NAQAH_OWNER_APPROVES_NUMB
  * Settings: a saved worker's number changes only after the owner sees the whole new number once and confirms it,
  * so a half-typed number is never saved and never called. The next call reads it from the ranch as saved.
  */
-function ConfirmedPhone({ label, name, value, onSave }: { label: string; name: string; value: string; onSave: (phone: string) => void }) {
+export function ConfirmedPhone({ label, name, value, onSave }: { label: string; name: string; value: string; onSave: (phone: string) => void }) {
   const { m } = useI18n();
   const s = m.setup.team;
   const [draft, setDraft] = useState<string | null>(null);
