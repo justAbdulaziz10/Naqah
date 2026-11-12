@@ -94,7 +94,7 @@ export function approveTestNumber(raw: string, audit: { farmId: string; ownerId:
   const file = approvedNumbersFile();
   if (!file || value("NAQAH_OWNER_APPROVES_TEST_NUMBERS") !== "1") return { ok: false, reason: "not_local" };
   const number = raw.replace(/[\s-]/g, "");
-  if (!SAUDI_MOBILE.test(number)) return { ok: false, reason: "invalid_number" };
+  if (!isDialableNumber(number)) return { ok: false, reason: "invalid_number" };
   const current = callAllowlist();
   if (!current.includes(number)) {
     if (current.length >= MAX_APPROVED_NUMBERS) return { ok: false, reason: "limit" };

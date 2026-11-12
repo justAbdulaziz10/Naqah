@@ -259,6 +259,8 @@ export function buildEnvironments(options, stack, secrets = null) {
     ...(options.ownerCallNow ? { NEXT_PUBLIC_NAQAH_DEMO_OWNER_CALL: "1" } : {}),
     // «تعبئة تجريبية» buttons in onboarding, sign-in and Settings (fill only, never save).
     ...(options.demoAutofill ? { NEXT_PUBLIC_NAQAH_DEMO_AUTOFILL: "1" } : {}),
+    // «+966 / +44» beside phone numbers in Settings (local demo with --allow-uk-numbers only).
+    ...(options.allowUkNumbers ? { NEXT_PUBLIC_NAQAH_DEMO_UK_NUMBERS: "1" } : {}),
   };
   // LOCAL DEMO ONLY: «المالك» on the presentation ranch's Dashboard (see --owner-call-now). NAQAH_CALL_OWNER stays unset.
   if (options.ownerCallNow) next.NAQAH_DEMO_OWNER_CALL = "1";

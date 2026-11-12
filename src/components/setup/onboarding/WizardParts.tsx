@@ -5,7 +5,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { useId, useState } from "react";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
-import { formatSaudiMobile, fromLocalSaudiPart, localSaudiPart, phoneNeedsFixing } from "../phone";
+import { DEMO_UK_NUMBERS, formatSaudiMobile, fromLocalSaudiPart, localSaudiPart, phoneCountry, phoneNeedsFixing, type PhoneCountry } from "../phone";
 
 /**
  * Onboarding-only form pieces. They are set larger than the shared Field/Input (17px text, 56px
@@ -101,6 +101,9 @@ export function PhoneField({
   const { m } = useI18n();
   const w = m.onboarding.wizard;
   const [touched, setTouched] = useState(() => phoneNeedsFixing(value));
+  // Local demo with UK numbers only: the country is chosen beside the number; everywhere else it is +966.
+  const [chosenCountry, setChosenCountry] = useState<PhoneCountry>(() => phoneCountry(value));
+  const country: PhoneCountry = value.trim() ? phoneCountry(value) : chosenCountry;
   const missing = Boolean(requiredMessage) && showError && !value.trim();
   const invalid = missing || ((touched || showError) && phoneNeedsFixing(value));
   return (
@@ -113,10 +116,27 @@ export function PhoneField({
             invalid ? "border-danger" : "border-stone",
           )}
         >
-          <span className="ltr-nums flex items-center border-e border-stone bg-ivory px-3.5 text-[1.0625rem] font-medium text-muted">
-            <span className="sr-only">{w.phoneCountry}</span>
-            <span aria-hidden>+966</span>
-          </span>
+          {DEMO_UK_NUMBERS ? (
+            <select
+              aria-label={w.phoneCountry}
+              value={country}
+              onChange={(event) => {
+                const next = event.target.value as PhoneCountry;
+                setChosenCountry(next);
+                const local = localSaudiPart(value);
+                if (local) onChange(fromLocalSaudiPart(local, next));
+              }}
+              className="ltr-nums border-e border-stone bg-ivory px-2.5 text-[1.0625rem] font-medium text-espresso focus:outline-none"
+            >
+              <option value="SA">+966</option>
+              <option value="GB">+44</option>
+            </select>
+          ) : (
+            <span className="ltr-nums flex items-center border-e border-stone bg-ivory px-3.5 text-[1.0625rem] font-medium text-muted">
+              <span className="sr-only">{w.phoneCountry}</span>
+              <span aria-hidden>+966</span>
+            </span>
+          )}
           <input
             id={id}
             type="tel"
@@ -129,7 +149,7 @@ export function PhoneField({
             aria-describedby={describedBy}
             aria-invalid={invalid || undefined}
             value={localSaudiPart(value)}
-            onChange={(event) => onChange(fromLocalSaudiPart(event.target.value))}
+            onChange={(event) => onChange(fromLocalSaudiPart(event.target.value, country))}
             onBlur={() => {
               setTouched(true);
               const formatted = formatSaudiMobile(value);

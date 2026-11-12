@@ -93,7 +93,7 @@ describe("approved numbers from a local file", () => {
 describe("a UK test number on the local demo", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it("is dialled only when approved locally with --allow-uk-numbers, never on Vercel or by Settings", async () => {
+  it("is dialled only when approved locally with --allow-uk-numbers, never on Vercel", async () => {
     const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
     const { join } = await import("node:path");
     const { approveTestNumber, callAllowlist, isDialableNumber } = await import("./config");
@@ -109,9 +109,13 @@ describe("a UK test number on the local demo", () => {
       expect(isDialableNumber("+447700900123")).toBe(true);
       // Only UK mobiles, never landlines or other countries.
       for (const other of ["+442079460000", "+12025550123", "+33612345678"]) expect(isDialableNumber(other)).toBe(false);
-      // Settings approval stays Saudi-only.
+      // Settings approval (with consent) accepts a UK mobile only while UK numbers are on.
       vi.stubEnv("NAQAH_OWNER_APPROVES_TEST_NUMBERS", "1");
-      expect(approveTestNumber("+447700900124", { farmId: "f", ownerId: "o", at: new Date() })).toEqual({ ok: false, reason: "invalid_number" });
+      expect(approveTestNumber("+44 7700 900124", { farmId: "f", ownerId: "o", at: new Date() })).toEqual({ ok: true, number: "+447700900124" });
+      expect(approveTestNumber("+442079460000", { farmId: "f", ownerId: "o", at: new Date() })).toEqual({ ok: false, reason: "invalid_number" });
+      vi.stubEnv("NAQAH_DEMO_UK_NUMBERS", "");
+      expect(approveTestNumber("+447700900125", { farmId: "f", ownerId: "o", at: new Date() })).toEqual({ ok: false, reason: "invalid_number" });
+      vi.stubEnv("NAQAH_DEMO_UK_NUMBERS", "1");
       vi.stubEnv("VERCEL", "1");
       expect(isDialableNumber("+447700900123")).toBe(false);
       expect(callAllowlist()).not.toContain("+447700900123");
