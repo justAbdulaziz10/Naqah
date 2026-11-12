@@ -99,6 +99,7 @@ export function parseArgs(argv) {
     else if (name === "--repeat-demo-reports") options.repeatDemoReports = true;
     else if (name === "--no-demo-call-limit") options.noDemoCallLimit = true;
     else if (name === "--demo-autofill") options.demoAutofill = true;
+    else if (name === "--allow-uk-numbers") options.allowUkNumbers = true;
     else if (name === "--owner-call-now") options.ownerCallNow = true;
     else if (name === "--voice") {
       options.voice = takeValue(index, name);
@@ -261,6 +262,8 @@ export function buildEnvironments(options, stack, secrets = null) {
   };
   // LOCAL DEMO ONLY: «المالك» on the presentation ranch's Dashboard (see --owner-call-now). NAQAH_CALL_OWNER stays unset.
   if (options.ownerCallNow) next.NAQAH_DEMO_OWNER_CALL = "1";
+  // LOCAL DEMO ONLY: approved UK mobiles may be dialled too (NAQAH's caller ID is a UK number).
+  if (options.allowUkNumbers) next.NAQAH_DEMO_UK_NUMBERS = "1";
   Object.assign(next, naturalFlag);
   return { build: { ...browserStack, ...accountFlags, ...naturalFlag, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" }, next, bridge, ports, publicBase };
 }

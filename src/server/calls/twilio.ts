@@ -3,7 +3,7 @@
  * returns `not_configured`, and any provider failure is `placed: false`. Recording is always off.
  */
 import type { OutboundConfig } from "./config";
-import { callTimeLimitSeconds, outboundConfig, SAUDI_MOBILE } from "./config";
+import { callTimeLimitSeconds, isDialableNumber, outboundConfig } from "./config";
 
 export interface OutboundCallRequest {
   /** E.164 number to call. */
@@ -35,7 +35,7 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
     provider: "twilio",
     async place(request) {
       if (!config) return { placed: false, reason: "not_configured" };
-      if (!E164.test(request.to) || !SAUDI_MOBILE.test(request.to) || (!request.url && !request.twiml)) return { placed: false, reason: "invalid_number" };
+      if (!E164.test(request.to) || !isDialableNumber(request.to) || (!request.url && !request.twiml)) return { placed: false, reason: "invalid_number" };
       // Only the consenting numbers on the allowlist can ring; an empty allowlist rings nobody.
       if (!config.allowlist.includes(request.to)) {
         console.info("[NAQAH] outbound call refused: number is not on NAQAH_CALL_ALLOWLIST");

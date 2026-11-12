@@ -19,6 +19,19 @@ export interface OutboundConfig {
 /** A Saudi mobile in E.164: +9665 and eight digits. NAQAH places calls to nothing else. */
 export const SAUDI_MOBILE = /^\+9665\d{8}$/;
 
+/** A UK mobile in E.164: +447 and nine digits. */
+export const UK_MOBILE = /^\+447\d{9}$/;
+
+/**
+ * LOCAL DEMO ONLY: a UK mobile may be dialled too, when the runner sets NAQAH_DEMO_UK_NUMBERS=1 (--allow-uk-numbers)
+ * and the number is in the local approved list. A UK phone answers NAQAH's UK caller ID as a domestic call, which
+ * Saudi carriers were filtering as spam (11 Nov). Never on Vercel; Saudi mobiles are unaffected.
+ */
+export const demoUkNumbers = () => value("NAQAH_DEMO_UK_NUMBERS") === "1" && approvedNumbersFile() !== null;
+
+/** A number NAQAH may dial at all: a Saudi mobile, or on the local demo with UK numbers on, a UK mobile. */
+export const isDialableNumber = (number: string) => SAUDI_MOBILE.test(number) || (UK_MOBILE.test(number) && demoUkNumbers());
+
 /**
  * NAQAH_CALL_ALLOWLIST: comma-separated Saudi mobiles. Strict: unset, empty or without one valid
  * number, nothing can be dialled, so a missing or mistyped setting fails closed.
@@ -26,7 +39,7 @@ export const SAUDI_MOBILE = /^\+9665\d{8}$/;
 export function callAllowlist(): string[] {
   const file = approvedNumbersFile();
   const raw = file === null ? value("NAQAH_CALL_ALLOWLIST") : readApproved(file);
-  return raw.split(/[,\n]/).map((item) => item.replace(/[\s-]/g, "")).filter((item) => SAUDI_MOBILE.test(item));
+  return raw.split(/[,\n]/).map((item) => item.replace(/[\s-]/g, "")).filter((item) => isDialableNumber(item));
 }
 
 /**

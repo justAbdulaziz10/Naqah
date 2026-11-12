@@ -4,7 +4,7 @@ import { voiceLocale, voiceMode } from "@/server/env";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { dialableWorkerPhone, reportCallIsLive } from "@/domain/reportCalls";
 import { loadFarm, requireFarm } from "@/server/db/queries";
-import { callTimeLimitSeconds, outboundConfig, SAUDI_MOBILE } from "@/server/calls/config";
+import { callTimeLimitSeconds, isDialableNumber, outboundConfig } from "@/server/calls/config";
 import { callFailureMessages, cleanStaleReportCalls, type CallFailure } from "@/server/calls/reliability";
 import { bridgeSignature } from "@/server/voice/realtime/internal";
 
@@ -16,7 +16,7 @@ export async function freeCallPreflight(client: SupabaseClient, farmId: string, 
   await cleanStaleReportCalls(client, farmId, new Date());
   const { workspace } = requireFarm(await loadFarm(client, { id: farmId }));
   const worker = dialableWorkerPhone(workspace);
-  check("worker_allowlisted", Boolean(worker && SAUDI_MOBILE.test(worker) && config.allowlist.includes(worker)), "not_allowed");
+  check("worker_allowlisted", Boolean(worker && isDialableNumber(worker) && config.allowlist.includes(worker)), "not_allowed");
   check("no_active_run", !(workspace.reportCalls ?? []).some((run) => reportCallIsLive(run, new Date())), "in_progress");
   const get = async (url: string | URL, headers?: Record<string, string>) => {
     try {
