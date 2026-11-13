@@ -6,6 +6,7 @@ import { MONTHLY_PLAN_PRICES_SAR, VAT_PERCENT } from "@/domain/pricing";
 import type { Plan, Weekday } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
+import { isCallDay } from "@/components/visuals/weekdays";
 import { useIsAccount } from "@/store/workspace";
 import type { SetupFieldsProps } from "../types";
 
@@ -21,13 +22,12 @@ type WorkspacePlanChoiceProps = SetupFieldsProps & { mode?: "workspace"; /** Off
 
 /** A plan's week in seven dots: Basic marks its one day (once chosen), Ultimate marks them all. */
 export function PlanRhythm({ plan, day, tone = "light", className }: { plan: Plan; day: Weekday | null; tone?: "light" | "dark"; className?: string }) {
-  const daily = plan === "ultimate";
   const on = tone === "dark" ? "bg-gold" : "bg-brown";
   const off = tone === "dark" ? "bg-cream/25" : "bg-stone";
   return (
     <span aria-hidden className={cn("flex items-center gap-1.5", className)}>
       {Array.from({ length: 7 }, (_, index) => {
-        const call = daily || index === (day ?? -1);
+        const call = isCallDay(plan, day, index);
         return <span key={index} className={cn("rounded-full transition-all duration-300", call ? `size-3 ${on}` : `size-1.5 ${off}`)} />;
       })}
     </span>

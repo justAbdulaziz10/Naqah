@@ -6,6 +6,7 @@ import type { Workspace } from "@/domain/types";
 import { useCallSentence, useOwnerCallSentence } from "@/components/schedule/ReportCallSection";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
+import { isCallDay, weekdayForms } from "@/components/visuals/weekdays";
 
 /**
  * The finished setup as the ranch's week: which days NAQAH calls the worker and the owner. The
@@ -20,8 +21,9 @@ export function RanchWeek({ ws }: { ws: Workspace }) {
   const time = callSchedule && isCallTime(callSchedule.time) ? fmt.time(new Date(`2026-01-01T${callSchedule.time}:00+03:00`)) : null;
   const days = WEEKDAY_LABELS.map((label, day) => ({
     label: t(label),
-    call: Boolean(time) && (plan === "ultimate" || callSchedule?.day === day),
-    owner: Boolean(ownerCall) && (plan === "ultimate" || ownerCallSchedule?.day === day),
+    short: weekdayForms(locale, day).short,
+    call: Boolean(time) && isCallDay(plan, callSchedule?.day, day),
+    owner: Boolean(ownerCall) && isCallDay(plan, ownerCallSchedule?.day, day),
   }));
 
   return (
@@ -34,7 +36,7 @@ export function RanchWeek({ ws }: { ws: Workspace }) {
         {days.map((day, index) => (
           <li key={day.label} className={cn("flex flex-col items-center gap-3 rounded-xl py-3", (day.call || day.owner) && plan === "basic" && "bg-cream/10")}>
             <span className={cn("text-[0.8125rem]", day.call || day.owner ? "font-semibold text-cream" : "text-cream/60")}>
-              {locale === "en" ? day.label.slice(0, 3) : day.label.replace(/^ال/, "")}
+              {locale === "en" ? day.short : day.label.replace(/^ال/, "")}
             </span>
             {day.call || day.owner ? (
               <span className="flex flex-col items-center">

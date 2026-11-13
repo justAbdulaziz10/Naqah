@@ -83,7 +83,7 @@ function validWindow(value: unknown): value is ReportingWindow {
 }
 
 /** Validate untrusted route input and return only the fields the feed consumes. */
-export function validateSchedule(value: unknown): CalendarSchedule | null {
+function validateSchedule(value: unknown): CalendarSchedule | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const input = value as Record<string, unknown>;
   if (
