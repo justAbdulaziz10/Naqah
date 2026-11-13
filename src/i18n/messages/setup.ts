@@ -113,6 +113,8 @@ export const setup = defineMessages({
     },
     questions: {
       title: "Questions in each call",
+      showAll: (count: number) => `Show ${count} more question${count === 1 ? "" : "s"}`,
+      showFewer: "Show fewer",
       lead: (worker: string) => `NAQAH asks ${worker} its own questions first, then yours.`,
       naqah: "NAQAH’s questions",
       naqahNote: "Asked every call",
@@ -237,6 +239,12 @@ export const setup = defineMessages({
       demoNote: "Everything here is sample data in this browser.",
       loadSample: "Load the sample ranch",
       saved: "Saved",
+      leaveTitle: "Leave without saving?",
+      leaveAnyway: "Leave",
+      leaveStay: "Stay here",
+      resetTitle: "Reset the demo?",
+      resetAction: "Reset",
+      resetCancel: "Keep it",
     },
     gaps: {
       title: "Finish setting up",
@@ -430,6 +438,8 @@ export const setup = defineMessages({
     },
     questions: {
       title: "أسئلة كل مكالمة",
+      showAll: (count: number) => `اعرض باقي الأسئلة (${count})`,
+      showFewer: "اعرض أقل",
       lead: (worker: string) => `ناقة تسأل ${worker} أسئلتها أول، بعدين أسئلتك.`,
       naqah: "أسئلة ناقة",
       naqahNote: "تنسأل في كل مكالمة",
@@ -554,6 +564,12 @@ export const setup = defineMessages({
       demoNote: "كل شي هنا بيانات تجريبية في هذا المتصفح.",
       loadSample: "حمّل العزبة التجريبية",
       saved: "انحفظ",
+      leaveTitle: "تطلع بدون حفظ؟",
+      leaveAnyway: "اطلع",
+      leaveStay: "خلّني هنا",
+      resetTitle: "إعادة ضبط العرض؟",
+      resetAction: "إعادة الضبط",
+      resetCancel: "خلّه",
     },
     gaps: {
       title: "كمّل الإعداد",

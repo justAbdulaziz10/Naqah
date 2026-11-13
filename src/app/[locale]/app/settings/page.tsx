@@ -152,7 +152,7 @@ function useCurrentGroup(ids: string[], offset: number) {
     let frame = 0;
     const update = () => {
       frame = 0;
-      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+      const atBottom = Math.ceil(window.innerHeight + window.scrollY) >= document.documentElement.scrollHeight - 8;
       let next = list[0];
       for (const id of list) {
         const element = document.getElementById(id);
@@ -192,6 +192,9 @@ export default function SettingsPage() {
   const saveFailed = useSaveStatus((state) => state.status === "failed") && !account; // The account banner covers it.
   const [edited, setEdited] = useState<string | null>(null);
   const [confirmingSample, setConfirmingSample] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  // The link the owner clicked while edits were still unsent; the dialog decides whether to follow it.
+  const [leavingTo, setLeavingTo] = useState<string | null>(null);
   const [showPlanComparison, setShowPlanComparison] = useState(false);
   const { header: headerHeight, padding: scrollPadding } = useStickyOffsets();
   const navHeight = 52;
@@ -218,16 +221,36 @@ export default function SettingsPage() {
         document.querySelector<HTMLElement>("#settings-questions [aria-invalid='true']")?.focus();
         return;
       }
-      if (account && accountSync.unsentDrafts().length && !window.confirm(m.account.leaveUnsaved)) {
+      if (account && accountSync.unsentDrafts().length) {
         event.preventDefault();
         event.stopPropagation();
+        setLeavingTo(url.pathname + url.search + url.hash);
       }
     };
     document.addEventListener("click", guard, true);
     return () => document.removeEventListener("click", guard, true);
-  }, [account, m.account.leaveUnsaved]);
+  }, [account]);
   const currentGroup = useCurrentGroup(groups.map((group) => group.id), headerHeight + navHeight);
   const navRef = useRef<HTMLElement>(null);
+  // Which side of the tab strip still has tabs hidden, so an edge fade can say so (RTL or LTR).
+  const [hidden, setHidden] = useState({ start: false, end: false });
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const measure = () => {
+      const max = nav.scrollWidth - nav.clientWidth;
+      const position = Math.abs(nav.scrollLeft);
+      setHidden({ start: position > 2, end: position < max - 2 });
+    };
+    measure();
+    nav.addEventListener("scroll", measure, { passive: true });
+    const observer = new ResizeObserver(measure);
+    observer.observe(nav);
+    return () => {
+      nav.removeEventListener("scroll", measure);
+      observer.disconnect();
+    };
+  }, []);
   // On a phone the tabs scroll sideways: keep the current one in view (either direction, RTL or LTR).
   useEffect(() => {
     const nav = navRef.current;
@@ -235,9 +258,12 @@ export default function SettingsPage() {
     if (!nav || !link) return;
     const box = nav.getBoundingClientRect();
     const tab = link.getBoundingClientRect();
-    const margin = 16;
-    if (tab.left < box.left + margin) nav.scrollLeft -= box.left + margin - tab.left;
-    else if (tab.right > box.right - margin) nav.scrollLeft += tab.right - (box.right - margin);
+    const margin = 24;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let delta = 0;
+    if (tab.left < box.left + margin) delta = tab.left - (box.left + margin);
+    else if (tab.right > box.right - margin) delta = tab.right - (box.right - margin);
+    if (delta) nav.scrollBy({ left: delta, behavior: reduced ? "auto" : "smooth" });
   }, [currentGroup]);
 
   if (!ws) return null;
@@ -263,32 +289,48 @@ export default function SettingsPage() {
         <h1 className="text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-espresso sm:text-[2.5rem] rtl:tracking-normal">{s.title}</h1>
         <p className="mt-1.5 text-[1.0625rem] text-muted">{s.lead}</p>
       </div>
-      <nav
-        ref={navRef}
-        aria-label={s.title}
-        className="sticky z-20 !mt-4 -mx-4 overflow-x-auto [scrollbar-width:none] border-b border-stone/60 bg-ivory px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8"
-        style={{ top: headerHeight }}
-      >
-        <ul className="flex gap-x-6 whitespace-nowrap">
-          {groups.map((group) => {
-            const current = group.id === currentGroup;
-            return (
-              <li key={group.id}>
-                <a
-                  href={`#${group.id}`}
-                  aria-current={current ? "location" : undefined}
-                  className={cn(
-                    "-mb-px inline-flex min-h-12 items-center border-b-2 text-sm font-semibold transition-colors focus-visible:rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brown",
-                    current ? "border-brown text-espresso" : "border-transparent text-muted hover:text-espresso",
-                  )}
-                >
-                  {group.label}
-                </a>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
+      <div className="sticky z-20 !mt-4 -mx-4 border-b border-stone/60 bg-ivory sm:-mx-6 lg:-mx-8" style={{ top: headerHeight }}>
+        <nav
+          ref={navRef}
+          aria-label={s.title}
+          className="overflow-x-auto px-4 [scrollbar-width:none] sm:px-6 lg:px-8 [&::-webkit-scrollbar]:hidden"
+        >
+          <ul className="flex gap-x-6 whitespace-nowrap">
+            {groups.map((group) => {
+              const current = group.id === currentGroup;
+              return (
+                <li key={group.id}>
+                  <a
+                    href={`#${group.id}`}
+                    aria-current={current ? "location" : undefined}
+                    className={cn(
+                      "-mb-px inline-flex min-h-12 items-center border-b-2 text-sm font-semibold transition-colors focus-visible:rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brown",
+                      current ? "border-brown text-espresso" : "border-transparent text-muted hover:text-espresso",
+                    )}
+                  >
+                    {group.label}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+        {/* Edge fades: there are more tabs that way. Logical sides, so they swap in RTL. */}
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-y-0 start-0 w-10 bg-linear-to-r from-ivory to-transparent transition-opacity duration-200 rtl:bg-linear-to-l motion-reduce:transition-none",
+            hidden.start ? "opacity-100" : "opacity-0",
+          )}
+        />
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-y-0 end-0 w-12 bg-linear-to-l from-ivory to-transparent transition-opacity duration-200 rtl:bg-linear-to-r motion-reduce:transition-none",
+            hidden.end ? "opacity-100" : "opacity-0",
+          )}
+        />
+      </div>
 
       {saveFailed ? (
         <p role="alert" className="rounded-xl border border-danger bg-cream px-4 py-3 text-sm leading-relaxed text-danger">
@@ -305,7 +347,7 @@ export default function SettingsPage() {
           <Card>
             <CardBody className="space-y-10 pt-5">
               <div id="settings-plan" className={anchor}>
-                <PlanChoice {...draft} />
+                <PlanChoice {...draft} showRhythm={false} />
                 <details className="group mt-3" onToggle={(event) => setShowPlanComparison(event.currentTarget.open)}>
                   <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-[0.9375rem] font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown [&::-webkit-details-marker]:hidden">
                     {m.setup.plans.compare}
@@ -336,7 +378,7 @@ export default function SettingsPage() {
         <Card>
           <CardBody className="space-y-8 pt-5">
             <ReportModeField {...draft} />
-            <QuestionsFields {...draft} />
+            <QuestionsFields {...draft} collapsible />
           </CardBody>
         </Card>
       </SettingsSection>
@@ -404,11 +446,7 @@ export default function SettingsPage() {
                 <Button
                   variant="ghost"
                   className="text-danger"
-                  onClick={() => {
-                    if (!window.confirm(m.common.demo.resetConfirm)) return;
-                    reset();
-                    router.push(href("/"));
-                  }}
+                  onClick={() => setConfirmingReset(true)}
                 >
                   {m.common.actions.reset}
                 </Button>
@@ -417,6 +455,35 @@ export default function SettingsPage() {
           </Card>
         </SettingsSection>
       )}
+      {confirmingReset ? (
+        <ConfirmDialog
+          title={s.resetTitle}
+          body={m.common.demo.resetConfirm}
+          confirmLabel={s.resetAction}
+          cancelLabel={s.resetCancel}
+          onConfirm={() => {
+            setConfirmingReset(false);
+            reset();
+            router.push(href("/"));
+          }}
+          onCancel={() => setConfirmingReset(false)}
+        />
+      ) : null}
+      {leavingTo ? (
+        <ConfirmDialog
+          tone="primary"
+          title={s.leaveTitle}
+          body={m.account.leaveUnsaved}
+          confirmLabel={s.leaveAnyway}
+          cancelLabel={s.leaveStay}
+          onConfirm={() => {
+            const target = leavingTo;
+            setLeavingTo(null);
+            router.push(target);
+          }}
+          onCancel={() => setLeavingTo(null)}
+        />
+      ) : null}
       {confirmingSample ? (
         <ConfirmDialog
           title={m.common.demo.sampleConfirmTitle}
