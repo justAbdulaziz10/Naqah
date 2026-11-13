@@ -84,7 +84,7 @@ export function Sheet({
             type="button"
             onClick={requestClose}
             aria-label={closeLabel}
-            className="-me-2 -mt-1 inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-espresso/5 hover:text-espresso active:scale-95"
+            className="naqah-press -me-2 -mt-1 inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition-colors duration-[var(--duration-micro)] hover:bg-espresso/5 hover:text-espresso"
           >
             <X size={20} aria-hidden />
           </button>

@@ -30,6 +30,7 @@ import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useIsAccount, useNow, useWorkspaceStore } from "@/store/workspace";
 import { LocaleSwitcher } from "./LocaleSwitcher";
+import { LoadingShell } from "./StateShells";
 import { getStartedPath } from "@/components/entry/paths";
 
 /** Only hides the link. The route itself checks the session and the owner allowlist. */
@@ -49,7 +50,7 @@ const NAV: { key: NavKey; path: string; icon: Icon | "camel" }[] = [
 ];
 
 function NavIcon({ icon, active, size = 22 }: { icon: Icon | "camel"; active: boolean; size?: number }) {
-  if (icon === "camel") return <CamelMark className={cn("h-[18px] w-auto", active ? "text-current" : "text-current opacity-90")} />;
+  if (icon === "camel") return <CamelMark className={cn("h-[18px] w-auto text-current", active ? "" : "opacity-80")} />;
   const I = icon;
   return <I size={size} weight={active ? "fill" : "regular"} aria-hidden />;
 }
@@ -73,22 +74,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     return path === "/app" ? pathname === full : pathname.startsWith(full);
   };
 
-  if (!hydrated) {
-    return (
-      <div role="status" aria-live="polite" aria-busy className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
-        <CamelMark className="h-10 w-auto opacity-70 motion-safe:animate-pulse" />
-        <p className="text-sm text-espresso/60">{m.app.loading.ranch}</p>
-      </div>
-    );
-  }
+  if (!hydrated) return <LoadingShell label={m.app.loading.ranch} />;
 
   if (!ws || !ws.setupComplete) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-6 px-6 text-center">
         <CamelMark className="h-16 w-auto" />
         <div className="max-w-md">
-          <h1 className="text-2xl font-bold">{m.common.demo.noWorkspace}</h1>
-          <p className="mt-2 text-muted">{m.common.demo.noWorkspaceBody}</p>
+          <h1 className="naqah-title">{m.common.demo.noWorkspace}</h1>
+          <p className="naqah-lede mt-2">{m.common.demo.noWorkspaceBody}</p>
         </div>
         <div className="flex flex-wrap justify-center gap-3">
           <Button onClick={() => (hasOwnSetupData(ws) ? setConfirmingDemo(true) : startDemo(locale))} size="lg">
@@ -146,11 +140,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                 href={href(item.path)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex h-11 items-center gap-3 rounded-xl px-3 text-[0.95rem] font-semibold transition-colors duration-200 active:scale-[0.99]",
-                  active ? "bg-espresso/[0.07] text-espresso" : "text-muted hover:bg-espresso/5 hover:text-espresso",
+                  "naqah-press relative flex h-11 items-center gap-3 rounded-xl px-3 text-[0.95rem] transition-colors duration-[var(--duration-micro)]",
+                  active ? "bg-espresso/[0.06] font-semibold text-espresso" : "font-medium text-muted hover:bg-espresso/[0.04] hover:text-espresso",
                 )}
               >
-                <span aria-hidden className={cn("absolute inset-y-2.5 start-0 w-[3px] rounded-full bg-brown transition-[opacity,transform] duration-300", active ? "opacity-100" : "scale-y-0 opacity-0")} />
+                <span aria-hidden className={cn("absolute inset-y-2.5 start-0 w-[3px] rounded-full bg-brown transition-[opacity,scale] duration-[var(--duration-confirm)] ease-[var(--ease-standard)]", active ? "opacity-100" : "scale-y-0 opacity-0")} />
                 <span className="flex w-6 justify-center">
                   <NavIcon icon={item.icon} active={active} />
                 </span>
@@ -173,7 +167,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               aria-current={isActive("/app/lab") ? "page" : undefined}
               className={cn(
                 "relative mt-1 flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 transition-colors duration-200",
-                isActive("/app/lab") ? "bg-espresso/[0.07] text-espresso" : "text-muted hover:bg-espresso/5 hover:text-espresso",
+                isActive("/app/lab") ? "bg-espresso/[0.06] text-espresso" : "text-muted hover:bg-espresso/[0.04] hover:text-espresso",
               )}
             >
               <span className="flex w-6 justify-center"><Waveform size={22} weight={isActive("/app/lab") ? "fill" : "regular"} aria-hidden /></span>
@@ -193,7 +187,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             aria-current={isActive("/app/voice-lab") ? "page" : undefined}
             className={cn(
               "mt-2 flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-[0.95rem] font-semibold transition-colors duration-200",
-              isActive("/app/voice-lab") ? "bg-espresso/[0.07] text-espresso" : "text-muted hover:bg-espresso/5 hover:text-espresso",
+              isActive("/app/voice-lab") ? "bg-espresso/[0.06] text-espresso" : "text-muted hover:bg-espresso/[0.04] hover:text-espresso",
             )}
           >
             <span className="flex w-6 justify-center"><Microphone size={22} weight={isActive("/app/voice-lab") ? "fill" : "regular"} aria-hidden /></span>
@@ -207,7 +201,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             aria-current={isActive("/app/lab") ? "page" : undefined}
             className={cn(
               "mt-2 flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-[0.95rem] font-semibold transition-colors duration-200",
-              isActive("/app/lab") ? "bg-espresso/[0.07] text-espresso" : "text-muted hover:bg-espresso/5 hover:text-espresso",
+              isActive("/app/lab") ? "bg-espresso/[0.06] text-espresso" : "text-muted hover:bg-espresso/[0.04] hover:text-espresso",
             )}
           >
             <span className="flex w-6 justify-center"><PhoneOutgoing size={22} weight={isActive("/app/lab") ? "fill" : "regular"} aria-hidden /></span>
@@ -225,9 +219,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="flex min-w-0 flex-col">
         {/* Top bar */}
-        <header className="sticky top-0 z-30 border-b border-stone/60 bg-ivory">
+        <header className="sticky top-0 z-30 border-b border-stone/60 bg-ivory pt-[env(safe-area-inset-top)]">
           {/* Phones only: on desktop the sidebar names the product and the estate. */}
-          <div className={cn("mx-auto flex h-14 max-w-6xl items-center px-4 sm:px-6 lg:hidden", voiceLab && testCall ? "gap-1" : "gap-3")}>
+          <div className={cn("mx-auto flex h-14 max-w-6xl items-center px-3 sm:px-6 lg:hidden", voiceLab && testCall ? "gap-1" : "gap-3")}>
             <Logo locale={locale} href={href("/")} className="min-h-11" />
             <div className={cn("ms-auto flex items-center", !(voiceLab && testCall) && "gap-1")}>
               <LocaleSwitcher />
@@ -253,7 +247,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {account ? null : <DemoNotice showSimulate={!isActive("/app/lab") && !isActive("/app")} labHref={href("/app/lab")} />}
         </header>
 
-        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-6 focus:outline-none sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">{children}</main>
+        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-5 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-5 focus:outline-none sm:px-6 lg:px-10 lg:pb-12 lg:pt-8">{children}</main>
       </div>
 
       {/* Bottom tabs (mobile) */}
@@ -270,11 +264,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                 href={href(item.path)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex h-16 flex-col items-center justify-center gap-1 text-[0.72rem] font-semibold transition-colors duration-200 active:scale-95",
-                  active ? "text-espresso" : "text-muted",
+                  "naqah-press relative flex h-[3.75rem] flex-col items-center justify-center gap-1 text-[0.72rem] transition-colors duration-[var(--duration-micro)] focus-visible:-outline-offset-2 focus-visible:rounded-lg",
+                  active ? "font-semibold text-espresso" : "font-medium text-muted",
                 )}
               >
-                <span aria-hidden className={cn("absolute inset-x-6 top-0 h-[3px] rounded-b-full bg-brown transition-[opacity,transform] duration-300", active ? "opacity-100" : "scale-x-0 opacity-0")} />
+                <span aria-hidden className={cn("absolute inset-x-7 top-0 h-[3px] rounded-b-full bg-brown transition-[opacity,scale] duration-[var(--duration-confirm)] ease-[var(--ease-standard)]", active ? "opacity-100" : "scale-x-0 opacity-0")} />
                 <NavIcon icon={item.icon} active={active} />
                 <span className="max-w-full truncate px-1">{m.common.nav[item.key]}</span>
                 {item.key === "tickets" && openTasks > 0 ? (
@@ -299,8 +293,8 @@ function DemoNotice({ showSimulate, labHref }: { showSimulate: boolean; labHref:
   const { m } = useI18n();
   return (
     <div role="note" className="border-t border-stone/60 bg-cream lg:border-t-0">
-      <div className="mx-auto flex min-h-11 max-w-6xl items-center gap-2 px-4 text-sm sm:px-6 lg:px-8">
-        <Flask size={16} className="shrink-0 text-brown" aria-hidden />
+      <div className="mx-auto flex min-h-8 max-w-6xl items-center gap-1.5 px-3 text-xs sm:min-h-11 sm:gap-2 sm:px-6 sm:text-sm lg:px-10">
+        <Flask size={14} className="shrink-0 text-brown sm:size-4" aria-hidden />
         <span className="shrink-0 font-semibold text-brown">{m.common.demo.label}</span>
         <span aria-hidden className="text-muted">·</span>
         <span className="min-w-0 truncate text-muted sm:hidden">{m.common.demo.badge}</span>
@@ -311,7 +305,7 @@ function DemoNotice({ showSimulate, labHref }: { showSimulate: boolean; labHref:
             <DemoClock />
           </div>
           {showSimulate ? (
-            <Link href={labHref} prefetch={false} className="naqah-nudge inline-flex min-h-11 items-center gap-1 font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown">
+            <Link href={labHref} prefetch={false} className="naqah-nudge naqah-link inline-flex min-h-8 items-center gap-1 sm:min-h-11">
               {m.common.demo.simulateCall}
               <ArrowRight size={14} className="naqah-nudge-icon rtl:-scale-x-100" aria-hidden />
             </Link>
