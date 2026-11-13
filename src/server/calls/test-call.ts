@@ -53,7 +53,7 @@ export async function startTestCall(
   await expireTestCalls(client, now);
 
   const leases: RateLimitLease[] = [];
-  let placed = false;
+  let placementPossible = false;
   let row: TestCallRow | null = null;
   let runId: string | null = null;
   const release = () => Promise.all(leases.map((lease) => lease.release()));
@@ -80,7 +80,17 @@ export async function startTestCall(
     }
     row = requireTestCallData(inserted) as TestCallRow;
     requireTestCallData(await client.rpc("reset_test_call_ranch", { p_test_call_id: row.id }));
-    const result = await requestReportCallNow(client, options.caller ?? createTwilioCaller(), ready.farmId, {
+    const caller = options.caller ?? createTwilioCaller();
+    const trackedCaller: OutboundCaller = {
+      provider: caller.provider,
+      async place(request) {
+        placementPossible = true;
+        const result = await caller.place(request);
+        placementPossible = result.placed || result.reason === "network_error";
+        return result;
+      },
+    };
+    const result = await requestReportCallNow(client, trackedCaller, ready.farmId, {
       baseUrl: ready.config.baseUrl, now, allowlist: ready.allowlist, to: input.phone,
       onRunOpened: async (openedId) => {
         runId = openedId;
@@ -89,8 +99,8 @@ export async function startTestCall(
         if (!linked) throw new Error("Test call no longer active");
       },
     });
-    placed = result.status === "placed";
-    if (!placed) {
+    placementPossible ||= result.status === "placed" || (result.status === "failed" && result.failureReason === "network_error");
+    if (!placementPossible) {
       await closeTestCallRun(client, ready.farmId, runId);
       requireTestCallData(await client.from("test_calls").update({
         status: "failed", result: "failed",
@@ -101,7 +111,7 @@ export async function startTestCall(
     const saved = requireTestCallData(await client.from("test_calls").select(TEST_CALL_COLUMNS).eq("id", row.id).single()) as TestCallRow;
     return { ok: true, call: await testCallView(client, saved) };
   } catch {
-    if (row && !placed) {
+    if (row && !placementPossible) {
       await closeTestCallRun(client, ready.farmId, runId);
       requireTestCallData(await client.from("test_calls").update({
         status: "failed", result: "failed", failure: "not_placed",
@@ -112,6 +122,6 @@ export async function startTestCall(
     }
     return { ok: false, error: "failed" };
   } finally {
-    if (!placed) await release();
+    if (!placementPossible) await release();
   }
 }

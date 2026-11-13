@@ -71,13 +71,13 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
           redirect: "error",
         });
         if (!response.ok) {
-          console.info(`[NAQAH] Twilio outbound call refused (${response.status})`);
+          console.info(`[NAQAH] Twilio outbound call returned HTTP ${response.status}`);
           const body = await response.json().catch(() => null) as { code?: unknown } | null;
           const code = typeof body?.code === "number" && Number.isSafeInteger(body.code) ? body.code : undefined;
-          return { placed: false, reason: "rejected", status: response.status, ...(code === undefined ? {} : { code }) };
+          return { placed: false, reason: response.status >= 400 && response.status < 500 ? "rejected" : "network_error", status: response.status, ...(code === undefined ? {} : { code }) };
         }
         const sid = ((await response.json()) as { sid?: unknown }).sid;
-        if (typeof sid !== "string" || !CALL_SID.test(sid)) return { placed: false, reason: "rejected", status: response.status };
+        if (typeof sid !== "string" || !CALL_SID.test(sid)) return { placed: false, reason: "network_error", status: response.status };
         return { placed: true, sid };
       } catch {
         console.info("[NAQAH] Twilio outbound call failed (network error)");

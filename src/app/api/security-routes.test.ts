@@ -5,6 +5,7 @@ import { GET as integrations } from "./integrations/status/route";
 import { encodeSchedule } from "@/lib/calendar/schedule";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/supabase/server", () => ({ getOwner: async () => ({ user: null }) }));
 vi.mock("next/server", async (original) => {
   const actual = await original<typeof import("next/server")>();
   return { ...actual, connection: vi.fn(async () => {}) };
@@ -37,12 +38,12 @@ describe("public and scheduled API routes", () => {
     expect(await response.json()).toMatchObject({ ok: true, placed: 0, skipped: "sample_mode" });
   });
 
-  it("keeps integration status public and does not expose configured secrets", async () => {
+  it("keeps only bare integration health public", async () => {
     vi.stubEnv("TWILIO_AUTH_TOKEN", "secret-token");
     const response = await integrations();
     expect(response.status).toBe(200);
     const body = await response.text();
-    expect(body).toContain('"signatureValidation":true');
+    expect(JSON.parse(body)).toEqual({ ok: true });
     expect(body).not.toContain("secret-token");
   });
 });

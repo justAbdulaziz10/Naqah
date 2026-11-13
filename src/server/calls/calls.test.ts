@@ -81,7 +81,10 @@ describe("Twilio outbound client", () => {
   });
   it.each([
     [async () => new Response("{}", { status: 400 }), { placed: false, reason: "rejected", status: 400 }],
-    [async () => Response.json({ sid: "nope" }), { placed: false, reason: "rejected", status: 200 }],
+    [async () => Response.json({ sid: "nope" }), { placed: false, reason: "network_error", status: 200 }],
+    [async () => new Response("bad json", { status: 201 }), { placed: false, reason: "network_error" }],
+    [async () => new Response("bad json", { status: 400 }), { placed: false, reason: "rejected", status: 400 }],
+    [async () => Response.json({ code: 20500 }, { status: 500 }), { placed: false, reason: "network_error", status: 500, code: 20500 }],
     [async () => { throw new TypeError("offline"); }, { placed: false, reason: "network_error" }],
   ])("reports a failed placement honestly", async (impl, expected) => {
     expect(await createTwilioCaller(config, vi.fn(impl) as unknown as typeof fetch).place({ to: "+966501234567", url: "https://x", statusCallback: "https://y" })).toEqual(expected);

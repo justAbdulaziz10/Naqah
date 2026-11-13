@@ -26,7 +26,7 @@ function configuredClient(): RpcClient | null {
 function warnRpcFailure(): void {
   if (warnedAboutRpc) return;
   warnedAboutRpc = true;
-  console.warn("[NAQAH] shared rate-limit RPC unavailable; using the instance-local fallback");
+  console.warn("[NAQAH] shared rate-limit RPC unavailable; paid actions denied, only OTP/push may use instance-local limits");
 }
 
 function reserveLocal(key: string, limit: number, windowSeconds: number, nowMs: number): RateLimitLease | null {
@@ -56,7 +56,7 @@ function reserveLocal(key: string, limit: number, windowSeconds: number, nowMs: 
   };
 }
 
-/** Reserve one fixed-window slot in Supabase, falling back to an instance-local bucket on errors. */
+/** Reserve a shared slot. Only non-paid OTP/push buckets may fall back to instance-local limits. */
 export async function reserveRateLimit(
   key: string,
   limit: number,
@@ -98,7 +98,7 @@ export async function reserveRateLimit(
     }
   }
 
-  return reserveLocal(key, limit, windowSeconds, nowMs);
+  return key.startsWith("otp:") || key.startsWith("push:") ? reserveLocal(key, limit, windowSeconds, nowMs) : null;
 }
 
 /** Test seam for resetting process-local state between limiter cases. */

@@ -49,7 +49,7 @@ export async function dialDueOwnerCall(
   } catch {
     placed = { placed: false, reason: "network_error" };
   }
-  if (!placed.placed) {
+  if (!placed.placed && placed.reason !== "network_error") {
     await runFarmAction(client, farmId, (ws) => ({ ws: abandonOwnerCallAttempt(ws, now, runId, claim.attempt), result: null }));
   }
   return placed;

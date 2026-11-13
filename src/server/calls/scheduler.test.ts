@@ -6,6 +6,7 @@ import { verifyCallToken } from "./token";
 import { recordingCaller } from "./twilio";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/server/rate-limit", () => ({ reserveRateLimit: async () => ({ release: async () => {} }) }));
 
 /** One farm held in memory; runFarmAction applies the pure action to it like the database would. */
 const store = vi.hoisted(() => ({ ws: null as unknown as Workspace, saves: 0, farmIds: [] as string[], fails: new Set<string>() }));
@@ -27,6 +28,7 @@ vi.mock("@/server/db/service-repository", () => ({
 const FARM = "11111111-1111-4111-8111-111111111111";
 const SECRET = "unit-test-voice-secret-at-least-32-bytes";
 const { requestReportCallNow, runReportCallScheduler } = await import("./scheduler");
+const { requestOwnerCallNow } = await import("./owner-call-now");
 
 const now = new Date("2026-11-12T14:00:00.000Z"); // Thursday 17:00 Riyadh
 const options = { baseUrl: "https://naqah.test", now };
@@ -106,12 +108,30 @@ describe("worker instruction and verification dialing", () => {
     expect(store.ws.pendingWorkerCalls[0].nextAttemptAt).toBe(now.toISOString());
   });
 
-  it("releases the claim when Twilio refuses, so the attempt was not used, and waits before asking again", async () => {
-    const { caller } = recordingCaller(() => ({ placed: false, reason: "rejected", status: 400 }));
+  it.each(["rejected", "not_configured", "invalid_number", "not_allowed"] as const)("releases the worker claim after %s and waits before asking again", async (reason) => {
+    const { caller } = recordingCaller(() => ({ placed: false, reason, status: 400 }));
     const result = await runReportCallScheduler({} as never, caller, options);
     expect(result.failed).toBeGreaterThan(0);
     expect(store.ws.pendingWorkerCalls[0].attempts).toHaveLength(0);
     expect(new Date(store.ws.pendingWorkerCalls[0].nextAttemptAt!).getTime()).toBe(now.getTime() + 20 * 60 * 1000);
+  });
+
+  it.each(["instruction", "task_verification"] as const)("keeps an ambiguous %s claim until its stale lock expires", async (purpose) => {
+    store.ws.pendingWorkerCalls[0].purpose = purpose;
+    const { caller, requests } = recordingCaller(() => ({ placed: false, reason: "network_error" }));
+    expect(await runReportCallScheduler({} as never, caller, options)).toMatchObject({ failed: 1, errors: 0 });
+    expect(store.ws.pendingWorkerCalls[0]).toMatchObject({ attempts: [], nextAttemptAt: new Date(now.getTime() + 2 * 60 * 60_000).toISOString() });
+    await runReportCallScheduler({} as never, caller, { ...options, now: new Date(now.getTime() + 21 * 60_000) });
+    expect(requests).toHaveLength(1);
+    await runReportCallScheduler({} as never, caller, { ...options, now: new Date(now.getTime() + 2 * 60 * 60_000) });
+    expect(requests).toHaveLength(2);
+  });
+
+  it("keeps a worker claim if the provider throws after sending", async () => {
+    const caller = { place: vi.fn(async () => { throw new Error("response lost"); }) };
+    expect(await runReportCallScheduler({} as never, caller, options)).toMatchObject({ failed: 1, errors: 0 });
+    await runReportCallScheduler({} as never, caller, { ...options, now: new Date(now.getTime() + 21 * 60_000) });
+    expect(caller.place).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -183,8 +203,8 @@ describe("scheduled owner call", () => {
     expect(requests.filter((request) => request.to === "+966550123344")).toHaveLength(0);
   });
 
-  it("does not count a call the provider refused, and retries it 20 minutes later", async () => {
-    const refuse = recordingCaller(() => ({ placed: false, reason: "rejected", status: 400 }));
+  it.each(["rejected", "not_configured", "invalid_number", "not_allowed"] as const)("releases the owner claim after %s and retries it 20 minutes later", async (reason) => {
+    const refuse = recordingCaller(() => ({ placed: false, reason, status: 400 }));
     expect(await runReportCallScheduler({} as never, refuse.caller, options)).toMatchObject({ placed: 0, failed: 1 });
     expect(attempts()).toEqual([]);
     expect(store.ws.ownerCallRun).toMatchObject({ state: "calling", nextAttemptAt: new Date(now.getTime() + 20 * 60_000).toISOString() });
@@ -195,10 +215,36 @@ describe("scheduled owner call", () => {
     expect(tokenOf(requests[0].url)).toMatchObject({ k: "owner", n: 1 });
   });
 
-  it("undoes the claim when the caller throws, and still counts it as not placed", async () => {
+  it("keeps the claim when the caller throws after sending", async () => {
     const thrower = { place: vi.fn(async () => { throw new Error("offline"); }) };
     expect(await runReportCallScheduler({} as never, thrower, options)).toMatchObject({ failed: 1, errors: 0 });
-    expect(attempts()).toEqual([]);
+    expect(attempts()).toEqual([{ at: now.toISOString(), result: "pending" }]);
+    expect(store.ws.ownerCallRun!.nextAttemptAt).toBeNull();
+    await runReportCallScheduler({} as never, thrower, later(1));
+    expect(thrower.place).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps ambiguous owner placement pending until the stale-run timeout settles it", async () => {
+    const { caller, requests } = recordingCaller(() => ({ placed: false, reason: "network_error" }));
+    await runReportCallScheduler({} as never, caller, options);
+    await runReportCallScheduler({} as never, caller, later(1));
+    expect(attempts()).toEqual([{ at: now.toISOString(), result: "pending" }]);
+    expect(requests).toHaveLength(1);
+    await runReportCallScheduler({} as never, caller, later(15));
+    expect(attempts()[0].result).toBe("unanswered");
+    expect(requests).toHaveLength(1);
+  });
+
+  it.each(["network_error", "rejected"] as const)("handles manual owner placement %s without unsafe rollback", async (reason) => {
+    const chain = { select: () => chain, eq: () => chain, gte: () => chain, in: () => chain, limit: async () => ({ data: [], error: null }) };
+    const client = { from: () => chain };
+    const { caller } = recordingCaller(() => ({ placed: false, reason }));
+    expect(await requestOwnerCallNow(client as never, caller, FARM, { ...options, allowlist: ["+966550123344"] })).toEqual({ status: "failed", reason: "not_placed" });
+    expect(attempts()).toHaveLength(reason === "network_error" ? 1 : 0);
+    expect(store.ws.ownerCallRun!.state).toBe(reason === "network_error" ? "calling" : "missed");
+    if (reason === "network_error") {
+      expect(await requestOwnerCallNow(client as never, caller, FARM, { ...options, allowlist: ["+966550123344"] })).toEqual({ status: "blocked", reason: "call_live" });
+    }
   });
 
   it("frees an attempt whose webhook never arrives, then dials the retry", async () => {

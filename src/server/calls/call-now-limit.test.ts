@@ -1,17 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createRateLimitRpc } from "@/server/rate-limit.test-utils";
+const shared = vi.hoisted(() => ({ rpc: vi.fn(), nowMs: 0 }));
+vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ rpc: shared.rpc }) }));
 vi.mock("server-only", () => ({}));
 import { resetRateLimitState } from "@/server/rate-limit";
 import { withCallNowLimit } from "./call-now-limit";
 import type { CallNowResult } from "./scheduler";
 
 const placed = async (): Promise<CallNowResult> => ({ status: "placed" });
-const at = (minutes: number) => new Date(Date.UTC(2026, 10, 10, 9, 0) + minutes * 60_000);
+const at = (minutes: number) => new Date(shared.nowMs = Date.UTC(2026, 10, 10, 9, 0) + minutes * 60_000);
 
 describe("«اتصال حقيقي» rate limit", () => {
   beforeEach(() => {
-    // No Supabase here, so the limiter uses its in-process buckets: same windows, same counting.
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
-    vi.stubEnv("SUPABASE_SECRET_KEY", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("SUPABASE_SECRET_KEY", "sb_secret_test");
+    shared.rpc.mockImplementation(createRateLimitRpc(() => shared.nowMs));
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     resetRateLimitState();
   });
@@ -26,6 +29,13 @@ describe("«اتصال حقيقي» rate limit", () => {
     expect(await withCallNowLimit("farm-a", at(3), place)).toEqual({ status: "blocked", reason: "rate_limited" });
     expect(place).toHaveBeenCalledTimes(3);
     expect(await withCallNowLimit("farm-b", at(3), place)).toEqual({ status: "placed" });
+  });
+
+  it("never dials when the shared limiter is unavailable", async () => {
+    shared.rpc.mockResolvedValue({ data: null, error: new Error("offline") });
+    const place = vi.fn(placed);
+    expect(await withCallNowLimit("farm-a", at(0), place)).toEqual({ status: "blocked", reason: "rate_limited" });
+    expect(place).not.toHaveBeenCalled();
   });
 
   it("allows 10 calls a day across hours", async () => {
