@@ -23,6 +23,7 @@ export type OutboundCallResult =
   | { placed: false; reason: "not_configured" | "invalid_number" | "not_allowed" | "rejected" | "network_error"; status?: number; code?: number };
 
 export interface OutboundCaller {
+  provider?: "twilio";
   place(request: OutboundCallRequest): Promise<OutboundCallResult>;
 }
 
@@ -31,6 +32,7 @@ const CALL_SID = /^CA[0-9a-f]{32}$/i;
 
 export function createTwilioCaller(config: OutboundConfig | null = outboundConfig(), fetchImpl: typeof fetch = fetch): OutboundCaller {
   return {
+    provider: "twilio",
     async place(request) {
       if (!config) return { placed: false, reason: "not_configured" };
       if (!E164.test(request.to) || !SAUDI_MOBILE.test(request.to) || (!request.url && !request.twiml)) return { placed: false, reason: "invalid_number" };
@@ -65,6 +67,8 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
             "Content-Type": "application/x-www-form-urlencoded",
           },
           body,
+          signal: AbortSignal.timeout(10_000),
+          redirect: "error",
         });
         if (!response.ok) {
           console.info(`[NAQAH] Twilio outbound call refused (${response.status})`);

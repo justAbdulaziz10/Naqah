@@ -15,7 +15,7 @@ import { useIsAccount } from "@/store/workspace";
  * only: the demo's calls live in the Call Lab. How the latest call stands is in the estate header.
  */
 export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: string; now: Date }) {
-  const { m } = useI18n();
+  const { m, t } = useI18n();
   const d = m.setup.dashboard;
   const account = useIsAccount();
   const [available, setAvailable] = useState<boolean | null>(null); // null while checking
@@ -45,6 +45,25 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
     return () => clearInterval(timer);
   }, [account, active]);
 
+  useEffect(() => {
+    if (!account || available !== true) return;
+    let live = true;
+    const refresh = async () => {
+      try {
+        const response = await fetch("/api/report-call-now", { cache: "no-store", signal: AbortSignal.timeout(10_000) });
+        const detail = response.ok ? await response.json() : null;
+        if (!live || !detail?.ok) return;
+        if (detail.message) setNotice(t(detail.message));
+        if (detail.state === "completed" || detail.state === "missed") setPlacedAfter(null);
+        if (detail.state === "completed") setNotice(null);
+        if (detail.state !== run?.state) void accountSync.refresh();
+      } catch {}
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 5_000);
+    return () => { live = false; clearInterval(timer); };
+  }, [account, available, run?.state, run?.id, t]);
+
   if (!account) return null;
 
   async function call() {
@@ -55,10 +74,21 @@ export function ReportCallNow({ ws, worker, now }: { ws: Workspace; worker: stri
     setNotice(null);
     setPlacedAfter(null);
     try {
+      const response = await fetch("/api/report-call-now?preflight=1", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
+      const ready = response.ok ? await response.json() : null;
+      if (!ready?.ready) {
+        setNotice(ready?.message ? t(ready.message) : d.callNowResult.failed);
+        void accountSync.refresh();
+        return;
+      }
       const result = await reportCallNow.call();
       if (!result.ok) setNotice(result.error === "unauthenticated" ? d.callNowResult.signedOut : result.error === "unavailable" ? d.callNowResult.unavailable : d.callNowResult.failed);
       else if (result.data.status === "placed") setPlacedAfter({ runId: run?.id ?? null });
-      else setNotice(d.callNowResult[result.data.reason]);
+      else if (result.data.status === "failed") {
+        const status = await fetch("/api/report-call-now", { cache: "no-store", signal: AbortSignal.timeout(10_000) });
+        const detail = status.ok ? await status.json() : null;
+        setNotice(detail?.message ? t(detail.message) : d.callNowResult.failed);
+      } else setNotice(d.callNowResult[result.data.reason]);
       void accountSync.refresh();
     } catch {
       setNotice(d.callNowResult.failed);

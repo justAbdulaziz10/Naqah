@@ -1,7 +1,7 @@
 import { createServer } from "node:net";
 import { describe, expect, it } from "vitest";
 import {
-  buildEnvironments, cleanBaseEnv, describeEnvironment, FORBIDDEN_LIVE, parseArgs, parseSecrets, portHolder, UsageError, validatePublicUrl,
+  buildEnvironments, cleanBaseEnv, describeEnvironment, FORBIDDEN_LIVE, parseArgs, parseSecrets, portHolder, resetLocalReport, TEST_FARM, UsageError, validatePublicUrl,
 } from "./test-call-local.mjs";
 
 const SID = `AC${"a1".repeat(16)}`;
@@ -172,5 +172,33 @@ describe("port check", () => {
     expect(portHolder(port)).toMatch(new RegExp(`\\(pid ${process.pid}\\)`));
     await new Promise((resolve) => server.close(resolve));
     expect(portHolder(port)).toBeNull();
+  });
+});
+
+describe("local report reset", () => {
+  it("accepts only the standalone reset command", () => {
+    expect(parseArgs(["--reset-report"]).resetReport).toBe(true);
+    expect(() => parseArgs(["--reset-report", "--live"])).toThrow(/on its own/);
+  });
+  it.each(["https://hosted.supabase.co", "https://localhost.evil.test", "http://192.168.1.10", "not a URL"])("refuses %s before executing SQL", (url) => {
+    let called = false;
+    expect(() => resetLocalReport({ NEXT_PUBLIC_SUPABASE_URL: url }, () => { called = true; })).toThrow();
+    expect(called).toBe(false);
+  });
+  it("guards the marked fixed test ranch, active calls and this period without resetting rate limits", () => {
+    let sql;
+    resetLocalReport(stack, (query) => { sql = query; });
+    expect(sql).toContain(TEST_FARM);
+    expect(sql).toContain("inet_server_addr()");
+    expect(sql).toContain("test_call_ranches");
+    expect(sql).toContain("A call is still active");
+    expect(sql).toContain("Asia/Riyadh");
+    expect(sql).not.toMatch(/rate_limit|22222222/);
+    expect(sql).toMatch(/^begin;[\s\S]*commit;$/);
+  });
+  it("keeps the bridge and Twilio duration caps aligned", () => {
+    const envs = buildEnvironments(parseArgs([...liveArgs, "--max-call-seconds", "180"]), stack, parseSecrets(secretsText));
+    expect(envs.next.NAQAH_CALL_TIME_LIMIT_SECONDS).toBe("180");
+    expect(envs.bridge.NAQAH_CALL_TIME_LIMIT_SECONDS).toBe("180");
   });
 });

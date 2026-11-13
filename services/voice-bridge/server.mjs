@@ -2,7 +2,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { WebSocket, WebSocketServer } from 'ws';
 import { REALTIME_MODEL } from './config.mjs';
-import { internalHeaders, verifyTwilioSignature } from './security.mjs';
+import { internalHeaders, verifyInternalSignature, verifyTwilioSignature } from './security.mjs';
 
 const HARMLESS_PROVIDER_ERRORS = new Set(['response_cancel_not_active', 'conversation_already_has_active_response']);
 /** A provider enum for the logs; anything that doesn't look like one is not logged. */
@@ -10,8 +10,8 @@ const label = (value) => (typeof value === 'string' && /^[a-z0-9_.-]{1,64}$/i.te
 
 const DEFAULT_LIMITS = Object.freeze({
   startMs: 10_000,
-  internalMs: 5_000,
-  toolMs: 13_000,
+  internalMs: 9_000,
+  toolMs: 15_000,
   connectMs: 5_000,
   readyMs: 5_000,
   responseMs: 45_000,
@@ -87,6 +87,7 @@ function proxy(request, response, upstream) {
     if (!response.headersSent) response.writeHead(502, { 'content-type': 'text/plain' });
     response.end();
   });
+  outgoing.setTimeout(20_000, () => outgoing.destroy());
   request.on('aborted', () => outgoing.destroy());
   request.on('error', () => outgoing.destroy());
   request.on('end', () => outgoing.addTrailers(trailers(request.rawTrailers)));
@@ -95,13 +96,14 @@ function proxy(request, response, upstream) {
 }
 
 class CallStream {
-  constructor(twilio, config, calls, streams, limits, logger) {
+  constructor(twilio, config, calls, streams, limits, logger, notifications) {
     this.twilio = twilio;
     this.config = config;
     this.calls = calls;
     this.streams = streams;
     this.limits = limits;
     this.logger = logger;
+    this.notifications = notifications;
     this.abort = new AbortController();
     this.timers = new Map();
     this.createdAt = Date.now();
@@ -190,9 +192,22 @@ class CallStream {
     this.abort.abort();
     this.workerTurn?.settle('');
     this.workerTurn = null;
-    if (this.calls.get(this.callSid) === this) this.calls.delete(this.callSid);
+    const ownsCall = this.calls.get(this.callSid) === this;
+    if (ownsCall) this.calls.delete(this.callSid);
     this.streams.delete(this);
     this.log(event);
+    if (ownsCall && this.ticket) {
+      const body = JSON.stringify({ ticket: this.ticket, callSid: this.callSid, event });
+      const notification = fetch(new URL('/api/voice/realtime/closed', this.config.upstream), {
+        method: 'POST', body, headers: internalHeaders(body, this.config.voiceSecret),
+        signal: AbortSignal.timeout(this.limits.internalMs), redirect: 'error',
+      }).then(async (response) => {
+        await response.body?.cancel();
+        if (!response.ok) this.log('close_notification_failed', { status: response.status });
+      }).catch(() => this.log('close_notification_failed'));
+      this.notifications.add(notification);
+      void notification.finally(() => this.notifications.delete(notification));
+    }
     this.marks.clear();
     this.items.clear();
     for (const socket of [this.provider, this.twilio]) {
@@ -257,6 +272,7 @@ class CallStream {
       if (this.calls.has(this.callSid)) return this.finish('duplicate_call');
       this.calls.set(this.callSid, this);
       this.started = true;
+      this.timer('maximum', (this.config.maxCallSeconds ?? 300) * 1000, () => this.finish('maximum_timeout'));
       this.clearTimer('start');
       this.log('started');
       void this.start();
@@ -327,7 +343,7 @@ class CallStream {
         }
         if (this.closed) return;
         if (!validSession(this.session)) return this.finish('session_failed');
-        this.timer('maximum', this.session.maxSeconds * 1000, () => this.finish('maximum_timeout'));
+        this.timer('maximum', Math.max(1, Math.min(this.session.maxSeconds, this.config.maxCallSeconds ?? 300) * 1000 - (Date.now() - this.createdAt)), () => this.finish('maximum_timeout'));
         this.activity();
         this.send(this.provider, {
           type: 'session.update',
@@ -361,6 +377,10 @@ class CallStream {
         }
       });
       this.provider.on('error', () => this.finish('provider_error'));
+      this.provider.on('unexpected-response', (_request, response) => {
+        response.resume();
+        this.finish(response.statusCode === 401 || response.statusCode === 403 ? 'provider_auth_failed' : 'provider_handshake_failed');
+      });
       this.provider.on('close', () => this.finish('provider_closed'));
     } catch {
       this.finish('session_failed');
@@ -742,17 +762,39 @@ class CallStream {
   }
 }
 
-export function createBridge({ config, limits: overrides = {}, logger = (record) => console.log(JSON.stringify(record)) }) {
+export function createBridge({ config, limits: overrides = {}, logger = (record) => console.log(JSON.stringify(record)), fetchImpl = fetch }) {
   const limits = { ...DEFAULT_LIMITS, ...overrides };
   const calls = new Map();
   const streams = new Set();
+  const notifications = new Set();
   const sockets = new WebSocketServer({
     noServer: true, maxPayload: limits.twilioMessageBytes, perMessageDeflate: false,
   });
-  const server = http.createServer((request, response) => {
+  const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/voice-bridge/health') {
       response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      return response.end('{"ok":true}');
+      return response.end(JSON.stringify({ ok: true, publicUrl: config.publicUrl, maxCallSeconds: config.maxCallSeconds ?? 300 }));
+    }
+    if (request.url === '/voice-bridge/preflight') {
+      if (request.method !== 'POST') { response.writeHead(405); return response.end(); }
+      let body = '';
+      try {
+        for await (const chunk of request) {
+          body += chunk;
+          if (Buffer.byteLength(body) > 1024) { response.writeHead(413); return response.end(); }
+        }
+        if (!verifyInternalSignature(request.headers, body, config.voiceSecret)) { response.writeHead(403); return response.end(); }
+        const models = await fetchImpl('https://api.openai.com/v1/models', {
+          headers: { Authorization: `Bearer ${config.apiKey}` }, signal: AbortSignal.timeout(4_000), redirect: 'error',
+        });
+        const data = models.ok ? await models.json() : null;
+        if (!models.ok) await models.body?.cancel();
+        response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        return response.end(JSON.stringify({ openaiKeyValid: data?.object === 'list' && Array.isArray(data.data) }));
+      } catch {
+        response.writeHead(503, { 'cache-control': 'no-store' });
+        return response.end();
+      }
     }
     proxy(request, response, config.upstream);
   });
@@ -766,7 +808,7 @@ export function createBridge({ config, limits: overrides = {}, logger = (record)
       return;
     }
     sockets.handleUpgrade(request, socket, head, (twilio) => {
-      const stream = new CallStream(twilio, config, calls, streams, limits, logger);
+      const stream = new CallStream(twilio, config, calls, streams, limits, logger, notifications);
       streams.add(stream);
     });
   });
@@ -774,6 +816,7 @@ export function createBridge({ config, limits: overrides = {}, logger = (record)
     server,
     async close() {
       for (const stream of streams) stream.finish('server_stopped');
+      await Promise.allSettled([...notifications]);
       sockets.close();
       await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     },

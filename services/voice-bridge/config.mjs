@@ -29,6 +29,8 @@ export function loadConfig(env = process.env) {
   }
   const port = Number(env.PORT || 3300);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT');
+  const requestedSeconds = Number(env.NAQAH_CALL_TIME_LIMIT_SECONDS);
+  const maxCallSeconds = Number.isInteger(requestedSeconds) && requestedSeconds >= 10 && requestedSeconds < 300 ? requestedSeconds : 300;
   return {
     port,
     publicUrl: env.NAQAH_BRIDGE_PUBLIC_URL,
@@ -37,5 +39,6 @@ export function loadConfig(env = process.env) {
     authToken: env.TWILIO_AUTH_TOKEN,
     voiceSecret: env.NAQAH_VOICE_SECRET,
     apiKey: env.OPENAI_API_KEY,
+    maxCallSeconds,
   };
 }

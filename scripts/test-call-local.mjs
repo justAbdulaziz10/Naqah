@@ -61,7 +61,7 @@ export class UsageError extends Error {}
 /* ─────────────────── arguments and environment (pure, unit tested) ─────────────────── */
 
 export function parseArgs(argv) {
-  const options = { mode: null, secrets: null, publicUrl: null, allow: [], bridgePort: null, dryRun: false, skipBuild: false, reportPath: false, dashboardCall: false, traceTranscripts: false };
+  const options = { mode: null, secrets: null, publicUrl: null, allow: [], bridgePort: null, dryRun: false, skipBuild: false, reportPath: false, dashboardCall: false, traceTranscripts: false, resetReport: false };
   const takeValue = (index, name) => {
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("--")) throw new UsageError(`${name} needs a value`);
@@ -78,6 +78,7 @@ export function parseArgs(argv) {
     else if (name === "--report-path") options.reportPath = true;
     else if (name === "--dashboard-call") options.dashboardCall = true;
     else if (name === "--trace-transcripts") options.traceTranscripts = true;
+    else if (name === "--reset-report") options.resetReport = true;
     else if (name === "--max-call-seconds") {
       options.maxCallSeconds = takeValue(index, name);
       if (!/^\d{2,4}$/.test(options.maxCallSeconds)) throw new UsageError("--max-call-seconds needs a number of seconds");
@@ -94,6 +95,10 @@ export function parseArgs(argv) {
     } else throw new UsageError(`Unknown option: ${name}`);
   }
   options.mode ??= "mock";
+  if (options.resetReport) {
+    if (argv.length !== 1) throw new UsageError("--reset-report must be used on its own");
+    return options;
+  }
 
   if (options.mode === "mock") {
     for (const [given, name] of [[options.secrets, "--secrets"], [options.publicUrl, "--public-url"], [options.allow.length || null, "--allow"], [options.bridgePort, "--bridge-port"], [options.dashboardCall || null, "--dashboard-call"]]) {
@@ -196,6 +201,7 @@ export function buildEnvironments(options, stack, secrets = null) {
     NAQAH_VOICE_SECRET: credentials.NAQAH_VOICE_SECRET, TWILIO_AUTH_TOKEN: credentials.TWILIO_AUTH_TOKEN,
     OPENAI_API_KEY: live ? secrets.OPENAI_API_KEY : "local-test-key",
   };
+  if (options.maxCallSeconds) bridge.NAQAH_CALL_TIME_LIMIT_SECONDS = options.maxCallSeconds;
   if (!live) {
     next.NODE_OPTIONS = `--import=${join(REPO, "supabase/local-validation/mock-outbound.mjs")}`;
     next.NAQAH_TEST_OUTBOUND_GATEWAY = `http://127.0.0.1:${PROVIDER_PORT}/`;
@@ -296,6 +302,31 @@ function seed(base, testerId, controlId) {
 
 const localSql = (base) => (query) => execFileSync(join(PG_BIN, "psql"), ["-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", DB], { input: query, encoding: "utf8", env: pgEnv(base), maxBuffer: 1 << 26 }).trim();
 
+export function resetLocalReport(env, runSql = localSql(cleanBaseEnv())) {
+  assertLoopbackUrl(env.NEXT_PUBLIC_SUPABASE_URL, "Supabase URL");
+  runSql(`begin;
+    do $$ begin
+      if inet_server_addr() is null or not (inet_server_addr() <<= inet '127.0.0.0/8' or inet_server_addr() = inet '::1') then
+        raise exception 'Refusing a non-loopback database';
+      end if;
+      perform 1 from public.farms f join public.test_call_ranches t on t.farm_id = f.id
+        where f.id = '${TEST_FARM}' for update of f, t;
+      if not found then raise exception 'No marked local test ranch'; end if;
+      if exists (select 1 from public.report_call_runs where farm_id = '${TEST_FARM}' and state in ('calling', 'answered'))
+        or exists (select 1 from public.test_calls where farm_id = '${TEST_FARM}' and status in ('calling', 'ringing', 'connected')) then
+        raise exception 'A call is still active; wait for it to finish before resetting';
+      end if;
+    end $$;
+    delete from public.reports where farm_id = '${TEST_FARM}' and at >= (
+      select (case when plan = 'basic' then date_trunc('week', (now() at time zone 'Asia/Riyadh') + interval '1 day') - interval '1 day'
+        else date_trunc('day', now() at time zone 'Asia/Riyadh') end) at time zone 'Asia/Riyadh'
+      from public.farms where id = '${TEST_FARM}');
+    delete from public.voice_call_sessions where farm_id = '${TEST_FARM}';
+    update public.farms set last_update_at = (select max(at) from public.reports where farm_id = '${TEST_FARM}'), revision = revision + 1
+      where id = '${TEST_FARM}';
+    commit;`);
+}
+
 /* ─────────────────── main ─────────────────── */
 
 function refuseBusyPorts(options, ports) {
@@ -337,6 +368,14 @@ function dryRun(options) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  if (options.resetReport) {
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL) assertLoopbackUrl(process.env.NEXT_PUBLIC_SUPABASE_URL, "Supabase URL");
+    const stack = readFileSync(STACK_ENV, "utf8");
+    const url = stack.match(/export NEXT_PUBLIC_SUPABASE_URL='([^']*)'/)?.[1];
+    resetLocalReport({ NEXT_PUBLIC_SUPABASE_URL: url });
+    console.log("PASS local test ranch report reset. Rate limits are unchanged; no call placed.");
+    return;
+  }
   if (options.traceTranscripts) console.log("Local transcript tracing is enabled. Files older than 24 hours are cleaned on first write. All call participants must consent. Directory: " + join(tmpdir(), "naqah-call-transcripts"));
   if (options.dryRun) return dryRun(options);
 
