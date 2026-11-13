@@ -225,6 +225,14 @@ export const app = defineMessages({
       openTask: "Open task",
       noNewsYet: "Not mentioned in a report yet",
     },
+    tasks2: {
+      stepsLabel: (asked: string, reminded: string, confirmed: string) => `Asked ${asked}; reminder ${reminded}; confirmation ${confirmed}`,
+      asked: "Asked",
+      reminded: "Reminded",
+      confirmed: "Confirmed",
+      notYet: "not yet",
+      done: "done",
+    },
     tickets: {
       title: "Tasks",
       active: "Active",
@@ -549,6 +557,14 @@ export const app = defineMessages({
       workerSaid: (worker: string) => `قال ${worker}`,
       openTask: "مهمة مفتوحة",
       noNewsYet: "ما انذكرت في تقرير للحين",
+    },
+    tasks2: {
+      stepsLabel: (asked: string, reminded: string, confirmed: string) => `أُعطيت ${asked}؛ التذكير ${reminded}؛ التأكيد ${confirmed}`,
+      asked: "أُعطيت",
+      reminded: "ذُكّر",
+      confirmed: "أُكّدت",
+      notYet: "لسا",
+      done: "تم",
     },
     tickets: {
       title: "المهام",

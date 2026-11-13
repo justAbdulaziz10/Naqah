@@ -1,6 +1,6 @@
 "use client";
 
-import { Phone } from "@phosphor-icons/react";
+import { Flask, Phone } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { CamelMark } from "@/components/brand/CamelMark";
@@ -8,12 +8,14 @@ import type { Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { scenarioMessageKey, type PickerScenario } from "./labStore";
 
-export function LabCallPreview({ selected, ws, m, availability, onStart }: {
+export function LabCallPreview({ selected, ws, m, availability, onStart, onJump }: {
   selected: PickerScenario;
   ws: Workspace;
   m: ReturnType<typeof useI18n>["m"];
   availability: { text: string; enabled: boolean; time?: string };
   onStart: () => void;
+  /** Moves the demo clock to the next scheduled call, when the call is not due yet. */
+  onJump?: () => void;
 }) {
   const caller = selected === "worker_inbound"
     ? { name: ws.settings.worker.name, subtitle: ws.settings.worker.phone, naqah: false }
@@ -35,21 +37,30 @@ export function LabCallPreview({ selected, ws, m, availability, onStart }: {
             <p className={caller.naqah ? "naqah-name text-sm text-cream/70" : "naqah-name text-sm text-cream/70 ltr-nums"}>{caller.subtitle}</p>
           </div>
         </div>
-        {/* "Call ready" is said once, with the moment it refers to. */}
+        {/* "Call ready" on one side; on the other, a plain reminder that this stage is a simulation. */}
         <div className="mt-4 flex items-center justify-between border-t border-cream/15 pt-3 text-xs text-cream/70">
           <span className="inline-flex items-center gap-2"><span className="size-1.5 rounded-full bg-gold" aria-hidden /><Phone size={16} aria-hidden />{m.lab.phone.callReady}</span>
-          <span>{m.lab.availability.label}</span>
+          <span className="inline-flex items-center gap-1.5 font-semibold text-cream/80"><Flask size={14} className="text-gold" aria-hidden />{m.lab.phone.simulation}</span>
         </div>
       </div>
-      <div className="flex min-h-[150px] flex-col items-center justify-center bg-cream px-5 py-6 text-center">
+      <div className="flex min-h-[150px] flex-col items-center justify-center bg-cream px-5 py-5 text-center sm:py-6">
         <h2 className="font-semibold text-espresso">{title}</h2>
-        <p className="mt-1 max-w-sm text-sm leading-relaxed text-muted">
+        <p className="mt-1 max-w-sm text-pretty text-sm leading-relaxed text-muted">
           {availability.text}
           {availability.time ? <> <span className="ltr-nums inline-block font-semibold text-espresso">{availability.time}</span></> : null}
         </p>
-        <Button onClick={onStart} size="lg" className="mt-5 w-full sm:w-auto" disabled={!availability.enabled}>
+        <Button onClick={onStart} size="lg" className="mt-4 w-full sm:w-auto" disabled={!availability.enabled} data-lab-start>
           {selected === "report_call" ? m.lab.phone.startReportCall + " · " + m.lab.phone.simulation : m.lab.phone.start}
         </Button>
+        {onJump ? (
+          <button
+            type="button"
+            onClick={onJump}
+            className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold text-brown underline decoration-stone underline-offset-4 hover:decoration-brown focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown"
+          >
+            {m.lab.availability.jumpToCall}
+          </button>
+        ) : null}
       </div>
     </Card>
   );
