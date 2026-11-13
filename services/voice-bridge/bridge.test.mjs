@@ -890,7 +890,9 @@ test('provider connection refusal closes Twilio; it never retries', async () => 
     await once(socket, 'open');
     start(socket);
     await closed(socket);
-    assert.equal(state.requests.length, 1);
+    await waitFor(() => state.requests.length === 2);
+    assert.deepEqual(state.requests.map((request) => request.url), ['/api/voice/realtime/session', '/api/voice/realtime/closed']);
+    assert.equal(state.requests[1].body.reason, 'openai_error');
     assert.equal(attempts, 1);
   } finally {
     await other.close();
@@ -1130,8 +1132,121 @@ test('reprompts wait for full playback marks, run twice, then time out after one
     assert.equal(connection.socket.readyState, WebSocket.OPEN);
     await closed(connection.socket);
     assert.ok(state.logs.some((record) => record.event === 'silence_timeout'));
-    assert.equal(state.requests.length, 1);
+    await waitFor(() => state.requests.length === 2);
+    assert.equal(state.requests[0].url, '/api/voice/realtime/session');
+    assert.deepEqual(state.requests[1].body, { ticket: 'mock-ticket', callSid: CALL_SID, reason: 'silence', event: 'silence_timeout' });
   } finally { await state.close(); }
+});
+
+const responses = (state) => state.providerEvents.filter((event) => event.type === 'response.create');
+
+test('watchdog: with no playback marks at all, silence gets one verbatim reprompt, then the guided call closes', async () => {
+  const state = await fixture({ limits: { watchdogMs: 80, repromptMs: 60_000 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => responses(state).length === 2);
+    assert.match(responses(state)[1].response.instructions, /Mock opening/);
+    assert.equal(responses(state)[1].response.tool_choice, 'none');
+    assert.equal(state.logs.filter((record) => record.event === 'watchdog_reprompt').length, 1);
+    await playPrompt(state, connection, undefined, false);
+    await closed(connection.socket);
+    assert.ok(state.logs.some((record) => record.event === 'watchdog_end'));
+    assert.equal(responses(state).length, 2);
+    await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
+    assert.deepEqual(state.requests.at(-1).body, { ticket: 'mock-ticket', callSid: CALL_SID, reason: 'silence', event: 'silence_timeout' });
+  } finally { await state.close(); }
+});
+
+test('watchdog: a committed worker turn starts the check-in over', async () => {
+  const state = await fixture({ limits: { watchdogMs: 120, repromptMs: 60_000 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => responses(state).length === 2);
+    await playPrompt(state, connection, undefined, false);
+    await workerTool(state, 'call-after-check-in');
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => state.logs.filter((record) => record.event === 'watchdog_reprompt').length === 2);
+    assert.equal(connection.socket.readyState, WebSocket.OPEN);
+    assert.ok(!state.logs.some((record) => record.event === 'watchdog_end'));
+  } finally { await state.close(); }
+});
+
+test('watchdog: waits for the estimated playback of long audio, not just the last delta', async () => {
+  const state = await fixture({ limits: { watchdogMs: 80, repromptMs: 60_000 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    // 4 seconds of audio sent at once: the caller is still hearing it long after the delta.
+    state.audio(32_000, 'long-item');
+    send(state.provider, { type: 'response.output_audio.done', item_id: 'long-item', content_index: 0 });
+    state.complete();
+    await delay(400);
+    assert.equal(state.logs.filter((record) => record.event === 'watchdog_reprompt').length, 0);
+  } finally { await state.close(); }
+});
+
+test('watchdog: a natural call checks in once in its own words, then says goodbye and closes without any mark', async () => {
+  const state = await fixture({ session: { style: 'natural' }, limits: { watchdogMs: 80, repromptMs: 60_000 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => responses(state).length === 2);
+    assert.match(responses(state)[1].response.instructions, /silent/);
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => responses(state).length === 3);
+    assert.match(responses(state)[2].response.instructions, /I can't hear you/);
+    const offset = connection.messages.received.length;
+    state.audio(160, 'goodbye-item');
+    state.complete();
+    await closed(connection.socket);
+    assert.ok(connection.messages.received.slice(offset).some((event) => event.event === 'media'));
+    await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
+    assert.equal(state.requests.at(-1).body.reason, 'silence');
+  } finally { await state.close(); }
+});
+
+test('closed notice: a server-ended call is normal and a credit error is named', async () => {
+  for (const [scenario, expected] of [['ended', 'normal'], ['credit', 'openai_credit'], ['twilio', 'twilio_closed']]) {
+    const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: null } });
+    try {
+      const connection = await state.connect();
+      await state.ready(connection.socket);
+      await playPrompt(state, connection);
+      if (scenario === 'ended') await workerTool(state, 'call-end', 'end_call');
+      else if (scenario === 'credit') send(state.provider, { type: 'error', error: { type: 'insufficient_quota', code: 'insufficient_quota' } });
+      else connection.socket.close();
+      await closed(connection.socket);
+      await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
+      const notice = state.requests.find((request) => request.url === '/api/voice/realtime/closed');
+      assert.equal(notice.body.reason, expected, scenario);
+      assert.equal(notice.body.ticket, 'mock-ticket');
+      assert.equal(state.requests.filter((request) => request.url === '/api/voice/realtime/closed').length, 1);
+    } finally { await state.close(); }
+  }
+});
+
+test('closed notice: a stream that never started sends nothing', async () => {
+  const state = await fixture({ limits: { startMs: 30 } });
+  try {
+    const connection = await state.connect();
+    await closed(connection.socket);
+    await delay(30);
+    assert.equal(state.requests.length, 0);
+  } finally { await state.close(); }
+});
+
+test('configuration: IPv4-first DNS and a 12 s silence watchdog by default, both overridable', () => {
+  assert.equal(loadConfig(TEST_ENV).dnsOrder, 'ipv4first');
+  assert.equal(loadConfig({ ...TEST_ENV, NAQAH_BRIDGE_DNS_ORDER: 'verbatim' }).dnsOrder, 'verbatim');
+  assert.throws(() => loadConfig({ ...TEST_ENV, NAQAH_BRIDGE_DNS_ORDER: 'ipv4' }));
+  assert.equal(loadConfig(TEST_ENV).watchdogMs, 12_000);
+  assert.equal(loadConfig({ ...TEST_ENV, NAQAH_BRIDGE_SILENCE_SECONDS: '20' }).watchdogMs, 20_000);
+  for (const value of ['2', '61', '1.5', 'x']) assert.throws(() => loadConfig({ ...TEST_ENV, NAQAH_BRIDGE_SILENCE_SECONDS: value }));
 });
 
 test('any worker speech resets the reprompt count, including a noise turn with a silent result', async () => {
