@@ -20,7 +20,8 @@ Why: calls from the +44 test number were screened as spam by Saudi carriers (evi
   Policy: start with the consenting test worker (and owner); add a farm's worker only after the owner confirms the worker agreed.
 
 ## 2. Hosted voice bridge **[approval][paid]**
-Replace laptop + ngrok with an always-on host (Fly.io, Render or a small VPS in a Gulf/EU region).
+Replace laptop + ngrok with an always-on small VPS in a Gulf/EU region (or Fly.io).
+Routing/container/monitoring details: [voice-bridge-hosting](voice-bridge-hosting.md).
 - [ ] Run `services/voice-bridge` (start command in its README) with `OPENAI_API_KEY`, `TWILIO_AUTH_TOKEN`,
   `NAQAH_VOICE_SECRET` (same value as Vercel, at least 32 random bytes), `NAQAH_BRIDGE_PUBLIC_URL=wss://<bridge-domain>/voice-bridge/media`,
   `NAQAH_BRIDGE_UPSTREAM=https://<next-origin>` (the Next.js app it calls back), `PORT`.
@@ -29,11 +30,15 @@ Replace laptop + ngrok with an always-on host (Fly.io, Render or a small VPS in 
 - [ ] Leave `NAQAH_REALTIME_URL` and `NAQAH_CALL_TRACE_DIR` unset (tests and debugging only).
 - [ ] Stable domain with valid TLS on 443 for https and wss. No ngrok.
 - [ ] Health: `curl -s https://<bridge-domain>/voice-bridge/health` returns `ok: true`, `publicUrl`, `maxCallSeconds` and no secrets.
-- [ ] Next app side: `NAQAH_BRIDGE_PUBLIC_URL` is the env var that points the app at the bridge. The preflight check `public_bridge_url`
-  requires its host to equal `NAQAH_PUBLIC_BASE_URL` (the origin Twilio calls back), so route `/voice-bridge/*` and the voice webhooks
-  accordingly (see realtime-voice.md).
+- [ ] Next app side: set `NAQAH_BRIDGE_PUBLIC_URL=wss://<bridge-domain>/voice-bridge/media` on **both** sides and
+  `NAQAH_PUBLIC_BASE_URL=https://<bridge-domain>` in Vercel, **not** the direct Vercel origin. Preflight `public_bridge_url`
+  requires `https://${new URL(NAQAH_BRIDGE_PUBLIC_URL).host}` to equal the parsed HTTPS origin of `NAQAH_PUBLIC_BASE_URL`
+  (including any non-default port). Health's `publicUrl` and `maxCallSeconds` must match Next's URL and call limit too.
+- [ ] Point public voice DNS/TLS at the bridge; proxy all non-bridge HTTP paths to the **distinct direct Vercel origin**.
+  Configure Vercel to accept the preserved public voice Host/custom domain without redirects; never point upstream back at the bridge.
 - [ ] Restart policy: always restart on crash and boot (Fly machine restart, Render service, or systemd `Restart=always`).
 - [ ] Logs: stdout only; confirm they hold no transcripts, audio or full phone numbers (no-recordings rule).
+- [ ] Allow ≥15 seconds for SIGTERM; configure health/preflight/error-spike and >15-minute scheduler-heartbeat alerts per the hosting runbook.
 
 ## 3. Supabase **[approval]**
 - [ ] Back up first (dashboard backup or `pg_dump`); note the current migration list.

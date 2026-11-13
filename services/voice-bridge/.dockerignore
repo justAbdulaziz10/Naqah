@@ -1,0 +1,8 @@
+*
+!package.json
+!package-lock.json
+!index.mjs
+!config.mjs
+!server.mjs
+!security.mjs
+!healthcheck.mjs

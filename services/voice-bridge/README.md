@@ -29,7 +29,7 @@ approval. The bridge never reads or loads `.env` files.
   loopback `ws://` destination. `localhost` is pinned to `127.0.0.1`, avoiding
   DNS resolution; IPv4 loopback and `[::1]` are supported. No remote or TLS
   override, credentials, redirects, or fragment is accepted. Use a dummy API key.
-- `GET /voice-bridge/health` returns only `{"ok":true}`. It is process liveness,
+- `GET /voice-bridge/health` returns `ok`, `publicUrl` and `maxCallSeconds`, with no secrets. It is process liveness,
   not a paid provider probe.
 - Every other ordinary HTTP request streams to the upstream with its original
   method, raw URL, body, headers (including Host and duplicates), and trailers.
@@ -38,6 +38,21 @@ approval. The bridge never reads or loads `.env` files.
 - Only `/voice-bridge/media` accepts upgrades. The public URL must match the URL
   in TwiML, not the local HTTP origin. Reverse proxies must preserve the
   `X-Twilio-Signature` header and WebSocket path.
+
+## Production container
+
+Build from the repository root with `docker build -t naqah-voice-bridge:local services/voice-bridge`.
+Only the allowlisted bridge runtime and its locked `ws` dependency enter the Node 24 Alpine
+image; it runs as non-root with IPv4-first DNS and a loopback health check. Do not copy
+environment files into the image. Inject secrets only at runtime and leave transcript tracing off.
+Standalone dependency installation is `npm ci --prefix services/voice-bridge`.
+
+SIGTERM/SIGINT stop accepting connections, close both WebSockets and wait for bounded
+closed notices; a 12-second deadline forces exit on a stuck shutdown. Set host stop grace
+to at least 15 seconds. Each stream emits one JSON `call_ended` summary with `callSid`
+(last six characters only), `reason`, `durationMs` and `workerSpoke`; unavailable AMD is omitted.
+See [hosting and monitoring](../../docs/integrations/voice-bridge-hosting.md) for the single
+public voice origin, direct Vercel upstream, environment split and heartbeat alert SQL.
 
 ## Protocol and security
 
@@ -193,8 +208,8 @@ Production bounds (test code can inject shorter durations):
 - One active stream per `callSid` per bridge process. Run one bridge process
   for this deployment; distributed duplicate suppression is not implemented.
 
-Logs contain only static event names, a call SID's last six characters and
-numeric frame/tool counts. No provider error body, ticket, transcript, audio,
+Logs contain only static event names/labels, a call SID's last six characters,
+durations, speech booleans and numeric frame/tool counts. No provider error body, ticket, transcript, audio,
 phone number, headers, full call SID, URL credentials, or API keys are logged.
 
 ## Test without paid services

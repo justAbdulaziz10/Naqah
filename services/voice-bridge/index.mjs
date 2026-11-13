@@ -18,12 +18,18 @@ try {
   process.exitCode = 1;
 }
 
+let stopping = false;
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.once(signal, () => {
-    const timeout = setTimeout(() => process.exit(1), 1000);
+    if (stopping) return;
+    stopping = true;
+    const timeout = setTimeout(() => {
+      console.error('{"event":"shutdown_timeout"}');
+      process.exit(1);
+    }, 12_000);
     timeout.unref();
-    void bridge?.close().then(() => clearTimeout(timeout)).catch(() => {
+    void Promise.resolve(bridge?.close()).catch(() => {
       process.exitCode = 1;
-    });
+    }).finally(() => clearTimeout(timeout));
   });
 }
