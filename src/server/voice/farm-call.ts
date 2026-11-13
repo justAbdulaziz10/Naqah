@@ -217,7 +217,7 @@ export async function answerFarmCall(
   const session = { ...row.session, voiceSilences: 0 };
   const { workspace } = requireFarm(await loadFarm(client, { id: row.farm_id }));
   const spoken = mapSpeechToInput(session, speech, digits, locale, input.confidence);
-  logVoiceTurn(input, spoken);
+  logVoiceTurn(input, spoken, session);
   const next = row.seq + 1;
   const fallback = !spoken && hasInput && row.misses >= 1 ? unknownReply(session.replies) : undefined;
   if (!spoken && !fallback) {

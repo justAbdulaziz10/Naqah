@@ -62,7 +62,10 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
           body,
         });
         if (!response.ok) {
-          console.info(`[NAQAH] Twilio outbound call refused (${response.status})`);
+          // Only Twilio's numeric code: the message can repeat the number being dialled.
+          const failure = (await response.json().catch(() => null)) as { code?: unknown } | null;
+          const code = Number.isInteger(failure?.code) ? failure?.code : "unknown";
+          console.info(`[NAQAH] Twilio outbound call refused (${response.status}; code=${code})`);
           return { placed: false, reason: "rejected", status: response.status };
         }
         const sid = ((await response.json()) as { sid?: unknown }).sid;

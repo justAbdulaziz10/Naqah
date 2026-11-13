@@ -86,6 +86,13 @@ describe("Twilio outbound client", () => {
   ])("reports a failed placement honestly", async (impl, expected) => {
     expect(await createTwilioCaller(config, vi.fn(impl) as unknown as typeof fetch).place({ to: "+966501234567", url: "https://x", statusCallback: "https://y" })).toEqual(expected);
   });
+  it("logs Twilio's numeric refusal code and never its message", async () => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => {});
+    const refused = async () => Response.json({ code: 21215, message: "Not authorized to call +966501234567" }, { status: 400 });
+    await createTwilioCaller(config, vi.fn(refused) as unknown as typeof fetch).place({ to: "+966501234567", url: "https://x", statusCallback: "https://y" });
+    expect(log).toHaveBeenCalledExactlyOnceWith("[NAQAH] Twilio outbound call refused (400; code=21215)");
+    log.mockRestore();
+  });
   it("won't dial a number without a country code", async () => {
     const fetchMock = vi.fn();
     expect(await createTwilioCaller(config, fetchMock).place({ to: "0501234567", url: "https://x", statusCallback: "https://y" })).toMatchObject({ placed: false, reason: "invalid_number" });
