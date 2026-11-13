@@ -150,28 +150,32 @@ export default function HerdPage() {
             {usualCertainty && ws.camels.length ? <><span aria-hidden> · </span>{t(CERTAINTY_LABELS[usualCertainty])}<span aria-hidden> · </span>{usualUpdate}</> : null}
           </p>
         </div>
-        <Button ref={addButtonRef} className="w-full sm:w-auto" onClick={openNewCamel}>
-          <Plus size={18} weight="fill" aria-hidden />
-          {m.app.herd.addCamel}
-        </Button>
+        {ws.camels.length ? (
+          <Button ref={addButtonRef} className="w-full sm:w-auto" onClick={openNewCamel}>
+            <Plus size={18} weight="fill" aria-hidden />
+            {m.app.herd.addCamel}
+          </Button>
+        ) : null}
       </header>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Segmented
-          value={filter}
-          onChange={setFilter}
-          label={m.app.herd.filterLabel}
-          className="w-full justify-between [&>button]:min-h-11 sm:w-auto sm:justify-start"
-          options={[
-            { value: "all", label: m.app.herd.all },
-            { value: "attention", label: m.app.herd.attention },
-            { value: "healthy", label: m.app.herd.healthyFilter },
-          ]}
-        />
-        <Field label={m.app.herd.search} className="w-full sm:max-w-xs">
-          {(id) => <Input id={id} type="search" value={search} onChange={(event) => setSearch(event.target.value)} />}
-        </Field>
-      </div>
+      {ws.camels.length ? (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Segmented
+            value={filter}
+            onChange={setFilter}
+            label={m.app.herd.filterLabel}
+            className="w-full justify-between [&>button]:min-h-11 sm:w-auto sm:justify-start"
+            options={[
+              { value: "all", label: m.app.herd.all },
+              { value: "attention", label: m.app.herd.attention },
+              { value: "healthy", label: m.app.herd.healthyFilter },
+            ]}
+          />
+          <Field label={m.app.herd.search} className="w-full sm:max-w-xs">
+            {(id) => <Input id={id} type="search" value={search} onChange={(event) => setSearch(event.target.value)} />}
+          </Field>
+        </div>
+      ) : null}
 
       {ws.camels.length === 0 ? (
         <Card>
