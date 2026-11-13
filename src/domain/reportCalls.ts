@@ -139,11 +139,13 @@ export function resolveReportCallAttempt(
 ): { ws: Workspace; outcome: ReportCallOutcome } {
   const current = reportCallRuns(input).find((r) => r.id === runId);
   const pending = current?.attempts[current.attempts.length - 1];
-  if (!current || current.state !== "calling" || pending?.result !== "pending") return { ws: input, outcome: "ignored" };
+  const unansweredPickup = !answered && pending?.result === "answered" && current?.state !== "completed" && !current?.reportId;
+  if (!current || (!unansweredPickup && (current.state !== "calling" || pending?.result !== "pending"))) return { ws: input, outcome: "ignored" };
   const ws = structuredClone(input);
   const run = reportCallRuns(ws).find((r) => r.id === runId)!;
   const attempt = run.attempts.length;
   run.attempts[attempt - 1].result = answered ? "answered" : "no_answer";
+  if (unansweredPickup) run.state = "calling";
   const name = ws.settings.worker.name;
 
   if (answered) {

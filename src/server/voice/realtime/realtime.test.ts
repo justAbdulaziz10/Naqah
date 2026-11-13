@@ -1441,4 +1441,12 @@ describe("the natural call (local presentation style)", () => {
     expect(xml).not.toContain("<Gather");
     expect(xml).toContain("<Hangup");
   });
+
+  it.each(["normal", "silence"])("does not replay a goodbye after the bridge closed for %s", async (reason) => {
+    await openNatural();
+    Object.assign(row().session, { bridgeCloseReason: reason });
+    const request = () => twilio(`/api/voice/realtime/after?s=${encodeURIComponent(signCallToken(token(), SECRET))}`, { CallSid: CALL });
+    expect(await (await afterRoute(request())).text()).toBe("<Response><Hangup/></Response>");
+    expect(await (await afterRoute(request())).text()).toBe("<Response><Hangup/></Response>");
+  });
 });

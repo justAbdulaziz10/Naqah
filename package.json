@@ -10,7 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "pretest": "node src/i18n/messages/generate-catalogs.mjs",
-    "test": "vitest run",
+    "test": "vitest run && node --test services/voice-bridge/bridge.test.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "budget": "node scripts/bundle-budget.mjs"
   },

@@ -3,8 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { VoiceSessionRow } from "@/server/db/voice-sessions";
 import { signRealtimeTicket, type RealtimeTicket } from "./ticket";
 
-const mocks = vi.hoisted(() => ({ row: null as unknown, failures: [] as unknown[][] }));
-vi.mock("@/server/db/voice-sessions", () => ({ readVoiceSession: async () => mocks.row }));
+const mocks = vi.hoisted(() => ({ row: null as unknown, failures: [] as unknown[][], silence: vi.fn() }));
+vi.mock("@/server/db/voice-sessions", () => ({
+  readVoiceSession: async () => mocks.row,
+  advanceVoiceSession: async (_client: unknown, _sid: string, seq: number, next: object) => {
+    mocks.row = { ...(mocks.row as object), ...next, seq: seq + 1 };
+    return mocks.row;
+  },
+}));
+vi.mock("../farm-call", () => ({ resolveSilentReportCall: mocks.silence }));
 vi.mock("@/server/calls/reliability", () => ({
   recordCallFailure: async (...args: unknown[]) => { mocks.failures.push(args.slice(1, 4)); },
 }));
@@ -31,6 +38,7 @@ describe("bridge closed notice", () => {
   beforeEach(() => {
     mocks.row = row();
     mocks.failures = [];
+    mocks.silence.mockClear();
     vi.spyOn(console, "info").mockImplementation(() => {});
   });
 
@@ -57,8 +65,22 @@ describe("bridge closed notice", () => {
   });
 
   it("skips an owner's call", async () => {
+    mocks.row = { ...row(), party: "owner" };
     expect(await notice("openai_error", { ...TICKET, p: "owner" })).toBe("logged");
     expect(mocks.failures).toEqual([]);
+  });
+
+  it("stores a closure once and resolves natural silence, but not guided fallback", async () => {
+    await notice("silence");
+    expect(mocks.silence).not.toHaveBeenCalled();
+    mocks.row = row({ naturalBase: {} });
+    await notice("silence");
+    const seq = (mocks.row as VoiceSessionRow).seq;
+    await notice("silence");
+    expect((mocks.row as VoiceSessionRow).seq).toBe(seq);
+    expect(mocks.silence).toHaveBeenCalledWith(client, TICKET, NOW);
+    expect((mocks.row as VoiceSessionRow).session).toMatchObject({ bridgeCloseReason: "silence", done: true, realtime: { closed: true, fallbackPrepared: true } });
+    expect((mocks.row as VoiceSessionRow).last_response).toBe("<Response><Hangup/></Response>");
   });
 
   it("refuses a bad ticket, another call's sid, a mismatched row and an unknown reason", async () => {

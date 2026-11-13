@@ -101,12 +101,17 @@ function readApproved(file: string): string {
   }
 }
 
-/** The longest any call NAQAH places may last. NAQAH_CALL_TIME_LIMIT_SECONDS can only lower it. */
+/** The bridge's normal call cap. Twilio allows a short closing grace beyond it. */
 export const MAX_CALL_SECONDS = 300;
+export const CALL_END_GRACE_SECONDS = 30;
 
-export function callTimeLimitSeconds(): number {
+export function bridgeTimeLimitSeconds(): number {
   const configured = Number(value("NAQAH_CALL_TIME_LIMIT_SECONDS"));
   return Number.isInteger(configured) && configured >= 10 && configured < MAX_CALL_SECONDS ? configured : MAX_CALL_SECONDS;
+}
+
+export function callTimeLimitSeconds(): number {
+  return bridgeTimeLimitSeconds() + CALL_END_GRACE_SECONDS;
 }
 
 /** «اتصال حقيقي»: at most this many placed calls per ranch, per window. */

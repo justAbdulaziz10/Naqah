@@ -53,7 +53,14 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
       });
       for (const event of request.statusEvents ?? []) body.append("StatusCallbackEvent", event);
       if (request.url) {
-        body.set("Url", request.url);
+        const answerUrl = new URL(request.url);
+        if (/^\/api\/voice\/(outbound|worker|owner)$/.test(answerUrl.pathname)) {
+          answerUrl.pathname += "/status";
+          answerUrl.searchParams.set("amd", "1");
+          body.set("MachineDetection", "Enable");
+          body.set("AsyncAmd", "false");
+        }
+        body.set("Url", answerUrl.toString());
         body.set("Method", "POST");
       } else {
         body.set("Twiml", request.twiml!);

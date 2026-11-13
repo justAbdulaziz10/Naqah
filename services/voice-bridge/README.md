@@ -153,9 +153,12 @@ should have played.
 When a started stream closes, the bridge POSTs `/api/voice/realtime/closed`,
 signed like the other internal requests, with `{ ticket, callSid, reason, event }`.
 `reason` is one of `normal`, `silence`, `timeout`, `twilio_closed`, `openai_error`,
-`openai_credit` or `bridge_error`. Next only adds the run's diagnostic; Twilio's
-`<Connect action>` and status callback still decide the outcome. The notice is
-not retried and never delays the close; `close()` waits for pending notices.
+`openai_credit` or `bridge_error`. Next persists the closure on the existing
+session JSON; natural silence is terminal and an unsaved report uses the existing
+20-minute retry rules (three attempts total; a manual call stays single-attempt).
+Normal and silent endings wait at most two seconds for acknowledgement before
+releasing Twilio, so `<Connect action>` cannot race ahead and speak another
+goodbye. Other failures close promptly. Notices are never retried.
 
 On `end: "hangup"` or `"fallback"`, a nonempty goodbye is requested verbatim
 with tools disabled. The bridge waits for response completion and an additional
@@ -177,7 +180,12 @@ Production bounds (test code can inject shorter durations):
 - Silence: `repromptMs: 10_000`, `maxReprompts: 2`. After two fully played
   reprompts, one more 10 s interval closes with `silence_timeout`, allowing
   the scripted fallback. Continuous Twilio silence frames do not reset it.
-- Total session: Next's `maxSeconds`, validated as positive and at most 3600 s.
+- Total session: Next's `maxSeconds`, validated as positive and at most 3600 s;
+  production defaults to 300 s and uses `NAQAH_CALL_TIME_LIMIT_SECONDS` to lower it.
+  Natural calls request a summary and explicit save 60 s before that cap, without
+  interrupting speech or a pending confirmation. Confirmation, speech, tools and
+  wrap-up playback can use up to 20 s of closing grace. Twilio's hard limit is
+  the configured bridge cap plus 30 s.
 - Incoming Twilio message: 64 KiB; provider message/internal JSON: 256 KiB;
   one inbound audio chunk: 16 KiB decoded; pre-ready audio: 80 KiB decoded.
 - Socket queued-write high-water bound: 256 KiB; pending playback marks: 1024;
@@ -199,6 +207,5 @@ npx eslint services/voice-bridge/*.mjs
 Tests supply only dummy credentials and local mock upstream/provider/Twilio
 connections. Ports 3901–3905 are used, with sequential tests and complete
 teardown; no production port, ngrok, external OpenAI connection or Twilio API is
-used. No Next build is required. The root Vitest configuration includes only
-`src/**/*.test.ts` and `scripts/**/*.test.mjs`, so `npm test` skips this
-`node:test` suite; run it explicitly.
+used. No Next build is required. The root `npm test` runs Vitest and then this
+`node:test` suite; its existing `pretest` catalog generation still runs first.

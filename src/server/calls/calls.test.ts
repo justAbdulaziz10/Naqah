@@ -75,9 +75,19 @@ describe("Twilio outbound client", () => {
     expect(endpoint).toBe("https://api.twilio.com/2010-04-01/Accounts/AC123/Calls.json");
     const body = new URLSearchParams(String(init.body));
     expect(Object.fromEntries(body)).toMatchObject({
-      To: "+966501234567", From: "+15550100", Url: "https://naqah.test/api/voice/outbound?s=t", Method: "POST",
+      To: "+966501234567", From: "+15550100", Url: "https://naqah.test/api/voice/outbound/status?s=t&amd=1", Method: "POST", MachineDetection: "Enable", AsyncAmd: "false",
       StatusCallback: "https://naqah.test/api/voice/outbound/status?s=t", StatusCallbackMethod: "POST", Record: "false",
     });
+  });
+  it.each(["outbound", "worker", "owner"])("enables synchronous AMD for the %s answer gate", async (path) => {
+    const fetchMock = vi.fn(async () => Response.json({ sid: CALL }, { status: 201 }));
+    await createTwilioCaller(config, fetchMock as typeof fetch).place({
+      to: "+966501234567", url: `https://naqah.test/api/voice/${path}?s=t`, statusCallback: `https://naqah.test/api/voice/${path}/status?s=t`,
+    });
+    const body = (fetchMock.mock.calls[0] as unknown as [string, { body: URLSearchParams }])[1].body;
+    expect(body.get("MachineDetection")).toBe("Enable");
+    expect(body.get("AsyncAmd")).toBe("false");
+    expect(body.get("Url")).toBe(`https://naqah.test/api/voice/${path}/status?s=t&amd=1`);
   });
   it.each([
     [async () => new Response("{}", { status: 400 }), { placed: false, reason: "rejected", status: 400 }],
@@ -129,17 +139,17 @@ describe("controlled-test allowlist", () => {
     expect(await caller.place(request("+966112345678"))).toEqual({ placed: false, reason: "invalid_number" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it("caps every call at 300 seconds; the setting can only lower it", async () => {
+  it("gives Twilio thirty seconds beyond the bridge cap; the setting can only lower that cap", async () => {
     const limitFor = async (value: string | undefined) => {
       vi.stubEnv("NAQAH_CALL_TIME_LIMIT_SECONDS", value ?? "");
       const fetchMock = ok();
       await createTwilioCaller(config, fetchMock as unknown as typeof fetch).place(request("+966501234567"));
       return (fetchMock.mock.calls[0] as unknown as [string, { body: URLSearchParams }])[1].body.get("TimeLimit");
     };
-    expect(await limitFor(undefined)).toBe("300");
-    expect(await limitFor("120")).toBe("120");
-    expect(await limitFor("900")).toBe("300");
-    expect(await limitFor("abc")).toBe("300");
+    expect(await limitFor(undefined)).toBe("330");
+    expect(await limitFor("120")).toBe("150");
+    expect(await limitFor("900")).toBe("330");
+    expect(await limitFor("abc")).toBe("330");
   });
   it("always asks Twilio not to record", async () => {
     const fetchMock = ok();
