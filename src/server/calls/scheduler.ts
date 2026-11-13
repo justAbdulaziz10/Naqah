@@ -4,7 +4,7 @@
  * Twilio to place the call. A call Twilio never placed is undone, not logged as unanswered.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { claimDueWorkerCall, releaseWorkerCallClaim } from "@/domain/actions";
+import { claimDueWorkerCall, markWorkerCallPlacementUnknown, releaseWorkerCallClaim } from "@/domain/actions";
 import {
   abandonReportCallAttempt, claimDueReportCall, dialableWorkerPhone, placeReportCallAttempt, startReportCall,
   type ReportCallBlock,
@@ -22,7 +22,7 @@ import { expireReportRuns, recordCallFailure } from "./reliability";
 export interface SchedulerSummary {
   farms: number;
   placed: number;
-  /** Twilio refused or couldn't be reached; the attempt was undone and retries later. */
+  /** Placement failed; ambiguous acceptance keeps its claim until a callback or stale timeout. */
   failed: number;
   /** A farm that couldn't be read or saved. Nothing was dialled for it. */
   errors: number;
@@ -80,19 +80,28 @@ async function dialDueWorkerCall(
     if (!claim) return;
     const pendingId = toDbId(farmId, claim.pendingCallId);
     const query = `s=${encodeURIComponent(signCallToken({ k: "worker", f: farmId, p: pendingId, n: claim.attempt, l: claim.locale, t: options.now.getTime() }))}`;
-    const placed = await caller.place({
-      to: claim.phone,
-      url: `${options.baseUrl}/api/voice/worker?${query}`,
-      statusCallback: `${options.baseUrl}/api/voice/worker/status?${query}`,
-      timeoutSeconds: REPORT_CALL_RING_SECONDS,
-      statusEvents: ["completed"],
-    });
+    let placed: OutboundCallResult;
+    try {
+      placed = await caller.place({
+        to: claim.phone,
+        url: `${options.baseUrl}/api/voice/worker?${query}`,
+        statusCallback: `${options.baseUrl}/api/voice/worker/status?${query}`,
+        timeoutSeconds: REPORT_CALL_RING_SECONDS,
+        statusEvents: ["completed"],
+      });
+    } catch {
+      placed = { placed: false, reason: "network_error" };
+    }
     if (placed.placed) {
       summary.placed += 1;
       return;
     }
     summary.failed += 1;
-    await runFarmAction(client, farmId, (ws) => ({ ws: releaseWorkerCallClaim(ws, pendingId, options.now), result: null }));
+    if (placed.reason === "network_error") {
+      await runFarmAction(client, farmId, (ws) => ({ ws: markWorkerCallPlacementUnknown(ws, pendingId, claim.attempt, options.now), result: null }));
+    } else {
+      await runFarmAction(client, farmId, (ws) => ({ ws: releaseWorkerCallClaim(ws, pendingId, options.now), result: null }));
+    }
   } catch (error) {
     summary.errors += 1;
     console.error(`[NAQAH] worker call scheduler failed for a farm (${error instanceof DbError ? error.code : error instanceof Error ? error.name : "unknown"})`);

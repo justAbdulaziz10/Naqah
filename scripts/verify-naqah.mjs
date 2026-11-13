@@ -113,8 +113,11 @@ const commands = {
     let log = ""; c.stdout.on("data", (d) => (log += d)); c.stderr.on("data", (d) => (log += d));
     const code = await new Promise((r) => c.on("close", r));
     const shots = readdirSync(dir).filter((f) => f.endsWith(".png")).length;
-    const ok = code === 0 && /NO PROBLEMS/.test(log) && shots === 32;
-    out({ ok, cmd, evidence: dir, shots, expectedShots: 32, reason: ok ? undefined : "overflow/console errors or missing screenshots", log: log.trim().split("\n").slice(-20) });
+    // Two locales × every page and viewport the QA script knows, so a new page never breaks the count.
+    const { PAGES, VIEWPORTS } = await import("./qa-screens.mjs");
+    const expectedShots = 2 * PAGES.length * VIEWPORTS.length;
+    const ok = code === 0 && /NO PROBLEMS/.test(log) && shots === expectedShots;
+    out({ ok, cmd, evidence: dir, shots, expectedShots, reason: ok ? undefined : "overflow/console errors or missing screenshots", log: log.trim().split("\n").slice(-20) });
   },
   async "call-lab"() {
     const dir = evidenceDir("call-lab");
@@ -460,7 +463,7 @@ if (!commands[cmd] || args.includes("--help")) {
   console.log(`verify-naqah <command> [--port 3210] [--base URL] [--locale en|ar]
   launch [--no-build]  build, start next on --port, record pid (refuses if the port is busy)
   doctor               read-only: our server answers, same build, Chromium available
-  screens              32 screenshots (ar/en × 375/1440 × 8 pages); fails on overflow or console errors
+  screens              screenshots of every page in qa-screens.mjs (ar/en × 375/1440); fails on overflow or console errors
   call-lab             worker report → owner call → task → 3 missed calls → stop, no new No Answer ticket (asserted)
   wizard               Basic onboarding, 4 steps, lands on /app with setupComplete
   features             landing plan CTA, locale switch, settings sample load, herd add, heat day, clock, emergency, reset

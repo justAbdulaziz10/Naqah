@@ -145,6 +145,7 @@ export interface PendingWorkerCallRow {
   batch_id?: string | null;
   task_links_explicit?: boolean;
   retry_base?: number | null;
+  dial_claimed_at?: string | null;
 }
 export interface PendingWorkerCallTaskRow {
   farm_id: string;

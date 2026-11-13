@@ -3,9 +3,18 @@
 > **Read this first.** It is the single source of truth for humans and AI agents working on this repo:
 > what the product is, which rules are confirmed, how the code is organized, and what is still open.
 
-**Status:** Investor MVP / demo (November 2026). No real phone calls, no payments, no subscriptions are charged.
-The demo runs in the browser. Account persistence and farm-mode call storage exist behind opt-in flags;
-their code being present does not mean the live project has been migrated or activated.
+**Status:** Investor MVP / demo (November 2026). Nothing is charged. The demo runs in the browser. Real calling
+(Twilio, scripted or realtime), account persistence and the Voice Lab exist behind opt-in flags; their code being
+present does not mean the live project has been migrated or activated.
+
+**Current state** (check before trusting it):
+- Canonical branch: `origin/main`. Always `git fetch` and compare with `origin/main` before auditing or branching.
+- Production is https://naqah.vercel.app: demo only. Calling, account mode and the Voice Lab are off unless their
+  flags are set there.
+- Hosted Supabase has migrations through `20261110090000_mvp_owner_runs.sql` applied (team notes, 2026-11-11).
+  `20261113090000_report_call_scheduler.sql` and `20261113100000_worker_call_claims.sql` are **not** applied.
+- The repository is **public**: never commit real phone numbers, secrets or project-specific tokens.
+- Needs the owner's explicit approval: merging to `main`, deploying, live migrations, paid calls.
 
 ---
 
@@ -37,7 +46,7 @@ Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. P
 
 Agent behavior (from `NAQAH_AI_Agent_Identity_DRAFT_v0.1`): identifies itself as automated; one question at a time;
 accepts «ما أدري» / "I don't know"; confirms quantities and camel names; never diagnoses; never claims
-"saved/notified/created" before the system confirms; labels facts as *reported / approximate / unknown / verified*;
+"saved/notified/created" before the system confirms; a thanks such as «الله يعطيك العافية» alone is never a save confirmation (only an explicit yes to the read-back is); labels facts as *reported / approximate / unknown / verified*;
 never presents old data as new; stores extracted facts only (**no recordings**).
 
 **Report modes (Nov 2026).** *Guided* asks the owner's enabled questions in order, one at a time. *Open* lets the worker say what happened; facts land in their topics and anything unmentioned is saved as **not reported**, never healthy or unchanged, and is not asked about. Due tasks are still asked after an open update, because a task closes only on an explicit yes. Both modes read back every recorded detail, allow corrections, and save one report only after an explicit yes to the summary the worker actually heard. The model listens and classifies; the server chooses every spoken word. Calls stay short: one question at a time, options read aloud only on the keypad or after an answer was not understood, and no per-item confirmations, because the final read-back confirms everything. Words about another topic are kept as a note and read back, never dropped. Task verifications due at the same time share one worker call.
@@ -64,16 +73,23 @@ Next.js 16 (App Router, React 19, Tailwind v4)  →  deployed on Vercel (free Ho
    │   ├─ rules.ts              gating: who may call when, applicable questions, due retries
    │   ├─ findings.ts           important-findings evaluation + owner briefing text
    │   ├─ actions.ts            state transitions (complete report, open ticket, retry, callback…)
+   │   ├─ reportCalls.ts        report-call runs: claim the due slot, attempts, retries, missed
+   │   ├─ ownerCalls.ts         owner summary-call runs: claim, attempts, retries
    │   ├─ seed.ts               empty workspace + sample demo farm
    │   ├─ rules.test.ts         Vitest coverage of every rule above
-   │   └─ conversation/         scripted call engine for the Call Lab (start/answer → session + commit)
+   │   └─ conversation/         scripted call engine (start/answer → session + commit); the reference for real calls
    │       ├─ engine.ts         every call type: worker report, owner briefing, NAQAH→worker + retries,
-   │       │                    worker callback, owner inquiry, emergency info. Mirrors a future voice agent.
+   │       │                    worker callback, owner inquiry, emergency info
    │       └─ personalize.ts    swaps the sample names (Ahmed/Abdullah) for the farm's real ones at render
+   ├─ app/api/                  route handlers: voice webhooks, cron, call-now, account, test calls (see §8.4)
    ├─ server/db/                Supabase persistence, wired to account-mode UI behind its flag: row mappers, change diff,
    │                            owner repository (RLS session) and service repository (see §8.1)
-   ├─ server/farm/              owner Server Actions and input validation
-   ├─ server/voice/contract.ts  voice → farm data contract
+   ├─ server/farm/              owner Server Actions (incl. "Call now") and input validation
+   ├─ server/calls/             outbound placement (Twilio REST), the scheduler behind the cron route, signed call
+   │                            tokens, allowlist, call-length cap and call-now limits, manual test calls
+   ├─ server/voice/             contract.ts (voice → farm data), farm-call.ts (real farm calls), preflight.ts (free
+   │                            checks before dialling), realtime/* (tools, decisions and state for the realtime model)
+   ├─ server/voice-lab/         AI Voice Lab: browser session with the realtime model, saves nothing
    ├─ store/workspace.ts        zustand store persisted to localStorage (`naqah-workspace-v1`)
    ├─ i18n/                     config, formatting (Riyadh time, Latin digits), messages per slice
    ├─ components/ui/            design-system primitives (Button, Card, Badge, Field, Switch, Segmented)
@@ -83,7 +99,9 @@ Next.js 16 (App Router, React 19, Tailwind v4)  →  deployed on Vercel (free Ho
    ├─ components/setup/         onboarding wizard + settings sections (shared)
    ├─ components/dashboard/     estate header, matters, ledger and other overview/herd/tickets/calls building blocks
    └─ components/lab/           Call Lab UI (phone stage, "Inside NAQAH" panel, demo clock)
-supabase/migrations/            production schema (not used by the demo yet) — see §6
+services/voice-bridge/          plain Node service: Twilio media stream ↔ OpenAI Realtime, tool calls go back to
+                                /api/voice/realtime/*; runs outside Vercel (see its README)
+supabase/migrations/            production schema (not used by the demo) — see §8.1
 ```
 
 ### Data flow
@@ -124,6 +142,8 @@ npm run typecheck && npm run lint && npm run build
 
 ## 5a. Integrations (Settings → Connections)
 
+Production calling go-live: `docs/integrations/go-live-checklist.md`.
+
 Each integration has its own guide in `docs/integrations/`. Free ones work today; paid ones are fully coded but
 stay off until their env vars are set (see `.env.example`). Nothing here needs a paid account for the demo.
 
@@ -133,7 +153,10 @@ stay off until their env vars are set (see `.env.example`). Nothing here needs a
 | Calendar feed + per-task "add to calendar" | Free | Settings card; Tickets rows | `src/lib/calendar/`, `src/app/api/calendar` | `calendar.md` |
 | WhatsApp deep links (message worker, order from supplier) | Free | Settings card; dashboard resources + emergency | `src/lib/whatsapp/`, `WhatsAppActions.tsx` | `whatsapp-links.md` |
 | Weather + farm location + heat-day question | Free (Open-Meteo) | Dashboard line; Settings card; setup; Call Lab "Simulate a heat day" | `src/domain/weather.ts`, `src/lib/weather/`, `src/lib/geo/` | `weather.md` |
-| Real phone line (Twilio) + WhatsApp Cloud summary | **Paid** per minute / message | Settings "Phone line" card | `src/server/`, `src/app/api/voice/*`, `src/app/api/integrations/status` | `phone.md`, `twilio-activation.md` |
+| Real phone line (Twilio) + WhatsApp Cloud summary | **Paid** per minute / message | Settings "Phone line" card; dashboard "Call now" | `src/server/calls`, `src/server/voice`, `src/app/api/voice/*`, `src/app/api/cron/report-calls` | `phone.md`, `twilio-activation.md`, `call-schedule.md` |
+| Realtime voice (natural speech on report calls) | **Paid** (OpenAI Realtime + Twilio) | The worker's report call | `services/voice-bridge`, `src/server/voice/realtime`, `src/app/api/voice/realtime/*`; on with `NAQAH_VOICE_MODE=farm` + `NAQAH_VOICE_ENGINE=realtime` + a valid `NAQAH_BRIDGE_PUBLIC_URL` | `realtime-voice.md` |
+| AI Voice Lab (talk to the report agent in the browser, saves nothing) | **Paid** (OpenAI) | `/app/voice-lab`, account mode only | `src/server/voice-lab`, `src/app/api/voice-lab`; `NAQAH_VOICE_LAB=1`, listed `NAQAH_VOICE_LAB_OWNERS`, nav link `NEXT_PUBLIC_NAQAH_VOICE_LAB=1` | `voice-lab.md` |
+| Manual test call (admin only) | **Paid** | Call Lab (`/app/lab`) in account mode; nav link `NEXT_PUBLIC_NAQAH_TEST_CALL=1` | `src/server/calls/test-call*.ts`, `src/app/api/test-call`; `NAQAH_TEST_CALLS=1`, `NAQAH_TEST_CALL_ADMINS` | `test-calls.md` |
 
 Things to know before changing them:
 - **Two phone modes.** By default the line is the *sample* line: signed `s` state, each turn replays the engine on the
@@ -182,14 +205,15 @@ The demo keeps one `Workspace` in `localStorage`. Every rule is a pure function 
 the same functions and swaps only the storage and the "who triggers it" layer.
 
 ### 8.1 Database — Supabase (free tier is enough to start)
-- Schema, applied in order: `0001_init.sql`, `0002_backend_foundation.sql`, `0003_voice_call_sessions.sql`,
-  `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql`, `20261107213717_owner_flow.sql`,
-  `20261108000000_pending_worker_call_tasks.sql`, `20261109120000_test_calls.sql`, `20261109130000_report_mode_coverage.sql`, `20261109140000_report_mode_settings.sql`, `20261109182526_owner_summary_schedule.sql`, `20261110090000_mvp_owner_runs.sql` under `supabase/migrations/` (Postgres 15+).
-  Local validation uses stand-in Supabase roles/Auth; it does not prove live activation. The existing Supabase project
-  contains Auth test users; migrations 0001–0005 and both timestamped migrations are applied. The latter adds durable
-  links from a pending worker call to multiple task tickets while retaining the legacy single-task field.
-  The plan-selection feature adds `20261108010000_initial_plan_selection.sql`; it is pending local and hosted
-  verification. Do not deploy that feature with account mode enabled until this migration is applied and verified.
+- Schema, applied in filename order from `supabase/migrations/` (Postgres 15+):
+  `0001_init`, `0002_backend_foundation`, `0003_voice_call_sessions`, `0004_owner_write_limits`,
+  `0005_custom_question_retry`, `20261107213717_owner_flow`, `20261108000000_pending_worker_call_tasks`,
+  `20261108010000_initial_plan_selection`, `20261109000000_rate_limits`, `20261109120000_test_calls`,
+  `20261109130000_report_mode_coverage`, `20261109140000_report_mode_settings`,
+  `20261109182526_owner_summary_schedule`, `20261110090000_mvp_owner_runs`, `20261113090000_report_call_scheduler`,
+  `20261113100000_worker_call_claims`.
+  Hosted: everything through `20261110090000` (see Current state); the last two are not applied.
+  Local validation uses stand-in Supabase roles/Auth; it does not prove live activation.
   Status, plan and manual go-live list: `docs/integrations/supabase-backend.md`.
   One owner (`auth.users`) → one `farms` row (owner, settings, call time, herd count, primary worker) → 1–3 (Basic) or
   1–10 (Ultimate) `workers` rows; NAQAH calls the primary one. Scheduled report calls live in `report_call_runs`.
@@ -225,20 +249,27 @@ The implemented contract is `docs/integrations/voice-data-contract.md`.
 
 | Event | Route handler | Domain functions |
 |---|---|---|
-| Report call due (built) | `GET /api/cron/report-calls` every ~5 min, `Bearer CRON_SECRET` | `claimDueReportCall` → Twilio dial (`src/server/calls`) |
-| Report call answered / ended (built) | `POST /api/voice/outbound`, `/api/voice/outbound/status` (signed token, not caller ID) | report conversation, `resolveReportCallAttempt` (20 min × 2 retries → missed), `endReportCallWithoutReport` |
-| Worker calls in | `POST /api/voice/inbound` (caller = worker) | `routeWorkerInboundCall` → callback / returned missed report call / "NAQAH will call you" |
-| Report finished | tool `save_report` | `evaluateFindings`, `completeWorkerReport` |
-| Owner summary call | same cron, at the owner's slot, whether or not a report exists. Never inside the report webhook | `claimDueOwnerCall`, `ownerSummaryText`, `/api/voice/owner`, `resolveOwnerCallAttempt` |
+| Scheduler tick | `GET /api/cron/report-calls`, `Bearer CRON_SECRET`. Supabase `pg_cron` + `pg_net` call it every 5 min once activated; it dials only with farm mode, Twilio and `NAQAH_SCHEDULED_CALLS=1` | per farm: due report call, then a due worker instruction/verification call, then the owner's due summary call (`src/server/calls/scheduler.ts`) |
+| Report call due | the scheduler tick | `claimDueReportCall` → Twilio dial |
+| Report call answered / ended | `POST /api/voice/outbound`, `/api/voice/outbound/status` (signed token, not caller ID) | `answerReportCall`, report conversation, `resolveReportCallAttempt` (3 attempts, 20 min apart → missed), `endReportCallWithoutReport` |
+| Realtime report call | `/api/voice/realtime/session` (bridge presents the stream ticket), `/tool` (one model tool call = one engine step), `/after` (stream closed, call still up), `/closed` (diagnostic only) | same engine and save path as the scripted call |
+| Scripted call turns | `POST /api/voice/turn` (each Gather), `POST /api/voice/status` (call ended: clears the working state) | engine `answer`, `applyVoiceEvent` |
+| Report finished | `submit_report` / `confirm_report` (realtime) or the scripted read-back | `worker_report` event → `evaluateFindings`, `completeWorkerReport` |
+| Owner summary call | scheduler tick at the owner's slot, whether or not a report exists. Never inside the report webhook. `/api/voice/owner`, `/owner/heard` (Basic summary fully spoken), `/owner/status` | `claimDueOwnerCall`, `ownerSummaryText`, `resolveOwnerCallAttempt` |
 | Owner gives instruction | spoken on the Ultimate summary call; AI proposes, owner verifies the read-back | realtime `propose_instructions`, `confirm_instructions` (scripted fallback asks the owner), `submitOwnerInstructionBatch` |
-| Instruction or verification call | same cron. Answering is not delivery | `claimDueWorkerCall`, `/api/voice/worker`, `resolveWorkerCallAttempt` (`delivered` only when `completed`) |
+| Instruction or verification call | scheduler tick. `/api/voice/worker`, `/worker/status`. Answering is not delivery | `claimDueWorkerCall`, `resolveWorkerCallAttempt` (`delivered` only when `completed`) |
 | Scheduled task check | the same worker call, after the instruction was delivered | `dueTaskVerifications`, `startTaskVerification`, `confirmTask` on an explicit yes |
-| Worker returns missed call | `POST /api/voice/inbound` | `completeWorkerCallback` (not a farm update) |
-| Owner calls in | `POST /api/voice/inbound` (caller = owner) | `routeOwnerInboundCall` → `recordOwnerInquiry` / `rejectOwnerInquiry` |
+| Worker calls in | `POST /api/voice/inbound` (caller = worker) | `routeWorkerInboundCall` → callback (`completeWorkerCallback`, not a farm update) / returned missed report call / "NAQAH will call you" |
+| Owner calls in | `POST /api/voice/inbound` (caller = owner) | none: a short closed line (`OWNER_LINE_CLOSED`) on every plan |
+| Owner's "Call now" | Server Action `callWorkerNow` (`NAQAH_MANUAL_REPORT_CALLS=1`); `GET /api/report-call-now` for the run's state and free preflight; `POST` is the bridge's signed preflight | `requestReportCallNow`: one report-call attempt, 3 an hour / 10 a day per ranch |
+| Owner call now (local demo only) | Server Action `callOwnerNow`; `GET /api/owner-call-now` (state, preflight), `POST /api/test-number` (approve a number). Never on Vercel | `requestOwnerCallNow` to the farm's approved owner number |
+| Admin test call | `GET`/`POST /api/test-call` (`NAQAH_TEST_CALLS=1`, listed admin, ranch in `test_call_ranches`) | outbound report call through the normal save path |
+| Owner's dashboard data | `POST /api/account` (404 unless account mode) | owner actions through RLS |
 | Emergency | none: the worker calls the owner directly | — |
 
-Note: Vercel Hobby cron runs at most once a day; the 20-minute retry needs Vercel Pro, Supabase `pg_cron`
-(free) calling the route, or Twilio's own scheduling.
+Vercel Hobby cron runs at most once a day, so the trigger is Supabase `pg_cron` + `pg_net` every 5 minutes
+(`20261113090000_report_call_scheduler.sql`; URL and secret in Vault, idle until both are set). Checklist:
+`twilio-activation.md`.
 
 ### 8.5 Payments and displayed prices
 Payment processing is out of scope for the MVP; showing prices does not charge or subscribe an owner. The public

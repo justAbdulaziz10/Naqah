@@ -29,6 +29,7 @@ const isClearArabic = (words: string) => {
 
 const AGREE = new Set([
   "ايه", "ايوه", "اي", "نعم", "اكيد", "صح", "صحيح", "تمام", "اوكي", "طيب", "زين", "احفظ", "احفظه", "احفظها", "حفظ", "موافق", "ماشي", "مضبوط",
+  "ايوا", "احفظي", "احفظيه", "احفظيها", "سجلي", "سجليه", "سجليها",
   "خلاص", "يلا", "سجل", "سجله", "سجلها", "اعتمد", "اعتمده",
   "yes", "yeah", "yep", "yup", "ok", "okay", "sure", "correct", "save", "done", "right", "fine", "good",
 ]);
@@ -40,15 +41,26 @@ const FILLER = new Set([
   "الكلام", "والله", "it", "that", "s", "is", "all", "please", "thanks", "thank", "you",
 ]);
 /** «لا تعدل», «ما فيه تعديل»: nothing to change is a yes to the summary as it stands. */
-const NOTHING_TO_CHANGE = /(?:^| )(?:لا|ما|مو) (?:تعدل|تغير|فيه تعديل|ابي اعدل|ابغى اعدل)(?: |$)|(?:^| )(?:no changes?|nothing to change)(?: |$)/;
-/** «توكل على الله», «يلا احفظ», and «الله يعطيك العافية» said back to «أحفظه؟»: a Saudi go-ahead. */
-const GO_AHEAD = /(?:^| )(?:توكل على الله|توكل|يلا احفظ|يلا احفظه)(?: |$)|^(?:الله )?يعطيك العافيه(?: يا \p{L}+)?$/u;
-const REFUSE = /(?:^| )(?:لا|ما|مو|لاء) (?:تحفظ|تحفظه|تحفظها|احفظ|ابي|ابغى|ابيه|توافق)(?: |$)|(?:^| )(?:غلط|خطا|خطأ|عدل|عدله|عدلها|تعديل|غيره|غيرها|بس|لكن|الا|مدري|ما ادري|يمكن|don t|not|wrong|change|but|maybe)(?: |$)/;
+// Only «ما» negates «أبي/أبغى/ودي» or a first-person «أعدل»: «لا، أبي أعدل» is "no, I want to change it".
+const NOTHING_TO_CHANGE = /(?:^| )(?:(?:(?:و?لا|ما|مو) (?:ما )?(?:تعدلي?|تغيري?|يحتاج (?:تعدلي?|تغيري?|اعدل|اغير|تعديل))|(?:و?لا )?ما (?:اعدل|اغير|(?:ابي|ابغى|ابغي|ودي) (?:اعدل|اغير|اصحح))|(?:و?لا )?ودي ما (?:اعدل|اغير))(?: (?:شي|شيء|اي شي))?|ما ?(?:فيه|في) (?:تعديل|شي يتعدل)|no changes?|nothing to change|no need to (?:edit|change)|(?:don t|do not) (?:edit|change)(?: it)?)(?= |$)/u;
+const WANTS_CHANGE = /(?:^| )(?:و?(?:اعدل|عدلي?(?:ه|ها)?|تعدلي?|اغير|غيري?(?:ه|ها)?|تغيري?|اصحح|صححي?(?:ه|ها)?|تصحيح|تعديل)|(?:مو|مش|غير|مب|موب|ماهو|ما) (?:صح|صحيح|صحيحه|مضبوط|مضبوطه|كذا)|ناقص|ناقصه|زياده|زايد|زايده|اقل|اكثر|كثير|قليل|غلطت|غلطتي|غلطان|غلطانه|اخطات|اخطيت|edit|editing|change|changes|correction|correcting|correct (?:it|this|that|the|my))(?= |$)/u;
+const NO_THEN_SAVE = /^(?:لا|لاء) (?=تمام (?:احفظ(?:ي(?:ه|ها)?|ه|ها)?|سجل(?:ي(?:ه|ها)?|ه|ها)?)(?: |$))/u;
+/**
+ * «توكل على الله» and «يلا احفظ» said back to «أحفظه؟»: a Saudi go-ahead. «الله يعطيك العافية» alone is thanks or a
+ * goodbye, not an explicit yes to save, so it only counts beside a clear yes («ايه، يعطيك العافية»).
+ */
+const GO_AHEAD = /(?:^| )(?:توكل على الله|توكل|يلا احفظ|يلا احفظه)(?: |$)/u;
+const REFUSE = /(?:^| )و?(?:لا|ما|مو|لاء) (?:تحفظ(?:ين?(?:ه|ها)?|ه|ها)?|احفظ(?:ي(?:ه|ها)?|ه|ها)?|تسجل(?:ين?(?:ه|ها)?|ه|ها)?|سجل(?:ي(?:ه|ها)?|ه|ها)?|ابي|ابغى|ابيه|توافق)(?: |$)|(?:^| )(?:غلط|خطا|خطأ|عدل|عدله|عدلها|تعديل|غيره|غيرها|بس|لكن|الا|مدري|ما ادري|يمكن|don t|not|wrong|change|but|maybe)(?: |$)/;
 /** Waiting, asking, doubting or wanting the owner: «طيب انتظر», «ايه وش قلت», «ايه اظن», «تمام قل للمعزب يتصل». */
-const HOLD = /(?:^| )(?:انتظر|انطر|استنى|لحظه|ثواني|ثانيه|دقيقه|اصبر|خلني|خليني|وش|ايش|شو|مين|من معي|اسمع|بعدين|اظن|اعتقد|احس|اتاكد|قل|قول|كلم|اكلم|يتصل|wait|hold|hang on|what|who|later|think|guess|second|sec|moment|minute|listen)(?: |$)|معزب/;
+const HOLD = /(?:^| )و?(?:احسب|شكله|شكلها|شكل|تقريبا|تقريب|يبدو|احتمال|يمكن|كم|ليش|ليه|هل|يعني|اقول|ممم|امم|اذا|لو|لين|بكرا|بكره|ان شاء الله|عشان|الو|انتظر|انطر|استني|لحظه|ثواني|ثانيه|دقيقه|اصبر|خلني|خليني|وش|ايش|شو|مين|من معي|اسمع|بعدين|اظن|اعتقد|احس|اتاكد|قل|قول|كلم|اكلم|يتصل|wait|hold|hang on|what|who|later|think|guess|second|sec|moment|minute|listen)(?: |$)|معزب/;
+/**
+ * A refusal to save anywhere in the reply, checked on the whole utterance: «لا تعدلي ولا تحفظي» and "don't change it
+ * or save it" start with "nothing to change", which must not hide the "don't save" after it.
+ */
+const NEGATED_SAVE = /(?:^| )و?(?:لا|ما|مو|لاء) (?:تحفظ|تسجل|احفظ|سجل)\p{L}*(?= |$)|(?:^| )(?:don t|dont|do not|not|never)(?: \p{L}+){0,4} (?:save|record|keep)(?= |$)/u;
 const NO_ALONE = /^(?:لا|لاء|no|nope)(?: |$)/;
-/** «احفظ… لا»: a no said last takes the yes back. */
-const NO_LAST = /(?:^| )(?:لا|لاء|no|nope)$/;
+/** «احفظ… لا», «ايه ما»: a no said last, or a sentence cut off at «ما» or «ولا», takes the yes back. */
+const NO_LAST = /(?:^| )(?:لا|لاء|ما|ولا|no|nope)$/;
 
 /**
  * A natural call: the model heard the audio and asked to save after the whole summary, but phone transcription
@@ -59,11 +71,11 @@ const NO_LAST = /(?:^| )(?:لا|لاء|no|nope)$/;
 export function isNaturalConfirmation(utterance: string, session: CallSession, locale: Locale, camels: readonly { name: string }[] = []): boolean {
   if (!utterance || utterance.length > MAX_UTTERANCE || /[?؟]/u.test(utterance) || session.step !== SUMMARY_STEP) return false;
   const words = normalizeSpeech(utterance).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-  if (!words || NO_ALONE.test(words) || NO_LAST.test(words) || topicsInWords(words).size > 0) return false;
+  if (!words || NO_LAST.test(words) || NEGATED_SAVE.test(words) || topicsInWords(words).size > 0) return false;
+  const leftover = words.replace(new RegExp(NOTHING_TO_CHANGE, "gu"), " ").trim().replace(NO_THEN_SAVE, "");
   // A number or a camel's name is what a correction sounds like («تمام، عشرين كيس», «إيه مزون بخير»), never a plain yes.
-  if (numbersSaid(words).size > 0 || namedCamels(words, camels).length > 0) return false;
-  const leftover = words.replace(NOTHING_TO_CHANGE, " ");
-  if (REFUSE.test(` ${leftover} `) || HOLD.test(` ${leftover} `)) return false;
+  if (numbersSaid(leftover).size > 0 || namedCamels(words, camels).length > 0) return false;
+  if (NO_ALONE.test(leftover) || WANTS_CHANGE.test(leftover) || REFUSE.test(leftover) || HOLD.test(leftover)) return false;
   if (NOTHING_TO_CHANGE.test(words) || GO_AHEAD.test(words)) return true;
   const list = words.split(" ");
   // «زين، ماشي» agrees in every word, and «طيب طيب يا جماعة الخير» only adds filler to it. A soft word beside anything

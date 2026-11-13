@@ -7,6 +7,75 @@ import { at, NOW } from "./saudi-cases";
 
 const summary = () => at("summary");
 
+describe("natural confirmation intent takes precedence over a leading yes", () => {
+  const phrases: [string, boolean][] = [
+    ["إيه أبي أعدل", false], ["إيه عدلي", false], ["ايه ابغى اغير", false],
+    ["أعدل", false], ["عدل", false], ["عدلي", false], ["غير", false], ["أغير", false],
+    ["ابغى اغير", false], ["إيه أعدل", false], ["تمام عدليه", false], ["احفظي وغيري", false],
+    ["احفظ واصحح", false], ["إيه ودي أصحح", false], ["ايوا فيه تعديل", false],
+    ["لحظة", false], ["إيه لحظة", false], ["استنى", false], ["احفظي استني", false],
+    ["مو صح", false], ["إيه مو صح", false], ["غلط", false], ["تمام غلط", false],
+    ["ايوا مو صحيح", false], ["إيه مو مضبوطة", false], ["نعم غير صحيح", false],
+    ["إِيـه أَبِي أُعَدِّل", false], ["آيه ٱبغى ٱغير", false], ["إيه    أبي    أعدل", false],
+    ["لا تعدل بس أغير", false], ["لا تعدل بس الماء ناقص", false], ["ما يحتاج تعدل غلط", false],
+    ["لا، تمام احفظ بس عدلي", false], ["لا تعدل، لحظة", false], ["لا تعدل لا تحفظي", false],
+    ["ايوا لا تسجلي", false], ["احفظي لا", false], ["ما أبي أحفظي", false],
+    ["ايوا لا تحفظين", false], ["إيه لا تسجلينه", false],
+    ["لا أبي أعدل", false], ["لا، أبي أعدل", false], ["لا ابغى اغير", false], ["لا ودي اصحح", false],
+    ["مو أبي أعدل", false], ["لا ابي اغير شي", false], ["ايه بس ابي اعدل", false],
+    // Adversarial review, 13 Nov: hedges, Gulf negations, correction words, unmarked questions, conditions.
+    ["ايه شكله صح", false], ["شكله صح", false], ["صح تقريبا", false], ["تمام تقريبا", false], ["ايه احسب", false],
+    ["ايه احتمال", false], ["يبدو صح", false], ["ايه ناقص", false], ["ايه زيادة", false], ["ايه اقل", false],
+    ["ايه اكثر", false], ["ايه مو كذا", false], ["ايه مب صح", false], ["مب صح", false], ["ماهو صح", false],
+    ["ما صح", false], ["موب صح", false], ["ايه غلطتي", false], ["ايه اخطأت", false], ["ايه انتي غلطانة", false],
+    ["ايه ممم", false], ["ايه يعني", false], ["ايه كم قلتي", false], ["ايه ليش", false], ["ايه ولا", false],
+    ["تمام ولا", false], ["احفظه ولا", false], ["اقول تمام", false], ["هل احفظه", false],
+    ["احفظ اذا كان صح", false], ["ايه ان شاء الله", false], ["احفظ بكرا", false], ["ايه وبعدين", false],
+    ["ايه ما", false], ["ايه عشان", false], ["الو تمام", false],
+    // PR #22 review: a "nothing to change" start must not hide a refusal to save.
+    ["لا تعدلي ولا تحفظي", false], ["لا تعدلي ولا تسجلي", false], ["لا تعدل وما تحفظه", false],
+    ["do not change it or save it", false], ["don't change it and don't save", false], ["no changes but do not save", false],
+    ["لا شكرا", false], ["لا شكرا احفظ", false], ["لا", false], ["احفظي؟", false],
+    ["لا تعدل", true], ["ما يحتاج تعدل", true], ["لا، تمام احفظ", true],
+    ["لا ما أبي أعدل شي", true], ["ما ابغى اغير", true], ["ما فيه تعديل", true],
+    ["ما في تعديل", true], ["مافيه تعديل", true], ["لا تغير", true], ["لا تعدلي", true],
+    ["ما يحتاج أعدل", true], ["ما ابي اعدل", true], ["لا يحتاج تعدل", true], ["إيه لا تعدل شي", true], ["لا تعدل ولا تغير", true],
+    ["ما فيه تعديل، احفظي", true], ["ما يحتاج تعدل، لا تغير", true],
+    ["لَا تـعَدِّل", true], ["ما    يحتاج    تعدل", true],
+    ["احفظ", true], ["احفظي", true], ["احفظه", true], ["احفظيه", true], ["احفظيها", true],
+    ["حفظ", true], ["سجل", true], ["سجلي", true], ["سجليه", true], ["سجليها", true],
+    ["ايوا", true], ["إيه", true], ["اي", true], ["نعم", true], ["تمام", true],
+    ["صح", true], ["أكيد", true], ["زين", true], ["إِيـوَا", true], ["ٱحْفَظِي", true],
+    ["آكيد", true], ["إيه تمام يعطيك العافية", true],
+    ["no wait", false], ["yes edit it", false], ["yes I want to change it", false],
+    ["yes correction", false], ["okay wrong", false], ["yes not right", false],
+    ["yes correct it", false], ["please correct the report", false],
+    ["save it but wait", false], ["yes don't save", false], ["no thanks", false],
+    ["no changes but edit it", false], ["nothing to change wait", false],
+    ["yes", true], ["save it", true], ["yes that's correct", true], ["no changes", true],
+    ["nothing to change", true], ["no need to edit", true], ["don't change it", true],
+    ["yes correct and save", true],
+  ];
+
+  it.each(phrases)("classifies «%s» as confirmation=%s", (heard, confirmed) => {
+    expect(isNaturalConfirmation(heard, summary().session, "ar")).toBe(confirmed);
+  });
+
+  it.each(phrases)("gates confirm_report on «%s» (confirmation=%s)", (heard, confirmed) => {
+    const { ws, session } = summary();
+    const original = structuredClone(session);
+    const decision = decideTool({ session: session as VoiceCallSession, counters: {}, workspace: ws, locale: "ar", name: "confirm_report", args: { confirmed: true }, spoke: true, heard, heardSummaryId: reportSummaryId(session, "ar"), now: NOW, natural: true });
+    expect(decision.kind === "apply").toBe(confirmed);
+    expect(session).toEqual(original);
+  });
+
+  it.each(["en", "ar"] as const)("keeps English consent working in %s calls", (locale) => {
+    for (const [heard, confirmed] of phrases.filter(([heard]) => /^[a-z]/i.test(heard))) {
+      expect(isNaturalConfirmation(heard, summary().session, locale), heard).toBe(confirmed);
+    }
+  });
+});
+
 describe("a spoken yes on a natural call, through phone transcription", () => {
   // The three replies the transcriber returned on the 11 Nov call, after the whole summary was read.
   it.each(["كل كلام لا تعدل.", "كل شيء تمام. لا تتعدى لأحفظك.", "احفظ لاشعريلي.", "إيه احفظه", "تمام احفظ", "صح كله مضبوط", "ما فيه تعديل", "زين، ماشي"])("saves on «%s»", (heard) => {
@@ -69,7 +138,7 @@ describe("a plain yes to «أحفظه؟», said many ways", () => {
   const camels = () => summary().ws.camels;
   it.each([
     "إيه", "ايوه", "أيوه", "اي", "صح", "تمام", "تمام احفظ", "خلاص", "خلاص احفظ", "ماشي", "اوكي", "زين", "طيب احفظ", "كذا تمام", "كله صح",
-    "كل شي تمام", "احفظه", "احفظ", "سجله", "يلا", "توكل على الله", "الله يعطيك العافية", "يعطيك العافية", "yes", "ok", "okay", "sure",
+    "كل شي تمام", "احفظه", "احفظ", "سجله", "يلا", "توكل على الله", "ايه يعطيك العافية", "احفظ الله يعطيك العافية", "yes", "ok", "okay", "sure",
     "done", "save it", "correct", "yes please", "that's right",
   ])("saves on «%s»", (heard) => {
     expect(isNaturalConfirmation(heard, summary().session, "ar", camels())).toBe(true);
@@ -78,6 +147,8 @@ describe("a plain yes to «أحفظه؟», said many ways", () => {
   it.each([
     // Doubt, waiting or a question.
     "لحظة", "تمام لحظة", "انتظر", "وش", "مين", "بعدين", "اظن", "يمكن", "ايه يمكن", "wait", "what", "maybe", "okay wait",
+    // Thanks or a goodbye alone is not an explicit yes.
+    "الله يعطيك العافية", "يعطيك العافية", "يعطيك العافية يا شيخ",
     // A no, alone or last.
     "لا", "لا شكرا", "احفظ لا", "تمام لا", "no", "yes no",
     // A correction: a number, a camel's name, a topic.

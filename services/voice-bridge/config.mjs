@@ -3,6 +3,9 @@ export const REALTIME_URL = `wss://api.openai.com/v1/realtime?model=${REALTIME_M
 /** The built-in voices of the realtime model. marin and cedar are the ones OpenAI recommends for natural speech. */
 export const VOICES = new Set(['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse']);
 
+/** NAT64 networks answer IPv6 first for api.openai.com and api.twilio.com, and Node then times out. */
+export const DNS_ORDERS = new Set(['ipv4first', 'ipv6first', 'verbatim']);
+
 export function loadConfig(env = process.env) {
   const required = ['NAQAH_BRIDGE_PUBLIC_URL', 'TWILIO_AUTH_TOKEN', 'NAQAH_VOICE_SECRET', 'OPENAI_API_KEY'];
   for (const name of required) {
@@ -33,6 +36,10 @@ export function loadConfig(env = process.env) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT');
   const requestedSeconds = Number(env.NAQAH_CALL_TIME_LIMIT_SECONDS);
   const maxCallSeconds = Number.isInteger(requestedSeconds) && requestedSeconds >= 10 && requestedSeconds < 300 ? requestedSeconds : 300;
+  const dnsOrder = env.NAQAH_BRIDGE_DNS_ORDER || 'ipv4first';
+  if (!DNS_ORDERS.has(dnsOrder)) throw new Error('Invalid NAQAH_BRIDGE_DNS_ORDER');
+  const silenceSeconds = Number(env.NAQAH_BRIDGE_SILENCE_SECONDS || 12);
+  if (!Number.isInteger(silenceSeconds) || silenceSeconds < 5 || silenceSeconds > 60) throw new Error('Invalid NAQAH_BRIDGE_SILENCE_SECONDS');
   const voice = env.NAQAH_REALTIME_VOICE || 'marin';
   if (!VOICES.has(voice)) throw new Error('Invalid NAQAH_REALTIME_VOICE');
   // Local tracing only: a directory inside the OS temp directory.
@@ -48,5 +55,7 @@ export function loadConfig(env = process.env) {
     voiceSecret: env.NAQAH_VOICE_SECRET,
     apiKey: env.OPENAI_API_KEY,
     maxCallSeconds,
+    dnsOrder,
+    watchdogMs: silenceSeconds * 1000,
   };
 }

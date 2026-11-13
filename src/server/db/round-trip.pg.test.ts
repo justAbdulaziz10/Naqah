@@ -13,7 +13,7 @@ import type { FarmRows } from "./rows";
 /**
  * LOCAL ONLY. Runs real domain flows through the real migrations on a throwaway Postgres, so a
  * column or constraint that disagrees with the domain fails here. Skipped without
- * NAQAH_TEST_DB; run through supabase/local-validation/run-foundation.sh.
+ * NAQAH_TEST_DB; run through supabase/local-validation/run-owner-runs.sh.
  */
 const database = process.env.NAQAH_TEST_DB;
 const ownerId = "00000000-0000-0000-0000-0000000000aa";
@@ -38,7 +38,8 @@ function loadRows(farmId: string): { rows: FarmRows; revision: number } {
       'findings', (select coalesce(json_agg(f), '[]') from findings f where f.report_id = r.id))), '[]')
     from reports r where r.farm_id = ${quote(farmId)}`);
   const pending = json<FarmRows["pendingWorkerCalls"]>(`select coalesce(json_agg(to_jsonb(p) || jsonb_build_object(
-      'worker_call_attempts', (select coalesce(json_agg(a), '[]') from worker_call_attempts a where a.pending_call_id = p.id))), '[]')
+      'worker_call_attempts', (select coalesce(json_agg(a), '[]') from worker_call_attempts a where a.pending_call_id = p.id),
+      'pending_worker_call_tasks', (select coalesce(json_agg(t), '[]') from pending_worker_call_tasks t where t.pending_call_id = p.id))), '[]')
     from pending_worker_calls p where p.farm_id = ${quote(farmId)}`);
   return {
     revision: farm.revision,
@@ -254,5 +255,66 @@ describe.skipIf(!database)("domain flows through the real schema", () => {
   it("stores no audio or transcript column", () => {
     const columns = sql(`select string_agg(column_name, ',') from information_schema.columns where table_schema = 'public'`);
     expect(columns).not.toMatch(/audio|recording|transcript/);
+  });
+
+  it("keeps the worker-claims wrapper as the public save entry point", () => {
+    expect(sql(`select pg_get_functiondef('public.apply_farm_changes(uuid,bigint,jsonb,text,jsonb)'::regprocedure)`))
+      .toContain("private.apply_farm_changes_before_worker_claims(");
+  });
+
+  it("keeps the save RPC invoker-only, with an empty search path and service-only execution", () => {
+    const signature = "public.apply_farm_changes(uuid,bigint,jsonb,text,jsonb)";
+    expect(json(`select json_build_object('definer', prosecdef, 'config', proconfig) from pg_proc where oid = '${signature}'::regprocedure`))
+      .toEqual({ definer: false, config: ['search_path=""'] });
+    for (const role of ["anon", "authenticated"]) {
+      expect(sql(`select has_function_privilege('${role}', '${signature}', 'execute')`)).toBe("f");
+    }
+    expect(sql(`select has_function_privilege('service_role', '${signature}', 'execute')`)).toBe("t");
+    expect(sql(`select count(*) from pg_proc function, lateral aclexplode(coalesce(function.proacl, acldefault('f', function.proowner))) permission
+      where function.oid = '${signature}'::regprocedure and permission.privilege_type = 'EXECUTE'
+      and permission.grantee not in (function.proowner, (select oid from pg_roles where rolname = 'service_role'))`)).toBe("0");
+  });
+
+  it("round-trips a dial claim together with every earlier save-wrapper write", () => {
+    const now = minutes(2 * 24 * 60);
+    const instruction = submitOwnerInstruction(current, now, { message: "Check the west fence", actionable: true, scheduledFor: null });
+    const report = completeWorkerReport(instruction.ws, now, {
+      mode: "open", coverage: [{ questionId: "water_level", status: "not_reported" }],
+      answers: [{ questionId: "herd_health", question: { ar: "س", en: "q" }, answer: "All healthy", certainty: "reported", followUp: false }],
+      camelUpdates: [{ camelId: current.camels[0].id, health: "healthy", note: null, certainty: "reported" }],
+      resourceUpdates: [{ kind: "water", level: "low", quantity: null, note: "Refill", certainty: "reported" }],
+      herdAccountedFor: true, taskConfirmations: [],
+    }).ws;
+    const pending = report.pendingWorkerCalls.find((call) => !current.pendingWorkerCalls.some((previous) => previous.id === call.id))!;
+    const next: Workspace = {
+      ...report,
+      ownerCallRun: { id: "ocr_00000000ab", occurrence: now.toISOString(), reportId: report.reports.at(-1)!.id, attempts: [], nextAttemptAt: now.toISOString(), state: "calling" },
+      pendingWorkerCalls: report.pendingWorkerCalls.map((call) => call.id === pending.id
+        ? { ...call, dialClaimedAt: now.toISOString(), retryBase: 1, batchId: "save-chain-guard", coveredTaskIds: [call.taskTicketId!] }
+        : call),
+    };
+    const revision = loadRows(farmId).revision;
+    save(next, "CA-save-chain");
+    expect(loadRows(farmId).revision).toBe(revision + 1);
+    expect(comparable(current.pendingWorkerCalls.find((call) => call.id === toDbId(farmId, pending.id)), farmId))
+      .toMatchObject({ dialClaimedAt: now.toISOString(), retryBase: 1, batchId: "save-chain-guard", coveredTaskIds: [toDbId(farmId, pending.taskTicketId!)] });
+    expect(current.reports.at(-1)).toMatchObject({ mode: "open", coverage: [{ questionId: "water_level", status: "not_reported" }] });
+    expect(current.ownerCallRun).toMatchObject({ reportId: current.reports.at(-1)!.id });
+
+    const claimed = current.pendingWorkerCalls.find((call) => call.id === toDbId(farmId, pending.id))!;
+    const changes = diffWorkspace(current, {
+      ...current,
+      pendingWorkerCalls: current.pendingWorkerCalls.map((call) => call.id === claimed.id ? { ...call, nextAttemptAt: minutes(2 * 24 * 60 + 20).toISOString() } : call),
+    }, farmId);
+    delete (changes.pending_worker_calls![0] as Record<string, unknown>).dial_claimed_at;
+    sql(`set role service_role; select public.apply_farm_changes(${quote(farmId)}, ${revision + 1}, ${quote(JSON.stringify(changes))}::jsonb)`);
+    current = workspaceFromRows(loadRows(farmId).rows);
+    expect(comparable(current.pendingWorkerCalls.find((call) => call.id === claimed.id)?.dialClaimedAt, farmId)).toBe(now.toISOString());
+    const clear = diffWorkspace(current, {
+      ...current,
+      pendingWorkerCalls: current.pendingWorkerCalls.map((call) => call.id === claimed.id ? { ...call, dialClaimedAt: null } : call),
+    }, farmId);
+    sql(`set role service_role; select public.apply_farm_changes(${quote(farmId)}, ${revision + 2}, ${quote(JSON.stringify(clear))}::jsonb)`);
+    expect(sql(`select dial_claimed_at is null from public.pending_worker_calls where id = ${quote(claimed.id)} and farm_id = ${quote(farmId)}`)).toBe("t");
   });
 });

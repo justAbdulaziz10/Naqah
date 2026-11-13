@@ -170,37 +170,39 @@ function DemoLab() {
 
       <LabScenarioPicker plan={ws.settings.plan} selected={selected} sessionActive={sessionActive || Boolean(launch)} onSelect={(value) => lab.patch({ selected: value })} m={m} />
 
-      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-2.5">
-          <span className="shrink-0 whitespace-nowrap"><Badge tone={selectedAvailability.tone} dot>{m.lab.availability.label}</Badge></span>
-          <p className="pt-0.5 text-sm leading-relaxed text-muted">
-            {selectedAvailability.text}
-            {selectedAvailability.time ? <> <bdi className="ltr-nums">{selectedAvailability.time}</bdi></> : null}
-          </p>
-        </div>
-        {selectedAvailability.jump ? (
-          <Button variant="secondary" size="sm" onClick={jumpToCall} className="min-h-11">
-            {m.lab.availability.jumpToCall}
-          </Button>
-        ) : null}
-      </div>
-
-      <LabClockControls
-        ws={ws}
-        now={now}
-        fmt={fmt}
-        m={m}
-        onAdvance={advance}
-        onNextDay={jumpNextDay}
-        onSimulateHeat={simulateHeat}
-      />
-
-      {workerLanguageNotice ? (
-        <p className="text-sm leading-relaxed text-info">{m.lab.languageNote(t(WORKER_LANGUAGES.find((item) => item.id === ws.settings.worker.language)?.label ?? { ar: "", en: "" }))}</p>
-      ) : null}
-
+      {/* On a phone the call comes first, then the clock; on a wide screen the clock sits above both columns. */}
       <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,460px)_minmax(0,1fr)] lg:items-start">
-        <div className="min-w-0 space-y-4">
+        <div className="order-2 space-y-5 lg:order-first lg:col-span-2">
+        <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2.5">
+            <span className="shrink-0 whitespace-nowrap"><Badge tone={selectedAvailability.tone} dot>{m.lab.availability.label}</Badge></span>
+            <p className="pt-0.5 text-sm leading-relaxed text-muted">
+              {selectedAvailability.text}
+              {selectedAvailability.time ? <> <bdi className="ltr-nums whitespace-nowrap">{selectedAvailability.time}</bdi></> : null}
+            </p>
+          </div>
+          {selectedAvailability.jump ? (
+            <Button variant="secondary" size="sm" onClick={jumpToCall} className="min-h-11">
+              {m.lab.availability.jumpToCall}
+            </Button>
+          ) : null}
+        </div>
+
+        <LabClockControls
+          ws={ws}
+          now={now}
+          fmt={fmt}
+          m={m}
+          onAdvance={advance}
+          onNextDay={jumpNextDay}
+          onSimulateHeat={simulateHeat}
+        />
+
+        {workerLanguageNotice ? (
+          <p className="text-sm leading-relaxed text-info">{m.lab.languageNote(t(WORKER_LANGUAGES.find((item) => item.id === ws.settings.worker.language)?.label ?? { ar: "", en: "" }))}</p>
+        ) : null}
+        </div>
+        <div className="order-1 min-w-0 space-y-4 lg:order-none">
           {simulatorOpen ? (
             <Suspense fallback={<div className="min-h-[390px] rounded-2xl border border-stone/70 bg-cream" role="status" aria-label={m.lab.phone.callReady} />}>
               <LabSimulator
@@ -221,7 +223,9 @@ function DemoLab() {
             </>
           )}
         </div>
-        <InsidePanel ws={ws} session={session} baseline={baseline} m={m} t={t} />
+        <div className="order-3 min-w-0 lg:order-none">
+          <InsidePanel ws={ws} session={session} baseline={baseline} m={m} t={t} />
+        </div>
       </div>
     </div>
   );

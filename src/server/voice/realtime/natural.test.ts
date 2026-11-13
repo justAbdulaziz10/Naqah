@@ -27,6 +27,15 @@ function answers(session: ReturnType<typeof base>["session"]) {
 }
 
 describe("the natural call", () => {
+  it.each([
+    ["ar", ["«إيه أبي أعدل»", "«إيه عدلي»", "«ايه ابغى اغير»", "«لا شكرا»", "لا تعدل", "احفظي", "انتظر رد جديد", "غيّر الجواب اللي يخصه بس", "لا تقول إن التقرير انحفظ؛ النظام يقولها", "لا تسجّل «سليم» أو رقم من رد مو واضح", "والرقم يبقى اللي قاله أول"]],
+    ["en", ["'Yes, edit it'", "'no, wait'", "'no thanks'", "no changes", "wait for a fresh reply", "preserving the others", "Never say the report is saved; the system says it", "An unrelated or unclear reply is not an answer", "never a new number"]],
+  ] as const)("keeps %s consent and correction guidance explicit", (locale, required) => {
+    const { ws, session } = base();
+    const instructions = buildNaturalInstructions(session, ws, locale);
+    for (const text of required) expect(instructions).toContain(text);
+  });
+
   it("opens short and warm in Saudi Arabic, says it is NAQAH's automated assistant, and asks one question", () => {
     const { ws } = base();
     expect(naturalOpening(ws, "ar")).toBe("هلا والله يا أحمد، معك ناقة، المساعد الآلي لعزبة الوسم. بشّر، كيف الحلال اليوم؟");

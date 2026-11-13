@@ -5,7 +5,7 @@
  * callback and the Call Lab all go through them.
  */
 import { pushCall, pushEvent } from "./actions";
-import { HOUR, REPORT_CALL_GRACE_MS, REPORT_CALL_RETRIES, RETRY_DELAY_MS } from "./clock";
+import { HOUR, MINUTE, REPORT_CALL_GRACE_MS, REPORT_CALL_RETRIES, RETRY_DELAY_MS } from "./clock";
 import { uid } from "./id";
 import { reportDoneThisPeriod, reportPlanHasContent } from "./rules";
 import { previousScheduledCall } from "./schedule";
@@ -57,10 +57,10 @@ export type ReportCallBlock = "no_worker_phone" | "already_reported" | "in_progr
 export type ReportCallOptions = { repeatReports?: boolean };
 
 /** Why a report call can't start now, or null when it can. Shared by "Call now" and the scheduler. */
-export function reportCallBlock(ws: Workspace, now: Date, options: ReportCallOptions = {}): ReportCallBlock | null {
+export function reportCallBlock(ws: Workspace, now: Date, options: ReportCallOptions = {}, periodAt: Date = now): ReportCallBlock | null {
   if (!dialableWorkerPhone(ws)) return "no_worker_phone";
   if (reportCallRuns(ws).some((run) => reportCallIsLive(run, now))) return "in_progress";
-  if (reportDoneThisPeriod(ws, now) && !options.repeatReports) return "already_reported";
+  if (reportDoneThisPeriod(ws, periodAt) && !options.repeatReports) return "already_reported";
   if (!reportPlanHasContent(ws, now)) return "no_questions";
   return null;
 }
@@ -73,7 +73,7 @@ export function dueScheduledReportCall(ws: Workspace, now: Date): Date | null {
   const slot = previousScheduledCall(now, ws.settings.plan, ws.settings.callSchedule);
   if (!slot || now.getTime() - slot.getTime() > REPORT_CALL_GRACE_MS) return null;
   if (reportCallRuns(ws).some((run) => run.occurrence === iso(slot))) return null;
-  if (reportCallBlock(ws, now)) return null;
+  if (reportCallBlock(ws, now, {}, slot)) return null;
   return slot;
 }
 
@@ -88,7 +88,7 @@ export function startReportCall(
   occurrence: Date = now,
   options: ReportCallOptions = {},
 ): { ws: Workspace; run: ReportCallRun | null; blocked: ReportCallBlock | "duplicate" | null } {
-  const blocked = reportCallBlock(input, now, options);
+  const blocked = reportCallBlock(input, now, options, trigger === "schedule" ? occurrence : now);
   if (blocked) return { ws: input, run: null, blocked };
   if (reportCallRuns(input).some((r) => r.occurrence === iso(occurrence))) return { ws: input, run: null, blocked: "duplicate" };
   const ws = structuredClone(input);
@@ -139,11 +139,14 @@ export function resolveReportCallAttempt(
 ): { ws: Workspace; outcome: ReportCallOutcome } {
   const current = reportCallRuns(input).find((r) => r.id === runId);
   const pending = current?.attempts[current.attempts.length - 1];
-  if (!current || current.state !== "calling" || pending?.result !== "pending") return { ws: input, outcome: "ignored" };
+  // Only a live pickup may be undone: a late notice for a run already resolved (retry scheduled, missed) is ignored.
+  const unansweredPickup = !answered && pending?.result === "answered" && current?.state === "answered" && !current?.reportId;
+  if (!current || (!unansweredPickup && (current.state !== "calling" || pending?.result !== "pending"))) return { ws: input, outcome: "ignored" };
   const ws = structuredClone(input);
   const run = reportCallRuns(ws).find((r) => r.id === runId)!;
   const attempt = run.attempts.length;
   run.attempts[attempt - 1].result = answered ? "answered" : "no_answer";
+  if (unansweredPickup) run.state = "calling";
   const name = ws.settings.worker.name;
 
   if (answered) {
@@ -167,8 +170,8 @@ export function resolveReportCallAttempt(
   if (run.trigger === "schedule" && attempt <= REPORT_CALL_RETRIES) {
     run.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
     pushEvent(ws, now, "neutral", {
-      ar: `لم يرد ${name} — ناقة تعيد الاتصال بعد ٢٠ دقيقة (${attempt}/${REPORT_CALL_RETRIES + 1})`,
-      en: `${name} didn't answer — NAQAH will try again in 20 minutes (${attempt}/${REPORT_CALL_RETRIES + 1})`,
+      ar: `لم يرد ${name} — ناقة تعيد الاتصال بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${attempt}/${REPORT_CALL_RETRIES + 1})`,
+      en: `${name} didn't answer — NAQAH will try again in ${RETRY_DELAY_MS / MINUTE} minutes (${attempt}/${REPORT_CALL_RETRIES + 1})`,
     });
     return { ws, outcome: "retry_scheduled" };
   }
@@ -202,8 +205,8 @@ export function endReportCallWithoutReport(input: Workspace, now: Date, runId: s
     run.state = "calling";
     run.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
     pushEvent(ws, now, "neutral", {
-      ar: `انتهت مكالمة التقرير مع ${name} قبل حفظ التقرير — ناقة تعيد الاتصال بعد ٢٠ دقيقة (${attempt}/${REPORT_CALL_RETRIES + 1})`,
-      en: `The report call with ${name} ended before the report was saved — NAQAH will try again in 20 minutes (${attempt}/${REPORT_CALL_RETRIES + 1})`,
+      ar: `انتهت مكالمة التقرير مع ${name} قبل حفظ التقرير — ناقة تعيد الاتصال بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${attempt}/${REPORT_CALL_RETRIES + 1})`,
+      en: `The report call with ${name} ended before the report was saved — NAQAH will try again in ${RETRY_DELAY_MS / MINUTE} minutes (${attempt}/${REPORT_CALL_RETRIES + 1})`,
     });
     return ws;
   }
@@ -296,8 +299,8 @@ export function abandonReportCallAttempt(
   }
   run.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
   pushEvent(ws, now, "attention", {
-    ar: `تعذر على ناقة الاتصال بـ${name} — تحاول مرة ثانية بعد ٢٠ دقيقة`,
-    en: `NAQAH couldn't place the call to ${name} — it will try again in 20 minutes`,
+    ar: `تعذر على ناقة الاتصال بـ${name} — تحاول مرة ثانية بعد ${RETRY_DELAY_MS / MINUTE} دقيقة`,
+    en: `NAQAH couldn't place the call to ${name} — it will try again in ${RETRY_DELAY_MS / MINUTE} minutes`,
   });
   return ws;
 }

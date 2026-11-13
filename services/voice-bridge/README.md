@@ -21,11 +21,15 @@ approval. The bridge never reads or loads `.env` files.
   `TWILIO_AUTH_TOKEN`, `NAQAH_VOICE_SECRET`, `OPENAI_API_KEY`.
 - Optional: `PORT` (3300), `NAQAH_BRIDGE_UPSTREAM` (HTTP(S) origin, default
   `http://127.0.0.1:3301`). Missing/invalid configuration prevents listening.
+- `NAQAH_BRIDGE_DNS_ORDER` (`ipv4first` by default; `ipv6first` or `verbatim`)
+  is applied with `dns.setDefaultResultOrder` before listening. NAT64 networks
+  answer IPv6 first for api.openai.com and Node then times out.
+- `NAQAH_BRIDGE_SILENCE_SECONDS` (12, 5–60): the silence watchdog's window.
 - Tests only: `NAQAH_REALTIME_URL` replaces the provider URL **only** for a
   loopback `ws://` destination. `localhost` is pinned to `127.0.0.1`, avoiding
   DNS resolution; IPv4 loopback and `[::1]` are supported. No remote or TLS
   override, credentials, redirects, or fragment is accepted. Use a dummy API key.
-- `GET /voice-bridge/health` returns only `{"ok":true}`. It is process liveness,
+- `GET /voice-bridge/health` returns `ok`, `publicUrl` and `maxCallSeconds`, with no secrets. It is process liveness,
   not a paid provider probe.
 - Every other ordinary HTTP request streams to the upstream with its original
   method, raw URL, body, headers (including Host and duplicates), and trailers.
@@ -34,6 +38,21 @@ approval. The bridge never reads or loads `.env` files.
 - Only `/voice-bridge/media` accepts upgrades. The public URL must match the URL
   in TwiML, not the local HTTP origin. Reverse proxies must preserve the
   `X-Twilio-Signature` header and WebSocket path.
+
+## Production container
+
+Build from the repository root with `docker build -t naqah-voice-bridge:local services/voice-bridge`.
+Only the allowlisted bridge runtime and its locked `ws` dependency enter the Node 24 Alpine
+image; it runs as non-root with IPv4-first DNS and a loopback health check. Do not copy
+environment files into the image. Inject secrets only at runtime and leave transcript tracing off.
+Standalone dependency installation is `npm ci --prefix services/voice-bridge`.
+
+SIGTERM/SIGINT stop accepting connections, close both WebSockets and wait for bounded
+closed notices; a 12-second deadline forces exit on a stuck shutdown. Set host stop grace
+to at least 15 seconds. Each stream emits one JSON `call_ended` summary with `callSid`
+(last six characters only), `reason`, `durationMs` and `workerSpoke`; unavailable AMD is omitted.
+See [hosting and monitoring](../../docs/integrations/voice-bridge-hosting.md) for the single
+public voice origin, direct Vercel upstream, environment split and heartbeat alert SQL.
 
 ## Protocol and security
 
@@ -136,6 +155,26 @@ before the next silence interval starts. Any worker speech resets the count.
 Without usable reprompt text, the next silence interval falls back without
 inventing a prompt.
 
+A silence watchdog backs this up without relying on Twilio marks (a call to
+voicemail once sat 190 s with no reprompt). Quiet is timed from the caller's last
+VAD event and the estimated end of NAQAH's audio already sent (8 bytes/ms). It
+waits while speech, a tool or a response is pending; each has its own deadline.
+After one window it re-asks the current prompt verbatim (guided) or nudges in the
+model's words (natural). Only a committed caller turn starts it over. After a
+second window a guided call closes with `silence_timeout` (keypad fallback, as
+above); a natural call says a short goodbye verbatim and closes once that audio
+should have played.
+
+When a started stream closes, the bridge POSTs `/api/voice/realtime/closed`,
+signed like the other internal requests, with `{ ticket, callSid, reason, event }`.
+`reason` is one of `normal`, `silence`, `timeout`, `twilio_closed`, `openai_error`,
+`openai_credit` or `bridge_error`. Next persists the closure on the existing
+session JSON; natural silence is terminal and an unsaved report uses the existing
+20-minute retry rules (three attempts total; a manual call stays single-attempt).
+Normal and silent endings wait at most two seconds for acknowledgement before
+releasing Twilio, so `<Connect action>` cannot race ahead and speak another
+goodbye. Other failures close promptly. Notices are never retried.
+
 On `end: "hangup"` or `"fallback"`, a nonempty goodbye is requested verbatim
 with tools disabled. The bridge waits for response completion and an additional
 final Twilio mark, or the goodbye timeout, before closing. A null/empty goodbye
@@ -156,7 +195,12 @@ Production bounds (test code can inject shorter durations):
 - Silence: `repromptMs: 10_000`, `maxReprompts: 2`. After two fully played
   reprompts, one more 10 s interval closes with `silence_timeout`, allowing
   the scripted fallback. Continuous Twilio silence frames do not reset it.
-- Total session: Next's `maxSeconds`, validated as positive and at most 3600 s.
+- Total session: Next's `maxSeconds`, validated as positive and at most 3600 s;
+  production defaults to 300 s and uses `NAQAH_CALL_TIME_LIMIT_SECONDS` to lower it.
+  Natural calls request a summary and explicit save 60 s before that cap, without
+  interrupting speech or a pending confirmation. Confirmation, speech, tools and
+  wrap-up playback can use up to 20 s of closing grace. Twilio's hard limit is
+  the configured bridge cap plus 30 s.
 - Incoming Twilio message: 64 KiB; provider message/internal JSON: 256 KiB;
   one inbound audio chunk: 16 KiB decoded; pre-ready audio: 80 KiB decoded.
 - Socket queued-write high-water bound: 256 KiB; pending playback marks: 1024;
@@ -164,8 +208,8 @@ Production bounds (test code can inject shorter durations):
 - One active stream per `callSid` per bridge process. Run one bridge process
   for this deployment; distributed duplicate suppression is not implemented.
 
-Logs contain only static event names, a call SID's last six characters and
-numeric frame/tool counts. No provider error body, ticket, transcript, audio,
+Logs contain only static event names/labels, a call SID's last six characters,
+durations, speech booleans and numeric frame/tool counts. No provider error body, ticket, transcript, audio,
 phone number, headers, full call SID, URL credentials, or API keys are logged.
 
 ## Test without paid services
@@ -178,5 +222,5 @@ npx eslint services/voice-bridge/*.mjs
 Tests supply only dummy credentials and local mock upstream/provider/Twilio
 connections. Ports 3901–3905 are used, with sequential tests and complete
 teardown; no production port, ngrok, external OpenAI connection or Twilio API is
-used. No Next build is required. The root Vitest configuration only includes
-`src/**/*.test.ts`; run this separate Node suite explicitly.
+used. No Next build is required. The root `npm test` runs Vitest and then this
+`node:test` suite; its existing `pretest` catalog generation still runs first.

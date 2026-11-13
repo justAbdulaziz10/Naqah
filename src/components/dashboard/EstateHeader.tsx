@@ -57,9 +57,9 @@ export function EstateHeader({ name, answer, tone, provenance, call, rhythm, nex
   return (
     <section aria-labelledby="estate-name" className="overflow-hidden rounded-[var(--radius-card)] bg-espresso px-5 py-5 text-cream sm:px-9 sm:py-9">
       {title}
-      {call ? <div className="naqah-enter mt-4 sm:mt-7" style={step(4)}>{call}</div> : null}
-      {rhythm ? <div className="mt-4 border-t border-cream/15 pt-3 sm:mt-8 sm:pt-6">{rhythm}</div> : null}
-      <div className={cn("naqah-enter", rhythm ? "mt-3 sm:mt-5" : "mt-5 border-t border-cream/15 pt-4 sm:mt-7 sm:pt-5")} style={step(5)}>{next}</div>
+      {call ? <div className="naqah-enter mt-3 sm:mt-7" style={step(4)}>{call}</div> : null}
+      {rhythm ? <div className="mt-2.5 border-t border-cream/15 pt-2 sm:mt-8 sm:pt-6">{rhythm}</div> : null}
+      <div className={cn("naqah-enter", rhythm ? "mt-1.5 border-t border-cream/15 pt-2.5 sm:mt-5 sm:border-0 sm:pt-0" : "mt-5 border-t border-cream/15 pt-4 sm:mt-7 sm:pt-5")} style={step(5)}>{next}</div>
     </section>
   );
 }

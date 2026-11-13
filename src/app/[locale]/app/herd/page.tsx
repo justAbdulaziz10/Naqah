@@ -201,15 +201,14 @@ export default function HerdPage() {
     <div className="naqah-page space-y-8 pb-8">
       <PageHeader
         title={h.title}
+        answer={answer}
         action={(
           <Button ref={addButtonRef} className="w-full sm:w-auto" onClick={openNewCamel}>
             <Plus size={18} weight="bold" aria-hidden />
             {h.addCamel}
           </Button>
         )}
-      >
-        {answer ? <p className="mt-2 max-w-2xl text-lg font-medium leading-relaxed text-espresso sm:text-xl">{answer}</p> : null}
-      </PageHeader>
+      />
 
       {camels.length || herdCount ? (
         <Card className="px-5 py-6 sm:px-7">

@@ -3,7 +3,7 @@
  * returns `not_configured`, and any provider failure is `placed: false`. Recording is always off.
  */
 import type { OutboundConfig } from "./config";
-import { callTimeLimitSeconds, outboundConfig, SAUDI_MOBILE } from "./config";
+import { callTimeLimitSeconds, machineDetectionSettings, outboundConfig, SAUDI_MOBILE } from "./config";
 
 export interface OutboundCallRequest {
   /** E.164 number to call. */
@@ -53,7 +53,15 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
       });
       for (const event of request.statusEvents ?? []) body.append("StatusCallbackEvent", event);
       if (request.url) {
-        body.set("Url", request.url);
+        const answerUrl = new URL(request.url);
+        if (/^\/api\/voice\/(outbound|worker|owner)$/.test(answerUrl.pathname)) {
+          answerUrl.pathname += "/status";
+          answerUrl.searchParams.set("amd", "1");
+          body.set("MachineDetection", "Enable");
+          body.set("AsyncAmd", "false");
+          for (const [name, ms] of Object.entries(machineDetectionSettings())) body.set(name, String(ms));
+        }
+        body.set("Url", answerUrl.toString());
         body.set("Method", "POST");
       } else {
         body.set("Twiml", request.twiml!);
@@ -71,13 +79,13 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
           redirect: "error",
         });
         if (!response.ok) {
-          console.info(`[NAQAH] Twilio outbound call refused (${response.status})`);
+          console.info(`[NAQAH] Twilio outbound call returned HTTP ${response.status}`);
           const body = await response.json().catch(() => null) as { code?: unknown } | null;
           const code = typeof body?.code === "number" && Number.isSafeInteger(body.code) ? body.code : undefined;
-          return { placed: false, reason: "rejected", status: response.status, ...(code === undefined ? {} : { code }) };
+          return { placed: false, reason: response.status >= 400 && response.status < 500 ? "rejected" : "network_error", status: response.status, ...(code === undefined ? {} : { code }) };
         }
         const sid = ((await response.json()) as { sid?: unknown }).sid;
-        if (typeof sid !== "string" || !CALL_SID.test(sid)) return { placed: false, reason: "rejected", status: response.status };
+        if (typeof sid !== "string" || !CALL_SID.test(sid)) return { placed: false, reason: "network_error", status: response.status };
         return { placed: true, sid };
       } catch {
         console.info("[NAQAH] Twilio outbound call failed (network error)");

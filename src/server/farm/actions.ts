@@ -13,6 +13,7 @@ import { isUuid } from "@/server/db/ids";
 import { manualCallsEnabled, outboundCallMissing, outboundConfig, demoRepeatReports, demoOwnerCallNow, demoOwnerCallNowEnabled } from "@/server/calls/config";
 import { requestOwnerCallNow, type OwnerCallNowResult } from "@/server/calls/owner-call-now";
 import { withCallNowLimit } from "@/server/calls/call-now-limit";
+import { withWorkerRetryLimit } from "@/server/calls/retry-limit";
 import { requestReportCallNow, type CallNowResult } from "@/server/calls/scheduler";
 import { createTwilioCaller } from "@/server/calls/twilio";
 import { createServiceClient } from "@/server/db/service-client";
@@ -138,11 +139,14 @@ export async function retryUndelivered(id: unknown): Promise<ActionResult<boolea
     const { farmId } = await r.load();
     const service = createServiceClient();
     if (!service) throw new DbError("unavailable");
-    const { result } = await runFarmAction(service, farmId, (ws) => {
-      const next = retryUndeliveredCall(ws, new Date(), id);
-      return { ws: next, result: next !== ws };
+    const now = new Date();
+    return withWorkerRetryLimit(farmId, now, async () => {
+      const { result } = await runFarmAction(service, farmId, (ws) => {
+        const next = retryUndeliveredCall(ws, now, id);
+        return { ws: next, result: next !== ws };
+      });
+      return result;
     });
-    return result;
   });
 }
 

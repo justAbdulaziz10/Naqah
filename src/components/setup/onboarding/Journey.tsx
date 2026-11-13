@@ -132,8 +132,8 @@ export function JourneyBar({ step }: { step: number }) {
             key={key}
             aria-hidden
             className={cn(
-              "relative size-3 rounded-full transition-colors duration-300",
-              index < step ? "naqah-done bg-brown" : index === step ? "naqah-ring border-2 border-brown bg-brown" : "border-2 border-stone bg-ivory",
+              "relative size-3.5 rounded-full transition-colors duration-300",
+              index < step ? "naqah-done bg-brown" : index === step ? "naqah-ring border-2 border-brown bg-brown ring-4 ring-brown/15" : "border-2 border-stone bg-ivory",
             )}
           />
         ))}

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createEmptyWorkspace } from "@/domain/seed";
+import { completeWorkerReport } from "@/domain/actions";
+import { fromRiyadh } from "@/domain/clock";
+import { reportDoneThisPeriod } from "@/domain/rules";
 import { eventAllowed, parseVoiceEvent, tasksToVerify, voiceStep, type VoiceEvent } from "./contract";
 
 const uuid = "11111111-1111-4111-8111-111111111111";
@@ -7,6 +10,39 @@ const base = { version: 1, eventId: "CA1:report", providerCallId: "CA1" };
 const draft = { answers: [], camelUpdates: [], resourceUpdates: [], herdAccountedFor: true, taskConfirmations: [] };
 const now = new Date("2026-11-08T09:00:00.000Z");
 const runId = "22222222-2222-4222-8222-222222222222";
+
+describe.each(["ultimate", "basic"] as const)("%s scheduled report voice periods", (plan) => {
+  const occurrence = fromRiyadh(2026, 11, 7, 23, 50);
+  const savedAt = fromRiyadh(2026, 11, 8, 0, 10);
+  const event: VoiceEvent = { ...base, version: 1, type: "worker_report", reportCallId: runId, draft };
+
+  function lateAnswered() {
+    const ws = answered(plan);
+    ws.reportCalls![0].occurrence = occurrence.toISOString();
+    ws.reportCalls![0].attempts = [
+      { at: occurrence.toISOString(), result: "no_answer" },
+      { at: savedAt.toISOString(), result: "answered" },
+    ];
+    return ws;
+  }
+
+  it("saves the late retry in the slot's period and accepts the next period's scheduled call", () => {
+    const first = voiceStep(lateAnswered(), savedAt, event);
+    expect(first.result).toEqual({ status: "saved" });
+    expect(reportDoneThisPeriod(first.ws, savedAt)).toBe(false);
+    const next = plan === "basic" ? fromRiyadh(2026, 11, 14, 23, 50) : fromRiyadh(2026, 11, 8, 23, 50);
+    first.ws.reportCalls!.push({ ...lateAnswered().reportCalls![0], id: "next", occurrence: next.toISOString(), attempts: [{ at: next.toISOString(), result: "answered" }] });
+    const second = voiceStep(first.ws, next, { ...event, reportCallId: "next" });
+    expect(second.result).toEqual({ status: "saved" });
+    expect(second.ws.reports).toHaveLength(2);
+  });
+
+  it("rejects another report for an already-reported slot even when its save crosses midnight", () => {
+    const ws = completeWorkerReport(lateAnswered(), fromRiyadh(2026, 11, 7, 12, 0), draft).ws;
+    ws.reportCalls = lateAnswered().reportCalls;
+    expect(voiceStep(ws, savedAt, event).result).toEqual({ status: "rejected", reason: plan === "basic" ? "weekly_done" : "daily_done" });
+  });
+});
 
 /** A farm whose worker has just picked up NAQAH's report call. */
 function answered(plan: "basic" | "ultimate" = "ultimate") {

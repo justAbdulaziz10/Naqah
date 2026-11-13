@@ -270,7 +270,6 @@ describe.skipIf(!local)("test calls on disposable PostgreSQL + PostgREST", () =>
     [{ placed: false, reason: "rejected", code: 13227 }, "saudi_calls_disabled"],
     [{ placed: false, reason: "rejected", code: 21211 }, "number_rejected"],
     [{ placed: false, reason: "rejected", code: 20003 }, "provider_rejected"],
-    [{ placed: false, reason: "network_error" }, "network_error"],
     [{ placed: false, reason: "not_configured" }, "not_placed"],
   ] as const)("ends failed placements with %s", async (providerResult, failure) => {
     const farm = seed();
@@ -279,6 +278,15 @@ describe.skipIf(!local)("test calls on disposable PostgreSQL + PostgREST", () =>
     expect(result).toMatchObject({ ok: true, call: { status: "failed", failure, result: "failed", endedAt: now.toISOString() } });
     expect(sql("select count(*) from report_call_runs where state in ('calling','answered') or next_attempt_at is not null")).toBe("0");
     expect(limiter.releases.every((release) => release.mock.calls.length === 1)).toBe(true);
+  });
+
+  it("keeps uncertain placement active and retains its paid quota", async () => {
+    const farm = seed();
+    const { caller } = recordingCaller(() => ({ placed: false, reason: "network_error" }));
+    const result = await startTestCall(client, farm.actorId, { phone, requestId: randomUUID() }, { caller, now });
+    expect(result).toMatchObject({ ok: true, call: { status: "calling", endedAt: null } });
+    expect(sql("select count(*) from report_call_runs where state = 'calling'")).toBe("1");
+    expect(limiter.releases.every((release) => release.mock.calls.length === 0)).toBe(true);
   });
 
   it("closes a newly opened run if audit linking fails and never dials", async () => {

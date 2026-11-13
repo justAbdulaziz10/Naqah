@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { claimDueWorkerCall, markWorkerCallPlacementUnknown, releaseWorkerCallClaim } from '@/domain/actions';
 import { createEmptyWorkspace } from '@/domain/seed';
 import type { PendingWorkerCall } from '@/domain/types';
 import { voiceStep, type VoiceEvent } from '@/server/voice/contract';
@@ -45,6 +46,30 @@ describe('pending call relational task mapping', () => {
     expect(loaded.pendingWorkerCalls[0].retryBase).toBe(3);
     const old = workspaceFromRows({ ...rows, pendingWorkerCalls: [{ ...row, retry_base: 0, created_at: '2026-11-08T00:00:00Z', worker_call_attempts: [], pending_worker_call_tasks: [] } as unknown as FarmRows['pendingWorkerCalls'][number]] });
     expect(old.pendingWorkerCalls[0]).not.toHaveProperty('retryBase');
+  });
+  it('round-trips worker claim metadata, expiry and release without changing legacy rows', () => {
+    const now = new Date('2026-11-08T09:00:00.000Z');
+    const ws = createEmptyWorkspace('ultimate');
+    ws.pendingWorkerCalls.push(call({ nextAttemptAt: now.toISOString(), attempts: [] }));
+    expect(historyRows(ws, farm).pendingWorkerCalls[0]).not.toHaveProperty('dial_claimed_at');
+    const claimed = claimDueWorkerCall(ws, now);
+    const unknown = markWorkerCallPlacementUnknown(claimed.ws, claimed.pendingCallId!, claimed.attempt, now);
+    const row = historyRows(unknown, farm).pendingWorkerCalls[0];
+    expect(row).toMatchObject({ dial_claimed_at: now.toISOString(), next_attempt_at: '2026-11-08T09:15:00.000Z' });
+    const loaded = workspaceFromRows({ ...rows, pendingWorkerCalls: [{ ...row, dial_claimed_at: '2026-11-08T09:00:00+00:00', worker_call_attempts: [] } as FarmRows['pendingWorkerCalls'][number]] });
+    expect(loaded.pendingWorkerCalls[0].dialClaimedAt).toBe('2026-11-08T09:00:00+00:00');
+    expect(markWorkerCallPlacementUnknown(loaded, row.id, 1, now).pendingWorkerCalls[0].nextAttemptAt).toBe('2026-11-08T09:15:00.000Z');
+    const expired = claimDueWorkerCall(loaded, new Date('2026-11-08T09:15:00.000Z')).ws;
+    const changes = diffWorkspace(loaded, expired, farm);
+    expect(changes.pending_worker_calls).toEqual([expect.objectContaining({ dial_claimed_at: null, next_attempt_at: '2026-11-08T09:35:00.000Z' })]);
+    expect(changes.worker_call_attempts).toEqual([expect.objectContaining({ answered: false })]);
+    const released = releaseWorkerCallClaim(loaded, row.id, now);
+    expect(historyRows(released, farm).pendingWorkerCalls[0].dial_claimed_at).toBeNull();
+    const { dial_claimed_at: omitted, ...legacyRow } = row;
+    expect(omitted).toBe(now.toISOString());
+    const legacy = workspaceFromRows({ ...rows, pendingWorkerCalls: [{ ...legacyRow, worker_call_attempts: [] } as FarmRows['pendingWorkerCalls'][number]] });
+    expect(legacy.pendingWorkerCalls[0]).not.toHaveProperty('dialClaimedAt');
+    expect(claimDueWorkerCall(legacy, new Date('2026-11-08T09:15:00.000Z')).ws.pendingWorkerCalls[0].attempts).toEqual([]);
   });
   it('sees a retry as a change to the same row', () => {
     const before = createEmptyWorkspace('ultimate');

@@ -1,5 +1,9 @@
 # Supabase database handoff
 
+> **Historical (2026-11-07).** The hosted project has since been migrated through `20261110090000`; the current
+> status and full migration list are in `supabase-backend.md` and `AGENT.md` §8.1. Keep this file for the first-time
+> bootstrap steps and the review notes below.
+
 Status (2026-11-07): Auth, account-data integration and farm-mode call storage already exist in code.
 The latest team report says the existing project has Auth test users but no NAQAH application migrations
 (issue #6). This is not a new live inspection. No live migration, account/settings change or deployment is
@@ -9,7 +13,7 @@ The browser demo remains separate. The exact build-time `NEXT_PUBLIC_NAQAH_ACCOU
 account UI and server access together; disabled `/api/account` returns 404 without database operations.
 Farm-mode voice has its own flag and team ownership. Applying SQL alone activates neither path.
 
-## Complete migration sequence
+## Initial migration sequence (later migrations: see `supabase-backend.md`)
 
 1. `0001_init.sql`: initial tables, grants, RLS, parent constraints and plan limits.
 2. `0002_backend_foundation.sql`: revisions, atomic service writes, event idempotency and same-farm links.

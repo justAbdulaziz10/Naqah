@@ -6,6 +6,7 @@ import { MONTHLY_PLAN_PRICES_SAR, VAT_PERCENT } from "@/domain/pricing";
 import type { Plan, Weekday } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
+import { isCallDay } from "@/components/visuals/weekdays";
 import { useIsAccount } from "@/store/workspace";
 import type { SetupFieldsProps } from "../types";
 
@@ -17,17 +18,16 @@ type InitialPlanChoiceProps = {
   onSelect: (plan: Plan) => void;
   disabled?: boolean;
 };
-type WorkspacePlanChoiceProps = SetupFieldsProps & { mode?: "workspace" };
+type WorkspacePlanChoiceProps = SetupFieldsProps & { mode?: "workspace"; /** Off where the week is already drawn (Settings shows RanchWeek above). */ showRhythm?: boolean };
 
 /** A plan's week in seven dots: Basic marks its one day (once chosen), Ultimate marks them all. */
 export function PlanRhythm({ plan, day, tone = "light", className }: { plan: Plan; day: Weekday | null; tone?: "light" | "dark"; className?: string }) {
-  const daily = plan === "ultimate";
   const on = tone === "dark" ? "bg-gold" : "bg-brown";
   const off = tone === "dark" ? "bg-cream/25" : "bg-stone";
   return (
     <span aria-hidden className={cn("flex items-center gap-1.5", className)}>
       {Array.from({ length: 7 }, (_, index) => {
-        const call = daily || index === (day ?? -1);
+        const call = isCallDay(plan, day, index);
         return <span key={index} className={cn("rounded-full transition-all duration-300", call ? `size-3 ${on}` : `size-1.5 ${off}`)} />;
       })}
     </span>
@@ -68,6 +68,7 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
   const ws = "ws" in props ? props.ws : null;
   const current = initial ? props.selected : ws!.settings.plan;
   const day = ws?.settings.callSchedule?.day ?? null;
+  const showRhythm = initial || props.showRhythm !== false;
   const tooManyForBasic = ws ? ws.settings.customQuestions.length > PLAN_LIMITS.basic.customQuestions : false;
 
   function choose(plan: Plan) {
@@ -101,8 +102,8 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
         {/* The price answers the first question; the week and two facts follow. */}
         <PlanCardPrice plan={plan} />
         <span className="mt-5 block border-t border-stone pt-4">
-          <PlanRhythm plan={plan} day={day} className="h-3" />
-          <span className="mt-3 block text-[1.0625rem] font-semibold leading-snug">{plan === "basic" ? c.basicRhythm : c.ultimateRhythm}</span>
+          {showRhythm ? <PlanRhythm plan={plan} day={day} className="mb-3 h-3" /> : null}
+          <span className="block text-[1.0625rem] font-semibold leading-snug">{plan === "basic" ? c.basicRhythm : c.ultimateRhythm}</span>
           <span className="mt-1 block text-[0.9375rem] leading-relaxed text-muted">
             {plan === "basic"
               ? c.basicFacts(PLAN_LIMITS.basic.customQuestions, PLAN_LIMITS.basic.workers)

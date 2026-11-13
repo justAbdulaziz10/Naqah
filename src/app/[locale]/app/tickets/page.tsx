@@ -7,6 +7,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { EmptyState } from "@/components/dashboard/DashboardPrimitives";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { useHashTarget } from "@/components/dashboard/useHashTarget";
+import { callKindLabel } from "@/components/dashboard/callLabels";
 import { TaskCalendarLink } from "@/components/integrations/TaskCalendarLink";
 import { upcomingReportCall } from "@/components/schedule/ReportCallSection";
 import { AttemptDots } from "@/components/visuals/AttemptDots";
@@ -14,7 +15,7 @@ import { formatDuration } from "@/components/visuals/duration";
 import { TimeRail } from "@/components/visuals/TimeRail";
 import { Badge, ButtonLink, Card, Segmented } from "@/components/ui";
 import { openTaskTickets } from "@/domain";
-import type { CallKind, TaskTicket, Workspace } from "@/domain";
+import type { TaskTicket, Workspace } from "@/domain";
 import { undeliveredCalls, type UndeliveredCall } from "@/domain/alerts";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
@@ -29,26 +30,12 @@ const dateTime = { weekday: "short", day: "numeric", month: "short", hour: "nume
 const dayTime = { weekday: "short", day: undefined, month: undefined } as const;
 const dayMonth = { weekday: undefined, hour: undefined, minute: undefined } as const;
 
-function callKindLabel(kind: CallKind, m: ReturnType<typeof useI18n>["m"]) {
-  const labels: Record<CallKind, string> = {
-    worker_report: m.app.calls.workerReport,
-    worker_report_rejected: m.app.calls.rejectedReport,
-    worker_report_missed: m.app.calls.missedReport,
-    worker_callback: m.app.calls.workerCallback,
-    worker_instruction: m.app.calls.instructionDelivery,
-    worker_task_verification: m.app.calls.taskVerification,
-    owner_notification: m.app.calls.ownerBriefing,
-    owner_inquiry: m.app.calls.ownerInquiry,
-    owner_inquiry_rejected: m.app.calls.inquiryDeclined,
-  };
-  return labels[kind];
-}
-
-function TicketGroup({ id, title, footer, children }: { id: string; title: string; footer?: ReactNode; children: ReactNode }) {
+function TicketGroup({ id, title, quiet = false, footer, children }: { id: string; title: string; quiet?: boolean; footer?: ReactNode; children: ReactNode }) {
   return (
     <section aria-labelledby={id} className="px-5 py-5 sm:px-8 sm:py-6">
-      <h2 id={id} className="text-xl font-semibold leading-tight tracking-[-0.01em] text-espresso">{title}</h2>
-      <ul className="naqah-stagger mt-3 divide-y divide-stone/70">{children}</ul>
+      {/* The page header has already said "1 open task"; the open list keeps its name for screen readers only. */}
+      <h2 id={id} className={cn("text-xl font-semibold leading-tight tracking-[-0.01em] text-espresso", quiet && "sr-only")}>{title}</h2>
+      <ul className={cn("naqah-stagger divide-y divide-stone/70", !quiet && "mt-3")}>{children}</ul>
       {footer}
     </section>
   );
@@ -213,7 +200,7 @@ export default function TicketsPage() {
     <div className="naqah-page space-y-6 pb-8">
       <PageHeader
         title={m.app.tickets.title}
-        lead={hasAnything ? summary : null}
+        answer={hasAnything ? summary : null}
         action={hasAnything ? <Segmented
           value={tab}
           onChange={setTab}
@@ -233,6 +220,7 @@ export default function TicketsPage() {
             <TicketGroup
               id="tickets-tasks"
               title={active ? m.app.tickets.taskTickets : m.app.tickets.closedTaskTickets}
+              quiet={active && !relays.length}
               footer={active ? (
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-stone/70 pt-3 text-sm text-muted">
                   <span>{m.app.tickets.closeRule}</span>

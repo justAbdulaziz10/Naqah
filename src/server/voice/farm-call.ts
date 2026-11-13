@@ -41,6 +41,9 @@ import { ownerPromptFor } from "./realtime/owner-tools";
 import { promptFor } from "./realtime/tools";
 import { signRealtimeTicket } from "./realtime/ticket";
 import { spokenWording, twimlGather, twimlGoodbye, twimlSayThenRedirect, twimlStream } from "./twiml";
+import { resolveReportCallAttempt } from "@/domain/reportCalls";
+import type { RealtimeTicket } from "./realtime/ticket";
+import type { BridgeClosedSession } from "./realtime/closed";
 
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
@@ -476,6 +479,34 @@ export async function answerReportCall(client: SupabaseClient, input: { token: R
 
 const FINAL_STATUSES = new Set(["completed", "busy", "failed", "no-answer", "canceled"]);
 
+export const machineAnswered = (answeredBy: string | null) => /^(machine_start|machine_end_\w+|fax)$/.test(answeredBy ?? "");
+
+export async function gateOutboundAnswer(client: SupabaseClient, input: { token: CallToken; callSid: string; answeredBy: string | null; now: Date }): Promise<string> {
+  const { token } = input;
+  // Tuning evidence for answering-machine detection; no phone numbers or farm ids.
+  console.info(`[NAQAH] call answered (${token.k}): ${input.answeredBy ?? "not_detected"}`);
+  if (machineAnswered(input.answeredBy)) {
+    const status = { ...input, status: "no-answer" };
+    if (token.k === "report") await reportCallStatus(client, { ...status, token });
+    else if (token.k === "worker") await workerCallStatus(client, { ...status, token });
+    else await ownerCallStatus(client, { ...status, token });
+    return "<Response><Hangup/></Response>";
+  }
+  const path = token.k === "report" ? "outbound" : token.k;
+  return `<Response><Redirect method="POST">/api/voice/${path}?s=${encodeURIComponent(signCallToken(token))}</Redirect></Response>`;
+}
+
+export async function resolveSilentReportCall(client: SupabaseClient, ticket: RealtimeTicket, now: Date): Promise<void> {
+  const bound = await findReportCallRun(client, ticket.sid);
+  if (!bound || bound.farmId !== ticket.f || bound.runId !== ticket.r) return;
+  await runFarmAction(client, ticket.f, (workspace) => {
+    const run = workspace.reportCalls?.find((entry) => entry.id === ticket.r);
+    const attempt = run?.attempts.at(-1);
+    if (!attempt || Date.parse(attempt.at) > ticket.t) return { ws: workspace, result: null };
+    return { ws: resolveReportCallAttempt(workspace, now, ticket.r, false).ws, result: null };
+  });
+}
+
 /**
  * Twilio's final status for a report call. Not answered → retry in 20 minutes or missed.
  * Answered but ended before a save → the run ends unsaved. A saved report is left alone.
@@ -487,11 +518,13 @@ export async function reportCallStatus(
   const { token, callSid, status, now } = input;
   if (!FINAL_STATUSES.has(status)) return;
   if (await boundElsewhere(client, token, callSid)) return;
+  const row = await readVoiceSession(client, callSid);
+  const silent = row?.farm_id === token.f && (row.session as BridgeClosedSession).bridgeCloseReason === "silence" && Boolean(realtimeOf(row.session)?.naturalBase);
   const base = { version: 1, eventId: `${callSid}:final:${status}`, providerCallId: callSid, reportCallId: token.r, attempt: token.n };
-  const event = status === "completed" ? { ...base, type: "report_call_ended" } : { ...base, type: "report_call_attempt", answered: false };
+  const event = status === "completed" && !silent ? { ...base, type: "report_call_ended" } : { ...base, type: "report_call_attempt", answered: false };
   await save(client, token.f, { party: "system" }, event, now);
   try {
-    await recordCallFailure(client, token.f, token.r, status === "completed" ? "not_saved" : status === "busy" ? "busy" : status === "no-answer" ? "no_answer" : "provider_rejected", now);
+    await recordCallFailure(client, token.f, token.r, silent ? "no_answer" : status === "completed" ? "not_saved" : status === "busy" ? "busy" : status === "no-answer" ? "no_answer" : "provider_rejected", now);
   } catch { console.error("[NAQAH] call diagnostic storage failed"); }
   await deleteVoiceSession(client, callSid);
   forgetCallWorkspace(callSid);

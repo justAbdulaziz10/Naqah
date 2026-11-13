@@ -19,7 +19,9 @@ import { decideOwnerTool, ownerPromptResult } from "./owner-decide";
 import { buildOwnerInstructions } from "./owner-instructions";
 import { OWNER_TOOLS, ownerPromptFor } from "./owner-tools";
 import { claimRealtime, realtimeOf, recordRealtimeResult, rememberResult, withRealtime, type RealtimeState, type ToolResponse } from "./state";
-import { REALTIME_MAX_SECONDS, TICKET_CALL_MS, TICKET_CLAIM_MS, verifyRealtimeTicket, type RealtimeTicket } from "./ticket";
+import { TICKET_CALL_MS, TICKET_CLAIM_MS, verifyRealtimeTicket, type RealtimeTicket } from "./ticket";
+import { bridgeTimeLimitSeconds } from "@/server/calls/config";
+import type { BridgeClosedSession } from "./closed";
 import { promptFor, REALTIME_TOOLS } from "./tools";
 import { buildNaturalInstructions, checkLine, doubtfulAnswers, naturalize, naturalTools, replayAnswers } from "./natural";
 import { spokenFrom } from "./decide";
@@ -99,7 +101,7 @@ export async function openRealtimeSession(client: SupabaseClient, body: Record<s
       opening: realtime.opening,
       repromptText: realtime.opening,
       locale: row.locale,
-      maxSeconds: REALTIME_MAX_SECONDS,
+      maxSeconds: bridgeTimeLimitSeconds(),
     };
   }
   return {
@@ -108,7 +110,7 @@ export async function openRealtimeSession(client: SupabaseClient, body: Record<s
     opening: realtime.opening,
     repromptText: spoken.join(" ") || realtime.opening,
     locale: row.locale,
-    maxSeconds: REALTIME_MAX_SECONDS,
+    maxSeconds: bridgeTimeLimitSeconds(),
   };
 }
 
@@ -332,6 +334,14 @@ export async function afterRealtimeCall(client: SupabaseClient, input: { token: 
     const row = await readVoiceSession(client, callSid);
     if (!row || row.farm_id !== token.f) return twimlGoodbye(token.l);
     const realtime = realtimeOf(row.session);
+    const reason = (row.session as BridgeClosedSession).bridgeCloseReason;
+    if (realtime?.naturalBase && (reason === "normal" || reason === "silence")) {
+      const goodbye = "<Response><Hangup/></Response>";
+      if (row.session.done) return goodbye;
+      const ended = await advanceRow(client, row, withRealtime({ ...row.session, done: true }, { ...realtime, closed: true, fallbackPrepared: true }), row.misses, goodbye);
+      if (ended) return goodbye;
+      continue;
+    }
     // The bridge has already spoken this call's goodbye, so it isn't said twice.
     if (row.session.done && realtime) {
       const last = realtime.recent.at(-1)?.result;

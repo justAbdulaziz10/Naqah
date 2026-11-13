@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mock = vi.hoisted(() => ({ getOwner: vi.fn(), client: vi.fn(), repository: vi.fn(), apply: vi.fn() }));
+const mock = vi.hoisted(() => ({ getOwner: vi.fn(), client: vi.fn(), repository: vi.fn(), apply: vi.fn(), service: vi.fn(), run: vi.fn(), reserve: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({ getOwner: mock.getOwner, createWritableClient: mock.client }));
 vi.mock("@/server/db/owner-repository", () => ({ createOwnerRepository: mock.repository }));
 vi.mock("./changes", () => ({ applyOwnerChanges: mock.apply }));
+vi.mock("@/server/db/service-client", () => ({ createServiceClient: mock.service }));
+vi.mock("@/server/db/service-repository", () => ({ runFarmAction: mock.run }));
+vi.mock("@/server/rate-limit", () => ({ reserveRateLimit: mock.reserve }));
 import { DbError } from "@/server/db/errors";
 import { addCamel } from "./actions";
 import * as actions from "./actions";
@@ -112,5 +115,28 @@ describe("owner actions", () => {
     expect(await addCamel({})).toEqual({ ok: false, error: "limit_reached" });
     addCamelRepo.mockRejectedValue(new Error("connection string"));
     expect(await addCamel({})).toEqual({ ok: false, error: "unavailable" });
+  });
+
+  it("denies retryUndelivered before queue writes when the farm quota is unavailable or exhausted", async () => {
+    const farmId = "11111111-1111-4111-8111-111111111111";
+    mock.repository.mockReturnValue({ load: async () => ({ farmId }) });
+    mock.service.mockReturnValue({ service: true });
+    mock.reserve.mockResolvedValue(null);
+    expect(await actions.retryUndelivered("22222222-2222-4222-8222-222222222222")).toEqual({ ok: false, error: "limit_reached" });
+    expect(mock.reserve).toHaveBeenCalledWith(`worker-retry:farm:${farmId}:hour`, 3, 3600, expect.any(Number));
+    expect(mock.run).not.toHaveBeenCalled();
+  });
+
+  it("reserves the session-derived farm quota before retryUndelivered writes", async () => {
+    const farmId = "11111111-1111-4111-8111-111111111111";
+    mock.repository.mockReturnValue({ load: async () => ({ farmId }) });
+    mock.service.mockReturnValue({ service: true });
+    const release = vi.fn();
+    mock.reserve.mockResolvedValue({ release });
+    mock.run.mockResolvedValue({ result: true });
+    expect(await actions.retryUndelivered("22222222-2222-4222-8222-222222222222")).toEqual({ ok: true, data: true });
+    expect(mock.run).toHaveBeenCalledWith({ service: true }, farmId, expect.any(Function));
+    expect(mock.reserve).toHaveBeenCalledTimes(2);
+    expect(release).not.toHaveBeenCalled();
   });
 });

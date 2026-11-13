@@ -25,7 +25,9 @@ const moveButton = cn(iconButton, "enabled:hover:bg-espresso/5 enabled:hover:tex
  * switched on or off and moved up or down. The owner adds, edits and removes their own within the
  * plan's limit. Shared by setup and Settings.
  */
-export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsProps & { headingLevel?: 2 | 3 }) {
+const COLLAPSED_ROWS = 4;
+
+export function QuestionsFields({ ws, onChange, headingLevel = 3, collapsible = false }: SetupFieldsProps & { headingLevel?: 2 | 3; /** Settings shows the first few questions and offers the rest; onboarding always shows every one. */ collapsible?: boolean }) {
   const { m, t } = useI18n();
   const q = m.setup.questions;
   const Heading = headingLevel === 2 ? "h2" : "h3";
@@ -39,6 +41,7 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
     planIndex: number;
   } | null>(null);
   const [moved, setMoved] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const listRef = useRef<HTMLOListElement>(null);
   const addRef = useRef<HTMLInputElement>(null);
   const plan = callQuestionPlan(ws);
@@ -49,6 +52,8 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
   const worker = ws.settings.worker.name.trim() || m.setup.call.workerFallback;
   const v = m.visual.script;
   const rows = questionPlanRows(ws).filter((row) => row.applicable);
+  const collapsed = collapsible && !expanded && rows.length > COLLAPSED_ROWS + 1;
+  const shownRows = collapsed ? rows.slice(0, COLLAPSED_ROWS) : rows;
   const hasContent = reportPlanHasContent(ws, now);
   // Open talk has no order or "must answer": the list is what NAQAH listens for.
   const open = reportModeOf(ws) === "open";
@@ -65,6 +70,7 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
   const rowElement = (id: string) => listRef.current?.querySelector<HTMLElement>(`[data-question="${CSS.escape(id)}"]`);
 
   function move(id: string, step: -1 | 1) {
+    setExpanded(true);
     setPlan((list) => moveQuestionInPlan(list, id, step));
     setMoved(rows.findIndex((row) => row.question.id === id) + step + 1);
     setRemoved(null);
@@ -143,7 +149,7 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
         </div>
 
         <ol ref={listRef} className="mt-4">
-          {rows.map((row, index) => (
+          {shownRows.map((row, index) => (
             <QuestionRow
               key={row.question.id}
               row={row}
@@ -158,6 +164,19 @@ export function QuestionsFields({ ws, onChange, headingLevel = 3 }: SetupFieldsP
             />
           ))}
         </ol>
+        {collapsible && rows.length > COLLAPSED_ROWS + 1 ? (
+          <div className="relative mt-1 ps-8">
+            <Marker kind="naqah" muted />
+            <button
+              type="button"
+              aria-expanded={!collapsed}
+              onClick={() => setExpanded((value) => !value)}
+              className="inline-flex min-h-11 items-center gap-1.5 text-[0.9375rem] font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown"
+            >
+              {collapsed ? q.showAll(rows.length - COLLAPSED_ROWS) : q.showFewer}
+            </button>
+          </div>
+        ) : null}
         {hasContent ? null : (
           // The wizard's Next button and the Settings guard both focus the first aria-invalid element.
           <p role="alert" className="mt-3 ps-8 text-[0.9375rem] font-semibold text-danger">

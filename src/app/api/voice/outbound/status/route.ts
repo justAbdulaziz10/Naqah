@@ -1,7 +1,8 @@
 import { verifyCallToken } from "@/server/calls/token";
 import { voiceMode } from "@/server/env";
 import { logCallProgress } from "@/server/voice/diagnostics";
-import { reportCallStatus } from "@/server/voice/farm-call";
+import { gateOutboundAnswer, reportCallStatus } from "@/server/voice/farm-call";
+import { twimlResponse } from "@/server/voice/twiml";
 import { farmWebhook } from "@/server/voice/farm-webhook";
 import { testCallsEnabled } from "@/server/calls/test-call-config";
 import { recordTestCallProgress } from "@/server/calls/test-call-store";
@@ -19,6 +20,7 @@ export async function POST(request: Request): Promise<Response> {
   const status = hook.form.get("CallStatus") ?? "";
   logCallProgress({ callSid: hook.callSid, status, sequence: hook.form.get("SequenceNumber"), timestamp: hook.form.get("Timestamp"), sip: hook.form.get("SipResponseCode") }, now);
   try {
+    if (new URL(request.url).searchParams.get("amd") === "1") return twimlResponse(await gateOutboundAnswer(hook.client, { token, callSid: hook.callSid, answeredBy: hook.form.get("AnsweredBy"), now }));
     await reportCallStatus(hook.client, { token, callSid: hook.callSid, status, now });
     return empty(204);
   } catch (error) {

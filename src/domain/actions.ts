@@ -4,8 +4,8 @@
  * through these functions so the rules live in exactly one place.
  */
 import { undeliveredCalls } from "./alerts";
-import { MAX_RETRIES, RETRY_DELAY_MS } from "./clock";
-import { coveredTasks, dueTaskVerifications, dueWorkerCalls, openCoveredTasks } from "./rules";
+import { MAX_RETRIES, MINUTE, RETRY_DELAY_MS } from "./clock";
+import { coveredTasks, dueTaskVerifications, dueWorkerCalls, openCoveredTasks, returnableReportRun } from "./rules";
 import { coveredReportDraft, evaluateFindings, reportDraftIssue, type ReportDraft } from "./findings";
 import { uid } from "./id";
 import type {
@@ -139,9 +139,11 @@ export function completeWorkerReport(
   if (draft.coverage !== undefined) report.coverage = structuredClone(draft.coverage);
   if (draft.herdCount !== undefined && draft.herdCount !== null) report.herdCountReported = draft.herdCount;
   call.reportId = report.id;
-  // The report is in, whichever way it arrived: no open report call should ring again.
+  // The report is in, whichever way it arrived: no open report call should ring again, and a missed
+  // run the worker is returning is answered by this report.
+  const returned = run ? undefined : returnableReportRun(ws, new Date(at));
   for (const r of ws.reportCalls ?? []) {
-    if (r !== run && r.state !== "calling" && r.state !== "answered") continue;
+    if (r !== run && r !== returned && r.state !== "calling" && r.state !== "answered") continue;
     Object.assign(r, { state: "completed", nextAttemptAt: null, reportId: report.id });
   }
   ws.reports.push(report);
@@ -201,7 +203,7 @@ export function rejectWorkerReport(input: Workspace, now: Date, reason: RejectRe
 // ───────────────────────── Owner calls (Phases 4–5) ─────────────────────────
 
 /** `reportId` null: the call told the owner that no verified report has arrived. */
-export function recordOwnerNotification(input: Workspace, now: Date, reportId: string | null, answered: boolean): Workspace {
+export function recordOwnerNotification(input: Workspace, now: Date, reportId: string | null, answered: boolean, occurrence: Date = now): Workspace {
   const ws = clone(input);
   pushCall(ws, {
     kind: "owner_notification",
@@ -226,7 +228,7 @@ export function recordOwnerNotification(input: Workspace, now: Date, reportId: s
       ? { ar: "اتصلت ناقة بالمالك وأبلغته بالتحديث", en: "NAQAH called the owner with the update" }
       : { ar: "اتصلت ناقة بالمالك وأبلغته أنه ما وصل تقرير مؤكد", en: "NAQAH called the owner to say no verified report has arrived" });
   } else {
-    ws.missedNotificationAt = iso(now);
+    ws.missedNotificationAt = iso(occurrence);
     pushEvent(ws, now, "neutral", {
       ar: "لم يرد المالك — يظهر له اتصال فائت ويمكنه مراجعة الموقع",
       en: "Owner didn't answer — a missed call shows, and the website has the details",
@@ -476,21 +478,35 @@ export function startTaskVerification(input: Workspace, now: Date, taskId: strin
 }
 
 const WORKER_DIAL_LOCK_MS = 2 * 60 * 60 * 1000;
+const WORKER_PLACEMENT_UNKNOWN_MS = 15 * MINUTE;
 
 /**
  * Start due verifications, then reserve the next due worker call so a second scheduler pass cannot dial it.
- * The reservation is not an attempt. Twilio's status callback records the attempt.
+ * The reservation is not an attempt. Twilio's status callback or an expired claim records it.
  */
 export function claimDueWorkerCall(input: Workspace, now: Date): { ws: Workspace; pendingCallId: string | null; attempt: number } {
   let ws = clone(input);
+  for (const call of input.pendingWorkerCalls) {
+    if (call.state !== "pending" || !call.dialClaimedAt || !call.nextAttemptAt || Date.parse(call.nextAttemptAt) > now.getTime()) continue;
+    ws = resolveWorkerCallAttempt(ws, now, call.id, "unanswered").ws;
+  }
   for (const task of dueTaskVerifications(ws, now)) ws = startTaskVerification(ws, now, task.id).ws;
   // The worker's phone is one line: a second call now would ring busy and waste one of its three attempts.
   const onTheLine = (ws.reportCalls ?? []).some((run) => run.state === "answered" || (run.state === "calling" && run.attempts.at(-1)?.result === "pending"));
   if (onTheLine) return { ws, pendingCallId: null, attempt: 0 };
   const call = dueWorkerCalls(ws, now)[0];
   if (!call) return { ws, pendingCallId: null, attempt: 0 };
+  call.dialClaimedAt = iso(now);
   call.nextAttemptAt = new Date(now.getTime() + WORKER_DIAL_LOCK_MS).toISOString();
   return { ws, pendingCallId: call.id, attempt: call.attempts.length + 1 };
+}
+
+export function markWorkerCallPlacementUnknown(input: Workspace, pendingCallId: string, attempt: number, now: Date): Workspace {
+  const current = input.pendingWorkerCalls.find((call) => call.id === pendingCallId);
+  if (current?.state !== "pending" || Date.parse(current.dialClaimedAt ?? "") !== now.getTime() || current.attempts.length + 1 !== attempt) return input;
+  const ws = clone(input);
+  ws.pendingWorkerCalls.find((call) => call.id === pendingCallId)!.nextAttemptAt = new Date(now.getTime() + WORKER_PLACEMENT_UNKNOWN_MS).toISOString();
+  return ws;
 }
 
 /** Release a reservation when the provider never placed the call. */
@@ -498,11 +514,12 @@ export function releaseWorkerCallClaim(input: Workspace, pendingCallId: string, 
   const ws = clone(input);
   const call = ws.pendingWorkerCalls.find((item) => item.id === pendingCallId && item.state === "pending");
   if (!call) return ws;
+  if (call.dialClaimedAt) call.dialClaimedAt = null;
   // The attempt never happened, so it isn't counted, but the provider isn't asked again on the very next tick.
   call.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
   pushEvent(ws, now, "attention", {
-    ar: `تعذر على ناقة الاتصال بـ${ws.settings.worker.name} — تحاول مرة ثانية بعد ٢٠ دقيقة`,
-    en: `NAQAH couldn't place the call to ${ws.settings.worker.name} — it will try again in 20 minutes`,
+    ar: `تعذر على ناقة الاتصال بـ${ws.settings.worker.name} — تحاول مرة ثانية بعد ${RETRY_DELAY_MS / MINUTE} دقيقة`,
+    en: `NAQAH couldn't place the call to ${ws.settings.worker.name} — it will try again in ${RETRY_DELAY_MS / MINUTE} minutes`,
   });
   return ws;
 }
@@ -551,6 +568,7 @@ export function resolveWorkerCallAttempt(
   const ws = clone(input);
   const call = ws.pendingWorkerCalls.find((c) => c.id === pendingCallId);
   if (!call || call.state !== "pending") return { ws, outcome: "delivered" };
+  if (call.dialClaimedAt) call.dialClaimedAt = null;
   const at = iso(now);
   const answered = result !== "unanswered";
   call.attempts.push({ at, answered });
@@ -604,12 +622,12 @@ export function resolveWorkerCallAttempt(
     call.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
     pushEvent(ws, now, "neutral", result === "interrupted"
       ? {
-          ar: `انقطع الاتصال — إعادة المحاولة بعد ٢٠ دقيقة (${inRound}/${MAX_RETRIES + 1})`,
-          en: `The call ended early — retrying in 20 minutes (${inRound}/${MAX_RETRIES + 1})`,
+          ar: `انقطع الاتصال — إعادة المحاولة بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${inRound}/${MAX_RETRIES + 1})`,
+          en: `The call ended early — retrying in ${RETRY_DELAY_MS / MINUTE} minutes (${inRound}/${MAX_RETRIES + 1})`,
         }
       : {
-          ar: `لم يرد العامل — إعادة المحاولة بعد ٢٠ دقيقة (${inRound}/${MAX_RETRIES + 1})`,
-          en: `Worker didn't answer — retrying in 20 minutes (${inRound}/${MAX_RETRIES + 1})`,
+          ar: `لم يرد العامل — إعادة المحاولة بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${inRound}/${MAX_RETRIES + 1})`,
+          en: `Worker didn't answer — retrying in ${RETRY_DELAY_MS / MINUTE} minutes (${inRound}/${MAX_RETRIES + 1})`,
         });
     return { ws, outcome: "retry_scheduled" };
   }

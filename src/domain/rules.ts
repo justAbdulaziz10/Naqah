@@ -3,9 +3,10 @@
  * Pure functions, no side effects. Covered by `src/domain/rules.test.ts`.
  */
 import { PLAN_LIMITS, PREDEFINED_QUESTIONS } from "./catalog";
-import { sameDay, sameWeek } from "./clock";
+import { DAY, sameDay, sameWeek } from "./clock";
 import { isHerdCount } from "./herd";
-import type { CustomQuestion, PendingWorkerCall, PredefinedQuestion, QuestionPlanEntry, ReportMode, Workspace } from "./types";
+import { nextScheduledCall } from "./schedule";
+import type { CustomQuestion, PendingWorkerCall, PredefinedQuestion, QuestionPlanEntry, ReportCallRun, ReportMode, Workspace } from "./types";
 
 /** Phase 1: predefined questions that apply to this ranch; absent resources are skipped. */
 export function applicableQuestions(ws: Workspace): PredefinedQuestion[] {
@@ -115,15 +116,11 @@ export function routeWorkerInboundCall(ws: Workspace, now: Date): WorkerInboundR
   const open = ws.noAnswerTickets.filter((t) => t.status === "open");
   if (open.length) return { kind: "callback", ticketIds: open.map((t) => t.id) };
 
-  const last = lastReportAt(ws);
   const basic = ws.settings.plan === "basic";
-  if (last && (basic ? sameWeek(last, now) : sameDay(last, now))) {
+  if (reportDoneThisPeriod(ws, now)) {
     return { kind: "rejected", reason: basic ? "weekly_done" : "daily_done" };
   }
-  const samePeriod = (at: string) => (basic ? sameWeek(at, now) : sameDay(at, now));
-  const returning = (ws.reportCalls ?? []).some(
-    (run) => (run.state === "missed" || run.state === "calling") && run.attempts.length > 0 && samePeriod(run.attempts[0].at),
-  );
+  const returning = returnableReportRun(ws, now);
   return returning ? { kind: "report" } : { kind: "rejected", reason: "wait_for_call" };
 }
 
@@ -160,11 +157,42 @@ export function ownerMissedCallbackUsed(ws: Workspace, now: Date): boolean {
   );
 }
 
-/** Has the worker already reported in the current period (week for Basic, day for Ultimate)? */
+/**
+ * A report call run the worker may still return: missed or still calling, its slot has come, and the
+ * next scheduled slot has not started yet (or, without a schedule, the same day / Basic week).
+ */
+export function returnableReportRun(ws: Workspace, now: Date): ReportCallRun | undefined {
+  return [...(ws.reportCalls ?? [])].reverse().find(
+    (run) =>
+      (run.state === "missed" || run.state === "calling") &&
+      run.attempts.length > 0 &&
+      Date.parse(run.occurrence) <= now.getTime() &&
+      withinRunWindow(ws, run, now),
+  );
+}
+
+/** Whether `at` falls between a run's slot and the next scheduled slot. */
+function withinRunWindow(ws: Workspace, run: ReportCallRun, at: Date): boolean {
+  const next = nextScheduledCall(new Date(run.occurrence), ws.settings.plan, ws.settings.callSchedule);
+  // Without a complete schedule, the window is one period (a day, or a Basic week) from the slot.
+  const end = next ? next.getTime() : Date.parse(run.occurrence) + (ws.settings.plan === "basic" ? 7 : 1) * DAY;
+  return at.getTime() < end;
+}
+
+/**
+ * Has the worker already reported in the current period (week for Basic, day for Ultimate)?
+ * A report that answers a scheduled run, on NAQAH's call or the worker's returned call, belongs to the
+ * run's slot. Any other report, or one saved after the run's window, belongs to its save time.
+ */
 export function reportDoneThisPeriod(ws: Workspace, now: Date): boolean {
-  const last = lastReportAt(ws);
-  if (!last) return false;
-  return ws.settings.plan === "basic" ? sameWeek(last, now) : sameDay(last, now);
+  const runs = new Map<string, ReportCallRun>();
+  for (const run of ws.reportCalls ?? []) if (run.trigger === "schedule" && run.reportId) runs.set(run.reportId, run);
+  const inPeriod = (at: string) => (ws.settings.plan === "basic" ? sameWeek(at, now) : sameDay(at, now));
+  return ws.reports.some((report) => {
+    const run = runs.get(report.id);
+    const at = run && withinRunWindow(ws, run, new Date(report.at)) ? run.occurrence : report.at;
+    return inPeriod(at);
+  });
 }
 
 export const openTaskTickets = (ws: Workspace) => ws.taskTickets.filter((t) => t.status === "open");

@@ -130,12 +130,21 @@ Official references checked November 8, 2026:
 | `NAQAH_BRIDGE_PUBLIC_URL` | both | `wss://…/voice-bridge/media`; realtime stays off if unset |
 | `OPENAI_API_KEY` | bridge | server only |
 | `NAQAH_VOICE_SECRET`, `TWILIO_AUTH_TOKEN` | both | already configured |
-| `NAQAH_BRIDGE_UPSTREAM` | bridge | Next's local origin |
+| `NAQAH_BRIDGE_UPSTREAM` | bridge | direct Next origin: local in development, Vercel in production; never the public bridge origin |
 
 ## Running locally
 
 The bridge listens on 3300 and proxies ordinary HTTP to Next on 3301, keeping one public ngrok address. Vercel can't host
 WebSockets, so production needs a separately hosted bridge; that needs owner approval.
+
+Production uses one public voice origin: `NAQAH_PUBLIC_BASE_URL=https://<bridge-domain>`
+on Next, and `NAQAH_BRIDGE_PUBLIC_URL=wss://<bridge-domain>/voice-bridge/media` on both.
+The bridge handles media/health/preflight and proxies other HTTP requests to the distinct
+Vercel upstream. Preflight compares the bridge URL's host (including non-default port),
+prefixed with `https://`, against the parsed HTTPS origin of `NAQAH_PUBLIC_BASE_URL`;
+separate public callback and media hosts do not pass. The dashboard can stay on Vercel.
+See [voice-bridge-hosting](voice-bridge-hosting.md) for preserved Host/custom-domain setup,
+container lifecycle, environment ownership and monitoring SQL.
 
 ## Known limits (November 2026 integration)
 

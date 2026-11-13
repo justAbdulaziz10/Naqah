@@ -4,7 +4,7 @@ import { voiceLocale, voiceMode } from "@/server/env";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { dialableWorkerPhone, reportCallIsLive } from "@/domain/reportCalls";
 import { loadFarm, requireFarm } from "@/server/db/queries";
-import { callTimeLimitSeconds, outboundConfig, SAUDI_MOBILE } from "@/server/calls/config";
+import { bridgeTimeLimitSeconds, outboundConfig, SAUDI_MOBILE } from "@/server/calls/config";
 import { callFailureMessages, cleanStaleReportCalls, type CallFailure } from "@/server/calls/reliability";
 import { bridgeSignature } from "@/server/voice/realtime/internal";
 
@@ -56,7 +56,7 @@ export async function freeCallPreflight(client: SupabaseClient, farmId: string, 
   check("twilio_account", account?.sid === config.accountSid && account?.status === "active", "twilio_auth");
   check("twilio_voice_number", Array.isArray(numbers?.incoming_phone_numbers) && numbers.incoming_phone_numbers.some((number: { phone_number?: string; capabilities?: { voice?: boolean } }) => number.phone_number === config.from && number.capabilities?.voice === true), "from_number");
   check("bridge_health", health?.ok === true, "bridge_unreachable");
-  check("bridge_configuration", health?.publicUrl === bridgeUrl?.href && health?.maxCallSeconds === callTimeLimitSeconds(), "bridge_url");
+  check("bridge_configuration", health?.publicUrl === bridgeUrl?.href && health?.maxCallSeconds === bridgeTimeLimitSeconds(), "bridge_url");
   check("openai_key", models?.openaiKeyValid === true, "openai_auth");
   // A key can list models with no credit left; only an opened realtime session shows a call can start.
   check("openai_realtime", models?.realtimeReady === true, models?.realtimeError === "credit_balance_exhausted" || models?.realtimeError === "insufficient_quota" ? "openai_quota" : "openai_auth");

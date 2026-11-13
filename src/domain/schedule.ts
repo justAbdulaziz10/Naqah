@@ -5,7 +5,7 @@
  *
  * Owner-facing only for now: nothing here places a call. See docs/integrations/call-schedule.md.
  */
-import { fromRiyadh, riyadhParts, sameDay, sameWeek, toMinutes } from "./clock";
+import { fromRiyadh, riyadhParts, toMinutes } from "./clock";
 import { reportDoneThisPeriod } from "./rules";
 import type { CallSchedule, Plan, Weekday, Workspace } from "./types";
 
@@ -56,7 +56,6 @@ export function previousScheduledCall(now: Date, plan: Plan, schedule: CallSched
 export function upcomingReportCall(ws: Workspace, now: Date): Date | null {
   const { plan, callSchedule } = ws.settings;
   const next = nextScheduledCall(now, plan, callSchedule);
-  if (!next || !reportDoneThisPeriod(ws, now)) return next;
-  const samePeriod = plan === "basic" ? sameWeek(next, now) : sameDay(next, now);
-  return samePeriod ? nextScheduledCall(next, plan, callSchedule) : next;
+  if (!next || !reportDoneThisPeriod(ws, next)) return next;
+  return nextScheduledCall(next, plan, callSchedule);
 }

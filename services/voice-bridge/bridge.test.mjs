@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { once } from 'node:events';
 import http from 'node:http';
@@ -120,6 +121,11 @@ async function fixture(options = {}) {
       response.writeHead(options.toolStatus || 200, { 'content-type': 'application/json' });
       const result = typeof options.toolResult === 'function' ? options.toolResult(record.body) : options.toolResult;
       response.end(JSON.stringify(result || { output: '{"ok":true}', awaitingConfirmation: false, end: null, goodbye: null, sayText: 'Mock next question' }));
+    } else if (request.url === '/api/voice/realtime/closed') {
+      if (options.closedDelay) await delay(options.closedDelay);
+      record.acknowledged = true;
+      response.writeHead(options.closedStatus ?? 204);
+      response.end();
     } else {
       response.writeHead(207, 'Mock response', { 'x-mock-result': 'passed', 'set-cookie': ['first=1', 'second=2'] });
       response.write(rawBody.slice(0, 3));
@@ -890,7 +896,9 @@ test('provider connection refusal closes Twilio; it never retries', async () => 
     await once(socket, 'open');
     start(socket);
     await closed(socket);
-    assert.equal(state.requests.length, 1);
+    await waitFor(() => state.requests.length === 2);
+    assert.deepEqual(state.requests.map((request) => request.url), ['/api/voice/realtime/session', '/api/voice/realtime/closed']);
+    assert.equal(state.requests[1].body.reason, 'openai_error');
     assert.equal(attempts, 1);
   } finally {
     await other.close();
@@ -1130,8 +1138,345 @@ test('reprompts wait for full playback marks, run twice, then time out after one
     assert.equal(connection.socket.readyState, WebSocket.OPEN);
     await closed(connection.socket);
     assert.ok(state.logs.some((record) => record.event === 'silence_timeout'));
-    assert.equal(state.requests.length, 1);
+    await waitFor(() => state.requests.length === 2);
+    assert.equal(state.requests[0].url, '/api/voice/realtime/session');
+    assert.deepEqual(state.requests[1].body, { ticket: 'mock-ticket', callSid: CALL_SID, reason: 'silence', event: 'silence_timeout', workerSpoke: false });
   } finally { await state.close(); }
+});
+
+const responses = (state) => state.providerEvents.filter((event) => event.type === 'response.create');
+
+test('watchdog: with no playback marks at all, silence gets one verbatim reprompt, then the guided call closes', async () => {
+  const state = await fixture({ limits: { watchdogMs: 80, repromptMs: 60_000 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => responses(state).length === 2);
+    assert.match(responses(state)[1].response.instructions, /Mock opening/);
+    assert.equal(responses(state)[1].response.tool_choice, 'none');
+    assert.equal(state.logs.filter((record) => record.event === 'watchdog_reprompt').length, 1);
+    await playPrompt(state, connection, undefined, false);
+    await closed(connection.socket);
+    assert.ok(state.logs.some((record) => record.event === 'watchdog_end'));
+    assert.equal(responses(state).length, 2);
+    await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
+    assert.deepEqual(state.requests.at(-1).body, { ticket: 'mock-ticket', callSid: CALL_SID, reason: 'silence', event: 'silence_timeout', workerSpoke: false });
+  } finally { await state.close(); }
+});
+
+test('watchdog: a committed worker turn starts the check-in over', async () => {
+  const state = await fixture({ limits: { watchdogMs: 120, repromptMs: 60_000 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => responses(state).length === 2);
+    await playPrompt(state, connection, undefined, false);
+    await workerTool(state, 'call-after-check-in');
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => state.logs.filter((record) => record.event === 'watchdog_reprompt').length === 2);
+    assert.equal(connection.socket.readyState, WebSocket.OPEN);
+    assert.ok(!state.logs.some((record) => record.event === 'watchdog_end'));
+  } finally { await state.close(); }
+});
+
+test('watchdog: waits for the estimated playback of long audio, not just the last delta', async () => {
+  const state = await fixture({ limits: { watchdogMs: 80, repromptMs: 60_000 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    // 4 seconds of audio sent at once: the caller is still hearing it long after the delta.
+    state.audio(32_000, 'long-item');
+    send(state.provider, { type: 'response.output_audio.done', item_id: 'long-item', content_index: 0 });
+    state.complete();
+    await delay(400);
+    assert.equal(state.logs.filter((record) => record.event === 'watchdog_reprompt').length, 0);
+  } finally { await state.close(); }
+});
+
+test('watchdog: a natural call checks in once in its own words, then says goodbye and closes without any mark', async () => {
+  const state = await fixture({ session: { style: 'natural' }, closedDelay: 100, limits: { watchdogMs: 80, repromptMs: 60_000 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => responses(state).length === 2);
+    assert.match(responses(state)[1].response.instructions, /silent/);
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => responses(state).length === 3);
+    assert.match(responses(state)[2].response.instructions, /I can't hear you/);
+    const offset = connection.messages.received.length;
+    state.audio(160, 'goodbye-item');
+    state.complete();
+    await closed(connection.socket);
+    assert.ok(connection.messages.received.slice(offset).some((event) => event.event === 'media'));
+    await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
+    assert.equal(state.requests.at(-1).body.reason, 'silence');
+    assert.equal(state.requests.at(-1).body.workerSpoke, false);
+    assert.equal(state.requests.at(-1).acknowledged, true);
+  } finally { await state.close(); }
+});
+
+test('closed notice: silence after the worker spoke is reported with workerSpoke, under the same signature', async () => {
+  const state = await fixture({ session: { style: 'natural' }, limits: { watchdogMs: 80, repromptMs: 60_000 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection, undefined, false);
+    send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 0 });
+    send(state.provider, { type: 'input_audio_buffer.speech_stopped', audio_end_ms: 500 });
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'worker-said' });
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'worker-said', content_index: 0, transcript: 'Fifty camels' });
+    await waitFor(() => responses(state).length === 2);
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => responses(state).length === 3);
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => responses(state).length === 4);
+    state.audio(160, 'goodbye-item');
+    state.complete();
+    await closed(connection.socket);
+    await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
+    const notice = state.requests.find((request) => request.url === '/api/voice/realtime/closed');
+    assert.equal(notice.body.reason, 'silence');
+    assert.equal(notice.body.workerSpoke, true);
+  } finally { await state.close(); }
+});
+
+test('closed notice: a server-ended call is normal and a credit error is named', async () => {
+  for (const [scenario, expected] of [['ended', 'normal'], ['credit', 'openai_credit'], ['twilio', 'twilio_closed']]) {
+    const state = await fixture({ toolResult: { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: null } });
+    try {
+      const connection = await state.connect();
+      await state.ready(connection.socket);
+      await playPrompt(state, connection);
+      if (scenario === 'ended') await workerTool(state, 'call-end', 'end_call');
+      else if (scenario === 'credit') send(state.provider, { type: 'error', error: { type: 'insufficient_quota', code: 'insufficient_quota' } });
+      else connection.socket.close();
+      await closed(connection.socket);
+      await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
+      const notice = state.requests.find((request) => request.url === '/api/voice/realtime/closed');
+      assert.equal(notice.body.reason, expected, scenario);
+      assert.equal(notice.body.ticket, 'mock-ticket');
+      assert.equal(state.requests.filter((request) => request.url === '/api/voice/realtime/closed').length, 1);
+      const summaries = state.logs.filter((record) => record.event === 'call_ended');
+      assert.equal(summaries.length, 1);
+      assert.deepEqual(Object.keys(summaries[0]).sort(), ['callSid', 'durationMs', 'event', 'reason', 'workerSpoke']);
+      assert.equal(summaries[0].callSid, CALL_SID.slice(-6));
+      assert.equal(summaries[0].reason, expected);
+      assert.equal(summaries[0].workerSpoke, scenario === 'ended');
+      assert.ok(Number.isInteger(summaries[0].durationMs) && summaries[0].durationMs >= 0);
+      assert.ok(!JSON.stringify(state.logs).includes(CALL_SID));
+      assert.ok(!JSON.stringify(state.logs).includes('Mock worker words'));
+    } finally { await state.close(); }
+  }
+});
+
+test('SIGTERM drains active sockets and persists the closed notice before exiting', { timeout: 8000 }, async () => {
+  const state = await fixture({ closedDelay: 1200 });
+  let child;
+  try {
+    await state.bridge.close();
+    child = spawn(process.execPath, [new URL('./index.mjs', import.meta.url).pathname], {
+      env: TEST_ENV, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const exited = once(child, 'exit');
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    await waitFor(() => stdout.includes('server_listening'));
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    const providerClosed = once(state.provider, 'close');
+    child.kill('SIGTERM');
+    await closed(connection.socket);
+    await providerClosed;
+    assert.deepEqual(await exited, [0, null], stderr);
+    const notices = state.requests.filter((request) => request.url === '/api/voice/realtime/closed');
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].body.event, 'server_stopped');
+    assert.equal(notices[0].acknowledged, true);
+    const summaries = stdout.trim().split('\n').map((line) => JSON.parse(line)).filter((record) => record.event === 'call_ended');
+    assert.equal(summaries.length, 1);
+    assert.equal(summaries[0].reason, 'bridge_error');
+    assert.equal(summaries[0].callSid, CALL_SID.slice(-6));
+    assert.ok(!stdout.includes(CALL_SID));
+    assert.equal(stderr, '');
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL');
+      await once(child, 'exit');
+    }
+    await state.close();
+  }
+});
+
+test('container healthcheck succeeds only for a healthy local bridge', async () => {
+  const state = await fixture();
+  try {
+    for (const [port, expected] of [['3903', 0], ['3901', 1], ['0', 1]]) {
+      const child = spawn(process.execPath, [new URL('./healthcheck.mjs', import.meta.url).pathname], {
+        env: { PORT: port }, stdio: 'ignore',
+      });
+      assert.deepEqual(await once(child, 'exit'), [expected, null]);
+    }
+  } finally { await state.close(); }
+});
+
+test('closed notice: a stream that never started sends nothing', async () => {
+  const state = await fixture({ limits: { startMs: 30 } });
+  try {
+    const connection = await state.connect();
+    await closed(connection.socket);
+    await delay(30);
+    assert.equal(state.requests.length, 0);
+  } finally { await state.close(); }
+});
+
+test('closed notice: a normal ending waits for persistence before releasing Twilio', async () => {
+  const state = await fixture({ closedDelay: 100, toolResult: { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: null } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'end-with-ack', 'end_call');
+    await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
+    const notice = state.requests.at(-1);
+    assert.equal(connection.socket.readyState, WebSocket.OPEN);
+    assert.ok(!notice.acknowledged);
+    await closed(connection.socket);
+    assert.equal(notice.acknowledged, true);
+  } finally { await state.close(); }
+});
+
+test('closed notice: a slow acknowledgement cannot keep Twilio open past its bound, and the notice still lands', async () => {
+  const state = await fixture({ closedDelay: 300, limits: { closedNoticeMs: 50 }, toolResult: { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: null } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'end-without-ack', 'end_call');
+    await closed(connection.socket);
+    const notice = state.requests.at(-1);
+    assert.ok(!notice.acknowledged);
+    // Only Twilio's wait is bounded; the request keeps the normal internal timeout and is not aborted.
+    await waitFor(() => notice.acknowledged === true);
+    assert.ok(!state.logs.some((record) => record.event === 'closed_notice_failed'));
+  } finally { await state.close(); }
+});
+
+test('closed notice: an unreachable acknowledgement is still bounded by the internal timeout', async () => {
+  const state = await fixture({ closedDelay: 300, limits: { closedNoticeMs: 50, internalMs: 100 }, toolResult: { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: null } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'end-timeout', 'end_call');
+    await closed(connection.socket);
+    await waitFor(() => state.logs.some((record) => record.event === 'closed_notice_failed'));
+  } finally { await state.close(); }
+});
+
+test('wrap-up: asks for the normal summary and explicit save near the cap, retaining tools', async () => {
+  for (const locale of ['ar', 'en']) {
+    const state = await fixture({ session: { style: 'natural', locale }, maxSeconds: 1, limits: { wrapUpMs: 450 } });
+    try {
+      const connection = await state.connect();
+      await state.ready(connection.socket);
+      await playPrompt(state, connection);
+      await waitFor(() => responses(state).length === 2);
+      const wrap = responses(state)[1].response;
+      assert.equal(wrap.tool_choice, 'auto');
+      assert.match(wrap.instructions, locale === 'ar' ? /أحفظه/ : /Shall I save it/);
+      assert.match(wrap.instructions, locale === 'ar' ? /لا تخترع تقرير/ : /do not invent a report/);
+      assert.equal(connection.socket.readyState, WebSocket.OPEN);
+    } finally { await state.close(); }
+  }
+});
+
+test('wrap-up: waits for the active reply instead of interrupting it', async () => {
+  const state = await fixture({ session: { style: 'natural' }, maxSeconds: 1, limits: { wrapUpMs: 450 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await delay(600);
+    assert.equal(responses(state).length, 1);
+    assert.ok(!state.providerEvents.some((event) => event.type === 'response.cancel'));
+    await playPrompt(state, connection);
+    await waitFor(() => responses(state).length === 2);
+    assert.match(responses(state)[1].response.instructions, /Shall I save it/);
+  } finally { await state.close(); }
+});
+
+test('wrap-up: pending confirmation gets bounded closing grace, without another prompt', async () => {
+  const state = await fixture({
+    session: { style: 'natural' }, maxSeconds: 0.3,
+    limits: { wrapUpMs: 50, confirmationGraceMs: 150 },
+    toolResult: { output: '{}', awaitingConfirmation: true, end: null, goodbye: null, summaryText: 'Mock summary. Shall I save it?' },
+  });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'summary-at-deadline', 'submit_report');
+    await delay(300);
+    assert.equal(connection.socket.readyState, WebSocket.OPEN);
+    assert.ok(!responses(state).some((event) => /nearing its time limit/.test(event.response.instructions ?? '')));
+    await closed(connection.socket);
+    assert.ok(state.logs.some((record) => record.event === 'maximum_timeout'));
+  } finally { await state.close(); }
+});
+
+test('wrap-up: a cap shorter than twice the wrap-up has none, rather than one at the opening', async () => {
+  const state = await fixture({ session: { style: 'natural' }, maxSeconds: 0.5, limits: { wrapUpMs: 400, confirmationGraceMs: 50 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await closed(connection.socket);
+    assert.ok(!responses(state).some((event) => /nearing its time limit/.test(event.response.instructions ?? '')));
+    assert.ok(state.logs.some((record) => record.event === 'maximum_timeout'));
+  } finally { await state.close(); }
+});
+
+test('wrap-up: a wrap-up held for a pending confirmation is not spoken after the call starts ending', async () => {
+  let calls = 0;
+  const state = await fixture({
+    session: { style: 'natural' }, maxSeconds: 1.2,
+    limits: { wrapUpMs: 500, confirmationGraceMs: 2_000 },
+    toolResult: () => (calls++ === 0
+      ? { output: '{}', awaitingConfirmation: true, end: null, goodbye: null, summaryText: 'Mock summary. Shall I save it?' }
+      : { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: 'Mock goodbye' }),
+  });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'summary-first', 'submit_report');
+    await playPrompt(state, connection);
+    // The summary's question is spoken on its own.
+    await waitFor(() => state.logs.some((record) => record.event === 'response_created' && record.kind === 'closing'));
+    await playPrompt(state, connection);
+    // The wrap-up comes due while the summary waits for its answer: it stays pending.
+    await delay(800);
+    await workerTool(state, 'refuse-and-end', 'confirm_report');
+    await waitFor(() => state.logs.some((record) => record.event === 'response_requested' && record.kind === 'goodbye'));
+    state.audio(160, 'goodbye-item');
+    state.complete();
+    await delay(50);
+    assert.ok(state.logs.some((record) => record.event === 'response_requested' && record.kind === 'goodbye'));
+    assert.ok(!responses(state).some((event) => /nearing its time limit/.test(event.response.instructions ?? '')));
+  } finally { await state.close(); }
+});
+
+test('configuration: IPv4-first DNS and a 12 s silence watchdog by default, both overridable', () => {
+  assert.equal(loadConfig(TEST_ENV).dnsOrder, 'ipv4first');
+  assert.equal(loadConfig({ ...TEST_ENV, NAQAH_BRIDGE_DNS_ORDER: 'verbatim' }).dnsOrder, 'verbatim');
+  assert.throws(() => loadConfig({ ...TEST_ENV, NAQAH_BRIDGE_DNS_ORDER: 'ipv4' }));
+  assert.equal(loadConfig(TEST_ENV).watchdogMs, 12_000);
+  assert.equal(loadConfig({ ...TEST_ENV, NAQAH_BRIDGE_SILENCE_SECONDS: '20' }).watchdogMs, 20_000);
+  for (const value of ['2', '61', '1.5', 'x']) assert.throws(() => loadConfig({ ...TEST_ENV, NAQAH_BRIDGE_SILENCE_SECONDS: value }));
 });
 
 test('any worker speech resets the reprompt count, including a noise turn with a silent result', async () => {
