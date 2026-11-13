@@ -138,8 +138,7 @@
     text-wrap: pretty;
   }
   html[lang="ar"] p,
-  html[lang="ar"] dd,
-  html[lang="ar"] li {
+  html[lang="ar"] dd {
     line-height: 1.8;
   }
   /* Data reads in columns: tabular numerals wherever a number sits next to another number. */
@@ -147,8 +146,8 @@
   time {
     font-variant-numeric: tabular-nums;
   }
-  /* Themed scrollbars on the surfaces people scroll. */
-  * {
+  /* Themed scrollbars on the surfaces people scroll (inherited). */
+  html {
     scrollbar-color: var(--color-stone) transparent;
   }
   /*
