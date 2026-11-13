@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { completeWorkerReport, completeWorkerCallback, resolveWorkerCallAttempt, submitOwnerInstruction } from "@/domain/actions";
 import { createDemoWorkspace, createEmptyWorkspace } from "@/domain/seed";
+import { fromRiyadh } from "@/domain/clock";
+import { reportDoneThisPeriod } from "@/domain/rules";
 import type { Workspace } from "@/domain/types";
 import { diffWorkspace, hasChanges } from "./diff";
 import { isUuid, toDbId } from "./ids";
@@ -43,6 +45,31 @@ describe("workspace rows", () => {
     taskTickets: [], noAnswerTickets: [], pendingWorkerCalls: [], reportCallRuns: [], relays: [], events: [],
   };
   const worker = (id: string, name: string, at: string) => ({ id, farm_id: farmId, name, phone: "", language: "ar" as const, created_at: at });
+  it.each([
+    ["ultimate", true], ["basic", true], ["ultimate", false], ["basic", false],
+  ] as const)("round-trips %s cross-midnight report periods (scheduled: %s)", (plan, scheduled) => {
+    const occurrence = fromRiyadh(2026, 11, 7, 23, 50);
+    const savedAt = fromRiyadh(2026, 11, 8, 0, 10);
+    const input = createEmptyWorkspace(plan);
+    const runId = "rcl_1234567890";
+    input.reportCalls = [{
+      id: runId, trigger: "schedule", occurrence: occurrence.toISOString(), state: "answered", nextAttemptAt: null, reportId: null,
+      attempts: [{ at: occurrence.toISOString(), result: "no_answer" }, { at: savedAt.toISOString(), result: "answered" }],
+    }];
+    const ws = completeWorkerReport(input, savedAt, draft, scheduled ? runId : undefined).ws;
+    const rows = historyRows(ws, farmId);
+    const loaded = workspaceFromRows({
+      ...empty,
+      farm: { ...farm, plan },
+      reports: rows.reports.map((report) => ({ ...report, report_answers: [], findings: [] })),
+      calls: rows.calls,
+      reportCallRuns: rows.reportCallRuns,
+    });
+    expect(loaded.reportCalls?.[0].reportId).toBe(loaded.reports[0].id);
+    expect(loaded.reports[0].at).toBe(savedAt.toISOString());
+    expect(reportDoneThisPeriod(loaded, occurrence)).toBe(scheduled);
+    expect(reportDoneThisPeriod(loaded, savedAt)).toBe(!scheduled);
+  });
   it("loads reports before the metadata columns exist and preserves them once present", () => {
     const legacy = { id: "report", farm_id: farmId, call_id: null, at: now.toISOString(), herd_count_reported: null, report_answers: [], findings: [] };
     const oldReport = workspaceFromRows({ ...empty, reports: [legacy] }).reports[0];
