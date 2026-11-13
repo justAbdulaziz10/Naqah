@@ -93,7 +93,7 @@ export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Worksp
       const response = await fetch("/api/report-call-now?preflight=1", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
       const ready = response.ok ? await response.json() : null;
       if (!ready?.ready) {
-        setNotice(ready?.message ? t(ready.message) : d.callNowResult.failed);
+        setNotice(response.status === 429 ? d.callNowResult.rate_limited : ready?.message ? t(ready.message) : d.callNowResult.failed);
         void accountSync.refresh();
         return;
       }

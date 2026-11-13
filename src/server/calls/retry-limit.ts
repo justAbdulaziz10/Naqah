@@ -13,7 +13,12 @@ export async function withWorkerRetryLimit(farmId: string, now: Date, retry: () 
     }
     leases.push(lease);
   }
-  const retried = await retry();
-  if (!retried) await release();
-  return retried;
+  // A retry that changes nothing, or fails before it is written, gives its slots back.
+  let retried = false;
+  try {
+    retried = await retry();
+    return retried;
+  } finally {
+    if (!retried) await release();
+  }
 }

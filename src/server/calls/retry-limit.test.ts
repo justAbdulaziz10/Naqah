@@ -39,6 +39,13 @@ describe("undelivered worker retry quota", () => {
     for (let index = 0; index < 3; index += 1) expect(await withWorkerRetryLimit("farm-a", at(index + 10), async () => true)).toBe(true);
   });
 
+  it("refunds reservations when the requeue write fails", async () => {
+    for (let index = 0; index < 3; index += 1) {
+      await expect(withWorkerRetryLimit("farm-a", at(index), async () => { throw new Error("write failed"); })).rejects.toThrow("write failed");
+    }
+    expect(await withWorkerRetryLimit("farm-a", at(4), async () => true)).toBe(true);
+  });
+
   it("bounds simultaneous retries before any queue write", async () => {
     const retry = vi.fn(async () => true);
     const results = await Promise.allSettled(Array.from({ length: 8 }, () => withWorkerRetryLimit("farm-a", at(0), retry)));

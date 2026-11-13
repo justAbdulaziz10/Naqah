@@ -1,5 +1,5 @@
 import { getOwner } from "@/lib/supabase/server";
-import { demoRepeatReports, manualCallsEnabled } from "@/server/calls/config";
+import { demoNoCallLimit, demoRepeatReports, manualCallsEnabled } from "@/server/calls/config";
 import { callDiagnostic, cleanStaleReportCalls } from "@/server/calls/reliability";
 import { createServiceClient } from "@/server/db/service-client";
 import { isUuid } from "@/server/db/ids";
@@ -21,7 +21,8 @@ export async function GET(request: Request): Promise<Response> {
     const { data, error } = await client.from("farms").select("id").eq("owner_id", user.id).maybeSingle();
     if (error || !data) return json({ ok: false }, 503);
     if (new URL(request.url).searchParams.get("preflight") === "1") {
-      if (!await reserveRateLimit(`call-preflight:farm:${data.id}:day`, 10, 86400)) return json({ ok: false, ready: false, reason: "rate_limited" }, 429);
+      // The presentation ranch runs without call limits on the local demo; everyone else is capped.
+      if (!demoNoCallLimit(data.id) && !await reserveRateLimit(`call-preflight:farm:${data.id}:day`, 10, 86400)) return json({ ok: false, ready: false, reason: "rate_limited" }, 429);
       return json({ ok: true, ...await freeCallPreflight(client, data.id) });
     }
     await cleanStaleReportCalls(client, data.id, new Date());
