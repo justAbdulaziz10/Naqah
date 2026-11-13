@@ -40,7 +40,7 @@ export function LabScenarioPicker({ selected, onSelect, sessionActive, m, plan }
               onClick={() => onSelect(scenario)}
               className={cn(
                 "min-h-11 shrink-0 snap-start whitespace-nowrap rounded-full border px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brown lg:-mb-px lg:min-h-0 lg:max-w-[16rem] lg:whitespace-normal lg:rounded-none lg:border-0 lg:border-b-2 lg:px-0 lg:pb-3.5 lg:pt-1 lg:text-start",
-                current ? "border-espresso bg-espresso text-cream lg:border-brown lg:bg-transparent lg:text-espresso" : "border-stone bg-ivory text-muted hover:text-espresso lg:border-transparent",
+                current ? "border-espresso bg-espresso text-cream lg:border-brown lg:bg-transparent lg:text-espresso" : "border-stone bg-ivory text-muted hover:text-espresso lg:border-transparent lg:bg-transparent",
                 disabled && "cursor-not-allowed opacity-50",
               )}
             >
