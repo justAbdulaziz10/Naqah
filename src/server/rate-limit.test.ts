@@ -33,12 +33,12 @@ describe("shared rate limiter", () => {
 
   it("falls back to local buckets when the RPC returns an error and warns once", async () => {
     mock.rpc.mockResolvedValue({ data: null, error: new Error("migration pending") });
-    const first = await reserveRateLimit("voice-lab:owner:1", 1, 60, 0);
+    const first = await reserveRateLimit("otp:phone:1", 1, 60, 0);
     expect(first).not.toBeNull();
-    expect(await reserveRateLimit("voice-lab:owner:1", 1, 60, 1)).toBeNull();
+    expect(await reserveRateLimit("otp:phone:1", 1, 60, 1)).toBeNull();
     expect(console.warn).toHaveBeenCalledTimes(1);
     await first?.release();
-    expect(await reserveRateLimit("voice-lab:owner:1", 1, 60, 2)).not.toBeNull();
+    expect(await reserveRateLimit("otp:phone:1", 1, 60, 2)).not.toBeNull();
   });
 
   it("uses local buckets when service credentials are missing", async () => {
@@ -52,7 +52,26 @@ describe("shared rate limiter", () => {
 
   it("opens a fresh local window after expiry", async () => {
     vi.stubEnv("SUPABASE_SECRET_KEY", "");
-    expect(await reserveRateLimit("test", 1, 60, 0)).not.toBeNull();
-    expect(await reserveRateLimit("test", 1, 60, 60_000)).not.toBeNull();
+    expect(await reserveRateLimit("push:ip:test", 1, 60, 0)).not.toBeNull();
+    expect(await reserveRateLimit("push:ip:test", 1, 60, 60_000)).not.toBeNull();
+  });
+
+  it.each(["call-now:farm:1:hour", "owner-call-now:farm:1:hour", "worker-retry:farm:1:day", "test-call:actor:1:hour", "voice-lab:owner:1", "call-preflight:farm:1:day", "new-paid-action:1"])("denies %s without shared enforcement", async (key) => {
+    mock.rpc.mockResolvedValue({ data: null, error: new Error("unavailable") });
+    expect(await reserveRateLimit(key, 3, 3600)).toBeNull();
+    mock.rpc.mockRejectedValue(new Error("offline"));
+    expect(await reserveRateLimit(key, 3, 3600)).toBeNull();
+    mock.rpc.mockResolvedValue({ data: "true", error: null });
+    expect(await reserveRateLimit(key, 3, 3600)).toBeNull();
+    vi.stubEnv("SUPABASE_SECRET_KEY", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    expect(await reserveRateLimit(key, 3, 3600)).toBeNull();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("paid actions denied"));
+  });
+
+  it("does not fall back when the shared quota is exhausted", async () => {
+    mock.rpc.mockResolvedValue({ data: false, error: null });
+    expect(await reserveRateLimit("call-now:farm:1:hour", 3, 3600)).toBeNull();
+    expect(console.warn).not.toHaveBeenCalled();
   });
 });

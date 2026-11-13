@@ -25,8 +25,7 @@ export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Worksp
   const [confirming, setConfirming] = useState(false);
   // Which run was latest when a call was placed, so "NAQAH is calling" ends with that call.
   const [placedAfter, setPlacedAfter] = useState<{ runId: string | null } | null>(null);
-  // Whether the saved number may be called on this computer; checked again whenever the saved number changes.
-  const [approval, setApproval] = useState<{ approved: boolean | null; numbers: string[]; repeat: boolean } | null>(null);
+  const [repeatReports, setRepeatReports] = useState(false);
   // A double click on "Call now" must send one request; state updates arrive too late to stop the second.
   const sending = useRef(false);
   // LOCAL DEMO ONLY (--owner-call-now): «العامل / المالك». The worker stays the default and works exactly as before.
@@ -47,15 +46,13 @@ export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Worksp
   useEffect(() => {
     if (!account || available !== true) return;
     let live = true;
-    // A just-saved number may still be on its way to the database: ask once now and once shortly after.
     const ask = () => fetch("/api/report-call-now", { cache: "no-store", signal: AbortSignal.timeout(10_000) })
       .then((response) => (response.ok ? response.json() : null))
-      .then((detail) => { if (live && detail?.ok) setApproval({ approved: detail.numberApproved ?? null, numbers: detail.approvedNumbers ?? [], repeat: detail.repeatReports === true }); })
+      .then((detail) => { if (live && detail?.ok) setRepeatReports(detail.repeatReports === true); })
       .catch(() => {});
     void ask();
-    const again = setTimeout(() => void ask(), 2_000);
-    return () => { live = false; clearTimeout(again); };
-  }, [account, available, phone]);
+    return () => { live = false; };
+  }, [account, available]);
 
   // While a call is live, pick up its progress sooner than the usual 30-second refresh.
   useEffect(() => {
@@ -124,13 +121,11 @@ export function ReportCallNow({ ws, worker, now, primary = false }: { ws: Worksp
   // The same rule the server applies (e.g. this period's report is already in) is shown before the
   // press, so the owner never confirms a call that will be refused.
   // The local presentation ranch may call again after today's report; the server applies the same rule.
-  const block = reportCallBlock(ws, now, { repeatReports: approval?.repeat === true });
-  const notApproved = approval?.approved === false;
-  const off = available !== true || (block !== null && block !== "no_worker_phone") || notApproved;
+  const block = reportCallBlock(ws, now, { repeatReports });
+  const off = available !== true || (block !== null && block !== "no_worker_phone");
   const reason = available === null ? m.app.overview.callBar.checking
     : available === false ? m.app.overview.callBar.callOff
     : block && block !== "no_worker_phone" ? d.callNowResult[block]
-    : notApproved ? d.callNowResult.notApproved(approval!.numbers.map((number) => `\u2066${number}\u2069`).join("، "))
     : null;
   return (
     // In the call bar the button, the simulation beside it and these notes share one wrapping row.

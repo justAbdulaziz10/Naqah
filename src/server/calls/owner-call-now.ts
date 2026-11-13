@@ -106,7 +106,9 @@ export async function requestOwnerCallNow(
       placed = { placed: false, reason: "network_error" };
     }
     if (placed.placed) return { status: "placed" };
-    await runFarmAction(client, farmId, (ws) => ({ ws: abandonOwnerCallAttempt(ws, now, runId, claim.attempt), result: null }));
+    if (placed.reason !== "network_error") {
+      await runFarmAction(client, farmId, (ws) => ({ ws: abandonOwnerCallAttempt(ws, now, runId, claim.attempt), result: null }));
+    }
     return { status: "failed", reason: "not_placed", ...(placed.code === undefined ? {} : { code: placed.code }) };
   });
 }

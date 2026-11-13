@@ -10,6 +10,7 @@ import { twilioRequestSignature } from "@/server/twilio/signature";
 import * as voiceConversation from "./conversation";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/supabase/server", () => ({ getOwner: async () => ({ user: { id: "owner" } }) }));
 vi.mock("next/server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("next/server")>();
   return { ...actual, connection: vi.fn(async () => {}) };

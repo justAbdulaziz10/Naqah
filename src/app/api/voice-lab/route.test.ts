@@ -28,6 +28,7 @@ function fakeClient(): unknown {
 let owner: { id: string; email: string; email_confirmed_at: string } | null = { id: "owner-1", email: "owner@example.test", email_confirmed_at: "2026-01-01" };
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/server/voice-lab/limit", () => ({ allowLabOpen: async () => true }));
 vi.mock("@/lib/supabase/server", () => ({
   getOwner: async () => ({ user: owner, unavailable: false }),
   createClient: async () => fakeClient(),
