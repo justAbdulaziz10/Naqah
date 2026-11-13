@@ -44,7 +44,7 @@ webhook map, migrations, open decisions and known pitfalls. `PRODUCT.md` holds t
 |---|---|
 | Supabase schema, account mode, go-live list | [supabase-backend](docs/integrations/supabase-backend.md), [supabase-preparation](docs/integrations/supabase-preparation.md), [owner-auth](docs/integrations/owner-auth.md) |
 | Phone line and activation | [phone](docs/integrations/phone.md), [twilio-activation](docs/integrations/twilio-activation.md), [call-schedule](docs/integrations/call-schedule.md), [owner-call-runs](docs/integrations/owner-call-runs.md) |
-| Production calling go-live | [go-live-checklist](docs/integrations/go-live-checklist.md) |
+| Production calling go-live | [go-live-checklist](docs/integrations/go-live-checklist.md), [release runbook](docs/release/calling-v1.md) |
 | Voice contract and realtime speech | [voice-data-contract](docs/integrations/voice-data-contract.md), [realtime-voice](docs/integrations/realtime-voice.md), [voice bridge](services/voice-bridge/README.md) |
 | Testing calls | [test-calls](docs/integrations/test-calls.md), [voice-lab](docs/integrations/voice-lab.md), [backend-calling-verification](docs/integrations/backend-calling-verification.md) |
 | Free integrations | [pwa](docs/integrations/pwa.md), [calendar](docs/integrations/calendar.md), [whatsapp-links](docs/integrations/whatsapp-links.md), [weather](docs/integrations/weather.md) |
