@@ -32,6 +32,9 @@ describe("natural confirmation intent takes precedence over a leading yes", () =
     ["تمام ولا", false], ["احفظه ولا", false], ["اقول تمام", false], ["هل احفظه", false],
     ["احفظ اذا كان صح", false], ["ايه ان شاء الله", false], ["احفظ بكرا", false], ["ايه وبعدين", false],
     ["ايه ما", false], ["ايه عشان", false], ["الو تمام", false],
+    // PR #22 review: a "nothing to change" start must not hide a refusal to save.
+    ["لا تعدلي ولا تحفظي", false], ["لا تعدلي ولا تسجلي", false], ["لا تعدل وما تحفظه", false],
+    ["do not change it or save it", false], ["don't change it and don't save", false], ["no changes but do not save", false],
     ["لا شكرا", false], ["لا شكرا احفظ", false], ["لا", false], ["احفظي؟", false],
     ["لا تعدل", true], ["ما يحتاج تعدل", true], ["لا، تمام احفظ", true],
     ["لا ما أبي أعدل شي", true], ["ما ابغى اغير", true], ["ما فيه تعديل", true],

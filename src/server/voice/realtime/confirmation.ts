@@ -50,9 +50,14 @@ const NO_THEN_SAVE = /^(?:لا|لاء) (?=تمام (?:احفظ(?:ي(?:ه|ها)?|
  * goodbye, not an explicit yes to save, so it only counts beside a clear yes («ايه، يعطيك العافية»).
  */
 const GO_AHEAD = /(?:^| )(?:توكل على الله|توكل|يلا احفظ|يلا احفظه)(?: |$)/u;
-const REFUSE = /(?:^| )(?:لا|ما|مو|لاء) (?:تحفظ(?:ين?(?:ه|ها)?|ه|ها)?|احفظ(?:ي(?:ه|ها)?|ه|ها)?|تسجل(?:ين?(?:ه|ها)?|ه|ها)?|سجل(?:ي(?:ه|ها)?|ه|ها)?|ابي|ابغى|ابيه|توافق)(?: |$)|(?:^| )(?:غلط|خطا|خطأ|عدل|عدله|عدلها|تعديل|غيره|غيرها|بس|لكن|الا|مدري|ما ادري|يمكن|don t|not|wrong|change|but|maybe)(?: |$)/;
+const REFUSE = /(?:^| )و?(?:لا|ما|مو|لاء) (?:تحفظ(?:ين?(?:ه|ها)?|ه|ها)?|احفظ(?:ي(?:ه|ها)?|ه|ها)?|تسجل(?:ين?(?:ه|ها)?|ه|ها)?|سجل(?:ي(?:ه|ها)?|ه|ها)?|ابي|ابغى|ابيه|توافق)(?: |$)|(?:^| )(?:غلط|خطا|خطأ|عدل|عدله|عدلها|تعديل|غيره|غيرها|بس|لكن|الا|مدري|ما ادري|يمكن|don t|not|wrong|change|but|maybe)(?: |$)/;
 /** Waiting, asking, doubting or wanting the owner: «طيب انتظر», «ايه وش قلت», «ايه اظن», «تمام قل للمعزب يتصل». */
 const HOLD = /(?:^| )و?(?:احسب|شكله|شكلها|شكل|تقريبا|تقريب|يبدو|احتمال|يمكن|كم|ليش|ليه|هل|يعني|اقول|ممم|امم|اذا|لو|لين|بكرا|بكره|ان شاء الله|عشان|الو|انتظر|انطر|استني|لحظه|ثواني|ثانيه|دقيقه|اصبر|خلني|خليني|وش|ايش|شو|مين|من معي|اسمع|بعدين|اظن|اعتقد|احس|اتاكد|قل|قول|كلم|اكلم|يتصل|wait|hold|hang on|what|who|later|think|guess|second|sec|moment|minute|listen)(?: |$)|معزب/;
+/**
+ * A refusal to save anywhere in the reply, checked on the whole utterance: «لا تعدلي ولا تحفظي» and "don't change it
+ * or save it" start with "nothing to change", which must not hide the "don't save" after it.
+ */
+const NEGATED_SAVE = /(?:^| )و?(?:لا|ما|مو|لاء) (?:تحفظ|تسجل|احفظ|سجل)\p{L}*(?= |$)|(?:^| )(?:don t|dont|do not|not|never)(?: \p{L}+){0,4} (?:save|record|keep)(?= |$)/u;
 const NO_ALONE = /^(?:لا|لاء|no|nope)(?: |$)/;
 /** «احفظ… لا», «ايه ما»: a no said last, or a sentence cut off at «ما» or «ولا», takes the yes back. */
 const NO_LAST = /(?:^| )(?:لا|لاء|ما|ولا|no|nope)$/;
@@ -66,7 +71,7 @@ const NO_LAST = /(?:^| )(?:لا|لاء|ما|ولا|no|nope)$/;
 export function isNaturalConfirmation(utterance: string, session: CallSession, locale: Locale, camels: readonly { name: string }[] = []): boolean {
   if (!utterance || utterance.length > MAX_UTTERANCE || /[?؟]/u.test(utterance) || session.step !== SUMMARY_STEP) return false;
   const words = normalizeSpeech(utterance).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-  if (!words || NO_LAST.test(words) || topicsInWords(words).size > 0) return false;
+  if (!words || NO_LAST.test(words) || NEGATED_SAVE.test(words) || topicsInWords(words).size > 0) return false;
   const leftover = words.replace(new RegExp(NOTHING_TO_CHANGE, "gu"), " ").trim().replace(NO_THEN_SAVE, "");
   // A number or a camel's name is what a correction sounds like («تمام، عشرين كيس», «إيه مزون بخير»), never a plain yes.
   if (numbersSaid(leftover).size > 0 || namedCamels(words, camels).length > 0) return false;
