@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { CaretDown } from "@phosphor-icons/react";
+import { CaretDown, CheckCircle, WarningCircle } from "@phosphor-icons/react";
 import { Button, Card, CardBody, ConfirmDialog } from "@/components/ui";
 import {
   EmergencySection,
@@ -11,7 +11,6 @@ import {
   RanchFields,
   ReportModeField,
   ResourcesSection,
-  SaveState,
   TeamFields,
   WhatMattersSection,
   hasOwnSetupData,
@@ -28,6 +27,7 @@ import { allWorkers } from "@/domain/workers";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { accountSync } from "@/store/account";
+import { useUnsentDrafts } from "@/store/accountSync";
 import { useIsAccount, useNow, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
 import { SettingsDemoDraft } from "./SettingsDemoDraft";
 import { callSample, criteriaSample, emergenciesSample, questionsSample, ranchSample, resourcesSample, teamSample } from "./demo-samples";
@@ -170,6 +170,54 @@ function DeferredIntegrations() {
   );
 }
 
+/** True from the `lg` breakpoint, where the section index sits beside the page instead of above it. */
+function useDesktop() {
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1024px)");
+    const apply = () => setDesktop(query.matches);
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, []);
+  return desktop;
+}
+
+/**
+ * The page's save state, pinned above the bottom bar once the owner has changed something this visit:
+ * saved, still unsent (account edits that can't go yet), or failed. One line, one plain reason.
+ */
+function SaveBar({ visible }: { visible: boolean }) {
+  const { m } = useI18n();
+  const b = m.setup.settings.bar;
+  const status = useSaveStatus((state) => state.status);
+  const account = useIsAccount();
+  const unsent = useUnsentDrafts((state) => state.fields.length > 0) && account;
+  if (!visible && !unsent) return null;
+  const tone = unsent ? "unsent" : status === "failed" ? "failed" : "saved";
+  const danger = tone !== "saved";
+  return (
+    <div className="pointer-events-none sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:bottom-4 lg:mx-0 lg:px-0">
+      <div
+        role="status"
+        aria-live="polite"
+        className={cn(
+          "naqah-saved-in pointer-events-auto flex items-center gap-3 rounded-[var(--radius-card)] border bg-cream px-4 py-3 shadow-lift",
+          danger ? "border-danger/50" : "border-stone",
+        )}
+      >
+        {danger
+          ? <WarningCircle size={22} weight="fill" className="shrink-0 text-danger" aria-hidden />
+          : <CheckCircle key={status} size={22} weight="fill" className="naqah-done shrink-0 text-ok" aria-hidden />}
+        <span className="min-w-0 flex-1 leading-snug">
+          <span className={cn("block text-[0.9375rem] font-semibold", danger ? "text-danger" : "text-espresso")}>{b[tone]}</span>
+          <span className="block text-sm text-muted">{b[`${tone}Hint`]}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Height of the app's sticky top bar, so the section nav can sit right under it, and the page's own
  * scroll padding, which a jump target's margin adds to (the margin below makes up the difference).
@@ -263,7 +311,9 @@ export default function SettingsPage() {
     return () => window.removeEventListener("hashchange", fromHash);
   }, []);
   const { header: headerHeight, padding: scrollPadding } = useStickyOffsets();
-  const navHeight = 52;
+  const desktop = useDesktop();
+  // The tab strip only sits under the header on smaller screens; on desktop the index is beside the page.
+  const navHeight = desktop ? 0 : 52;
   const groups = [
     { id: "settings-report-call", label: s.groups.call },
     { id: "settings-questions", label: s.groups.questions },
@@ -352,15 +402,38 @@ export default function SettingsPage() {
 
   return (
     <div
-      className="naqah-page max-w-3xl space-y-10 pb-8"
+      className="naqah-page lg:grid lg:grid-cols-[11rem_minmax(0,48rem)] lg:gap-x-12"
       // A jump lands its title just under the section nav: the margin is what the scroll padding doesn't cover.
       style={{ "--settings-offset": `${headerHeight + navHeight + 16 - scrollPadding}px` } as CSSProperties}
     >
+      {/* Desktop: a quiet index beside the page that follows the scroll. */}
+      <nav aria-label={s.title} className="hidden lg:block lg:sticky lg:self-start lg:pt-1" style={{ top: headerHeight + 24 }}>
+        <ul className="space-y-0.5 border-s border-stone/70">
+          {groups.map((group) => {
+            const current = group.id === currentGroup;
+            return (
+              <li key={group.id}>
+                <a
+                  href={`#${group.id}`}
+                  aria-current={current ? "location" : undefined}
+                  className={cn(
+                    "-ms-px flex min-h-10 items-center border-s-2 ps-4 text-[0.9375rem] transition-colors focus-visible:rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brown",
+                    current ? "border-brown font-semibold text-espresso" : "border-transparent text-muted hover:text-espresso",
+                  )}
+                >
+                  {group.label}
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+      <div className="min-w-0 space-y-10 pb-8">
       <div className="mb-3!">
         <h1 className="text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-espresso sm:text-[2.5rem] rtl:tracking-normal">{s.title}</h1>
         <p className="mt-1.5 text-[1.0625rem] text-muted">{s.lead}</p>
       </div>
-      <div className="sticky z-20 !mt-4 -mx-4 border-b border-stone/60 bg-ivory sm:-mx-6 lg:-mx-8" style={{ top: headerHeight }}>
+      <div className="sticky z-20 !mt-4 -mx-4 border-b border-stone/60 bg-ivory sm:-mx-6 lg:hidden" style={{ top: headerHeight }}>
         <nav
           ref={navRef}
           aria-label={s.title}
@@ -415,7 +488,7 @@ export default function SettingsPage() {
         <SettingsDemoDraft {...fields("call")} sample={() => callSample}>
         {(draft, controls, preview) => <>
         <RanchWeek ws={draft.ws} />
-        <SettingsSection title={m.setup.call.title} actions={controls} status={edited === "call" && !preview ? <SaveState /> : null}>
+        <SettingsSection title={m.setup.call.title} actions={controls}>
           <Card>
             <CardBody className="space-y-10 pt-5">
               <MobileGroup id="settings-plan" level={3} title={s.plan} summary={s.summaries.planCurrent(planLabel)} open={groupOpen("settings-plan", "call")} onToggle={() => toggleGroup("settings-plan")}>
@@ -440,7 +513,7 @@ export default function SettingsPage() {
       </div>
 
       <SettingsDemoDraft {...fields("questions")} sample={questionsSample}>
-      {(draft, controls, preview) =>
+      {(draft, controls) =>
       <MobileGroup
         id="settings-questions"
         title={m.setup.questions.title}
@@ -448,7 +521,6 @@ export default function SettingsPage() {
         open={groupOpen("settings-questions", "questions") || !reportPlanHasContent(ws, now)}
         onToggle={() => toggleGroup("settings-questions")}
         actions={controls}
-        status={edited === "questions" && !preview && reportPlanHasContent(ws, now) ? <SaveState /> : null}
       >
         <Card>
           <CardBody className="space-y-8 pt-5">
@@ -462,7 +534,7 @@ export default function SettingsPage() {
 
       <div className="space-y-10 max-sm:space-y-6">
         <SettingsDemoDraft {...fields("ranch")} sample={() => ranchSample}>
-        {(draft, controls, preview) =>
+        {(draft, controls) =>
         <MobileGroup
           id="settings-ranch"
           title={m.setup.ranch.title}
@@ -470,7 +542,6 @@ export default function SettingsPage() {
           open={groupOpen("settings-ranch", "ranch")}
           onToggle={() => toggleGroup("settings-ranch")}
           actions={controls}
-          status={edited === "ranch" && !preview ? <SaveState /> : null}
         >
           <Card>
             <CardBody className="pt-5">
@@ -481,7 +552,7 @@ export default function SettingsPage() {
         }
         </SettingsDemoDraft>
         <SettingsDemoDraft {...fields("team")} sample={() => teamSample}>
-        {(draft, controls, preview) =>
+        {(draft, controls) =>
         <MobileGroup
           id="settings-team"
           title={m.setup.team.title}
@@ -489,7 +560,6 @@ export default function SettingsPage() {
           open={groupOpen("settings-team", "team")}
           onToggle={() => toggleGroup("settings-team")}
           actions={controls}
-          status={edited === "team" && !preview ? <SaveState /> : null}
         >
           <Card>
             <CardBody className="pt-2">
@@ -504,13 +574,13 @@ export default function SettingsPage() {
       <SettingsSection id="settings-more" title={s.more}>
         <Card className="divide-y divide-stone/70 overflow-hidden">
           <SettingsDemoDraft {...fields("resources")} sample={() => resourcesSample}>
-            {(draft, controls, preview) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<ResourcesSection {...draft} showSaved={!preview && edited === "resources"} /></div>}
+            {(draft, controls) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<ResourcesSection {...draft} showSaved={false} /></div>}
           </SettingsDemoDraft>
           <SettingsDemoDraft {...fields("criteria")} sample={criteriaSample}>
-            {(draft, controls, preview) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<WhatMattersSection {...draft} showSaved={!preview && edited === "criteria"} /></div>}
+            {(draft, controls) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<WhatMattersSection {...draft} showSaved={false} /></div>}
           </SettingsDemoDraft>
           <SettingsDemoDraft {...fields("emergencies")} sample={emergenciesSample}>
-            {(draft, controls, preview) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<EmergencySection {...draft} showSaved={!preview && edited === "emergencies"} /></div>}
+            {(draft, controls) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<EmergencySection {...draft} showSaved={false} /></div>}
           </SettingsDemoDraft>
         </Card>
       </SettingsSection>
@@ -546,6 +616,8 @@ export default function SettingsPage() {
           </Card>
         </SettingsSection>
       )}
+      <SaveBar visible={edited !== null} />
+      </div>
       {confirmingReset ? (
         <ConfirmDialog
           title={s.resetTitle}

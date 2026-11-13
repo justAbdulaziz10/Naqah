@@ -2,11 +2,11 @@
 
 import { CaretDown, PencilSimple } from "@phosphor-icons/react";
 import { PlanComparison } from "@/components/plans/PlanComparison";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { ReportCallFields } from "@/components/schedule/ReportCallSection";
 import { nowFor } from "@/domain/clock";
-import { isCompleteCallSchedule } from "@/domain/schedule";
-import type { Workspace } from "@/domain/types";
+import { isCallTime, isCompleteCallSchedule } from "@/domain/schedule";
+import type { CallSchedule, Weekday, Workspace } from "@/domain/types";
 import { RESOURCE_KINDS, RESOURCE_LABELS } from "@/domain/catalog";
 import { plannedQuestions, reportModeOf, reportPlanHasContent } from "@/domain/rules";
 import { allWorkers, workersOverLimit } from "@/domain/workers";
@@ -70,8 +70,41 @@ export function TeamStep(props: SetupFieldsProps) {
   );
 }
 
+/**
+ * The call step opens with a sensible schedule already chosen (the same evening the sample ranch uses):
+ * the worker at 5:00 PM, the owner at 7:00 PM, on Thursday for a weekly plan. Only empty parts are filled,
+ * so anything the owner already set stays. The rules in `src/domain/schedule.ts` are untouched.
+ */
+const DEFAULT_CALL_DAY: Weekday = 4;
+const DEFAULT_WORKER_CALL_TIME = "17:00";
+const DEFAULT_OWNER_CALL_TIME = "19:00";
+
+function withDefaultSchedule(plan: Workspace["settings"]["plan"], schedule: CallSchedule | null | undefined, time: string): CallSchedule | null {
+  const current = schedule ?? { day: null, time: "" };
+  const next: CallSchedule = {
+    day: plan === "basic" && current.day === null ? DEFAULT_CALL_DAY : current.day,
+    time: isCallTime(current.time) ? current.time : time,
+  };
+  return next.day === current.day && next.time === current.time ? null : next;
+}
+
 export function CallStep(props: SetupFieldsProps) {
   const { m } = useI18n();
+  const { ws, onChange } = props;
+  const { plan, callSchedule, ownerCallSchedule } = ws.settings;
+  useEffect(() => {
+    const worker = withDefaultSchedule(plan, callSchedule, DEFAULT_WORKER_CALL_TIME);
+    const owner = withDefaultSchedule(plan, ownerCallSchedule, DEFAULT_OWNER_CALL_TIME);
+    if (!worker && !owner) return;
+    onChange((current) => ({
+      ...current,
+      settings: {
+        ...current.settings,
+        callSchedule: worker ?? current.settings.callSchedule,
+        ownerCallSchedule: owner ?? current.settings.ownerCallSchedule,
+      },
+    }));
+  }, [callSchedule, onChange, ownerCallSchedule, plan]);
   return (
     <div className="space-y-12">
       <ReportCallFields {...props} />

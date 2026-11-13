@@ -11,9 +11,9 @@ export function EveningRail({ locale, className }: { locale: Locale; className?:
   const last = evening.steps.length - 1;
 
   return (
-    <figure data-ui className={cn("bg-cream p-5 text-espresso sm:p-6 lg:px-8 lg:py-6", className)}>
+    <figure data-ui className={cn("border-t-2 border-gold bg-cream p-5 text-espresso sm:p-6 lg:px-8 lg:py-7", className)}>
       <figcaption className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-[0.9375rem]">
-        <span className="whitespace-nowrap font-semibold">{evening.label}</span>
+        <span className="whitespace-nowrap text-[1.0625rem] font-semibold">{evening.label}</span>
         <span className="whitespace-nowrap text-muted">{example}</span>
       </figcaption>
       <div className="relative mt-5 lg:mt-6">

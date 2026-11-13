@@ -115,7 +115,7 @@ export function RhythmStrip({ slots, weekly, now, planned = false, className }: 
                 // Wide enough on a phone for the longest label, "أسبوع 26 نوفمبر" or "Wednesday".
                 "naqah-stagger-item relative flex shrink-0 snap-center flex-col items-center rounded-2xl px-1 pb-1.5 pt-1.5 text-center sm:w-auto sm:pb-3 sm:pt-3",
                 weekly ? "w-32" : "w-28",
-                slot.current && "bg-cream/[0.07]",
+                slot.current && "ring-1 ring-inset ring-cream/30",
               )}
               style={{ "--i": index } as CSSProperties}
             >

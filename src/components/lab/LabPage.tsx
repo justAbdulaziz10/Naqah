@@ -3,7 +3,6 @@
 import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
 import {
   WORKER_LANGUAGES,
   advanceClock,
@@ -173,7 +172,8 @@ function DemoLab() {
       {/* On a phone the call comes first, then the clock; on a wide screen the clock sits above both columns. */}
       <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,460px)_minmax(0,1fr)] lg:items-start">
         <div className="order-2 space-y-5 lg:order-first lg:col-span-2">
-        <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+        {/* The phone card already says this on a phone; the line is for the wide layout, where the card sits beside the panel. */}
+        <div className="hidden items-start gap-2 lg:flex lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-2.5">
             <span className="shrink-0 whitespace-nowrap"><Badge tone={selectedAvailability.tone} dot>{m.lab.availability.label}</Badge></span>
             <p className="pt-0.5 text-sm leading-relaxed text-muted">
@@ -181,11 +181,6 @@ function DemoLab() {
               {selectedAvailability.time ? <> <bdi className="ltr-nums whitespace-nowrap">{selectedAvailability.time}</bdi></> : null}
             </p>
           </div>
-          {selectedAvailability.jump ? (
-            <Button variant="secondary" size="sm" onClick={jumpToCall} className="min-h-11">
-              {m.lab.availability.jumpToCall}
-            </Button>
-          ) : null}
         </div>
 
         <LabClockControls
@@ -218,7 +213,7 @@ function DemoLab() {
             </Suspense>
           ) : (
             <>
-              <LabCallPreview selected={selected} ws={ws} m={m} availability={selectedAvailability} onStart={openSimulator} />
+              <LabCallPreview selected={selected} ws={ws} m={m} availability={selectedAvailability} onStart={openSimulator} onJump={selectedAvailability.jump ? jumpToCall : undefined} />
               {selected === "emergency" ? <EmergencyPanel ws={ws} m={m} t={t} /> : null}
             </>
           )}

@@ -1,5 +1,5 @@
 import { AuthNavigation } from "@/components/auth/AuthNavigation";
-import { ArrowUpRight } from "@phosphor-icons/react/dist/ssr";
+import { ArrowRight } from "@phosphor-icons/react/dist/ssr";
 import type { CSSProperties } from "react";
 import type { Locale } from "@/domain/types";
 import { CamelMark } from "@/components/brand/CamelMark";
@@ -34,7 +34,7 @@ const textLink =
 const flat = "shadow-none!";
 
 function Arrow({ size = 18 }: { size?: number }) {
-  return <ArrowUpRight size={size} weight="regular" className="rtl:-scale-x-100" aria-hidden="true" />;
+  return <ArrowRight size={size} weight="regular" className="rtl:-scale-x-100" aria-hidden="true" />;
 }
 
 /** A missed report call on the product's time line: the call, its retries (rings), then the dashboard. Counts come from the rules. */
@@ -143,15 +143,17 @@ export function LandingPage({ locale }: { locale: Locale }) {
             <HeroDrift className="naqah-drift absolute inset-0 -z-10">
               <EstatePhoto id="hero" locale={locale} eager sizes="100vw" ground="bg-sand-soft" className="naqah-settle h-full w-full" />
             </HeroDrift>
+            {/* A light scrim from the page ground over the sky keeps the title readable wherever the herd stands. */}
+            <div aria-hidden className={'pointer-events-none absolute inset-x-0 top-0 -z-10 h-[62%] bg-linear-to-b from-ivory/80 via-ivory/35 to-transparent' /* taste-skill-ignore: scrim under text on the photograph */} />
             <div className={`${frame} pt-8 sm:pt-14 lg:pt-[clamp(2.5rem,7vh,5rem)]`}>
               <h1
                 id="landing-title"
-                className={`naqah-arrive max-w-[12ch] text-balance text-[clamp(2.5rem,5.6vw,5rem)] font-semibold leading-[1.02] tracking-[-0.035em] text-espresso lg:max-w-none ${arabicDisplay}`}
+                className={`naqah-arrive max-w-[12ch] text-balance text-[clamp(2.75rem,6.4vw,6rem)] font-semibold leading-[0.98] tracking-[-0.04em] text-espresso lg:max-w-[14ch] [html[lang=ar]_&]:leading-[1.18] [html[lang=ar]_&]:tracking-normal`}
               >
                 {landing.hero.title}
               </h1>
               <div className="mt-6 flex-wrap items-center justify-between gap-x-12 gap-y-6 max-sm:hidden sm:flex lg:mt-8">
-                <p className="naqah-arrive max-w-[34rem] text-pretty text-xl leading-9 text-espresso" style={{ "--arrive-delay": "120ms" } as CSSProperties}>
+                <p className="naqah-arrive max-w-[36rem] text-pretty text-xl leading-8 text-espresso/90 lg:text-[1.375rem] lg:leading-9" style={{ "--arrive-delay": "120ms" } as CSSProperties}>
                   {landing.hero.description}
                 </p>
                 <div className="naqah-arrive flex flex-wrap items-center gap-x-7 gap-y-2" style={{ "--arrive-delay": "220ms" } as CSSProperties}>
@@ -180,8 +182,9 @@ export function LandingPage({ locale }: { locale: Locale }) {
         </section>
 
         {/* The evening as a scroll-led sequence, built from the product's own parts. */}
-        <section id="call" aria-labelledby="call-title" className="scroll-mt-20 pb-20 pt-24 sm:pb-24 lg:pb-32 lg:pt-36">
+        <section id="call" aria-labelledby="call-title" className="scroll-mt-20 pb-20 pt-20 sm:pb-24 lg:pb-32 lg:pt-28">
           <div className={frame}>
+            <hr aria-hidden className="mb-14 border-t border-stone lg:mb-20" />
             <h2 id="call-title" data-reveal="" className={`${sectionTitle} max-w-[16ch]`}>
               {landing.story.title}
             </h2>
@@ -254,10 +257,10 @@ export function LandingPage({ locale }: { locale: Locale }) {
               className="naqah-slip -mb-6 w-full bg-cream p-8 pb-14 text-center text-espresso [--tilt:-1.5deg] sm:max-w-[30rem] sm:p-12 sm:pb-16 lg:me-[6%] lg:pb-20"
             >
               <CamelMark className="mx-auto h-12 w-auto" />
-              <h2 id="final-title" className={`mt-6 text-balance text-[clamp(2rem,3.2vw,3rem)] font-semibold leading-[1.12] ${arabicDisplay}`}>
+              <h2 id="final-title" className={`mt-6 text-balance text-[clamp(2.25rem,3.6vw,3.5rem)] font-semibold leading-[1.06] tracking-[-0.025em] ${arabicDisplay}`}>
                 {landing.final.title}
               </h2>
-              <p className="mt-3 text-lg leading-8">{landing.final.body}</p>
+              <p className="mt-4 text-pretty text-lg leading-8 text-espresso/85">{landing.final.body}</p>
               <div className="mt-8 flex flex-col items-stretch gap-1">
                 <EntryActions
                   primary={{ size: "lg", className: `w-full bg-espresso! hover:bg-brown! ${flat}` }}

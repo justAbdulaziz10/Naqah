@@ -31,11 +31,13 @@ export function AuthFrame({ children, demoLink = true, wide = false }: { childre
       <header className="flex items-center justify-between px-4 py-5 sm:px-8 sm:py-6 lg:px-12">
         <Logo locale={locale} href={href('/')} /><AuthLocaleSwitcher />
       </header>
-      {/* Phones: a band of the same photograph above the form. */}
-      {photo ? <div aria-hidden className="relative mx-4 h-28 overflow-hidden rounded-2xl sm:mx-8 lg:hidden">
+      {/* Phones: a band of the same photograph above the form, carrying the promise under a scrim. */}
+      {photo ? <div className="relative mx-4 h-[clamp(14rem,42svh,24rem)] overflow-hidden rounded-2xl bg-espresso sm:mx-8 sm:h-52 lg:hidden">
         <Image src={photo.src} alt="" fill sizes="100vw" className="object-cover" style={{ objectPosition: '50% 55%' }} />
+        <div aria-hidden className={'absolute inset-x-0 bottom-0 h-3/4 bg-linear-to-t from-espresso/85 via-espresso/40 to-transparent' /* taste-skill-ignore: scrim under text on the photograph */} />
+        <p className="absolute inset-x-0 bottom-0 p-5 text-balance text-[1.5rem] font-semibold leading-snug text-cream sm:text-xl [html[lang=ar]_&]:leading-[1.4]">{m.auth.promise}</p>
       </div> : null}
-      <main className={`mx-auto flex w-full ${wide ? 'max-w-[46rem]' : 'max-w-[30rem]'} flex-1 flex-col justify-center px-4 pb-16 pt-6 sm:px-5 lg:pb-24 lg:pt-0`}>
+      <main className={`mx-auto flex w-full ${wide ? 'max-w-[46rem]' : 'max-w-[30rem]'} flex-1 flex-col justify-start px-4 pb-16 pt-6 sm:px-5 lg:justify-center lg:pb-24 lg:pt-0`}>
         {/* The plan choice holds its own cards, so the wide frame sits on the page ground: cards are never nested. */}
         <div className={wide ? 'naqah-auth-in py-2' : 'naqah-auth-in rounded-card border border-stone bg-cream px-5 py-7 sm:px-9 sm:py-9'}>{children}</div>
         {signIn ? (

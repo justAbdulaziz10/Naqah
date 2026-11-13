@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/dashboard/PageHeader";
 import { useHashTarget } from "@/components/dashboard/useHashTarget";
 import { callKindLabel } from "@/components/dashboard/callLabels";
 import { TaskCalendarLink } from "@/components/integrations/TaskCalendarLink";
+import { VerificationSteps } from "@/components/tasks/VerificationSteps";
 import { upcomingReportCall } from "@/components/schedule/ReportCallSection";
 import { AttemptDots } from "@/components/visuals/AttemptDots";
 import { formatDuration } from "@/components/visuals/duration";
@@ -246,6 +247,7 @@ export default function TicketsPage() {
                 >
                   <p className="text-lg font-semibold leading-relaxed text-espresso">{ticket.instruction}</p>
                   {active && !neverDelivered ? <TaskStatus ticket={ticket} worker={worker} now={now} /> : null}
+                  <VerificationSteps ws={ws} ticket={ticket} className="mt-3" />
                   <TaskTiming ws={ws} ticket={ticket} worker={worker} now={now} undelivered={neverDelivered} className="mt-4 max-w-xl" />
                   {stopped ? <UndeliveredNote call={stopped} worker={worker} /> : null}
                   {active && ticket.status === "open" && ticket.scheduledFor ? <TaskCalendarLink ticket={ticket} /> : null}

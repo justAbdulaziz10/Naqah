@@ -59,6 +59,13 @@ export const common = defineMessages({
       home: "Back to the home page",
       orSignOut: "Not your account?",
     },
+    states: {
+      loading: "Loading",
+      errorTitle: "Something didn't load",
+      errorBody: "Check your connection and try again.",
+      retry: "Try again",
+      empty: "Nothing here yet",
+    },
   },
   ar: {
     switchLanguage: "English",
@@ -116,6 +123,13 @@ export const common = defineMessages({
       title: "ما تحمّلت عزبتك",
       home: "ارجع للصفحة الرئيسية",
       orSignOut: "مو حسابك؟",
+    },
+    states: {
+      loading: "جارٍ التحميل",
+      errorTitle: "شي ما تحمّل",
+      errorBody: "تأكد من الاتصال وحاول مرة ثانية.",
+      retry: "حاول مرة ثانية",
+      empty: "ما فيه شي هنا للحين",
     },
   },
 });
