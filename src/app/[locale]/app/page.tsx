@@ -103,7 +103,7 @@ export default function OverviewPage() {
 
   return (
     <div className="naqah-page space-y-5 pb-8">
-      <EstateHeader name={estateName} answer={answer} tone={tone} provenance={provenance} call={<CallBar ws={ws} worker={worker} now={now} />} rhythm={rhythm} next={nextBlock} />
+      <EstateHeader name={estateName} answer={answer} tone={tone} provenance={provenance} call={account ? <CallBar ws={ws} worker={worker} now={now} /> : null} rhythm={rhythm} next={nextBlock} />
 
       <CallSetupStatus ws={ws} />
 
@@ -116,7 +116,10 @@ export default function OverviewPage() {
           )}
           {latestReport ? <ReportLedger ws={ws} report={latestReport} worker={worker} /> : null}
         </div>
-        <HerdField ws={ws} worker={worker} />
+        {/* The short column travels with the long one, so the desktop page has no blank side. */}
+        <div className="min-w-0 lg:sticky lg:top-5">
+          <HerdField ws={ws} worker={worker} />
+        </div>
       </div>
 
       <EmergencyStrip ws={ws} worker={worker} allowance={null} />

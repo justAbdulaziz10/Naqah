@@ -8,13 +8,15 @@ import { ReportSheet } from "@/components/dashboard/ReportSheet";
 import { callEntries, type CallChain, type CallGroup, type ReportStory } from "@/components/dashboard/callStories";
 import { useHashTarget } from "@/components/dashboard/useHashTarget";
 import { CALL_ATTEMPTS } from "@/components/dashboard/callStatus";
+import { callKindLabel } from "@/components/dashboard/callLabels";
+import { AttemptDots, type AttemptMark } from "@/components/visuals/AttemptDots";
 import { useCallSentence } from "@/components/schedule/ReportCallSection";
 import { useScheduledCallsOn } from "@/components/schedule/useScheduledCalls";
 import { CallActivity } from "@/components/visuals/CallActivity";
 import { ReportFlow, type FlowStep } from "@/components/visuals/ReportFlow";
 import { Button, ButtonLink, Card, Segmented } from "@/components/ui";
 import { latestReportCall } from "@/domain";
-import type { CallKind, CallLog, Workspace } from "@/domain";
+import type { CallLog, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { useIsAccount, useNow, useWorkspace } from "@/store/workspace";
@@ -22,20 +24,7 @@ import { CALL_HISTORY_PAGE_DAYS, pageCallEntries } from "@/components/calls/pagi
 
 type CallFilter = "all" | CallGroup;
 
-function callTitle(kind: CallKind, m: ReturnType<typeof useI18n>["m"]) {
-  const labels: Record<CallKind, string> = {
-    worker_report: m.app.calls.workerReport,
-    worker_report_rejected: m.app.calls.rejectedReport,
-    worker_report_missed: m.app.calls.missedReport,
-    worker_callback: m.app.calls.workerCallback,
-    worker_instruction: m.app.calls.instructionDelivery,
-    worker_task_verification: m.app.calls.taskVerification,
-    owner_notification: m.app.calls.ownerBriefing,
-    owner_inquiry: m.app.calls.ownerInquiry,
-    owner_inquiry_rejected: m.app.calls.inquiryDeclined,
-  };
-  return labels[kind];
-}
+const attemptMark = (call: CallLog): AttemptMark => (call.outcome === "no_answer" ? "no_answer" : call.outcome === "rejected" ? "rejected" : call.party === "worker" ? "answered" : "owner");
 
 function Direction({ call, worker }: { call: CallLog; worker: string }) {
   const { m } = useI18n();
@@ -49,20 +38,6 @@ function Direction({ call, worker }: { call: CallLog; worker: string }) {
       <span aria-hidden>{from}</span>
       <ArrowRight size={12} weight="bold" className="shrink-0 rtl:-scale-x-100" aria-hidden />
       <span aria-hidden>{to}</span>
-    </span>
-  );
-}
-
-/** Each attempt of one call as a mark, in the order placed: filled = answered, amber ring = no answer. */
-function AttemptMarks({ calls }: { calls: CallLog[] }) {
-  return (
-    <span aria-hidden className="inline-flex items-center">
-      {calls.map((call, index) => (
-        <span key={call.id} className="inline-flex items-center">
-          {index ? <span className="h-0 w-2.5 border-t-2 border-dashed border-stone" /> : null}
-          <span className={cn("size-3 rounded-full", call.outcome === "no_answer" ? "border-2 border-warn bg-cream" : call.outcome === "rejected" ? "border-2 border-faint bg-cream" : call.party === "worker" ? "bg-brown" : "bg-sand")} />
-        </span>
-      ))}
     </span>
   );
 }
@@ -164,14 +139,14 @@ function ChainRow({ ws, chain, worker }: { ws: Workspace; chain: CallChain; work
           <Direction call={last} worker={worker} />
         </p>
         <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
-          <h3 className="text-[1.0625rem] font-semibold text-espresso">{callTitle(last.kind, m)}</h3>
+          <h3 className="text-[1.0625rem] font-semibold text-espresso">{callKindLabel(last.kind, m)}</h3>
           {many ? null : <OutcomeBadge outcome={last.outcome} />}
         </div>
         {/* A follow-up names its task in the owner's words; otherwise the call's own summary. */}
         <p className="mt-0.5 text-sm leading-relaxed text-espresso">{task ? task.instruction : t((answered ?? last).summary)}</p>
         {many ? (
           <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-            <AttemptMarks calls={chain.calls} />
+            <AttemptDots marks={chain.calls.map(attemptMark)} label={m.visual.tasks.attempts(fmt.number(chain.calls.length))} />
             <span className={answered ? "text-muted" : "font-semibold text-warn"}>
               {answered
                 ? c.answeredOn(fmt.number(answered.attempt ?? chain.calls.indexOf(answered) + 1))
