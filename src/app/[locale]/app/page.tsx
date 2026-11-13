@@ -103,7 +103,7 @@ export default function OverviewPage() {
 
   return (
     <div className="naqah-page space-y-5 pb-8">
-      <EstateHeader name={estateName} answer={answer} tone={tone} provenance={provenance} call={account ? <CallBar ws={ws} worker={worker} now={now} /> : null} rhythm={rhythm} next={nextBlock} />
+      <EstateHeader name={estateName} answer={answer} tone={tone} provenance={provenance} call={<CallBar ws={ws} worker={worker} now={now} />} rhythm={rhythm} next={nextBlock} />
 
       <CallSetupStatus ws={ws} />
 

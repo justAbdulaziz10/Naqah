@@ -75,8 +75,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   if (!hydrated) {
     return (
-      <div className="flex min-h-dvh items-center justify-center">
-        <CamelMark className="h-10 w-auto animate-pulse opacity-60" />
+      <div role="status" aria-live="polite" aria-busy className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
+        <CamelMark className="h-10 w-auto opacity-70 motion-safe:animate-pulse" />
+        <p className="text-sm text-espresso/60">{m.app.loading.ranch}</p>
       </div>
     );
   }

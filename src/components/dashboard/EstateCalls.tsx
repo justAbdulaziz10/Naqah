@@ -45,14 +45,14 @@ function CallColumn({ label, next, now, detail, status }: { label: string; next:
   const day = next ? dayWord(next, now, m.visual.rhythm, () => fmt.dateTime(next, weekdayOnly)) : null;
   return (
     <div className="min-w-0">
-      <p className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 sm:flex-col sm:items-start">
-        <span className="naqah-name text-sm text-cream/70">{label}</span>
+      <p className="flex flex-col items-start gap-y-0.5">
+        <span className="naqah-name text-[0.8125rem] text-cream/70 sm:text-sm">{label}</span>
         {next ? (
-          <span className="text-[1.125rem] font-semibold leading-tight sm:mt-1 sm:text-[1.5rem]">
+          <span className="text-base font-semibold leading-tight sm:mt-1 sm:text-[1.5rem]">
             {day} <time className="ltr-nums" dateTime={next.toISOString()}>{fmt.dateTime(next, timeOnly)}</time>
           </span>
         ) : (
-          <span className="text-[1.125rem] font-semibold leading-tight sm:mt-1 sm:text-[1.5rem]">{m.app.overview.noCallTimeYet}</span>
+          <span className="text-base font-semibold leading-tight sm:mt-1 sm:text-[1.5rem]">{m.app.overview.noCallTimeYet}</span>
         )}
       </p>
       {detail ? <p className="mt-0.5 text-[0.875rem] leading-snug text-cream/75 sm:mt-1 sm:text-[0.9375rem]">{detail}</p> : null}
@@ -98,7 +98,7 @@ export function EstateCalls({ ws, now, worker, hasReport, scheduledOff, nextWork
 
   return (
     <div className="space-y-2.5 sm:space-y-4">
-      <div className="grid gap-x-8 gap-y-2.5 sm:grid-cols-2 sm:gap-y-4">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:gap-x-8 sm:gap-y-4">
         <CallColumn
           label={!nextWorker ? d.nextCall : scheduledOff ? d.plannedCall : hasReport ? o.callsWorker(worker) : o.firstCallsWorker(worker)}
           next={nextWorker}
