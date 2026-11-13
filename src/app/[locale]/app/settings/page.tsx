@@ -513,7 +513,7 @@ export default function SettingsPage() {
       </div>
 
       <SettingsDemoDraft {...fields("questions")} sample={questionsSample}>
-      {(draft, controls, preview) =>
+      {(draft, controls) =>
       <MobileGroup
         id="settings-questions"
         title={m.setup.questions.title}
@@ -534,7 +534,7 @@ export default function SettingsPage() {
 
       <div className="space-y-10 max-sm:space-y-6">
         <SettingsDemoDraft {...fields("ranch")} sample={() => ranchSample}>
-        {(draft, controls, preview) =>
+        {(draft, controls) =>
         <MobileGroup
           id="settings-ranch"
           title={m.setup.ranch.title}
@@ -552,7 +552,7 @@ export default function SettingsPage() {
         }
         </SettingsDemoDraft>
         <SettingsDemoDraft {...fields("team")} sample={() => teamSample}>
-        {(draft, controls, preview) =>
+        {(draft, controls) =>
         <MobileGroup
           id="settings-team"
           title={m.setup.team.title}
@@ -574,13 +574,13 @@ export default function SettingsPage() {
       <SettingsSection id="settings-more" title={s.more}>
         <Card className="divide-y divide-stone/70 overflow-hidden">
           <SettingsDemoDraft {...fields("resources")} sample={() => resourcesSample}>
-            {(draft, controls, preview) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<ResourcesSection {...draft} showSaved={false} /></div>}
+            {(draft, controls) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<ResourcesSection {...draft} showSaved={false} /></div>}
           </SettingsDemoDraft>
           <SettingsDemoDraft {...fields("criteria")} sample={criteriaSample}>
-            {(draft, controls, preview) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<WhatMattersSection {...draft} showSaved={false} /></div>}
+            {(draft, controls) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<WhatMattersSection {...draft} showSaved={false} /></div>}
           </SettingsDemoDraft>
           <SettingsDemoDraft {...fields("emergencies")} sample={emergenciesSample}>
-            {(draft, controls, preview) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<EmergencySection {...draft} showSaved={false} /></div>}
+            {(draft, controls) => <div className="space-y-2">{controls ? <div className="px-5 pt-4">{controls}</div> : null}<EmergencySection {...draft} showSaved={false} /></div>}
           </SettingsDemoDraft>
         </Card>
       </SettingsSection>
