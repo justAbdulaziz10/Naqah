@@ -22,6 +22,28 @@ const NUDGE = Object.freeze({
   ar: 'العامل ساكت. بجملة سعودية قصيرة وودودة تأكد إنه يسمعك، وأعد سؤالك الأخير باختصار. لا تنادي أي أداة.',
   en: 'The worker is silent. In one short, friendly sentence, check they can hear you and briefly repeat your last question. Call no tool.',
 });
+/** The silence watchdog's check-in when there is no question to repeat word for word. */
+const WATCHDOG_NUDGE = Object.freeze({
+  ar: 'المتصل ساكت. بجملة سعودية قصيرة وودودة تأكد إنه يسمعك. لا تنادي أي أداة.',
+  en: 'The caller is silent. In one short, friendly sentence, check they can hear you. Call no tool.',
+});
+/** Said word for word when nobody answered the check-in either. Claims nothing about what was saved. */
+const WATCHDOG_GOODBYE = Object.freeze({
+  ar: 'ما وصلني صوتك، بقفل المكالمة الحين. مع السلامة.',
+  en: "I can't hear you, so I'll end the call now. Goodbye.",
+});
+const CREDIT_ERRORS = new Set(['insufficient_quota', 'credit_balance_exhausted']);
+/** Why a stream closed, as Next records it. Anything not listed is the bridge's own failure. */
+const CLOSE_REASONS = Object.freeze({
+  goodbye_played: 'normal', tool_ended: 'normal', goodbye_timeout: 'normal',
+  silence_timeout: 'silence',
+  maximum_timeout: 'timeout', start_timeout: 'timeout', response_timeout: 'timeout',
+  provider_ready_timeout: 'timeout', speech_recovery_timeout: 'timeout',
+  twilio_closed: 'twilio_closed', twilio_stopped: 'twilio_closed', twilio_error: 'twilio_closed',
+  provider_error: 'openai_error', provider_closed: 'openai_error', provider_invalid: 'openai_error',
+  provider_response_failed: 'openai_error', provider_auth_failed: 'openai_error',
+  provider_handshake_failed: 'openai_error', speech_recovery_failed: 'openai_error',
+});
 const HARMLESS_PROVIDER_ERRORS = new Set(['response_cancel_not_active', 'conversation_already_has_active_response']);
 /** A provider enum for the logs; anything that doesn't look like one is not logged. */
 const label = (value) => (typeof value === 'string' && /^[a-z0-9_.-]{1,64}$/i.test(value) ? value : null);
@@ -39,6 +61,8 @@ const DEFAULT_LIMITS = Object.freeze({
   goodbyeMs: 15_000,
   repromptMs: 10_000,
   maxReprompts: 2,
+  /** No caller speech and no NAQAH audio for this long: one check-in, then the call ends. Needs no Twilio mark. */
+  watchdogMs: 12_000,
   closeMs: 250,
   twilioMessageBytes: 64 * 1024,
   providerMessageBytes: 256 * 1024,
@@ -135,13 +159,21 @@ function proxy(request, response, upstream) {
 }
 
 class CallStream {
-  constructor(twilio, config, calls, streams, limits, logger) {
+  constructor(twilio, config, calls, streams, limits, logger, notifications) {
     this.twilio = twilio;
     this.config = config;
     this.calls = calls;
     this.streams = streams;
     this.limits = limits;
     this.logger = logger;
+    this.notifications = notifications;
+    /** When NAQAH's audio already sent to Twilio should have finished playing, at 8 bytes per ms. */
+    this.playbackEndsAt = 0;
+    this.lastSpeechAt = 0;
+    this.watchdogStage = 0;
+    /** Set when the bridge itself decided to end the call, so the closed notice says why. */
+    this.endReason = null;
+    this.providerCredit = false;
     this.abort = new AbortController();
     this.timers = new Map();
     this.createdAt = Date.now();
@@ -251,6 +283,66 @@ class CallStream {
     });
   }
 
+  /**
+   * A backstop to `activity()`, which waits for Twilio's playback mark: a call to voicemail sat 190 s with no reprompt.
+   * Quiet is timed from the caller's last speech and the estimated end of NAQAH's audio, never from a mark.
+   */
+  watch(milliseconds = this.limits.watchdogMs) {
+    if (this.closed || this.ending || !this.ready) return;
+    this.timer('watchdog', milliseconds, () => this.onWatchdog());
+  }
+
+  onWatchdog() {
+    if (this.closed || this.ending) return;
+    // Speech, a tool and a response each have their own deadline; the watchdog only covers nobody doing anything.
+    if (this.speaking || this.toolPending || this.responsePending || this.responseId || this.nextResponse) return this.watch();
+    const quietFor = Date.now() - Math.max(this.lastSpeechAt, this.playbackEndsAt);
+    if (quietFor < this.limits.watchdogMs) return this.watch(this.limits.watchdogMs - quietFor);
+    if (this.watchdogStage === 0) {
+      this.watchdogStage = 1;
+      this.log('watchdog_reprompt');
+      const prompt = this.lastPrompt?.text?.trim() ? this.lastPrompt : null;
+      if (prompt && !this.natural) this.requestResponse('reprompt', prompt.repromptText?.trim() ? prompt.repromptText : prompt.text, { prompt });
+      else this.requestResponse('nudge', null, { instructions: (this.natural ? NUDGE : WATCHDOG_NUDGE)[this.session.locale] });
+      return this.watch();
+    }
+    this.log('watchdog_end');
+    this.endReason = 'silence';
+    // A guided call carries on by keypad through the <Connect action>, as after the reprompt limit; no goodbye first.
+    if (!this.natural) return this.finish('silence_timeout');
+    this.ending = true;
+    this.clearTimer('silence');
+    this.nextResponse = null;
+    this.timer('goodbye', this.limits.goodbyeMs, () => this.finish('silence_timeout'));
+    this.requestResponse('goodbye', WATCHDOG_GOODBYE[this.session.locale]);
+  }
+
+  heardCaller() {
+    this.lastSpeechAt = Date.now();
+    this.watch();
+  }
+
+  closeReason(event) {
+    if (this.endReason) return this.endReason;
+    if (this.providerCredit) return 'openai_credit';
+    if (this.ending && !['maximum_timeout', 'server_stopped'].includes(event)) return 'normal';
+    return CLOSE_REASONS[event] ?? 'bridge_error';
+  }
+
+  /** Tells Next how the stream ended, signed like every internal request. Never retried, never blocks the close. */
+  notifyClosed(event) {
+    const body = JSON.stringify({ ticket: this.ticket, callSid: this.callSid, reason: this.closeReason(event), event });
+    const notice = fetch(new URL('/api/voice/realtime/closed', this.config.upstream), {
+      method: 'POST', body, headers: internalHeaders(body, this.config.voiceSecret),
+      signal: AbortSignal.timeout(this.limits.internalMs), redirect: 'error',
+    }).then(async (response) => {
+      await response.body?.cancel();
+      if (!response.ok) this.log('closed_notice_failed', { status: response.status });
+    }).catch(() => this.log('closed_notice_failed'));
+    this.notifications.add(notice);
+    void notice.finally(() => this.notifications.delete(notice));
+  }
+
   finish(event) {
     if (this.closed) return;
     this.closed = true;
@@ -260,9 +352,11 @@ class CallStream {
     for (const turn of this.turnLog) turn.settle('');
     this.workerTurn = null;
     this.wakeSpeechWaiters();
-    if (this.calls.get(this.callSid) === this) this.calls.delete(this.callSid);
+    const ownsCall = Boolean(this.callSid) && this.calls.get(this.callSid) === this;
+    if (ownsCall) this.calls.delete(this.callSid);
     this.streams.delete(this);
-    this.log(event);
+    this.log(event, { reason: this.closeReason(event) });
+    if (ownsCall && this.ticket) this.notifyClosed(event);
     this.marks.clear();
     this.items.clear();
     for (const socket of [this.provider, this.twilio]) {
@@ -520,6 +614,7 @@ class CallStream {
     }
     this.items.clear();
     this.marks.clear();
+    this.playbackEndsAt = Date.now();
     this.log('barge_in');
   }
 
@@ -544,12 +639,14 @@ class CallStream {
       if (this.marks.size >= this.limits.maxMarks) return this.finish('playback_limit');
       const chunk = bytes.subarray(offset, offset + 1600);
       item.sentBytes += chunk.length;
+      this.playbackEndsAt = Math.max(Date.now(), this.playbackEndsAt) + chunk.length / 8;
       this.outputFrames += 1;
       this.send(this.twilio, { event: 'media', streamSid: this.streamSid, media: { payload: chunk.toString('base64') } });
       const name = `audio-${++this.markCount}`;
       this.marks.set(name, { item, endBytes: item.sentBytes });
       this.send(this.twilio, { event: 'mark', streamSid: this.streamSid, mark: { name } });
     }
+    this.watch();
     this.activity();
   }
 
@@ -563,6 +660,7 @@ class CallStream {
         return this.finish('speech_recovery_failed');
       }
       if (HARMLESS_PROVIDER_ERRORS.has(event.error?.code)) return this.log('provider_error_ignored', detail);
+      if (CREDIT_ERRORS.has(event.error?.code) || CREDIT_ERRORS.has(event.error?.type)) this.providerCredit = true;
       this.log('provider_error_detail', detail);
       return this.finish('provider_error');
     }
@@ -572,6 +670,7 @@ class CallStream {
       this.clearTimer('ready');
       this.requestResponse('opening', this.session.opening, { repromptText: this.session.repromptText });
       this.log('provider_ready', { droppedEarlyFrames: this.droppedEarlyFrames });
+      this.watch();
     } else if (!this.ready) {
       if (event.type !== 'session.created') throw new Error('Provider not ready');
     } else if (event.type === 'response.created') {
@@ -598,6 +697,7 @@ class CallStream {
     } else if (event.type === 'input_audio_buffer.speech_started') {
       if (this.ending) return;
       this.reprompts = 0;
+      this.heardCaller();
       if (!this.speaking) {
         this.speechEpoch += 1;
         // VAD dates speech 300 ms early (prefix padding) and Twilio's playback mark arrives late: a worker answering
@@ -627,6 +727,7 @@ class CallStream {
     } else if (event.type === 'input_audio_buffer.speech_stopped') {
       this.clearTimer('barge_in');
       this.speaking = false;
+      this.heardCaller();
       this.clearTimer('speech');
       this.activity();
       this.log('speech_stopped');
@@ -638,6 +739,9 @@ class CallStream {
       this.recoveryCommit = null;
       this.speaking = false;
       this.reprompts = 0;
+      // A whole turn from the caller: the check-in starts over. VAD noise alone (no commit) never does.
+      this.watchdogStage = 0;
+      this.heardCaller();
       // A natural call's earlier turn keeps waiting for its words: a tool may still be reading them.
       if (!this.natural) this.workerTurn?.settle('');
       const turn = {
@@ -695,6 +799,8 @@ class CallStream {
         outputs: Array.isArray(event.response.output) ? event.response.output.map((item) => label(item?.type)) : [], interrupted,
       });
       if (event.response.status !== 'completed' && !(interrupted && event.response.status === 'cancelled')) {
+        const error = event.response.status_details?.error;
+        if (CREDIT_ERRORS.has(error?.code) || CREDIT_ERRORS.has(error?.type)) this.providerCredit = true;
         return this.finish('provider_response_failed');
       }
       const kind = this.responseKind;
@@ -728,6 +834,8 @@ class CallStream {
         const name = `goodbye-${++this.markCount}`;
         this.marks.set(name, { final: true });
         this.send(this.twilio, { event: 'mark', streamSid: this.streamSid, mark: { name } });
+        // The watchdog's goodbye doesn't wait on that mark: it closes once the audio should have played.
+        if (this.endReason) this.timer('goodbye', Math.max(0, this.playbackEndsAt - Date.now()) + 1_000, () => this.finish('silence_timeout'));
       } else this.flushResponse();
       this.activity();
     }
@@ -962,9 +1070,10 @@ function realtimeProbe(config) {
 }
 
 export function createBridge({ config, limits: overrides = {}, logger = (record) => console.log(JSON.stringify(record)), fetchImpl = fetch }) {
-  const limits = { ...DEFAULT_LIMITS, ...overrides };
+  const limits = { ...DEFAULT_LIMITS, ...(config.watchdogMs ? { watchdogMs: config.watchdogMs } : {}), ...overrides };
   const calls = new Map();
   const streams = new Set();
+  const notifications = new Set();
   const sockets = new WebSocketServer({
     noServer: true, maxPayload: limits.twilioMessageBytes, perMessageDeflate: false,
   });
@@ -1007,7 +1116,7 @@ export function createBridge({ config, limits: overrides = {}, logger = (record)
       return;
     }
     sockets.handleUpgrade(request, socket, head, (twilio) => {
-      const stream = new CallStream(twilio, config, calls, streams, limits, logger);
+      const stream = new CallStream(twilio, config, calls, streams, limits, logger, notifications);
       streams.add(stream);
     });
   });
@@ -1015,6 +1124,7 @@ export function createBridge({ config, limits: overrides = {}, logger = (record)
     server,
     async close() {
       for (const stream of streams) stream.finish('server_stopped');
+      await Promise.allSettled([...notifications]);
       sockets.close();
       await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     },

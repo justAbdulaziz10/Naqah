@@ -21,6 +21,10 @@ approval. The bridge never reads or loads `.env` files.
   `TWILIO_AUTH_TOKEN`, `NAQAH_VOICE_SECRET`, `OPENAI_API_KEY`.
 - Optional: `PORT` (3300), `NAQAH_BRIDGE_UPSTREAM` (HTTP(S) origin, default
   `http://127.0.0.1:3301`). Missing/invalid configuration prevents listening.
+- `NAQAH_BRIDGE_DNS_ORDER` (`ipv4first` by default; `ipv6first` or `verbatim`)
+  is applied with `dns.setDefaultResultOrder` before listening. NAT64 networks
+  answer IPv6 first for api.openai.com and Node then times out.
+- `NAQAH_BRIDGE_SILENCE_SECONDS` (12, 5–60): the silence watchdog's window.
 - Tests only: `NAQAH_REALTIME_URL` replaces the provider URL **only** for a
   loopback `ws://` destination. `localhost` is pinned to `127.0.0.1`, avoiding
   DNS resolution; IPv4 loopback and `[::1]` are supported. No remote or TLS
@@ -136,6 +140,23 @@ before the next silence interval starts. Any worker speech resets the count.
 Without usable reprompt text, the next silence interval falls back without
 inventing a prompt.
 
+A silence watchdog backs this up without relying on Twilio marks (a call to
+voicemail once sat 190 s with no reprompt). Quiet is timed from the caller's last
+VAD event and the estimated end of NAQAH's audio already sent (8 bytes/ms). It
+waits while speech, a tool or a response is pending; each has its own deadline.
+After one window it re-asks the current prompt verbatim (guided) or nudges in the
+model's words (natural). Only a committed caller turn starts it over. After a
+second window a guided call closes with `silence_timeout` (keypad fallback, as
+above); a natural call says a short goodbye verbatim and closes once that audio
+should have played.
+
+When a started stream closes, the bridge POSTs `/api/voice/realtime/closed`,
+signed like the other internal requests, with `{ ticket, callSid, reason, event }`.
+`reason` is one of `normal`, `silence`, `timeout`, `twilio_closed`, `openai_error`,
+`openai_credit` or `bridge_error`. Next only adds the run's diagnostic; Twilio's
+`<Connect action>` and status callback still decide the outcome. The notice is
+not retried and never delays the close; `close()` waits for pending notices.
+
 On `end: "hangup"` or `"fallback"`, a nonempty goodbye is requested verbatim
 with tools disabled. The bridge waits for response completion and an additional
 final Twilio mark, or the goodbye timeout, before closing. A null/empty goodbye
@@ -178,5 +199,6 @@ npx eslint services/voice-bridge/*.mjs
 Tests supply only dummy credentials and local mock upstream/provider/Twilio
 connections. Ports 3901–3905 are used, with sequential tests and complete
 teardown; no production port, ngrok, external OpenAI connection or Twilio API is
-used. No Next build is required. The root Vitest configuration only includes
-`src/**/*.test.ts`; run this separate Node suite explicitly.
+used. No Next build is required. The root Vitest configuration includes only
+`src/**/*.test.ts` and `scripts/**/*.test.mjs`, so `npm test` skips this
+`node:test` suite; run it explicitly.
