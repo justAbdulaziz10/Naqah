@@ -41,7 +41,8 @@ const FILLER = new Set([
   "الكلام", "والله", "it", "that", "s", "is", "all", "please", "thanks", "thank", "you",
 ]);
 /** «لا تعدل», «ما فيه تعديل»: nothing to change is a yes to the summary as it stands. */
-const NOTHING_TO_CHANGE = /(?:^| )(?:(?:و?لا|ما|مو) (?:ما )?(?:(?:تعدلي?|تغيري?|اعدل|اغير|(?:ابي|ابغى|ابغي|ودي) (?:اعدل|اغير|اصحح)|يحتاج (?:تعدلي?|تغيري?|اعدل|اغير|تعديل))(?: (?:شي|شيء|اي شي))?)|ما ?(?:فيه|في) (?:تعديل|شي يتعدل)|no changes?|nothing to change|no need to (?:edit|change)|(?:don t|do not) (?:edit|change)(?: it)?)(?= |$)/u;
+// Only «ما» negates «أبي/أبغى/ودي» or a first-person «أعدل»: «لا، أبي أعدل» is "no, I want to change it".
+const NOTHING_TO_CHANGE = /(?:^| )(?:(?:(?:و?لا|ما|مو) (?:ما )?(?:تعدلي?|تغيري?|يحتاج (?:تعدلي?|تغيري?|اعدل|اغير|تعديل))|(?:و?لا )?ما (?:اعدل|اغير|(?:ابي|ابغى|ابغي|ودي) (?:اعدل|اغير|اصحح))|(?:و?لا )?ودي ما (?:اعدل|اغير))(?: (?:شي|شيء|اي شي))?|ما ?(?:فيه|في) (?:تعديل|شي يتعدل)|no changes?|nothing to change|no need to (?:edit|change)|(?:don t|do not) (?:edit|change)(?: it)?)(?= |$)/u;
 const WANTS_CHANGE = /(?:^| )(?:و?(?:اعدل|عدلي?(?:ه|ها)?|تعدلي?|اغير|غيري?(?:ه|ها)?|تغيري?|اصحح|صححي?(?:ه|ها)?|تصحيح|تعديل)|(?:مو|مش|غير) (?:صح|صحيح|صحيحه|مضبوط|مضبوطه)|edit|editing|change|changes|correction|correcting|correct (?:it|this|that|the|my))(?= |$)/u;
 const NO_THEN_SAVE = /^(?:لا|لاء) (?=تمام (?:احفظ(?:ي(?:ه|ها)?|ه|ها)?|سجل(?:ي(?:ه|ها)?|ه|ها)?)(?: |$))/u;
 /** «توكل على الله», «يلا احفظ», and «الله يعطيك العافية» said back to «أحفظه؟»: a Saudi go-ahead. */
