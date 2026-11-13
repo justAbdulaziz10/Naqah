@@ -4,7 +4,10 @@ import { recordBridgeClosed } from "@/server/voice/realtime/closed";
 
 export const maxDuration = 20;
 
-/** The bridge reports why a call's stream closed. Diagnostic only; it never moves the call or its run. */
+/**
+ * The bridge reports why a call's stream closed. The closure is stored on the session before the response; a silent
+ * natural report call's run and diagnostic are settled after it (`after`), so the bridge's short wait is enough.
+ */
 export async function POST(request: Request): Promise<Response> {
   const bridge = await bridgeRequest(request);
   if (bridge instanceof Response) return bridge;

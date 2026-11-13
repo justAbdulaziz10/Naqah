@@ -1139,7 +1139,7 @@ test('reprompts wait for full playback marks, run twice, then time out after one
     assert.ok(state.logs.some((record) => record.event === 'silence_timeout'));
     await waitFor(() => state.requests.length === 2);
     assert.equal(state.requests[0].url, '/api/voice/realtime/session');
-    assert.deepEqual(state.requests[1].body, { ticket: 'mock-ticket', callSid: CALL_SID, reason: 'silence', event: 'silence_timeout' });
+    assert.deepEqual(state.requests[1].body, { ticket: 'mock-ticket', callSid: CALL_SID, reason: 'silence', event: 'silence_timeout', workerSpoke: false });
   } finally { await state.close(); }
 });
 
@@ -1160,7 +1160,7 @@ test('watchdog: with no playback marks at all, silence gets one verbatim repromp
     assert.ok(state.logs.some((record) => record.event === 'watchdog_end'));
     assert.equal(responses(state).length, 2);
     await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
-    assert.deepEqual(state.requests.at(-1).body, { ticket: 'mock-ticket', callSid: CALL_SID, reason: 'silence', event: 'silence_timeout' });
+    assert.deepEqual(state.requests.at(-1).body, { ticket: 'mock-ticket', callSid: CALL_SID, reason: 'silence', event: 'silence_timeout', workerSpoke: false });
   } finally { await state.close(); }
 });
 
@@ -1212,7 +1212,33 @@ test('watchdog: a natural call checks in once in its own words, then says goodby
     assert.ok(connection.messages.received.slice(offset).some((event) => event.event === 'media'));
     await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
     assert.equal(state.requests.at(-1).body.reason, 'silence');
+    assert.equal(state.requests.at(-1).body.workerSpoke, false);
     assert.equal(state.requests.at(-1).acknowledged, true);
+  } finally { await state.close(); }
+});
+
+test('closed notice: silence after the worker spoke is reported with workerSpoke, under the same signature', async () => {
+  const state = await fixture({ session: { style: 'natural' }, limits: { watchdogMs: 80, repromptMs: 60_000 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection, undefined, false);
+    send(state.provider, { type: 'input_audio_buffer.speech_started', audio_start_ms: 0 });
+    send(state.provider, { type: 'input_audio_buffer.speech_stopped', audio_end_ms: 500 });
+    send(state.provider, { type: 'input_audio_buffer.committed', item_id: 'worker-said' });
+    send(state.provider, { type: 'conversation.item.input_audio_transcription.completed', item_id: 'worker-said', content_index: 0, transcript: 'Fifty camels' });
+    await waitFor(() => responses(state).length === 2);
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => responses(state).length === 3);
+    await playPrompt(state, connection, undefined, false);
+    await waitFor(() => responses(state).length === 4);
+    state.audio(160, 'goodbye-item');
+    state.complete();
+    await closed(connection.socket);
+    await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
+    const notice = state.requests.find((request) => request.url === '/api/voice/realtime/closed');
+    assert.equal(notice.body.reason, 'silence');
+    assert.equal(notice.body.workerSpoke, true);
   } finally { await state.close(); }
 });
 
@@ -1262,7 +1288,7 @@ test('closed notice: a normal ending waits for persistence before releasing Twil
   } finally { await state.close(); }
 });
 
-test('closed notice: an unavailable acknowledgement cannot keep Twilio open past its bound', async () => {
+test('closed notice: a slow acknowledgement cannot keep Twilio open past its bound, and the notice still lands', async () => {
   const state = await fixture({ closedDelay: 300, limits: { closedNoticeMs: 50 }, toolResult: { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: null } });
   try {
     const connection = await state.connect();
@@ -1270,14 +1296,29 @@ test('closed notice: an unavailable acknowledgement cannot keep Twilio open past
     await playPrompt(state, connection);
     await workerTool(state, 'end-without-ack', 'end_call');
     await closed(connection.socket);
-    assert.ok(!state.requests.at(-1).acknowledged);
-    assert.ok(state.logs.some((record) => record.event === 'closed_notice_failed'));
+    const notice = state.requests.at(-1);
+    assert.ok(!notice.acknowledged);
+    // Only Twilio's wait is bounded; the request keeps the normal internal timeout and is not aborted.
+    await waitFor(() => notice.acknowledged === true);
+    assert.ok(!state.logs.some((record) => record.event === 'closed_notice_failed'));
+  } finally { await state.close(); }
+});
+
+test('closed notice: an unreachable acknowledgement is still bounded by the internal timeout', async () => {
+  const state = await fixture({ closedDelay: 300, limits: { closedNoticeMs: 50, internalMs: 100 }, toolResult: { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: null } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'end-timeout', 'end_call');
+    await closed(connection.socket);
+    await waitFor(() => state.logs.some((record) => record.event === 'closed_notice_failed'));
   } finally { await state.close(); }
 });
 
 test('wrap-up: asks for the normal summary and explicit save near the cap, retaining tools', async () => {
   for (const locale of ['ar', 'en']) {
-    const state = await fixture({ session: { style: 'natural', locale }, maxSeconds: 0.5, limits: { wrapUpMs: 400 } });
+    const state = await fixture({ session: { style: 'natural', locale }, maxSeconds: 1, limits: { wrapUpMs: 450 } });
     try {
       const connection = await state.connect();
       await state.ready(connection.socket);
@@ -1293,11 +1334,11 @@ test('wrap-up: asks for the normal summary and explicit save near the cap, retai
 });
 
 test('wrap-up: waits for the active reply instead of interrupting it', async () => {
-  const state = await fixture({ session: { style: 'natural' }, maxSeconds: 0.5, limits: { wrapUpMs: 450 } });
+  const state = await fixture({ session: { style: 'natural' }, maxSeconds: 1, limits: { wrapUpMs: 450 } });
   try {
     const connection = await state.connect();
     await state.ready(connection.socket);
-    await delay(80);
+    await delay(600);
     assert.equal(responses(state).length, 1);
     assert.ok(!state.providerEvents.some((event) => event.type === 'response.cancel'));
     await playPrompt(state, connection);
@@ -1322,6 +1363,48 @@ test('wrap-up: pending confirmation gets bounded closing grace, without another 
     assert.ok(!responses(state).some((event) => /nearing its time limit/.test(event.response.instructions ?? '')));
     await closed(connection.socket);
     assert.ok(state.logs.some((record) => record.event === 'maximum_timeout'));
+  } finally { await state.close(); }
+});
+
+test('wrap-up: a cap shorter than twice the wrap-up has none, rather than one at the opening', async () => {
+  const state = await fixture({ session: { style: 'natural' }, maxSeconds: 0.5, limits: { wrapUpMs: 400, confirmationGraceMs: 50 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await closed(connection.socket);
+    assert.ok(!responses(state).some((event) => /nearing its time limit/.test(event.response.instructions ?? '')));
+    assert.ok(state.logs.some((record) => record.event === 'maximum_timeout'));
+  } finally { await state.close(); }
+});
+
+test('wrap-up: a wrap-up held for a pending confirmation is not spoken after the call starts ending', async () => {
+  let calls = 0;
+  const state = await fixture({
+    session: { style: 'natural' }, maxSeconds: 1.2,
+    limits: { wrapUpMs: 500, confirmationGraceMs: 2_000 },
+    toolResult: () => (calls++ === 0
+      ? { output: '{}', awaitingConfirmation: true, end: null, goodbye: null, summaryText: 'Mock summary. Shall I save it?' }
+      : { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: 'Mock goodbye' }),
+  });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'summary-first', 'submit_report');
+    await playPrompt(state, connection);
+    // The summary's question is spoken on its own.
+    await waitFor(() => state.logs.some((record) => record.event === 'response_created' && record.kind === 'closing'));
+    await playPrompt(state, connection);
+    // The wrap-up comes due while the summary waits for its answer: it stays pending.
+    await delay(800);
+    await workerTool(state, 'refuse-and-end', 'confirm_report');
+    await waitFor(() => state.logs.some((record) => record.event === 'response_requested' && record.kind === 'goodbye'));
+    state.audio(160, 'goodbye-item');
+    state.complete();
+    await delay(50);
+    assert.ok(state.logs.some((record) => record.event === 'response_requested' && record.kind === 'goodbye'));
+    assert.ok(!responses(state).some((event) => /nearing its time limit/.test(event.response.instructions ?? '')));
   } finally { await state.close(); }
 });
 
