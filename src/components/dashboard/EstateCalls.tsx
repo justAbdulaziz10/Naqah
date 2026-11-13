@@ -65,7 +65,7 @@ function CallColumn({ label, next, now, detail, status }: { label: string; next:
  * The header's calls, side by side: the next call to the worker and to the owner, each with how its
  * latest attempt stands. A column shows only what is true now; an old run says nothing here.
  */
-export function EstateCalls({ ws, now, worker, hasReport, scheduledOff, nextWorker, workerStatus }: {
+export function EstateCalls({ ws, now, worker, hasReport, scheduledOff, nextWorker, workerStatus, stacked = false }: {
   ws: Workspace;
   now: Date;
   worker: string;
@@ -73,6 +73,8 @@ export function EstateCalls({ ws, now, worker, hasReport, scheduledOff, nextWork
   scheduledOff: boolean;
   nextWorker: Date | null;
   workerStatus: WorkerCallStatus | null;
+  /** In the header's side column on wide screens the two calls sit one under the other. */
+  stacked?: boolean;
 }) {
   const { m, fmt, href } = useI18n();
   const o = m.app.overview;
@@ -98,7 +100,7 @@ export function EstateCalls({ ws, now, worker, hasReport, scheduledOff, nextWork
 
   return (
     <div className="space-y-2.5 sm:space-y-4">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:gap-x-8 sm:gap-y-4">
+      <div className={stacked ? "grid grid-cols-2 gap-x-4 gap-y-2.5 sm:gap-x-8 sm:gap-y-4 lg:grid-cols-1 lg:gap-y-6" : "grid grid-cols-2 gap-x-4 gap-y-2.5 sm:gap-x-8 sm:gap-y-4"}>
         <CallColumn
           label={!nextWorker ? d.nextCall : scheduledOff ? d.plannedCall : hasReport ? o.callsWorker(worker) : o.firstCallsWorker(worker)}
           next={nextWorker}
@@ -119,5 +121,44 @@ export function EstateCalls({ ws, now, worker, hasReport, scheduledOff, nextWork
       {/* After both calls, so on a phone it never sits between them. */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">{actions}</div>
     </div>
+  );
+}
+
+/**
+ * The same two calls in one line, for the phone's first screen: the next call to the worker and to
+ * the owner, each as a day word and a time. A live attempt (ringing, retry) replaces the time, so
+ * the line never promises a call that is already under way.
+ */
+export function NextCallsLine({ ws, now, worker, nextWorker, workerStatus }: {
+  ws: Workspace;
+  now: Date;
+  worker: string;
+  nextWorker: Date | null;
+  workerStatus: WorkerCallStatus | null;
+}) {
+  const { m, fmt } = useI18n();
+  const c = m.app.overview.compact;
+  const nextOwner = nextOwnerCall(ws, now);
+  const live = workerLine(workerStatus, worker, m, fmt);
+  const at = (date: Date) => (
+    <>
+      {dayWord(date, now, m.visual.rhythm, () => fmt.dateTime(date, weekdayOnly))} <time className="ltr-nums" dateTime={date.toISOString()}>{fmt.dateTime(date, timeOnly)}</time>
+    </>
+  );
+  if (live) return <span className="naqah-name font-medium text-cream">{live}</span>;
+  if (!nextWorker) return <span className="font-medium text-cream">{m.app.overview.noCallTimeYet}</span>;
+  return (
+    <>
+      <span className="text-cream/70">{c.next} </span>
+      <span className="naqah-name font-semibold text-cream">{at(nextWorker)}</span>
+      <span className="text-cream/70"> · {worker}</span>
+      {nextOwner ? (
+        <>
+          <span className="text-cream/50" aria-hidden> | </span>
+          <span className="naqah-name font-semibold text-cream">{at(nextOwner)}</span>
+          <span className="text-cream/70"> · {c.you}</span>
+        </>
+      ) : null}
+    </>
   );
 }
