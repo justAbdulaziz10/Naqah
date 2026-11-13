@@ -6,9 +6,11 @@ import type { ReactNode } from "react";
 import type { Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { nextOwnerCall, ownerCallStatus, type OwnerCallStatus, type WorkerCallStatus } from "./callStatus";
+import { dayWord } from "./dayWord";
 
 // formatDateTime fills in every field it is not told to leave out.
-const dayTime = { weekday: "long", day: undefined, month: undefined } as const;
+const weekdayOnly = { weekday: "long", day: undefined, month: undefined, hour: undefined, minute: undefined } as const;
+const timeOnly = { weekday: undefined, day: undefined, month: undefined } as const;
 const dayMonth = { weekday: undefined, hour: undefined, minute: undefined } as const;
 
 type M = ReturnType<typeof useI18n>["m"];
@@ -33,15 +35,17 @@ function ownerLine(status: OwnerCallStatus | null, m: M, fmt: Fmt): string | nul
   return owner.missed(status.attempts);
 }
 
-function CallColumn({ label, next, detail, status }: { label: string; next: Date | null; detail: ReactNode; status: string | null }) {
+function CallColumn({ label, next, now, detail, status }: { label: string; next: Date | null; now: Date; detail: ReactNode; status: string | null }) {
   const { m, fmt } = useI18n();
+  // The same day word as the rail above: Today, Tomorrow, then the weekday.
+  const day = next ? dayWord(next, now, m.visual.rhythm, () => fmt.dateTime(next, weekdayOnly)) : null;
   return (
     <div className="min-w-0">
       <p className="naqah-name text-sm text-cream/70">{label}</p>
       {next ? (
         <p className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           <span className="text-[1.25rem] font-semibold leading-tight sm:text-[1.5rem]">
-            <time className="ltr-nums" dateTime={next.toISOString()}>{fmt.dateTime(next, dayTime)}</time>
+            {day} <time className="ltr-nums" dateTime={next.toISOString()}>{fmt.dateTime(next, timeOnly)}</time>
           </span>
           <span className="text-[0.9375rem] text-cream/75">{detail}</span>
         </p>
@@ -94,6 +98,7 @@ export function EstateCalls({ ws, now, worker, hasReport, scheduledOff, nextWork
         <CallColumn
           label={!nextWorker ? d.nextCall : scheduledOff ? d.plannedCall : hasReport ? o.callsWorker(worker) : o.firstCallsWorker(worker)}
           next={nextWorker}
+          now={now}
           detail={nextWorker ? (scheduledOff ? o.callingInactive : when(nextWorker)) : null}
           status={workerLine(workerStatus, worker, m, fmt)}
         />
@@ -101,6 +106,7 @@ export function EstateCalls({ ws, now, worker, hasReport, scheduledOff, nextWork
           <CallColumn
             label={scheduledOff ? o.plannedForYou : o.callsYou}
             next={nextOwner}
+            now={now}
             detail={scheduledOff ? fmt.dateTime(nextOwner, dayMonth) : when(nextOwner)}
             status={ownerLine(ownerCallStatus(ws, now), m, fmt)}
           />

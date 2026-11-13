@@ -6,6 +6,7 @@ import type { RhythmSlot, RhythmState } from "@/domain/rhythm";
 import { DAY } from "@/domain/clock";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
+import { dayWord } from "@/components/dashboard/dayWord";
 
 /** Each state has its own shape, so the strip reads without colour: a tick, a cross, a dot, rings. */
 function Mark({ state, size = "lg" }: { state: RhythmState; size?: "lg" | "sm" }) {
@@ -69,7 +70,7 @@ export function RhythmStrip({ slots, weekly, now, planned = false, className }: 
       ? weekly ? r.thisWeek : r.today
       : weekly
         ? r.weekOf(fmt.dateTime(slot.callAt ?? slot.start, { weekday: undefined, hour: undefined, minute: undefined, month: "short", day: "numeric" }))
-        : fmt.dateTime(slot.start, { weekday: "long", day: undefined, month: undefined, hour: undefined, minute: undefined });
+        : dayWord(slot.start, now, r, () => fmt.dateTime(slot.start, { weekday: "long", day: undefined, month: undefined, hour: undefined, minute: undefined }));
   const sub = (slot: RhythmSlot) =>
     weekly
       ? slot.callAt ? fmt.dateTime(slot.callAt, { weekday: "short", day: undefined, month: undefined, hour: undefined, minute: undefined }) : ""
