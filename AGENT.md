@@ -46,7 +46,7 @@ Brand promise: **Peace of Mind — «اطمئنان، دون انشغال»**. P
 
 Agent behavior (from `NAQAH_AI_Agent_Identity_DRAFT_v0.1`): identifies itself as automated; one question at a time;
 accepts «ما أدري» / "I don't know"; confirms quantities and camel names; never diagnoses; never claims
-"saved/notified/created" before the system confirms; labels facts as *reported / approximate / unknown / verified*;
+"saved/notified/created" before the system confirms; a thanks such as «الله يعطيك العافية» alone is never a save confirmation (only an explicit yes to the read-back is); labels facts as *reported / approximate / unknown / verified*;
 never presents old data as new; stores extracted facts only (**no recordings**).
 
 **Report modes (Nov 2026).** *Guided* asks the owner's enabled questions in order, one at a time. *Open* lets the worker say what happened; facts land in their topics and anything unmentioned is saved as **not reported**, never healthy or unchanged, and is not asked about. Due tasks are still asked after an open update, because a task closes only on an explicit yes. Both modes read back every recorded detail, allow corrections, and save one report only after an explicit yes to the summary the worker actually heard. The model listens and classifies; the server chooses every spoken word. Calls stay short: one question at a time, options read aloud only on the keypad or after an answer was not understood, and no per-item confirmations, because the final read-back confirms everything. Words about another topic are kept as a note and read back, never dropped. Task verifications due at the same time share one worker call.

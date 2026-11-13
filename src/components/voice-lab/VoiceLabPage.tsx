@@ -9,6 +9,10 @@ import type { Locale } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { voiceLabRequest, type LabAccess, type LabMode, type LabStatus } from "./voiceLabProtocol";
 
+// Build-time public flag, same one that shows the nav link. When off, the server route
+// intentionally answers 404, so do not call it at all (avoids a console 404).
+const VOICE_LAB_ENABLED = process.env.NEXT_PUBLIC_NAQAH_VOICE_LAB === "1";
+
 type Copy = ReturnType<typeof useI18n>["m"]["voiceLab"];
 
 const VoiceLabSession = lazy(() => import("./VoiceLabSession").then((module) => ({ default: module.VoiceLabSession })));
@@ -18,11 +22,12 @@ export function VoiceLabPage() {
   const copy = m.voiceLab;
   const [agentLocale, setAgentLocale] = useState<Locale>("ar");
   const [chosenMode, setChosenMode] = useState<LabMode>("voice");
-  const [access, setAccess] = useState<LabAccess>("loading");
+  const [access, setAccess] = useState<LabAccess>(VOICE_LAB_ENABLED ? "loading" : "private");
   const [status, setStatus] = useState<LabStatus | null>(null);
   const [started, setStarted] = useState(false);
 
   useEffect(() => {
+    if (!VOICE_LAB_ENABLED) return;
     let active = true;
     void voiceLabRequest("status", { op: "status", locale: agentLocale }).then(({ status: responseStatus, data }) => {
       if (!active) return;
