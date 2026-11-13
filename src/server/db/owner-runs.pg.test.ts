@@ -17,7 +17,7 @@ const slot = new Date("2026-11-12T15:00:00.000Z"); // Thursday 18:00 Riyadh
 const at = (minutes: number) => new Date(slot.getTime() + minutes * 60_000);
 
 function sql(query: string): string {
-  if (!enabled || process.env.PGHOST !== "127.0.0.1" || process.env.PGPORT !== "54500") throw new Error("Only the isolated owner-runs database on port 54500 is allowed");
+  if (!enabled || process.env.PGHOST !== "127.0.0.1" || !/^\d+$/.test(process.env.PGPORT ?? "")) throw new Error("Only the isolated local owner-runs database is allowed");
   return execFileSync("/opt/homebrew/opt/postgresql@17/bin/psql", ["-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", database!], {
     input: query, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"],
   }).trim();
