@@ -27,10 +27,10 @@ Call Lab simulates calls; if signature validation is off, it says automatic owne
    `https://<your-domain>/api/voice/status`, also using **HTTP POST**.
 3. Set `NAQAH_VOICE_SECRET` to a strong random secret, `NAQAH_WORKER_PHONE` to the worker's registered E.164 number,
    and `NEXT_PUBLIC_NAQAH_PHONE_NUMBER` to the purchased number. Set `TWILIO_AUTH_TOKEN` to require signature
-   validation on every inbound/turn webhook. Production voice always refuses requests without the token, regardless of
-   `NAQAH_ALLOW_UNSIGNED_VOICE`. With no token, only the non-production sample line accepts unsigned calls; they never
-   send paid owner summaries. Optionally set
-   `NAQAH_OWNER_PHONE` to let the owner call in for an inquiry.
+   validation on every inbound/turn webhook. Production voice always refuses requests without the token. With no
+   token, only the non-production sample line accepts unsigned calls; they never send paid owner summaries.
+   Optionally set `NAQAH_OWNER_PHONE`: an owner calling in hears a short closed line (owners do not call NAQAH), and
+   with `NAQAH_CALL_OWNER=1` it is where the sample summary call goes.
 4. In Vercel project settings, add the same server variables to the environments you use. Add the public number as
    `NEXT_PUBLIC_NAQAH_PHONE_NUMBER`, then redeploy so it is available to the Settings card.
 5. Set `NAQAH_PUBLIC_BASE_URL` to the public origin Twilio calls if your proxy does not provide the correct first
@@ -53,9 +53,9 @@ Confirm current number availability and local requirements directly with either 
 |---|---|
 | `NAQAH_VOICE_SECRET` | HMAC-SHA256 key for signed stateless call state. Required for live voice. |
 | `NAQAH_WORKER_PHONE` | Registered worker caller ID, preferably E.164. Required for live voice. |
-| `NAQAH_OWNER_PHONE` | Owner caller ID; enables owner inquiry matching and is required for owner call summaries. |
+| `NAQAH_OWNER_PHONE` | Owner caller ID: an owner calling in hears a short closed line. Required for owner call summaries. |
 | `NAQAH_PUBLIC_BASE_URL` | Public origin Twilio signs; takes precedence over forwarded headers. |
-| `NAQAH_ALLOW_UNSIGNED_VOICE` | Legacy setting; it cannot permit unsigned production voice. Local sample-line signature checks depend on whether `TWILIO_AUTH_TOKEN` is set. |
+| `NAQAH_ALLOW_UNSIGNED_VOICE` | Removed: no longer read. Local sample-line signature checks depend on whether `TWILIO_AUTH_TOKEN` is set. |
 | `NAQAH_VOICE_LOCALE` | `ar` by default, or `en`. |
 | `NAQAH_VOICE_ARABIC_VOICE` | Twilio `<Say>` voice override; defaults to `Polly.Zeina`. |
 | `NAQAH_VOICE_ENGLISH_VOICE` | Twilio `<Say>` voice override; defaults to `Polly.Joanna`. |
@@ -129,10 +129,10 @@ POST each `SpeechResult` to the `<Gather action>` URL returned by Twilio.
   retried twice before an unknown choice is selected or the call ends.
 - Caller ID identifies a configured worker or owner but can be spoofed by a caller. A valid Twilio signature proves
   the webhook came through Twilio; it does not prove that the caller ID belongs to the person calling.
-- The worker match is checked before the owner match. If `NAQAH_OWNER_PHONE` is the same number as
-  `NAQAH_WORKER_PHONE`, calls from that number are always treated as worker reports and owner inquiry is unreachable.
+- The owner match is checked before the worker match. If `NAQAH_OWNER_PHONE` is the same number as
+  `NAQAH_WORKER_PHONE`, calls from that number hear the owner's closed line and the sample report is unreachable.
 - WhatsApp provider policy, number eligibility, call pricing, and templates are controlled by Meta and Twilio and can
   change. Confirm current terms and charges with each provider before enabling a paid channel.
-- A later step is a realtime speech model connected through Twilio media streams (or provider SIP). Keep the engine's
+- Realtime speech through Twilio media streams exists for farm-mode report calls (`realtime-voice.md`). Keep the engine's
   domain transitions as tools, let the model phrase each turn, and save structured facts only after the domain action
   confirms success. Do not store recordings.

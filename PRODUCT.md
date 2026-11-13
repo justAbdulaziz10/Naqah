@@ -20,10 +20,11 @@ web
 
 ## Product Purpose
 
-NAQAH is private camel-ranch operations management for one owner, one farm and one worker. The
-worker calls the NAQAH AI voice agent, which asks the owner's configured questions and records
-structured facts. After a successful update the AI calls the owner with only what matters. The
-website is where the owner sets up the estate and checks its latest state.
+NAQAH is private camel-ranch operations management for one owner and one farm, with up to 3
+registered workers (Basic) or 10 (Ultimate). At the time the owner sets, NAQAH's AI voice agent
+calls the primary worker, asks the owner's configured questions and records structured facts. At
+the owner's own scheduled time the AI calls the owner with only what matters. The website is where
+the owner sets up the estate and checks its latest state.
 
 Success is peace of mind: the owner knows the state of the estate without being busy with it.
 
@@ -36,22 +37,24 @@ receives facts labelled with where they came from and how certain they are.
 
 - Worker reporting: Basic, one report a week at the owner's chosen day and time. Ultimate, one report
   a day at the owner's chosen time.
-- The AI calls the owner at the owner's chosen summary time after a saved report. Basic ends after
-  the summary. Ultimate then asks for instructions on the phone.
+- The AI calls the owner at the owner's own summary time (Basic weekly, Ultimate daily), even when no
+  verified report arrived. Basic ends after the summary. Ultimate then takes instructions on the
+  phone. Owners do not call NAQAH; an owner who phones in hears a short closed line.
 - Emergencies: the worker calls the owner directly, never through the AI.
 - The owner may read the dashboard outdoors on a phone.
 
 ## Capabilities and Constraints
 
-- **Plans:** Basic has up to 5 custom questions, one owner call a week and no task tickets. Ultimate
-  has unlimited questions and owner calls, and task tickets for actionable instructions.
+- **Plans:** Basic has up to 5 custom questions, up to 3 workers, a weekly summary call and no
+  instructions or task tickets. Ultimate has unlimited questions, up to 10 workers, a daily summary
+  call, and task tickets for actionable instructions.
 - **Task tickets:** close only when the worker explicitly confirms. Deadlines never close them.
   Closed tickets move to History.
 - **Calls that don't complete:** worker and owner calls get three attempts total, 20 minutes apart.
   An interrupted call counts as a failed attempt. After the third, automatic calls stop. There are
   no No Answer Tickets. If no verified report exists, the owner still gets the scheduled call and
   is told so.
-- **Not approved, do not add:** native apps, a website chatbot, multiple farms or workers, diagnosis,
+- **Not approved, do not add:** native apps, a website chatbot, multiple farms, diagnosis,
   purchasing, extra reporting updates, new channels, automated emergency dispatch.
 - **Current state:** the browser demo is still a simulation and is labelled as one. The server
   places worker report, instruction, verification, and owner-summary calls only when the telephony

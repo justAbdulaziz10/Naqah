@@ -17,4 +17,7 @@ ar and en both reach a saved report in 14 turns, and a tampered `s` is rejected.
 This command completes a real report on the configured server. It defaults to dry-run and refuses when
 `WHATSAPP_TOKEN` or `NAQAH_CALL_OWNER=1` is present in its environment; `--allow-paid` explicitly permits those
 side effects. `next start` counts as production, so unsigned voice is refused: launch with a test
-`TWILIO_AUTH_TOKEN` (the script signs requests with it) or `NAQAH_ALLOW_UNSIGNED_VOICE=1`.
+`TWILIO_AUTH_TOKEN` (the script signs requests with it). `NAQAH_ALLOW_UNSIGNED_VOICE` is no longer read.
+
+Real calls (farm mode, report calls NAQAH places, the scheduler) are separate and paid: see
+`docs/integrations/twilio-activation.md`. Never turn them on for a verify run.

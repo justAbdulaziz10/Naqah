@@ -1,24 +1,28 @@
 # Onboarding wizard and settings
 
-`/{locale}/start` sets up a farm in 9 steps; `/{locale}/app/settings` edits the same sections later.
+`/{locale}/start` sets up a ranch in 4 steps: Ranch → Workers and herd → Report call → Ready. The step lives in the
+URL (`?step=2`). `/{locale}/app/settings` edits the same sections later.
 
 ## Sub-features
-- `plan`, `owner-farm`, `herd`, `resources`, `worker`, `criteria`, `questions` (Basic: max 5 custom), `schedule`
-  (Basic: day + start + end required, end after start), `review`.
-- `sample`: "Fill sample data" fills every step.
+- `ranch`: ranch name, owner name and mobile.
+- `team`: workers (Basic up to 3, Ultimate up to 10; NAQAH calls the primary one), herd, what the ranch has.
+- `call`: the worker's report day and time, the owner's own summary day and time, questions (Basic: max 5 custom).
+- `ready`: review, then "Open dashboard" «افتح لوحة العزبة».
 - `settings`: plan switch with validation, reset demo, load sample Basic/Ultimate.
 
 ## How to get to it (user POV)
-- Landing "Set up your farm"; dashboard gate "Set up your farm"; settings gear.
+- Directly at `/{locale}/start`, or from the landing and the dashboard gate; later from Settings.
 
 ## Driving it with Playwright
 Preconditions: empty localStorage.
-- `/{locale}/start` → button matching /sample/i («عينة») → "Continue" «متابعة» ×8 → "Confirm and open dashboard".
-- Expected: URL `/{locale}/app`, `workspace.setupComplete === true`, 9 step titles seen (`#current-step-title`).
-  Asserted by `verify-naqah wizard`.
+- `/{locale}/start` → fill "Ranch name", "Your name", "Your mobile" → "Continue" «متابعة» → worker "Name" and
+  "Mobile" → "Continue" → "Day"/"Time" and "Your day"/"Your time", "Add a question" + "Add" → "Continue" →
+  "Open dashboard".
+- Expected: URL `/{locale}/app`, `workspace.setupComplete === true`, 4 step titles seen (`#current-step-title`),
+  the owner's summary time kept after a reload. Asserted by `verify-naqah wizard`.
 - Settings "Load sample Ultimate farm" → `settings.plan === "ultimate"`: asserted by `verify-naqah features`.
 
 ## Gotchas
-- On mobile the sample button is labelled "Sample"/«عينة», not "Fill sample data".
 - "Continue" is disabled until the step is valid; a disabled button means invalid data, not a slow page.
-- Basic without a window cannot finish (by design: the owner must choose it).
+- Required to finish: ranch name, primary worker (name and mobile) and both call times.
+- The per-step «تعبئة تجريبية» fill exists only in builds with `NEXT_PUBLIC_NAQAH_DEMO_AUTOFILL=1` (local runner).

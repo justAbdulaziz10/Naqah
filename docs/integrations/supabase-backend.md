@@ -1,9 +1,26 @@
 # Supabase backend foundation
 
-Status (2026-11-09): migrations **0001–0005, `20261107213717_owner_flow`, and `20261108000000_pending_worker_call_tasks` are applied** to the live project `ydsgmzxqjimwbamnksxe`. The new `20261109000000_rate_limits.sql` migration is pending and has not been applied live. 0001–0005 were
-verified to match these files exactly (normalized statement hashes). Owner flow is recorded live as `20261107213717`, and its repository filename matches. The grouped task-link migration was applied after a dry run listed it alone. Account mode is still opt-in: until the exact
+Status (2026-11-13, from team notes dated 2026-11-11; not a new live inspection): every migration through
+**`20261110090000_mvp_owner_runs`** is applied to the live project `ydsgmzxqjimwbamnksxe`.
+`20261113090000_report_call_scheduler.sql` is **not** applied. Account mode is still opt-in: until the exact
 build-time `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` is set, everyone stays on the browser demo and `/api/account` returns
 404. The voice routes use this code only when `NAQAH_VOICE_MODE=farm`; see `twilio-activation.md`.
+
+Complete sequence, in filename order (the same list as `AGENT.md` §8.1). Do not edit old migrations to absorb fixes.
+
+| Migration | Adds | Hosted |
+|---|---|---|
+| `0001_init` … `0005_custom_question_retry` | schema, RLS, atomic service writes, call sessions, owner write limits | applied |
+| `20261107213717_owner_flow` | call time, workers, herd count, `report_call_runs` | applied |
+| `20261108000000_pending_worker_call_tasks` | one worker call linked to several task tickets | applied |
+| `20261108010000_initial_plan_selection` | `farms.plan_selected_at`, `select_initial_plan` | applied |
+| `20261109000000_rate_limits` | `rate_limit_buckets`, `consume_rate_limit` / `release_rate_limit` | applied |
+| `20261109120000_test_calls` | `test_call_ranches`, `test_calls` for admin test calls | applied |
+| `20261109130000_report_mode_coverage` | `reports.mode`, `reports.coverage` | applied |
+| `20261109140000_report_mode_settings` | `farms.report_mode`, question order and switches | applied |
+| `20261109182526_owner_summary_schedule` | `farms.owner_call_day` / `owner_call_time` and the summary queue | applied |
+| `20261110090000_mvp_owner_runs` | `farms.owner_call_run`; Basic farms refused on task tickets, relays and worker calls | applied |
+| `20261113090000_report_call_scheduler` | `pg_cron` + `pg_net` job calling `/api/cron/report-calls` every 5 min, `scheduler_heartbeats` | **not applied** |
 
 Target project: `ydsgmzxqjimwbamnksxe`. Never apply this to any other project.
 
@@ -56,19 +73,17 @@ on `reports.herd_count_reported`), several workers per farm (Basic 3, Ultimate 1
 NAQAH calls is `farms.primary_worker_id`, cleared if that worker is deleted), `report_call_runs` (one row per
 scheduled slot, unique `(farm_id, occurrence)`, service-written, owner-readable), the `worker_report_missed` call
 kind, and `apply_farm_changes` saving those rows. The retired reporting window columns stay so old rows load.
-The complete sequence is **0001 → 0002 → 0003 → 0004 → 0005 → 20261107213717 → 20261108000000**; do not edit old migrations to absorb fixes.
+
 
 `20261108000000_pending_worker_call_tasks.sql` keeps one worker call linked to multiple Task Tickets through
 `pending_worker_call_tasks`. The original `task_ticket_id` remains for compatibility with older call rows and writers.
 The hosted migration history and resulting schema, RLS and grants were verified after application.
 
-`20261109000000_rate_limits.sql` adds a service-role-only `rate_limit_buckets` table with RLS enabled and no user policies. Its atomic `consume_rate_limit` RPC backs OTP phone/IP limits, voice-lab per-owner/global quotas (30 per owner and 300 total per hour), and the push relay's per-IP quota. The migration is pending; until it is applied, requests fall back to the existing process-local fixed-window limiter and log one warning per process when the RPC is unavailable. OTP failed-send reservations and partial multi-bucket reservations are released through `release_rate_limit` when the RPC is available; a release RPC failure can leave a database slot charged until its window expires. Do not rely on cross-instance quotas until the migration is applied and verified.
+`20261109000000_rate_limits.sql` adds a service-role-only `rate_limit_buckets` table with RLS enabled and no user policies. Its atomic `consume_rate_limit` RPC backs OTP phone/IP limits, voice-lab per-owner/global quotas (30 per owner and 300 total per hour), and the push relay's per-IP quota. Where it is not applied (a local stack, for example), requests fall back to the existing process-local fixed-window limiter and log one warning per process when the RPC is unavailable. OTP failed-send reservations and partial multi-bucket reservations are released through `release_rate_limit` when the RPC is available; a release RPC failure can leave a database slot charged until its window expires.
 
 The plan-selection feature adds `20261108010000_initial_plan_selection.sql`. It records an owner's first Basic or
 Ultimate choice in `farms.plan_selected_at` through `select_initial_plan`, before creating a new farm or continuing
-an incomplete legacy farm. Existing unmarked farms are left unchanged until their owner confirms. This migration is
-not yet part of the hosted migration history; do not deploy this feature with account mode enabled until it has
-passed local verification and the hosted preflight/application steps.
+an incomplete legacy farm. Existing unmarked farms are left unchanged until their owner confirms.
 
 Local proof without Docker: `supabase/local-validation/run-foundation.sh` (0002 + 0006 checks, isolation, races,
 domain round trip including a report call) and `run-stack.sh` (Postgres + PostgREST + mock Auth) with
@@ -154,7 +169,8 @@ requests or disable `NAQAH_VOICE_MODE=farm`/service jobs. Those require separate
 **Needs the project owner**
 - [x] Confirm owner access to the existing `ydsgmzxqjimwbamnksxe` and inspect its actual migration history.
 - [ ] Review/merge the readiness PR separately, then obtain explicit activation authorization (issue #6 stays open).
-- [x] Apply `0001`–`0005` in order, then the reviewed owner-flow and grouped task-link migrations; remote history matches local files.
+- [x] Apply every migration through `20261110090000` in order (team notes, 2026-11-11).
+- [ ] Apply `20261113090000_report_call_scheduler.sql` and set its Vault secrets (owner-approved; see `twilio-activation.md`).
 - [ ] Set `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` and rebuild, after the migrations are applied.
 - [ ] Run Security and Performance Advisors and review the results.
 - [ ] Verify `SUPABASE_SECRET_KEY` (`sb_secret_…`) only for the service/voice path; owner CRUD uses session/RLS.
