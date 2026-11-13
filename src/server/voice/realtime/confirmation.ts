@@ -43,16 +43,16 @@ const FILLER = new Set([
 /** «لا تعدل», «ما فيه تعديل»: nothing to change is a yes to the summary as it stands. */
 // Only «ما» negates «أبي/أبغى/ودي» or a first-person «أعدل»: «لا، أبي أعدل» is "no, I want to change it".
 const NOTHING_TO_CHANGE = /(?:^| )(?:(?:(?:و?لا|ما|مو) (?:ما )?(?:تعدلي?|تغيري?|يحتاج (?:تعدلي?|تغيري?|اعدل|اغير|تعديل))|(?:و?لا )?ما (?:اعدل|اغير|(?:ابي|ابغى|ابغي|ودي) (?:اعدل|اغير|اصحح))|(?:و?لا )?ودي ما (?:اعدل|اغير))(?: (?:شي|شيء|اي شي))?|ما ?(?:فيه|في) (?:تعديل|شي يتعدل)|no changes?|nothing to change|no need to (?:edit|change)|(?:don t|do not) (?:edit|change)(?: it)?)(?= |$)/u;
-const WANTS_CHANGE = /(?:^| )(?:و?(?:اعدل|عدلي?(?:ه|ها)?|تعدلي?|اغير|غيري?(?:ه|ها)?|تغيري?|اصحح|صححي?(?:ه|ها)?|تصحيح|تعديل)|(?:مو|مش|غير) (?:صح|صحيح|صحيحه|مضبوط|مضبوطه)|edit|editing|change|changes|correction|correcting|correct (?:it|this|that|the|my))(?= |$)/u;
+const WANTS_CHANGE = /(?:^| )(?:و?(?:اعدل|عدلي?(?:ه|ها)?|تعدلي?|اغير|غيري?(?:ه|ها)?|تغيري?|اصحح|صححي?(?:ه|ها)?|تصحيح|تعديل)|(?:مو|مش|غير|مب|موب|ماهو|ما) (?:صح|صحيح|صحيحه|مضبوط|مضبوطه|كذا)|ناقص|ناقصه|زياده|زايد|زايده|اقل|اكثر|كثير|قليل|غلطت|غلطتي|غلطان|غلطانه|اخطات|اخطيت|edit|editing|change|changes|correction|correcting|correct (?:it|this|that|the|my))(?= |$)/u;
 const NO_THEN_SAVE = /^(?:لا|لاء) (?=تمام (?:احفظ(?:ي(?:ه|ها)?|ه|ها)?|سجل(?:ي(?:ه|ها)?|ه|ها)?)(?: |$))/u;
 /** «توكل على الله», «يلا احفظ», and «الله يعطيك العافية» said back to «أحفظه؟»: a Saudi go-ahead. */
 const GO_AHEAD = /(?:^| )(?:توكل على الله|توكل|يلا احفظ|يلا احفظه)(?: |$)|^(?:الله )?يعطيك العافيه(?: يا \p{L}+)?$/u;
 const REFUSE = /(?:^| )(?:لا|ما|مو|لاء) (?:تحفظ(?:ين?(?:ه|ها)?|ه|ها)?|احفظ(?:ي(?:ه|ها)?|ه|ها)?|تسجل(?:ين?(?:ه|ها)?|ه|ها)?|سجل(?:ي(?:ه|ها)?|ه|ها)?|ابي|ابغى|ابيه|توافق)(?: |$)|(?:^| )(?:غلط|خطا|خطأ|عدل|عدله|عدلها|تعديل|غيره|غيرها|بس|لكن|الا|مدري|ما ادري|يمكن|don t|not|wrong|change|but|maybe)(?: |$)/;
 /** Waiting, asking, doubting or wanting the owner: «طيب انتظر», «ايه وش قلت», «ايه اظن», «تمام قل للمعزب يتصل». */
-const HOLD = /(?:^| )(?:انتظر|انطر|استني|لحظه|ثواني|ثانيه|دقيقه|اصبر|خلني|خليني|وش|ايش|شو|مين|من معي|اسمع|بعدين|اظن|اعتقد|احس|اتاكد|قل|قول|كلم|اكلم|يتصل|wait|hold|hang on|what|who|later|think|guess|second|sec|moment|minute|listen)(?: |$)|معزب/;
+const HOLD = /(?:^| )و?(?:احسب|شكله|شكلها|شكل|تقريبا|تقريب|يبدو|احتمال|يمكن|كم|ليش|ليه|هل|يعني|اقول|ممم|امم|اذا|لو|لين|بكرا|بكره|ان شاء الله|عشان|الو|انتظر|انطر|استني|لحظه|ثواني|ثانيه|دقيقه|اصبر|خلني|خليني|وش|ايش|شو|مين|من معي|اسمع|بعدين|اظن|اعتقد|احس|اتاكد|قل|قول|كلم|اكلم|يتصل|wait|hold|hang on|what|who|later|think|guess|second|sec|moment|minute|listen)(?: |$)|معزب/;
 const NO_ALONE = /^(?:لا|لاء|no|nope)(?: |$)/;
-/** «احفظ… لا»: a no said last takes the yes back. */
-const NO_LAST = /(?:^| )(?:لا|لاء|no|nope)$/;
+/** «احفظ… لا», «ايه ما»: a no said last, or a sentence cut off at «ما» or «ولا», takes the yes back. */
+const NO_LAST = /(?:^| )(?:لا|لاء|ما|ولا|no|nope)$/;
 
 /**
  * A natural call: the model heard the audio and asked to save after the whole summary, but phone transcription
