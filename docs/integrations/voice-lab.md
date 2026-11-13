@@ -67,24 +67,33 @@ The Lab imports these and needs their signatures kept:
 - `services/voice-bridge/config.mjs`: `REALTIME_MODEL`
 - engine: `start`, `answer`
 
+## Confirmation
+
+The Lab calls the calling team's `isVerifiedConfirmation` (`realtime/confirmation.ts`), and their engine fixes for Saudi
+quantities and Arabic herd answers run unchanged. The Lab follows the rest of their confirmation flow:
+
+- `confirm_report` with `confirmed: true` needs the worker's latest final transcript.
+- Only a summary spoken word for word from `summaryText` counts as heard, and it must play or display to the end. An
+  interrupted one is refused with `summary_not_finished` and read again.
+- The second failed confirmation ends the test with a `fallback` verdict. A real call moves to the keypad script.
+
+`turnLoop.ts` still mirrors the bridge's `heardSummary`, turn staleness, 2.5 s transcript wait and 10 s speech recovery,
+tracked per response. `agent.test.ts` fails if those limits drift.
+
 ## Known differences from a real call
 
-`src/server/voice-lab/answer-guards.ts` runs only in the Lab, until the calling team adopts the equivalent:
-
-| Behaviour | Lab | Real call today |
+| Behaviour | Lab | Real call |
 |---|---|---|
-| Zero after "enough" (`«لا ما فيه شي»`) | Asks once; a repeated zero drops the level | Saves "enough (0 bags)" |
-| Herd detail in Arabic | `5 من الحلال — …` | `5 camels — …` |
-| Unclear answer | Extra instruction: ask, don't call the tool | Not instructed |
-| Answer with no worker speech since the last tool | Refused | Only `confirm_report` is refused |
-| Model's choice disagrees with the worker's final words | Asks once | No check |
+| Audio | Browser Opus over WebRTC | 8 kHz G.711 through Twilio |
+| "Summary heard" | `output_audio_buffer.stopped` for that response | Twilio playback marks |
+| Failure of the AI stream | Test stops | Continues on the keypad script |
+| Word check on ordinary answers (`number_not_in_answer`, `answer_conflicts_with_words`) | Keeps asking when a final transcript is ready | No check |
+| Typing during a voice test | Counts as a final transcript | Not possible |
+| A report already saved this period | Ignored, so any ranch can be tested | Refused as `daily_done` / `weekly_done` |
+| Saving | Verdict only | Writes through `applyVoiceEvent` |
 
-`voice-lab-calling-fixes.patch` holds the engine and instruction part, tested against `e24d61f`. The calling team applied it
-in their working tree on 2026-11-08; the "real call today" column is true until that is committed. Once applied, remove
-`repairHerdDetail`, the quantity check and `CLARIFY_RULE`. The word-level checks need a final transcript, which the phone
-session does not have.
-
-`agent.test.ts` fails if the bridge's VAD, voice, reasoning or timeouts drift from the Lab's.
+The dashboard around this page is ordinary: opening it creates default ranch rows for an owner who has none, and other
+sidebar pages save real data.
 
 ## Requests to the calling team
 

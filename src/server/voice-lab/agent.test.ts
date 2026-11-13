@@ -44,17 +44,70 @@ describe("Voice Lab agent", () => {
     expect(result.view.facts).toEqual([]);
   });
 
+  const confirm = (session: CallSession, spoke: boolean, workerUtterance: string | null, heardSummary?: boolean) =>
+    runLabTool({ session, ws, locale: "ar", name: "confirm_report", args: { confirmed: true }, spoke, workerUtterance, heardSummary, now });
+
   it("does not let the model confirm before the worker has spoken", () => {
-    const summary = walkToSummary();
-    const result = tool(summary, "confirm_report", { confirmed: true }, false);
+    const result = confirm(walkToSummary(), false, "إيه احفظه", true);
     expect(result.refused).toBe("worker_has_not_confirmed");
-    expect(result.session.done).toBe(false);
+    expect(result.view.verdict).toBeNull();
+  });
+
+  it("requires the worker's final transcript", () => {
+    for (const missing of [null, ""]) {
+      const result = confirm(walkToSummary(), true, missing, true);
+      expect(result.refused).toBe("worker_has_not_confirmed");
+    }
+  });
+
+  it("never saves after a summary that was interrupted or unfinished", () => {
+    for (const heard of [false, undefined]) {
+      const result = confirm(walkToSummary(), true, "إيه احفظه", heard);
+      expect(result.refused).toBe("summary_not_finished");
+      expect(result.view.verdict).toBeNull();
+      expect(JSON.parse(result.output).message).toContain("It is being read again now");
+      expect(result.summaryText).toBeTruthy();
+    }
+  });
+
+  it("hands over the summary to read word for word when it first comes up, and not after an unclear yes", () => {
+    let { session } = open();
+    let last = tool(session, "answer_question", { value: session.replies[0].value });
+    for (let turn = 0; turn < 60 && last.session.step !== "report_summary"; turn += 1) {
+      session = last.session;
+      const args = session.replies.length ? { value: session.replies[0].value } : { text: session.inputMode === "number" ? "5" : "كل شي تمام" };
+      last = tool(session, "answer_question", args);
+    }
+    expect(last.summaryText).toBeTruthy();
+    expect(confirm(last.session, true, "لا، الملخص غلط", true).summaryText).toBeUndefined();
+  });
+
+  it.each(["لا، الملخص غلط", "إيه بس غير العلف", "لحظة", "إيه لكن فيه غلط", "ما أدري", "الجو حار", "ماهو صحيح", "مهوب صحيح"])("does not take «%s» as confirmation", (said) => {
+    const result = confirm(walkToSummary(), true, said, true);
+    expect(result.refused).toBe("worker_has_not_confirmed");
+    expect(result.view.verdict).toBeNull();
+  });
+
+  it.each(["إيه احفظه", "احفظه", "تمام احفظه"])("takes «%s» as confirmation after the full summary", (said) => {
+    const result = confirm(walkToSummary(), true, said, true);
+    expect(result.refused).toBeNull();
+    expect(result.view.verdict).toEqual({ kind: "would_save" });
+  });
+
+  it("stops at the second failed confirmation, as a real call does, without saving", () => {
+    const first = confirm(walkToSummary(), true, "لا، الملخص غلط", true);
+    expect(first.end).toBeNull();
+    const second = confirm(first.session, true, "لا، الملخص غلط", true);
+    expect(second.end).toBe("fallback");
+    expect(second.goodbye).toBeNull();
+    expect(second.view.verdict).toEqual({ kind: "fallback" });
+    expect(tool(second.session, "confirm_report", { confirmed: true }).view.verdict).toBeNull();
   });
 
   it("gives a saved verdict through the real contract and never changes the ranch", () => {
     const summary = walkToSummary();
     const before = JSON.stringify(ws);
-    const result = tool(summary, "confirm_report", { confirmed: true });
+    const result = confirm(summary, true, "إيه احفظه", true);
     expect(result.refused).toBeNull();
     expect(JSON.parse(result.output).status).toBe("saved");
     expect(result.end).toBe("hangup");
@@ -130,35 +183,25 @@ describe("Voice Lab asks instead of guessing", () => {
     return session;
   }
 
-  it("refuses to record zero when the worker just said there was enough, and records nothing", () => {
+  it("asks again about zero after 'enough', through the real engine, and records nothing", () => {
     const session = walkTo("quantity_input");
     expect(["good", "medium"]).toContain(session.data.tempLevel);
     const result = tool(session, "answer_question", { text: "لا ما فيه شي" });
-    expect(result.refused).toBe("quantity_contradicts_level");
     expect(result.session.step).toBe("quantity_input");
     expect(result.session.draft.resourceUpdates).toEqual(session.draft.resourceUpdates);
-    expect(JSON.parse(result.output).clarify).toContain("كم باقي");
+    expect(JSON.parse(result.output).question).toContain("كم باقي");
   });
 
   it("accepts a real number after asking, with the level intact", () => {
     const asked = tool(walkTo("quantity_input"), "answer_question", { text: "لا ما فيه شي" }).session;
     const counted = tool(asked, "answer_question", { text: "عشرة" });
-    expect(counted.refused).toBeNull();
     expect(counted.session.step).toBe("quantity_confirm");
     expect(counted.session.data.tempLevel).toMatch(/good|medium/);
   });
 
   it("drops the earlier 'enough' when the worker repeats there is none", () => {
     const asked = tool(walkTo("quantity_input"), "answer_question", { text: "لا ما فيه شي" }).session;
-    const again = tool(asked, "answer_question", { text: "لا ما فيه شي" });
-    expect(again.refused).toBeNull();
-    expect(again.session.data.tempLevel).toBe("unknown");
-  });
-
-  it("keeps a zero that agrees with a low level", () => {
-    const session = { ...walkTo("quantity_input") };
-    session.data = { ...session.data, tempLevel: "critical" };
-    expect(tool(session, "answer_question", { text: "صفر" }).refused).toBeNull();
+    expect(tool(asked, "answer_question", { text: "لا ما فيه شي" }).session.data.tempLevel).toBe("unknown");
   });
 
   it("stores the Arabic herd detail in Arabic, with an English reading", () => {
@@ -166,7 +209,6 @@ describe("Voice Lab asks instead of guessing", () => {
     const result = tool(session, "answer_question", { text: "شعلة ضايعة" });
     const herd = result.session.draft.answers.at(-1)!;
     expect(herd.answerText?.ar).toBe(`${session.draft.herdCount} من الحلال — شعلة ضايعة`);
-    expect(herd.answerText?.en).toBe(`${session.draft.herdCount} camels — شعلة ضايعة`);
     expect(result.view.facts.some((fact) => /camels/.test(fact.value))).toBe(false);
     expect(result.view.contract).toEqual({ valid: true });
   });
@@ -174,25 +216,29 @@ describe("Voice Lab asks instead of guessing", () => {
   it("never records an answer with no words from the worker behind it", () => {
     const { session } = open();
     const result = tool(session, "answer_question", { value: session.replies[0].value }, false);
-    expect(result.refused).toMatch(/no_worker_answer|worker_has_not_answered/);
+    expect(result.refused).toBe("worker_has_not_answered");
     expect(result.session.draft).toEqual(session.draft);
   });
 
   it("asks when the number recorded is not the number said", () => {
     const session = walkTo("quantity_input");
     const heard = "عشرة أكياس";
-    const wrong = runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { text: "12" }, spoke: true, heard, now });
-    expect(wrong.refused).toBe("number_not_in_answer");
-    const right = runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { text: "10" }, spoke: true, heard, now });
-    expect(right.refused).toBeNull();
+    expect(runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { text: "12" }, spoke: true, heard, now }).refused).toBe("number_not_in_answer");
+    expect(runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { text: "10" }, spoke: true, heard, now }).refused).toBeNull();
   });
 
-  it("asks when a saved report contradicts the worker's refusal", () => {
-    const summary = walkToSummary();
-    const result = runLabTool({ session: summary, ws, locale: "ar", name: "confirm_report", args: { confirmed: true }, spoke: true, heard: "لا، الملخص غلط", now });
+  it("won't accept an answer without the worker's words once the question needed clarifying", () => {
+    const session = walkTo("quantity_input");
+    const first = runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { text: "12" }, spoke: true, heard: "عشرة أكياس", now });
+    const late = runLabTool({ session: first.session, ws, locale: "ar", name: "answer_question", args: { text: "12" }, spoke: true, heard: null, now });
+    expect(late.refused).toBe("number_not_in_answer");
+    expect(late.session.draft).toEqual(session.draft);
+  });
+
+  it("won't take 'unknown' from the model when the worker said a number", () => {
+    const session = walkTo("quantity_input");
+    const result = runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { value: "quantity_unknown" }, spoke: true, heard: "عشرة أكياس", now });
     expect(result.refused).toBe("answer_conflicts_with_words");
-    expect(result.view.verdict).toBeNull();
-    expect(result.session.done).toBe(false);
   });
 
   it("ignores a parser reading the current question doesn't offer", () => {
@@ -205,15 +251,25 @@ describe("Voice Lab asks instead of guessing", () => {
     expect(result.refused).toBeNull();
   });
 
-  it("does not loop: the worker's repeated answer goes through after one question", () => {
-    const summary = walkToSummary();
-    const first = runLabTool({ session: summary, ws, locale: "ar", name: "confirm_report", args: { confirmed: true }, spoke: true, heard: "لا، الملخص غلط", now });
-    const second = runLabTool({ session: first.session, ws, locale: "ar", name: "confirm_report", args: { confirmed: true }, spoke: true, heard: "لا، الملخص غلط", now });
-    expect(second.refused).toBeNull();
+  it("keeps asking when the words keep disagreeing, and never accepts on a repeat", () => {
+    let session = walkTo("quantity_input");
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const result = runLabTool({ session, ws, locale: "ar", name: "answer_question", args: { text: "12" }, spoke: true, heard: "عشرة أكياس", now });
+      expect(result.refused).toBe("number_not_in_answer");
+      expect(result.session.draft).toEqual(session.draft);
+      session = result.session;
+    }
+    let { session: first } = open();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = runLabTool({ session: first, ws, locale: "ar", name: "answer_question", args: { value: "no" }, spoke: true, heard: "كلها بخير", now });
+      expect(result.refused).toBe("answer_conflicts_with_words");
+      first = result.session;
+    }
   });
 
-  it("tells the model to clarify rather than call the tool", () => {
-    expect(open().instructions).toContain("لا تنادي الأداة ولا تفترض شي");
+  it("gives the model the real call's instructions, unchanged", () => {
+    expect(open().instructions).toContain("إذا انقطع الملخص أعده كاملاً");
+    expect(open().instructions.endsWith("</call_data>")).toBe(true);
   });
 });
 
@@ -233,6 +289,17 @@ describe("Voice Lab stays in step with the phone call", () => {
     expect(lab).toContain('voice: "marin"');
     expect(bridge).toMatch(/reasoning: \{ effort: 'minimal' \}/);
     expect(lab).toContain('reasoning: { effort: "minimal" }');
+  });
+
+  const service = readFileSync("src/server/voice/realtime/service.ts", "utf8");
+  it("uses the real call's confirmation limits", () => {
+    expect(service).toContain("failures >= 2");
+    expect(service).toContain('"summary_not_finished"');
+    expect(service).toContain("isVerifiedConfirmation");
+    expect(service).toContain("summaryText");
+    expect(bridge).toContain("requestResponse('summary', summary)");
+    for (const limit of ["transcriptionMs: 2_500", "speechMs: 10_000"]) expect(bridge).toContain(limit);
+    for (const value of ["TRANSCRIPTION_MS = 2_500", "SPEECH_MS = 10_000"]) expect(loop).toContain(value);
   });
 
   it("uses the phone call's closing line", () => {

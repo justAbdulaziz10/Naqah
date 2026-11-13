@@ -111,7 +111,10 @@ export async function POST(request: Request): Promise<Response> {
       const loaded = await workspaceFor(user.id, state.src, state.l, now);
       if (!loaded) return fail("farm_unavailable", 503);
       const heard = typeof body.heard === "string" && body.heard.trim() ? body.heard.slice(0, MAX_HEARD) : null;
-      const result = runLabTool({ session: state.session, ws: loaded.ws, locale: state.l, name: body.name, args: body.args, spoke: body.spoke, heard, now });
+      const { workerUtterance, heardSummary } = body;
+      if (workerUtterance !== undefined && (typeof workerUtterance !== "string" || workerUtterance.length > 1000 || /[\u0000-\u001f\u007f]/u.test(workerUtterance))) return fail("invalid_input", 400);
+      if (heardSummary !== undefined && typeof heardSummary !== "boolean") return fail("invalid_input", 400);
+      const result = runLabTool({ session: state.session, ws: loaded.ws, locale: state.l, name: body.name, args: body.args, spoke: body.spoke, heard, workerUtterance, heardSummary, now });
       const { session, ...reply } = result;
       return done({ ...reply, state: signLabState({ ...state, session }, secret) });
     }

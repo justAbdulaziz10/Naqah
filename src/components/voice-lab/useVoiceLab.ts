@@ -9,7 +9,7 @@ export type LabMode = "voice" | "text";
 export type LabPhase = "idle" | "connecting" | "live" | "ended" | "failed";
 
 export interface LabFact { id: string; group: "said" | "report"; label: string; value: string; certainty: "reported" | "approximate" | "unknown" | "verified" | null }
-export type LabVerdict = { kind: "would_save" } | { kind: "would_reject"; reason: string } | { kind: "declined" } | { kind: "ended" };
+export type LabVerdict = { kind: "would_save" } | { kind: "would_reject"; reason: string } | { kind: "declined" } | { kind: "ended" } | { kind: "fallback" };
 export interface LabView {
   step: string;
   done: boolean;
@@ -26,7 +26,7 @@ export interface LabView {
 
 export type TranscriptEntry =
   | { id: string; role: "worker" | "agent"; text: string; pending: boolean; interrupted?: boolean }
-  | { id: string; role: "tool"; refused: string | null; name: string; clarifying: boolean };
+  | { id: string; role: "tool"; refused: string | null; name: string; clarifying: boolean; declined: boolean };
 
 export interface InspectorEntry { id: number; at: number; kind: string; detail?: string; error?: boolean }
 export interface LabError { code: string; detail?: string }
@@ -51,7 +51,7 @@ async function api(body: object, init: RequestInit = {}): Promise<{ status: numb
 }
 
 const CONNECT_TIMEOUT_MS = 20_000;
-const CLARIFYING = new Set(["no_worker_answer", "worker_has_not_answered", "answer_conflicts_with_words", "number_not_in_answer", "quantity_contradicts_level"]);
+const CLARIFYING = new Set(["worker_has_not_answered", "answer_conflicts_with_words", "number_not_in_answer", "summary_not_finished", "worker_has_not_confirmed"]);
 
 /** One browser test call: peer connection, the tool round trip, and everything needed to tear it down. */
 export function useVoiceLab(locale: Locale) {
@@ -77,8 +77,6 @@ export function useVoiceLab(locale: Locale) {
     timers: ReturnType<typeof setTimeout | typeof setInterval>[]; serial: number;
   }>({ closeState: null, loop: null, pc: null, dc: null, stream: null, audio: null, audioContext: null, raf: null, state: null, timers: [], serial: 0 });
   const eventId = useRef(0);
-  /** The worker's latest words, once final. Speech still being transcribed counts as unknown. */
-  const heard = useRef<string | null>(null);
 
   const log = useCallback((kind: string, detail?: string, isError = false) => {
     const entry: InspectorEntry = { id: ++eventId.current, at: Date.now(), kind, detail, error: isError };
@@ -156,14 +154,10 @@ export function useVoiceLab(locale: Locale) {
     switch (event.type) {
       case "input_audio_buffer.speech_started": setWorkerSpeaking(true); break;
       case "input_audio_buffer.speech_stopped": setWorkerSpeaking(false); break;
-      case "input_audio_buffer.committed":
-        heard.current = null;
-        upsert(item, "worker", (text) => text, true);
-        break;
+      case "input_audio_buffer.committed": upsert(item, "worker", (text) => text, true); break;
       case "conversation.item.input_audio_transcription.delta": upsert(item, "worker", (text) => text + String(event.delta ?? ""), true); break;
       case "conversation.item.input_audio_transcription.completed":
         upsert(item, "worker", () => String(event.transcript ?? "").trim(), false);
-        heard.current = String(event.transcript ?? "").trim() || null;
         setUsage((total) => addTranscribeUsage(total, event.usage));
         break;
       case "conversation.item.input_audio_transcription.failed":
@@ -269,8 +263,8 @@ export function useVoiceLab(locale: Locale) {
           const id = itemId ?? (responseId ? responseItems.get(responseId) : undefined);
           if (id) setTranscript((list) => list.map((entry) => entry.id === id && entry.role === "agent" ? { ...entry, interrupted: true, pending: false } : entry));
         },
-        runTool: async ({ name, args, spoke }): Promise<ToolReply> => {
-          const { data, status: code } = await api({ op: "tool", state: run.state, name, args, spoke, heard: heard.current });
+        runTool: async ({ name, args, spoke, heard, workerUtterance, heardSummary }): Promise<ToolReply> => {
+          const { data, status: code } = await api({ op: "tool", state: run.state, name, args, spoke, heard, workerUtterance, heardSummary });
           // A reply from a call that was reset must not land in the next one.
           if (!current()) return { output: "{}", end: null, goodbye: null };
           if (!data.ok) throw new Error(`${data.error}${code ? ` (${code})` : ""}`);
@@ -278,9 +272,9 @@ export function useVoiceLab(locale: Locale) {
           run.state = result.state;
           setView(result.view);
           log(result.refused ? "tool_refused" : "tool_ok", result.refused ? `${name}: ${result.refused}` : `${name} ${JSON.stringify(args)}`);
-          const toolEntry: TranscriptEntry = { id: `tool-${++eventId.current}`, role: "tool", name, refused: result.refused, clarifying: Boolean(result.refused && CLARIFYING.has(result.refused)) };
+          const toolEntry: TranscriptEntry = { id: `tool-${++eventId.current}`, role: "tool", name, refused: result.refused, clarifying: Boolean(result.refused && CLARIFYING.has(result.refused)), declined: name === "confirm_report" && args.confirmed === false };
           setTranscript((list) => [...list, toolEntry]);
-          return result;
+          return { ...result, requireWords: toolEntry.role === "tool" && toolEntry.clarifying };
         },
       }, nextMode, reply.opening);
       run.loop = loop;
@@ -324,7 +318,6 @@ export function useVoiceLab(locale: Locale) {
     const trimmed = text.trim();
     if (!trimmed || !live.current.loop) return;
     setTranscript((list) => [...list, { id: `typed-${++eventId.current}`, role: "worker", text: trimmed, pending: false }]);
-    heard.current = trimmed;
     live.current.loop.sendText(trimmed);
   }, []);
 
