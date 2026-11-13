@@ -203,7 +203,7 @@ export default function HerdPage() {
         title={h.title}
         answer={answer}
         action={(
-          <Button ref={addButtonRef} className="w-full sm:w-auto" onClick={openNewCamel}>
+          <Button ref={addButtonRef} variant="secondary" size="sm" className="self-start" onClick={openNewCamel}>
             <Plus size={18} weight="bold" aria-hidden />
             {h.addCamel}
           </Button>

@@ -5,8 +5,8 @@ import type { Level, Resource } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 
-/** Stock is an amount, so "about half" fills half. Conditions (fences, shelter) are words, never a level. */
-const stockFill: Record<Level, number> = { good: 1, medium: 0.5, low: 0.25, critical: 0.08, unknown: 0 };
+/** One meter for every resource: stock fills to the amount ("about half" fills half); a condition fills to how sound it is. */
+const fill: Record<Level, number> = { good: 1, medium: 0.5, low: 0.25, critical: 0.08, unknown: 0 };
 const tone: Record<Level, { bar: string; text: string }> = {
   good: { bar: "bg-ok", text: "text-ok" },
   medium: { bar: "bg-espresso/70", text: "text-espresso" },
@@ -14,13 +14,14 @@ const tone: Record<Level, { bar: string; text: string }> = {
   critical: { bar: "bg-danger", text: "text-danger" },
   unknown: { bar: "", text: "text-muted" },
 };
-const conditionTone: Record<Level, string> = { good: "text-ok", medium: "text-warn", low: "text-warn", critical: "text-danger", unknown: "text-muted" };
+/** A fence or shelter "needs work" is a warning, where half a stock is still fine. */
+const conditionTone: Record<Level, { bar: string; text: string }> = { ...tone, medium: { bar: "bg-warn", text: "text-warn" } };
 const isCondition = (resource: Resource) => resource.kind === "fences" || resource.kind === "shelter";
 
 /**
- * The supplies NAQAH asked about, one row each: the supply, its level in words, a quiet track that
- * fills to the amount, and beneath it the worker's rough quantity with provenance only where it is
- * not the plain report. Conditions read as a word. The words carry everything; the track repeats it.
+ * The supplies NAQAH asked about, one row each: the supply, its state in words, and the same quiet
+ * track for every row, filled to the amount or to the condition, with the worker's rough quantity and
+ * provenance beneath only where it is not the plain report. The words carry everything; the track repeats it.
  */
 export function SupplyGauges({ resources, className }: { resources: Resource[]; columns?: 2 | 4; className?: string }) {
   const { t } = useI18n();
@@ -29,7 +30,7 @@ export function SupplyGauges({ resources, className }: { resources: Resource[]; 
   return (
     <ul className={cn("divide-y divide-stone/60", className)}>
       {present.map((resource) => {
-        const condition = isCondition(resource);
+        const colours = isCondition(resource) ? conditionTone : tone;
         // A reported amount with no level ("25 كيس") is the answer itself, not «غير معروف».
         const amountOnly = resource.level === "unknown" && Boolean(resource.quantity);
         const level = amountOnly ? resource.quantity! : t(levelLabel(resource.kind, resource.level));
@@ -39,23 +40,17 @@ export function SupplyGauges({ resources, className }: { resources: Resource[]; 
             <div className="min-w-0">
               <p className="flex flex-wrap items-baseline gap-x-2.5">
                 <span className="font-semibold text-espresso">{t(RESOURCE_LABELS[resource.kind])}</span>
-                <span className={cn("text-[0.9375rem] font-medium", condition ? conditionTone[resource.level] : amountOnly ? "text-espresso" : tone[resource.level].text)}>{level}</span>
+                <span className={cn("text-[0.9375rem] font-medium", amountOnly ? "text-espresso" : colours[resource.level].text)}>{level}</span>
               </p>
               {note ? <p className="mt-0.5 text-[0.8125rem] text-muted">{note}</p> : null}
             </div>
-            {condition ? (
-              <span aria-hidden className={cn("flex w-20 justify-end sm:w-28", conditionTone[resource.level])}>
-                <span className={cn("size-2.5 rounded-full", resource.level === "unknown" ? "border border-dashed border-faint" : "bg-current")} />
-              </span>
-            ) : (
-              <span aria-hidden className={cn("relative h-2 w-20 overflow-hidden rounded-full sm:w-28", resource.level === "unknown" ? "border border-dashed border-faint" : "bg-stone/60")}>
-                {resource.level === "unknown" ? null : (
-                  <span className={cn("naqah-fill absolute inset-y-0 start-0 rounded-full", tone[resource.level].bar)} style={{ width: `${stockFill[resource.level] * 100}%` }} />
-                )}
-                {/* Quarter marks, so "about half" is read against the whole. */}
-                {[0.25, 0.5, 0.75].map((at) => <span key={at} className="absolute inset-y-0 w-px bg-cream/80" style={{ insetInlineStart: `${at * 100}%` }} />)}
-              </span>
-            )}
+            <span aria-hidden className={cn("relative h-2 w-20 overflow-hidden rounded-full sm:w-28", resource.level === "unknown" ? "border border-dashed border-faint" : "bg-stone/60")}>
+              {resource.level === "unknown" ? null : (
+                <span className={cn("naqah-fill absolute inset-y-0 start-0 rounded-full", colours[resource.level].bar)} style={{ width: `${fill[resource.level] * 100}%` }} />
+              )}
+              {/* Quarter marks, so "about half" is read against the whole. */}
+              {[0.25, 0.5, 0.75].map((at) => <span key={at} className="absolute inset-y-0 w-px bg-cream/80" style={{ insetInlineStart: `${at * 100}%` }} />)}
+            </span>
           </li>
         );
       })}
