@@ -200,7 +200,7 @@ export default function TicketsPage() {
     <div className="naqah-page space-y-6 pb-8">
       <PageHeader
         title={m.app.tickets.title}
-        lead={hasAnything ? summary : null}
+        answer={hasAnything ? summary : null}
         action={hasAnything ? <Segmented
           value={tab}
           onChange={setTab}
