@@ -113,7 +113,7 @@ export function RhythmStrip({ slots, weekly, now, planned = false, className }: 
               data-current={slot.current || undefined}
               className={cn(
                 // Wide enough on a phone for the longest label, "أسبوع 26 نوفمبر" or "Wednesday".
-                "naqah-stagger-item relative flex shrink-0 snap-center flex-col items-center rounded-2xl px-1 pb-2 pt-2 text-center sm:w-auto sm:pb-3 sm:pt-3",
+                "naqah-stagger-item relative flex shrink-0 snap-center flex-col items-center rounded-2xl px-1 pb-1.5 pt-1.5 text-center sm:w-auto sm:pb-3 sm:pt-3",
                 weekly ? "w-32" : "w-28",
                 slot.current && "bg-cream/[0.07]",
               )}
@@ -121,7 +121,7 @@ export function RhythmStrip({ slots, weekly, now, planned = false, className }: 
             >
               <span className={cn("max-w-full truncate text-sm leading-tight", slot.current ? "font-semibold text-cream" : "font-medium text-cream/80")}>{head(slot)}</span>
               <span className="mt-0.5 min-h-4 text-xs leading-4 text-cream/60"><bdi className="ltr-nums">{sub(slot)}</bdi></span>
-              <span className="relative mt-2 flex h-8 w-full items-center justify-center sm:mt-3">
+              <span className="relative mt-1.5 flex h-8 w-full items-center justify-center sm:mt-3">
                 {index < slots.length - 1 ? (
                   <span
                     className={cn(
@@ -145,7 +145,7 @@ export function RhythmStrip({ slots, weekly, now, planned = false, className }: 
               </span>
               <span
                 className={cn(
-                  "mt-1.5 min-h-5 text-[0.8125rem] font-medium leading-5 sm:mt-2.5",
+                  "mt-1 min-h-5 text-[0.8125rem] font-medium leading-5 sm:mt-2.5",
                   slot.state === "next" ? "font-semibold text-sand" : slot.state === "missed" ? "text-sand" : slot.state === "saved" || slot.state === "open" ? "text-cream" : "text-cream/55",
                 )}
               >
@@ -155,7 +155,8 @@ export function RhythmStrip({ slots, weekly, now, planned = false, className }: 
           );
         })}
       </ol>
-      <p aria-hidden className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[0.8125rem] text-cream/70 sm:mt-3 sm:gap-y-1.5">
+      {/* The marks carry their own captions, so on a phone the legend gives way to the calls below. */}
+      <p aria-hidden className="mt-3 hidden flex-wrap gap-x-5 gap-y-1.5 text-[0.8125rem] text-cream/70 sm:flex">
         {legend.map((state) => (
           <span key={state} className="inline-flex items-center gap-2">
             <Mark state={state} size="sm" />
