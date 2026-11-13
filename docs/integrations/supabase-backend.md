@@ -1,8 +1,8 @@
 # Supabase backend foundation
 
-Status: code and migrations only. **Nothing here has been applied to a Supabase project**, and
-the app still runs on localStorage. No page uses this code yet. The voice routes use it only when
-`NAQAH_VOICE_MODE=farm`; see `twilio-activation.md`.
+Status: built and tested locally. **Nothing here has been applied to a Supabase project.** Until
+`NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` is set, everyone stays on the browser demo. The voice routes use
+this code only when `NAQAH_VOICE_MODE=farm`; see `twilio-activation.md`.
 
 Target project: `ydsgmzxqjimwbamnksxe`. Never apply this to any other project.
 
@@ -49,36 +49,42 @@ the farm mid-call. It holds the dialogue position and the structured draft, neve
 `service_role` can run it. `voice_events` and `voice_call_sessions` have RLS on with no policy, so
 owners and anon can't reach them.
 
-## Replacing localStorage
+## Account mode
 
-The investor demo must keep working, so localStorage stays as demo mode. Nothing is removed.
+With the flag on, `AccountBoundary` wraps `/app` and `/start` and decides whose farm renders:
 
-1. **Apply and verify.** Apply both migrations, then repeat the isolation checks with two real
-   test owners.
-2. **Add an account mode.** A signed-in owner gets `mode: "account"`. The store loads with
-   `loadWorkspace` and keeps its current shape, so read-only pages don't change. Signed-out
-   visitors stay in demo mode. Add this behind a flag, off by default.
-3. **Move writes screen by screen.** `update(fn)` writes the whole document, so it can't be used
-   in account mode. Setup, Settings and Herd call the owner actions, then refresh from the
-   result. Show a real error when a save fails, and never show "Saved" before the server confirms.
-4. **Keep simulation out of real farms.** The Call Lab and demo clock run domain actions in the
-   browser. In account mode they must be hidden, or stay on a separate demo workspace.
-5. **Import once, by choice.** On first sign-in, offer to bring over setup details and the herd.
-   Do not import reports, calls or tickets: they are simulated, and must not become farm history.
-   Sample farms need a marker first, because a demo workspace can't be told apart from a real one.
-   `toDbId` makes a retried import land on the same rows. Keep the local copy until the import is
-   confirmed.
-6. **Show call results live.** Calls now change the farm while the dashboard is open. Refresh on
-   focus and on an interval first; add Realtime only if that isn't enough.
-7. **Connect the phone line.** See `voice-data-contract.md`.
+| Visitor | Gets |
+|---|---|
+| Signed out | The browser demo, unchanged |
+| Signed in | Their farm from Supabase, created on first entry |
+| Signed in, Supabase unreachable | An error with a retry, never the demo |
 
-Rollback at any step before 7: turn the flag off. The local data is untouched.
+Screens still call `update(fn)`. In account mode `src/store/accountSync.ts` diffs the document
+against the last server copy (`src/lib/account/changes.ts`), and sends only owner-writable fields to
+`POST /api/account`, which runs the same validated owner actions. So a screen can't write a report
+or ticket, and a sample can't replace a farm: a document with another `createdAt` is refused.
+
+- **Not a Server Action.** Next queues those behind navigation and drops one in flight when the page
+  changes, so the save that finishes setup would hang.
+- **Saved means saved.** The screen shows saved only after the server answers. A failure shows a
+  banner, keeps the edit, and retries. Closing the page with unsaved edits warns first.
+- **Half-typed values** (a partial phone number) stay on screen and aren't sent.
+- **Calls appear live.** The farm reloads on focus and every 30 seconds, never over unsaved edits.
+- **localStorage stays the demo's.** A real farm is never written there.
+- **Hidden on a real farm:** Call Lab, demo clock and notice, sample data, Start over.
+
+Not imported: setup details typed into the browser before signing up. The owner enters them again.
+Sample farms need a marker before that can be offered, because a demo can't be told apart from a
+real draft.
+
+Rollback: unset the flag and rebuild. Local data is untouched, and saved farm data stays in Supabase.
 
 ## Before going live
 
 **Needs the project owner**
 - [ ] Access to `ydsgmzxqjimwbamnksxe`. The connected Supabase account can't see it today.
-- [ ] Apply `0001`, `0002` and `0003` (steps in `supabase-preparation.md`; a dry run must list all three).
+- [ ] Apply `0001`–`0004` (steps in `supabase-preparation.md`; a dry run must list all four).
+- [ ] Set `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` and rebuild, after the migrations are applied.
 - [ ] Run Security and Performance Advisors and review the results.
 - [ ] Set `SUPABASE_SECRET_KEY` (`sb_secret_…`) on the server only. Legacy `service_role` keys are
       being retired.
@@ -87,9 +93,11 @@ Rollback at any step before 7: turn the flag off. The local data is untouched.
 **Needs a decision**
 - [ ] How a farm gets Ultimate. Owners can't set their plan, so every farm starts on Basic until
       billing or an admin step exists.
-- [ ] What "Start over" means for a real farm. It clears reports, calls and tickets in demo mode,
-      but owners can't delete those rows, and they are real history. Hide it in account mode, or
-      decide how history is archived.
+- [ ] Verifying phone numbers. Nothing proves a number belongs to the farm that saved it, so
+      any signed-up owner can save another farm's worker number. `findCaller` then refuses both
+      farms, which blocks that worker's calls; an unclaimed number can be squatted. Fine for a
+      closed test, not for open sign-up. Needs service-only verified columns, and `findCaller`
+      matching verified numbers only.
 - [ ] Unregistered callers (open decision 4), and instructions during inquiry calls (6).
 - [ ] Whether, and how often, an unconfirmed task is called about again. Today it gets one
       automatic call, then is asked about during the worker's own calls.
@@ -97,7 +105,7 @@ Rollback at any step before 7: turn the flag off. The local data is untouched.
 - [ ] Deleting an account: `farms` cascades, so it removes the farm's whole history.
 
 **Needs building**
-- [ ] Steps 2–7 above.
+- [ ] Account deletion as a service-side step. `0004` removed owners' direct delete on `farms`.
 - [ ] Generate database types once the schema is applied, and replace `src/server/db/rows.ts`.
 - [ ] A scheduler for retries and task checks. Vercel Hobby cron is too slow for 20-minute retries.
 - [ ] Weather on the server: it is not stored, so the heat-day question needs a fresh forecast.
@@ -110,11 +118,16 @@ Supabase roles. It covers grants, RLS, cross-farm writes, rollback, both races, 
 flows saved and reloaded through both migrations. The older isolation suite reports one expected
 failure, "no functions in public", which predates `apply_farm_changes`.
 
+`scripts/verify-account.mjs` drives a real browser against `run-stack.sh`: real migrations and
+PostgREST, stand-in Auth. It covers setup, saving, refresh, sign-out and sign-in, a failed save,
+two owners, Basic and Ultimate, Arabic and English, a mocked call reaching the dashboard, and the
+demo staying separate.
+
 `sh supabase/local-validation/run-voice.sh` runs mocked, signed Twilio webhooks through the route
 handlers, `supabase-js`, a real PostgREST and all migrations.
 
 **Not verified:** real Supabase roles and `auth.uid()` (the stand-ins imitate them), the platform's
-API gateway, advisors, and any live call. Run these against the real project before relying on them.
+API gateway, real sign-up and OTP against this data path, advisors, and any live call. Run these against the real project before relying on them.
 
 `supabase-preparation.md` predates this work: its `ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`
 names are out of date, use `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY`.

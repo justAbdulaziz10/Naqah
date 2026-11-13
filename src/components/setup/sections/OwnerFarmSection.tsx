@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button, Card, CardBody, CardHeader, Field, Input, Select } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { regionForCoords, SAUDI_REGIONS } from "@/lib/geo/regions";
-import { useSaveStatus } from "@/store/workspace";
+import { savedForSure } from "@/store/account";
 import { SaveState } from "../SaveState";
 import { PhoneInput } from "./PhoneInput";
 import type { SetupSectionProps } from "../types";
@@ -42,7 +42,7 @@ export function OwnerFarmSection({ ws, onChange, showSaved, showLocation = true 
         }));
         setLocating(false);
         // The section's save state already reports a failed write; only confirm one that landed.
-        setLocationFeedback(useSaveStatus.getState().status === "failed" ? null : "saved");
+        void savedForSure().then((saved) => setLocationFeedback(saved ? "saved" : null));
       },
       (error) => {
         setLocating(false);

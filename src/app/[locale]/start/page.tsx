@@ -39,7 +39,7 @@ import { useI18n } from "@/i18n/client";
 import { onboarding as onboardingMessages } from "@/i18n/messages/onboarding";
 import { cn } from "@/lib/cn";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
-import { useSaveStatus, useWorkspaceStore } from "@/store/workspace";
+import { useIsAccount, useSaveStatus, useWorkspaceStore } from "@/store/workspace";
 
 const STEPS = ["plan", "ownerFarm", "worker", "details", "schedule", "review"] as const satisfies readonly WizardStepKey[];
 type StepKey = (typeof STEPS)[number];
@@ -66,7 +66,8 @@ export default function StartPage() {
   const hydrated = useWorkspaceStore((state) => state.hydrated);
   const workspace = useWorkspaceStore((state) => state.workspace);
   const startOnboarding = useWorkspaceStore((state) => state.startOnboarding);
-  const saveFailed = useSaveStatus((state) => state.status === "failed");
+  const account = useIsAccount();
+  const saveFailed = useSaveStatus((state) => state.status === "failed") && !account; // The account banner covers it.
   const [step, setStep] = useState(0);
   const [showStepErrors, setShowStepErrors] = useState(false);
   const [confirmingSample, setConfirmingSample] = useState(false);
@@ -260,7 +261,7 @@ export default function StartPage() {
             })}
           </ol>
         </nav>
-        <p className="relative z-10 mt-auto max-w-[17rem] text-[0.9375rem] leading-relaxed text-cream/70">{m.onboarding.wizard.browserOnly}</p>
+        {account ? null : <p className="relative z-10 mt-auto max-w-[17rem] text-[0.9375rem] leading-relaxed text-cream/70">{m.onboarding.wizard.browserOnly}</p>}
         {/* The approved mark, unchanged, enlarged and cropped by the panel edge. */}
         <CamelMark className="pointer-events-none absolute -bottom-10 -end-24 h-auto w-[30rem] opacity-[0.09]" />
       </aside>
@@ -271,14 +272,16 @@ export default function StartPage() {
           <div className="mx-auto flex w-full max-w-[44rem] items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:max-w-none lg:justify-end lg:px-10 lg:py-6">
             <span className="lg:hidden"><Logo locale={locale} href={href("/")} tone="light" /></span>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={askToFillSample}
-                className="inline-flex h-10 items-center rounded-full px-3 text-sm font-semibold text-cream transition hover:bg-cream/10 lg:px-4 lg:text-espresso lg:hover:bg-espresso/5"
-              >
-                <span className="hidden sm:inline">{m.onboarding.sampleData}</span>
-                <span className="sm:hidden">{m.onboarding.sampleShort}</span>
-              </button>
+              {account ? null : (
+                <button
+                  type="button"
+                  onClick={askToFillSample}
+                  className="inline-flex h-10 items-center rounded-full px-3 text-sm font-semibold text-cream transition hover:bg-cream/10 lg:px-4 lg:text-espresso lg:hover:bg-espresso/5"
+                >
+                  <span className="hidden sm:inline">{m.onboarding.sampleData}</span>
+                  <span className="sm:hidden">{m.onboarding.sampleShort}</span>
+                </button>
+              )}
               <LocaleSwitcher className="px-3 max-lg:text-cream max-lg:hover:bg-cream/10" />
             </div>
           </div>

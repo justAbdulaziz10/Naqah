@@ -5,6 +5,7 @@ import { Button, Card, CardBody, CardHeader } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { useWeatherRefresh } from "@/components/dashboard/useWeatherRefresh";
 import { regionForCoords } from "@/lib/geo/regions";
+import { savedForSure } from "@/store/account";
 import { useWorkspace, useWorkspaceStore } from "@/store/workspace";
 
 type LocationFeedback = "saved" | "unsupported" | "denied" | "timeout" | "unavailable";
@@ -48,7 +49,7 @@ export function WeatherCard() {
           },
         }));
         setLocating(false);
-        setLocationFeedback("saved");
+        void savedForSure().then((saved) => setLocationFeedback(saved ? "saved" : null));
       },
       (error) => {
         setLocating(false);

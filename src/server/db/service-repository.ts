@@ -77,7 +77,8 @@ export async function runFarmAction<T>(
       p_outcome: eventId ? result : null,
     });
     if (!error) return { status: changed ? "saved" : "unchanged", result };
-    if (error.code === "NQ409") continue;
+    // 23503: an owner deleted a row this change points at. Fresh state simply leaves it out.
+    if (error.code === "NQ409" || error.code === "23503") continue;
     if (error.code === "23505" && eventId) {
       // Lost the race to the same event running at once: its answer is the answer.
       const recorded = await recordedOutcome<T>(client, farmId, eventId);

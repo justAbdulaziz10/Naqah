@@ -6,6 +6,7 @@ import { isValidWindow } from "@/domain/clock";
 import { useI18n } from "@/i18n/client";
 import { ButtonLink } from "@/components/ui";
 import { isLiveCallLanguage } from "@/lib/voice/liveCallLanguages";
+import { useIsAccount } from "@/store/workspace";
 import { useId } from "react";
 import { isSaudiMobile } from "./phone";
 
@@ -37,6 +38,7 @@ export function hasCallLanguageNote(ws: Workspace): boolean {
 /** Keeps saved setup completion separate from call configuration and live-call availability. */
 export function CallSetupStatus({ ws, settingsHref }: { ws: Workspace; settingsHref?: string }) {
   const { m, t } = useI18n();
+  const account = useIsAccount();
   const gaps = getCallSetupGaps(ws);
   const workerLanguage = WORKER_LANGUAGES.find((language) => language.id === ws.settings.worker.language);
   const titleId = useId();
@@ -60,7 +62,7 @@ export function CallSetupStatus({ ws, settingsHref }: { ws: Workspace; settingsH
       {workerLanguage && hasCallLanguageNote(ws) ? (
         <p className="mt-2 text-sm leading-relaxed text-espresso">{m.onboarding.workerLanguageNotLive(t(workerLanguage.label))}</p>
       ) : null}
-      <p className="mt-3 text-sm leading-relaxed text-muted">{m.onboarding.liveCallsUnavailable}</p>
+      {account ? null : <p className="mt-3 text-sm leading-relaxed text-muted">{m.onboarding.liveCallsUnavailable}</p>}
       {settingsHref && gaps.length ? (
         <ButtonLink href={settingsHref} variant="secondary" className="mt-3 w-full sm:w-auto">
           {m.onboarding.completeSetupInSettings}

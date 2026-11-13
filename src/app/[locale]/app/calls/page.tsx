@@ -7,7 +7,7 @@ import { Badge, ButtonLink, Card, CardBody, Segmented } from "@/components/ui";
 import { dayKey } from "@/domain";
 import type { CallKind, CallLog } from "@/domain";
 import { useI18n } from "@/i18n/client";
-import { useWorkspace } from "@/store/workspace";
+import { useIsAccount, useWorkspace } from "@/store/workspace";
 
 type CallFilter = "all" | "worker" | "owner";
 
@@ -40,6 +40,7 @@ function CallMarker({ call }: { call: CallLog }) {
 export default function CallsPage() {
   const { m, t, fmt, href } = useI18n();
   const ws = useWorkspace();
+  const account = useIsAccount();
   const [filter, setFilter] = useState<CallFilter>("all");
 
   const calls = useMemo(() => {
@@ -163,7 +164,7 @@ export default function CallsPage() {
               camel
               title={m.app.calls.empty}
               body={m.app.calls.emptyBody}
-              action={<ButtonLink href={href("/app/lab")} variant="secondary">{m.app.overview.simulateCall}</ButtonLink>}
+              action={account ? undefined : <ButtonLink href={href("/app/lab")} variant="secondary">{m.app.overview.simulateCall}</ButtonLink>}
             />
           ) : <EmptyState title={m.app.calls.empty} />}
         </Card>

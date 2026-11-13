@@ -26,7 +26,7 @@ async function VerifiedOwner({ params, searchParams }: Props) {
   if (next) redirect(next);
   return <AuthFrame>
     <h1 className="text-2xl font-semibold">{m.signedIn}</h1>
-    <p className="mt-3 leading-relaxed text-muted">{m.successBody}</p>
+    {process.env.NEXT_PUBLIC_NAQAH_ACCOUNT_DATA === '1' ? null : <p className="mt-3 leading-relaxed text-muted">{m.successBody}</p>}
     <div className="mt-7 flex flex-col gap-4"><ButtonLink size="lg" href={`/${locale}/app`}>{m.continue}</ButtonLink><LogoutButton /><ButtonLink variant="ghost" href={`/${locale}`}>{m.home}</ButtonLink></div>
   </AuthFrame>;
 }

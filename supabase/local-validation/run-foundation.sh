@@ -33,6 +33,7 @@ fresh() {
   $PSQL -d "$DB" -1 -f ../migrations/0001_init.sql
   $PSQL -d "$DB" -1 -f ../migrations/0002_backend_foundation.sql
   $PSQL -d "$DB" -1 -f ../migrations/0003_voice_call_sessions.sql
+  $PSQL -d "$DB" -1 -f ../migrations/0004_owner_write_limits.sql
 }
 
 echo "-- 0002 checks"

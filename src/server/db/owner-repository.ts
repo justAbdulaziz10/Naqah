@@ -47,8 +47,14 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
     assertWritten(await client.from(table).update(values).eq("farm_id", farm).eq("id", row).select("id"));
   }
 
-  async function insertRow(table: string, values: Record<string, unknown>) {
+  /** With a screen id the row gets a stable id, so a save repeated after a lost reply updates, not adds. */
+  async function insertRow(table: string, values: Record<string, unknown>, localId?: string) {
     const farm = await currentFarmId();
+    if (localId) {
+      const id = toDbId(farm, localId);
+      assertOk(await client.from(table).upsert({ ...values, id, farm_id: farm }, { onConflict: "id" }));
+      return id;
+    }
     const result = await client.from(table).insert({ ...values, farm_id: farm }).select("id").single();
     assertOk(result);
     return (result.data as { id: string }).id;
@@ -115,7 +121,7 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
       assertWritten(await client.from("workers").update(values).eq("farm_id", farm).select("farm_id"));
     },
 
-    addCamel: (input: unknown) => insertRow("camels", parseNewCamel(input)),
+    addCamel: (input: unknown, localId?: string) => insertRow("camels", parseNewCamel(input), localId),
     updateCamel: (id: unknown, input: unknown) => updateRow("camels", id, parseCamelPatch(input)),
     deleteCamel: (id: unknown) => deleteRow("camels", id),
 
@@ -125,15 +131,15 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
       assertWritten(await client.from("resources").update(values).eq("farm_id", farm).eq("kind", kind).select("kind"));
     },
 
-    addCustomQuestion: (text: unknown) => insertRow("custom_questions", { text: requiredText(text, "text", 300) }),
+    addCustomQuestion: (text: unknown, localId?: string) => insertRow("custom_questions", { text: requiredText(text, "text", 300) }, localId),
     updateCustomQuestion: (id: unknown, text: unknown) => updateRow("custom_questions", id, { text: requiredText(text, "text", 300) }),
     deleteCustomQuestion: (id: unknown) => deleteRow("custom_questions", id),
 
-    addCriterion: (input: unknown) => insertRow("criteria", parseCriterion(input)),
+    addCriterion: (input: unknown, localId?: string) => insertRow("criteria", parseCriterion(input), localId),
     updateCriterion: (id: unknown, input: unknown) => updateRow("criteria", id, parseCriterion(input)),
     deleteCriterion: (id: unknown) => deleteRow("criteria", id),
 
-    addEmergency: (input: unknown) => insertRow("emergency_categories", parseEmergency(input)),
+    addEmergency: (input: unknown, localId?: string) => insertRow("emergency_categories", parseEmergency(input), localId),
     updateEmergency: (id: unknown, input: unknown) => updateRow("emergency_categories", id, parseEmergency(input)),
     deleteEmergency: (id: unknown) => deleteRow("emergency_categories", id),
   };

@@ -71,12 +71,13 @@ export function selectNotificationEvents(
   });
 }
 
-export function buildNotification(event: PlatformEvent, locale: Locale): NotificationPayload {
+export function buildNotification(event: PlatformEvent, locale: Locale, demo = true): NotificationPayload {
   const ownerCall = isOwnerCallSummary(event);
-  // Events come from the simulated browser workspace, so the title says so.
+  // Demo events are simulated, so their title says so.
+  const brand = locale === "ar" ? (demo ? "ناقة (تجريبي)" : "ناقة") : (demo ? "NAQAH (Demo)" : "NAQAH");
   const title = locale === "ar"
-    ? ownerCall ? "ناقة (تجريبي) | اتصال المالك" : "ناقة (تجريبي) | مستجد مهم في المزرعة"
-    : ownerCall ? "NAQAH (Demo) | Owner call" : "NAQAH (Demo) | Important farm update";
+    ? `${brand} | ${ownerCall ? "اتصال المالك" : "مستجد مهم في المزرعة"}`
+    : `${brand} | ${ownerCall ? "Owner call" : "Important farm update"}`;
   const destination = isNoAnswerTicket(event) ? "/app/tickets" : ownerCall ? "/app/calls" : "/app";
 
   return {

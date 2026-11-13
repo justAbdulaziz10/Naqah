@@ -126,6 +126,7 @@ export function QuestionsSection({ ws, onChange, showSaved }: SetupSectionProps)
                 <Input
                   id={id}
                   value={newQuestion}
+                  maxLength={300}
                   onChange={(event) => setNewQuestion(event.target.value)}
                   disabled={!canAdd}
                   onKeyDown={(event) => {

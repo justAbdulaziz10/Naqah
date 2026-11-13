@@ -1,12 +1,11 @@
 "use client";
 
 /**
- * Client-side workspace store (investor demo).
+ * Client-side workspace store.
  *
- * The whole demo state lives in one `Workspace` document persisted to
- * localStorage, so the demo never depends on a backend being awake.
- * To move to Supabase, replace the `persist` storage with a repository that
- * reads/writes the tables in `supabase/migrations` — see AGENT.md §Data.
+ * The demo lives in one `Workspace` document persisted to localStorage, so it never depends on a
+ * backend being awake. A signed-in owner's farm uses the same shape but comes from Supabase and
+ * never reaches localStorage: see `accountSync.ts`.
  */
 import { useEffect, useState } from "react";
 import { create } from "zustand";
@@ -32,6 +31,19 @@ type Persisted = { workspace: Workspace | null };
 /** Outcome of the latest browser write. Kept apart from the workspace store, whose every change is itself written. */
 export type SaveStatus = "idle" | "saved" | "failed";
 export const useSaveStatus = create<{ status: SaveStatus }>(() => ({ status: "idle" }));
+
+/**
+ * Whose data this is. `active` means a signed-in owner's farm from Supabase: then nothing touches
+ * localStorage, and the demo-only actions below do nothing. See `accountSync.ts`.
+ */
+export type AccountStatus = "checking" | "demo" | "ready" | "error" | "signedOut";
+export const useAccountState = create<{ active: boolean; status: AccountStatus; notice: "plan" | "refused" | null }>(() => ({
+  active: false,
+  status: process.env.NEXT_PUBLIC_NAQAH_ACCOUNT_DATA === "1" ? "checking" : "demo",
+  notice: null,
+}));
+export const useIsAccount = () => useAccountState((state) => state.active);
+export const accountLink: { active: boolean; edited: () => void } = { active: false, edited: () => undefined };
 
 const WORKSPACE_ARRAYS = ["camels", "resources", "reports", "calls", "taskTickets", "noAnswerTickets", "pendingWorkerCalls", "relays", "events"] as const;
 
@@ -66,7 +78,7 @@ const safeStorage: PersistStorage<Persisted> = {
   },
   setItem: (name, value) => {
     try {
-      if (!hasStorage()) return;
+      if (!hasStorage() || accountLink.active) return;
       localStorage.setItem(name, JSON.stringify(value));
       useSaveStatus.setState({ status: "saved" });
     } catch (error) {
@@ -88,11 +100,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       markHydrated: () => set({ hydrated: true }),
       update: (fn) => {
         const ws = get().workspace;
-        if (ws) set({ workspace: fn(ws) });
+        if (!ws) return;
+        const next = fn(ws);
+        if (!accountLink.active) return set({ workspace: next });
+        // A different document is a sample or a restart, never an edit to a real farm.
+        if (next.createdAt !== ws.createdAt) return;
+        set({ workspace: next });
+        accountLink.edited();
       },
-      startDemo: (locale, plan = "ultimate") => set({ workspace: createDemoWorkspace(locale, plan) }),
-      startOnboarding: (plan) => set({ workspace: createEmptyWorkspace(plan) }),
-      reset: () => set({ workspace: null }),
+      startDemo: (locale, plan = "ultimate") => {
+        if (!accountLink.active) set({ workspace: createDemoWorkspace(locale, plan) });
+      },
+      startOnboarding: (plan) => {
+        if (!accountLink.active) set({ workspace: createEmptyWorkspace(plan) });
+      },
+      reset: () => {
+        if (!accountLink.active) set({ workspace: null });
+      },
     }),
     {
       name: "naqah-workspace-v1",

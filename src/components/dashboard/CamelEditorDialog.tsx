@@ -89,6 +89,7 @@ export function CamelEditorDialog({
                 id={id}
                 type="number"
                 min={0}
+                max={60}
                 step={1}
                 inputMode="numeric"
                 value={age}
@@ -111,6 +112,7 @@ export function CamelEditorDialog({
               <Textarea
                 id={id}
                 rows={3}
+                maxLength={500}
                 placeholder={m.app.herd.notePlaceholder}
                 value={healthNote}
                 onChange={(event) => setHealthNote(event.target.value)}

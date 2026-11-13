@@ -14,6 +14,8 @@ export const SAMPLE_CALL_ENDED = {
 
 export function escapeXml(value: string): string {
   return value
+    // Illegal in XML even when escaped, and one in a camel's name would fail the whole call.
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")

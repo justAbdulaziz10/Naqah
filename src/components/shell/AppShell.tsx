@@ -25,7 +25,7 @@ import { Button, ButtonLink, ConfirmDialog } from "@/components/ui";
 import { openNoAnswerTickets, openTaskTickets } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
-import { useNow, useWorkspaceStore } from "@/store/workspace";
+import { useIsAccount, useNow, useWorkspaceStore } from "@/store/workspace";
 import { LocaleSwitcher } from "./LocaleSwitcher";
 import { useSetupHref } from "@/components/welcome/WelcomeActions";
 
@@ -53,6 +53,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const ws = useWorkspaceStore((s) => s.workspace);
   const startDemo = useWorkspaceStore((s) => s.startDemo);
   const setupHref = useSetupHref();
+  const account = useIsAccount();
+  const nav = account ? NAV.filter((item) => item.key !== "lab") : NAV; // The Call Lab simulates, so a real farm never sees it.
   const [confirmingDemo, setConfirmingDemo] = useState(false);
 
   const isActive = (path: string) => {
@@ -115,7 +117,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <p className="text-sm text-muted">{m.common.plans[ws.settings.plan]}</p>
         </div>
         <nav aria-label={m.common.nav.main} className="mt-6 flex flex-col gap-1">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active = isActive(item.path);
             return (
               <Link
@@ -143,7 +145,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="mt-auto space-y-3 px-2">
           <div className="border-t border-stone/70 pt-4">
             {ws.settings.owner.name.trim() ? <p className="truncate text-sm font-semibold">{ws.settings.owner.name}</p> : null}
-            <p className="mt-0.5 text-xs text-muted">{m.common.demo.badge}</p>
+            {account ? null : <p className="mt-0.5 text-xs text-muted">{m.common.demo.badge}</p>}
           </div>
           <LocaleSwitcher className="-ms-2.5" />
         </div>
@@ -166,7 +168,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
             </div>
           </div>
-          <DemoNotice showSimulate={!isActive("/app/lab")} labHref={href("/app/lab")} />
+          {account ? null : <DemoNotice showSimulate={!isActive("/app/lab")} labHref={href("/app/lab")} />}
         </header>
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">{children}</main>
@@ -177,8 +179,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-label={m.common.nav.main}
         className="fixed inset-x-0 bottom-0 z-40 border-t border-stone/70 bg-cream/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden"
       >
-        <div className="mx-auto grid max-w-lg grid-cols-5">
-          {NAV.filter((n) => n.key !== "settings").map((item) => {
+        <div className={cn("mx-auto grid max-w-lg", account ? "grid-cols-4" : "grid-cols-5")}>
+          {nav.filter((n) => n.key !== "settings").map((item) => {
             const active = isActive(item.path);
             return (
               <Link
