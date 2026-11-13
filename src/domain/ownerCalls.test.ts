@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { completeWorkerReport } from "./actions";
-import { MINUTE } from "./clock";
+import { fromRiyadh, MINUTE, RETRY_DELAY_MS } from "./clock";
+import { routeOwnerInboundCall } from "./rules";
 import {
   abandonOwnerCallAttempt, claimDueOwnerCall, dueOwnerCallSlot, markOwnerCallAnswered, newestUnsummarizedReport,
-  resolveOwnerCallAttempt,
+  resolveOwnerCallAttempt, OWNER_CALL_ATTEMPTS,
 } from "./ownerCalls";
 import { createEmptyWorkspace } from "./seed";
 import type { Plan, ReportCallRun, Workspace } from "./types";
@@ -27,6 +28,28 @@ const liveWorkerRun = (state: ReportCallRun["state"] = "calling"): ReportCallRun
   nextAttemptAt: at(15).toISOString(), state, reportId: null,
 });
 const notifications = (ws: Workspace) => ws.calls.filter((call) => call.kind === "owner_notification");
+
+describe("missed owner notification periods", () => {
+  it("keeps a Saturday slot in its own week when its final attempt ends on Sunday", () => {
+    const slot = fromRiyadh(2026, 11, 7, 23, 50);
+    const input = farm();
+    input.settings.ownerCallSchedule = { day: 6, time: "23:50" };
+    let ws = input;
+    let endedAt = slot;
+    let now = slot;
+    for (let attempt = 1; attempt <= OWNER_CALL_ATTEMPTS; attempt++) {
+      const claimed = claimDueOwnerCall(ws, now);
+      expect(claimed.claim?.attempt).toBe(attempt);
+      endedAt = new Date(now.getTime() + MINUTE);
+      ws = resolveOwnerCallAttempt(claimed.ws, endedAt, claimed.claim!.runId, attempt, "unanswered");
+      now = new Date(endedAt.getTime() + RETRY_DELAY_MS);
+    }
+    expect(ws.missedNotificationAt).toBe(slot.toISOString());
+    expect(notifications(ws)[0].at).toBe(endedAt.toISOString());
+    expect(routeOwnerInboundCall(ws, fromRiyadh(2026, 11, 7, 23, 59))).toEqual({ kind: "inquiry", mode: "missed_callback" });
+    expect(routeOwnerInboundCall(ws, endedAt)).toEqual({ kind: "inquiry", mode: "weekly" });
+  });
+});
 
 describe("opening an owner slot", () => {
   it("opens once per occurrence, recorded before anything is dialled", () => {
@@ -126,7 +149,7 @@ describe("each attempt's outcome", () => {
     current = resolveOwnerCallAttempt(current, at(43), runId, 3, "unanswered");
     expect(current.ownerCallRun).toMatchObject({ state: "missed", nextAttemptAt: null });
     expect(notifications(current)).toEqual([expect.objectContaining({ outcome: "no_answer", reportId: null })]);
-    expect(current.missedNotificationAt).toBe(at(43).toISOString());
+    expect(current.missedNotificationAt).toBe(THU_1800.toISOString());
     expect(current.events.at(-2)?.text.en).toContain("didn't complete after 3 attempts");
     expect(claim(current, 50).claim).toBeNull();
     expect(resolveOwnerCallAttempt(current, at(44), runId, 3, "unanswered")).toBe(current);

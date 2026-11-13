@@ -5,6 +5,7 @@
 import { PLAN_LIMITS, PREDEFINED_QUESTIONS } from "./catalog";
 import { sameDay, sameWeek } from "./clock";
 import { isHerdCount } from "./herd";
+import { nextScheduledCall } from "./schedule";
 import type { CustomQuestion, PendingWorkerCall, PredefinedQuestion, QuestionPlanEntry, ReportMode, Workspace } from "./types";
 
 /** Phase 1: predefined questions that apply to this ranch; absent resources are skipped. */
@@ -115,15 +116,16 @@ export function routeWorkerInboundCall(ws: Workspace, now: Date): WorkerInboundR
   const open = ws.noAnswerTickets.filter((t) => t.status === "open");
   if (open.length) return { kind: "callback", ticketIds: open.map((t) => t.id) };
 
-  const last = lastReportAt(ws);
   const basic = ws.settings.plan === "basic";
-  if (last && (basic ? sameWeek(last, now) : sameDay(last, now))) {
+  if (reportDoneThisPeriod(ws, now)) {
     return { kind: "rejected", reason: basic ? "weekly_done" : "daily_done" };
   }
   const samePeriod = (at: string) => (basic ? sameWeek(at, now) : sameDay(at, now));
-  const returning = (ws.reportCalls ?? []).some(
-    (run) => (run.state === "missed" || run.state === "calling") && run.attempts.length > 0 && samePeriod(run.attempts[0].at),
-  );
+  const returning = (ws.reportCalls ?? []).some((run) => {
+    if ((run.state !== "missed" && run.state !== "calling") || !run.attempts.length || Date.parse(run.occurrence) > now.getTime()) return false;
+    const next = nextScheduledCall(new Date(run.occurrence), ws.settings.plan, ws.settings.callSchedule);
+    return next ? now.getTime() < next.getTime() : samePeriod(run.occurrence);
+  });
   return returning ? { kind: "report" } : { kind: "rejected", reason: "wait_for_call" };
 }
 
@@ -160,11 +162,16 @@ export function ownerMissedCallbackUsed(ws: Workspace, now: Date): boolean {
   );
 }
 
-/** Has the worker already reported in the current period (week for Basic, day for Ultimate)? */
+/** Scheduled reports belong to their run's slot; inbound and manual reports belong to their save time. */
 export function reportDoneThisPeriod(ws: Workspace, now: Date): boolean {
-  const last = lastReportAt(ws);
-  if (!last) return false;
-  return ws.settings.plan === "basic" ? sameWeek(last, now) : sameDay(last, now);
+  return ws.reports.some((report) => {
+    const call = ws.calls.find((item) => item.id === report.callId);
+    const run = call?.direction === "inbound" ? undefined : (ws.reportCalls ?? []).find(
+      (item) => item.trigger === "schedule" && item.reportId === report.id,
+    );
+    const at = run?.occurrence ?? report.at;
+    return ws.settings.plan === "basic" ? sameWeek(at, now) : sameDay(at, now);
+  });
 }
 
 export const openTaskTickets = (ws: Workspace) => ws.taskTickets.filter((t) => t.status === "open");

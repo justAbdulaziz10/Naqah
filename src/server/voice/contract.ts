@@ -338,7 +338,7 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent, repeatRep
         const run = reportCallRuns(ws).find((item) => item.id === event.reportCallId);
         if (!run || !runAcceptsReport(run, now)) return { ws, result: { status: "rejected", reason: "call_not_active" } };
         // The local presentation ranch keeps each confirmed report as its own record (demoRepeatReports).
-        if (reportDoneThisPeriod(ws, now) && !repeatReports) {
+        if (reportDoneThisPeriod(ws, run.trigger === "schedule" ? new Date(run.occurrence) : now) && !repeatReports) {
           const reason = ws.settings.plan === "basic" ? "weekly_done" : "daily_done";
           return { ws: rejectWorkerReport(ws, now, reason), result: { status: "rejected", reason } };
         }

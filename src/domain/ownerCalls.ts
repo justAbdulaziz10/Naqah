@@ -83,7 +83,7 @@ function finishMissed(ws: Workspace, now: Date, run: OwnerCallRun): Workspace {
     ar: `ما اكتملت مكالمة ${name} بعد ${attempts} محاولات`,
     en: `The scheduled call to ${name} didn't complete after ${attempts} ${attempts === 1 ? "attempt" : "attempts"}`,
   });
-  return recordOwnerNotification(ws, now, run.reportId, false);
+  return recordOwnerNotification(ws, now, run.reportId, false, new Date(run.occurrence));
 }
 
 /**
@@ -143,8 +143,8 @@ export function abandonOwnerCallAttempt(input: Workspace, now: Date, runId: stri
   if (run.trigger === "manual" || isTooOld(run, now)) return finishMissed(ws, now, run);
   run.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
   pushEvent(ws, now, "attention", {
-    ar: `تعذر على ناقة الاتصال بـ${ws.settings.owner.name} — تحاول مرة ثانية بعد ٢٠ دقيقة`,
-    en: `NAQAH couldn't place the call to ${ws.settings.owner.name} — it will try again in 20 minutes`,
+    ar: `تعذر على ناقة الاتصال بـ${ws.settings.owner.name} — تحاول مرة ثانية بعد ${RETRY_DELAY_MS / MINUTE} دقيقة`,
+    en: `NAQAH couldn't place the call to ${ws.settings.owner.name} — it will try again in ${RETRY_DELAY_MS / MINUTE} minutes`,
   });
   return ws;
 }
@@ -185,12 +185,12 @@ export function resolveOwnerCallAttempt(
   run.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
   pushEvent(ws, now, "neutral", result === "interrupted"
     ? {
-        ar: `انقطعت مكالمة ${ws.settings.owner.name} — ناقة تعيد الاتصال بعد ٢٠ دقيقة (${attempt}/${OWNER_CALL_ATTEMPTS})`,
-        en: `The call to ${ws.settings.owner.name} ended early — NAQAH will try again in 20 minutes (${attempt}/${OWNER_CALL_ATTEMPTS})`,
+        ar: `انقطعت مكالمة ${ws.settings.owner.name} — ناقة تعيد الاتصال بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${attempt}/${OWNER_CALL_ATTEMPTS})`,
+        en: `The call to ${ws.settings.owner.name} ended early — NAQAH will try again in ${RETRY_DELAY_MS / MINUTE} minutes (${attempt}/${OWNER_CALL_ATTEMPTS})`,
       }
     : {
-        ar: `لم يرد ${ws.settings.owner.name} — ناقة تعيد الاتصال بعد ٢٠ دقيقة (${attempt}/${OWNER_CALL_ATTEMPTS})`,
-        en: `${ws.settings.owner.name} didn't answer — NAQAH will try again in 20 minutes (${attempt}/${OWNER_CALL_ATTEMPTS})`,
+        ar: `لم يرد ${ws.settings.owner.name} — ناقة تعيد الاتصال بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${attempt}/${OWNER_CALL_ATTEMPTS})`,
+        en: `${ws.settings.owner.name} didn't answer — NAQAH will try again in ${RETRY_DELAY_MS / MINUTE} minutes (${attempt}/${OWNER_CALL_ATTEMPTS})`,
       });
   return ws;
 }

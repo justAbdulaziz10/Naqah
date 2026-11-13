@@ -4,7 +4,7 @@
  * through these functions so the rules live in exactly one place.
  */
 import { undeliveredCalls } from "./alerts";
-import { MAX_RETRIES, RETRY_DELAY_MS } from "./clock";
+import { MAX_RETRIES, MINUTE, RETRY_DELAY_MS } from "./clock";
 import { coveredTasks, dueTaskVerifications, dueWorkerCalls, openCoveredTasks } from "./rules";
 import { coveredReportDraft, evaluateFindings, reportDraftIssue, type ReportDraft } from "./findings";
 import { uid } from "./id";
@@ -201,7 +201,7 @@ export function rejectWorkerReport(input: Workspace, now: Date, reason: RejectRe
 // ───────────────────────── Owner calls (Phases 4–5) ─────────────────────────
 
 /** `reportId` null: the call told the owner that no verified report has arrived. */
-export function recordOwnerNotification(input: Workspace, now: Date, reportId: string | null, answered: boolean): Workspace {
+export function recordOwnerNotification(input: Workspace, now: Date, reportId: string | null, answered: boolean, occurrence: Date = now): Workspace {
   const ws = clone(input);
   pushCall(ws, {
     kind: "owner_notification",
@@ -226,7 +226,7 @@ export function recordOwnerNotification(input: Workspace, now: Date, reportId: s
       ? { ar: "اتصلت ناقة بالمالك وأبلغته بالتحديث", en: "NAQAH called the owner with the update" }
       : { ar: "اتصلت ناقة بالمالك وأبلغته أنه ما وصل تقرير مؤكد", en: "NAQAH called the owner to say no verified report has arrived" });
   } else {
-    ws.missedNotificationAt = iso(now);
+    ws.missedNotificationAt = iso(occurrence);
     pushEvent(ws, now, "neutral", {
       ar: "لم يرد المالك — يظهر له اتصال فائت ويمكنه مراجعة الموقع",
       en: "Owner didn't answer — a missed call shows, and the website has the details",
@@ -501,8 +501,8 @@ export function releaseWorkerCallClaim(input: Workspace, pendingCallId: string, 
   // The attempt never happened, so it isn't counted, but the provider isn't asked again on the very next tick.
   call.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
   pushEvent(ws, now, "attention", {
-    ar: `تعذر على ناقة الاتصال بـ${ws.settings.worker.name} — تحاول مرة ثانية بعد ٢٠ دقيقة`,
-    en: `NAQAH couldn't place the call to ${ws.settings.worker.name} — it will try again in 20 minutes`,
+    ar: `تعذر على ناقة الاتصال بـ${ws.settings.worker.name} — تحاول مرة ثانية بعد ${RETRY_DELAY_MS / MINUTE} دقيقة`,
+    en: `NAQAH couldn't place the call to ${ws.settings.worker.name} — it will try again in ${RETRY_DELAY_MS / MINUTE} minutes`,
   });
   return ws;
 }
@@ -604,12 +604,12 @@ export function resolveWorkerCallAttempt(
     call.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
     pushEvent(ws, now, "neutral", result === "interrupted"
       ? {
-          ar: `انقطع الاتصال — إعادة المحاولة بعد ٢٠ دقيقة (${inRound}/${MAX_RETRIES + 1})`,
-          en: `The call ended early — retrying in 20 minutes (${inRound}/${MAX_RETRIES + 1})`,
+          ar: `انقطع الاتصال — إعادة المحاولة بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${inRound}/${MAX_RETRIES + 1})`,
+          en: `The call ended early — retrying in ${RETRY_DELAY_MS / MINUTE} minutes (${inRound}/${MAX_RETRIES + 1})`,
         }
       : {
-          ar: `لم يرد العامل — إعادة المحاولة بعد ٢٠ دقيقة (${inRound}/${MAX_RETRIES + 1})`,
-          en: `Worker didn't answer — retrying in 20 minutes (${inRound}/${MAX_RETRIES + 1})`,
+          ar: `لم يرد العامل — إعادة المحاولة بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${inRound}/${MAX_RETRIES + 1})`,
+          en: `Worker didn't answer — retrying in ${RETRY_DELAY_MS / MINUTE} minutes (${inRound}/${MAX_RETRIES + 1})`,
         });
     return { ws, outcome: "retry_scheduled" };
   }
