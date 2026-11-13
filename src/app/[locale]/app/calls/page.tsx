@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type CSSProperties } from "react";
 import { ArrowRight, Check, CheckCircle, Minus, WarningCircle, X } from "@phosphor-icons/react";
-import { OutcomeBadge } from "@/components/dashboard/DashboardPrimitives";
+import { EmptyState, OutcomeBadge } from "@/components/dashboard/DashboardPrimitives";
 import { GroupLabel, PageHeader } from "@/components/dashboard/PageHeader";
 import { ReportSheet } from "@/components/dashboard/ReportSheet";
 import { callEntries, type CallChain, type CallGroup, type ReportStory } from "@/components/dashboard/callStories";
@@ -251,10 +251,9 @@ export default function CallsPage() {
 
       {ws.calls.length ? (
         <>
-          <Card className="px-5 py-5 sm:px-7 sm:py-6">
+          <Card className="px-5 py-4 sm:px-7">
             <CallActivity calls={ws.calls} now={now} />
           </Card>
-
 
           {days.length ? (
             <div className="space-y-7">
@@ -289,7 +288,7 @@ export default function CallsPage() {
               ) : null}
             </div>
           ) : (
-            <Card className="px-5 py-10 text-center text-muted">{c.emptyFilter}</Card>
+            <Card><EmptyState title={c.emptyFilter} /></Card>
           )}
         </>
       ) : <EmptyCalls ws={ws} worker={worker} account={account} />}
