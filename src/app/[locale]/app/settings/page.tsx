@@ -23,7 +23,8 @@ import { LogoutButton } from "@/components/auth/LogoutButton";
 import { PlanChoice } from "@/components/setup/onboarding/PlanChoice";
 import { RanchWeek } from "@/components/setup/onboarding/RanchWeek";
 import { nowFor } from "@/domain/clock";
-import { reportPlanHasContent } from "@/domain/rules";
+import { plannedQuestions, reportPlanHasContent } from "@/domain/rules";
+import { allWorkers } from "@/domain/workers";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
 import { accountSync } from "@/store/account";
@@ -87,6 +88,54 @@ function SettingsSection({ id, title, status, actions, className, children }: { 
         {actions ? <div className="flex flex-wrap items-center gap-3">{actions}{status}</div> : status}
       </div>
       {children}
+    </section>
+  );
+}
+
+/**
+ * A Settings group that folds on a phone: its title and a one-line summary stay, the controls open in place
+ * (one tap, or the group's tab in the section nav). Desktop always shows the whole group. A group with
+ * unsent edits is kept open by the caller.
+ */
+function MobileGroup({ id, title, summary, open, onToggle, status, actions, level = 2, children }: {
+  id: string;
+  title: string;
+  summary?: ReactNode;
+  open: boolean;
+  onToggle: () => void;
+  status?: ReactNode;
+  actions?: ReactNode;
+  level?: 2 | 3;
+  children: ReactNode;
+}) {
+  const { m } = useI18n();
+  const titleId = `${id}-title`;
+  const panelId = `${id}-panel`;
+  const Heading = level === 2 ? "h2" : "h3";
+  const side = actions || status ? <div className={cn("flex flex-wrap items-center gap-3", !open && "max-sm:hidden")}>{actions}{status}</div> : null;
+  return (
+    <section id={id} aria-labelledby={titleId} className={cn(anchor, "space-y-3")}>
+      <div className="flex min-h-7 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <Heading id={titleId} className={cn("min-w-0 text-espresso", level === 2 ? "text-lg font-semibold" : "text-[1.0625rem] font-bold", "max-sm:flex-1")}>
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={panelId}
+            onClick={onToggle}
+            className="-mx-1 flex min-h-11 w-full items-center gap-3 rounded-md px-1 text-start transition-colors hover:bg-cream/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown sm:hidden"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block">{title}</span>
+              {summary && !open ? <span className="mt-0.5 block truncate text-sm font-normal text-muted">{summary}</span> : null}
+            </span>
+            <span className="sr-only">{open ? m.setup.settings.collapse : m.setup.settings.expand}</span>
+            <CaretDown size={18} className={cn("shrink-0 text-muted transition-transform motion-reduce:transition-none", open && "rotate-180")} aria-hidden />
+          </button>
+          <span className="hidden sm:inline">{title}</span>
+        </Heading>
+        {side}
+      </div>
+      <div id={panelId} className={cn(!open && "max-sm:hidden")}>{children}</div>
     </section>
   );
 }
@@ -196,6 +245,23 @@ export default function SettingsPage() {
   // The link the owner clicked while edits were still unsent; the dialog decides whether to follow it.
   const [leavingTo, setLeavingTo] = useState<string | null>(null);
   const [showPlanComparison, setShowPlanComparison] = useState(false);
+  // Groups the owner opened on a phone (desktop ignores this). A link to a group's #id opens it.
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const openGroup = (id: string) => setOpenGroups((current) => (current.has(id) ? current : new Set(current).add(id)));
+  const toggleGroup = (id: string) => setOpenGroups((current) => {
+    const next = new Set(current);
+    if (!next.delete(id)) next.add(id);
+    return next;
+  });
+  useEffect(() => {
+    const fromHash = () => {
+      const id = window.location.hash.slice(1);
+      if (id) openGroup(id);
+    };
+    fromHash();
+    window.addEventListener("hashchange", fromHash);
+    return () => window.removeEventListener("hashchange", fromHash);
+  }, []);
   const { header: headerHeight, padding: scrollPadding } = useStickyOffsets();
   const navHeight = 52;
   const groups = [
@@ -278,6 +344,11 @@ export default function SettingsPage() {
     },
   });
   const fields = (name: string) => ({ ws, onChange: section(name).onChange });
+  /** A group with unsent edits stays open, so its save state and warnings are never folded away. */
+  const groupOpen = (id: string, name: string) => openGroups.has(id) || edited === name;
+  const workers = allWorkers(ws.settings);
+  const planLabel = m.common.plans[ws.settings.plan];
+  const questionCount = String(plannedQuestions(ws).length);
 
   return (
     <div
@@ -303,6 +374,7 @@ export default function SettingsPage() {
                   <a
                     href={`#${group.id}`}
                     aria-current={current ? "location" : undefined}
+                    onClick={() => openGroup(group.id)}
                     className={cn(
                       "-mb-px inline-flex min-h-12 items-center border-b-2 text-sm font-semibold transition-colors focus-visible:rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brown",
                       current ? "border-brown text-espresso" : "border-transparent text-muted hover:text-espresso",
@@ -346,7 +418,7 @@ export default function SettingsPage() {
         <SettingsSection title={m.setup.call.title} actions={controls} status={edited === "call" && !preview ? <SaveState /> : null}>
           <Card>
             <CardBody className="space-y-10 pt-5">
-              <div id="settings-plan" className={anchor}>
+              <MobileGroup id="settings-plan" level={3} title={s.plan} summary={s.summaries.planCurrent(planLabel)} open={groupOpen("settings-plan", "call")} onToggle={() => toggleGroup("settings-plan")}>
                 <PlanChoice {...draft} showRhythm={false} />
                 <details className="group mt-3" onToggle={(event) => setShowPlanComparison(event.currentTarget.open)}>
                   <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-[0.9375rem] font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown [&::-webkit-details-marker]:hidden">
@@ -355,7 +427,7 @@ export default function SettingsPage() {
                   </summary>
                   {showPlanComparison ? <PlanComparison current={ws.settings.plan} className="mt-3" /> : null}
                 </details>
-              </div>
+              </MobileGroup>
               <div className="border-t border-stone/80 pt-8">
                 <ReportCallFields {...draft} showSummary={false} />
                 {!preview ? account ? <CallingStateNote ws={ws} className="mt-5" /> : <p className="mt-5 text-sm leading-relaxed text-muted">{m.setup.ready.demoCalls}</p> : null}
@@ -369,9 +441,12 @@ export default function SettingsPage() {
 
       <SettingsDemoDraft {...fields("questions")} sample={questionsSample}>
       {(draft, controls, preview) =>
-      <SettingsSection
+      <MobileGroup
         id="settings-questions"
         title={m.setup.questions.title}
+        summary={s.summaries.questions(questionCount)}
+        open={groupOpen("settings-questions", "questions") || !reportPlanHasContent(ws, now)}
+        onToggle={() => toggleGroup("settings-questions")}
         actions={controls}
         status={edited === "questions" && !preview && reportPlanHasContent(ws, now) ? <SaveState /> : null}
       >
@@ -381,31 +456,47 @@ export default function SettingsPage() {
             <QuestionsFields {...draft} collapsible />
           </CardBody>
         </Card>
-      </SettingsSection>
+      </MobileGroup>
       }
       </SettingsDemoDraft>
 
-      <div id="settings-ranch" className={cn(anchor, "space-y-10")}>
+      <div className="space-y-10 max-sm:space-y-6">
         <SettingsDemoDraft {...fields("ranch")} sample={() => ranchSample}>
         {(draft, controls, preview) =>
-        <SettingsSection title={m.setup.ranch.title} actions={controls} status={edited === "ranch" && !preview ? <SaveState /> : null}>
+        <MobileGroup
+          id="settings-ranch"
+          title={m.setup.ranch.title}
+          summary={ws.settings.farm.name.trim() || s.summaries.ranchUnnamed}
+          open={groupOpen("settings-ranch", "ranch")}
+          onToggle={() => toggleGroup("settings-ranch")}
+          actions={controls}
+          status={edited === "ranch" && !preview ? <SaveState /> : null}
+        >
           <Card>
             <CardBody className="pt-5">
               <RanchFields {...draft} confirmPhone />
             </CardBody>
           </Card>
-        </SettingsSection>
+        </MobileGroup>
         }
         </SettingsDemoDraft>
         <SettingsDemoDraft {...fields("team")} sample={() => teamSample}>
         {(draft, controls, preview) =>
-        <SettingsSection id="settings-team" title={m.setup.team.title} actions={controls} status={edited === "team" && !preview ? <SaveState /> : null}>
+        <MobileGroup
+          id="settings-team"
+          title={m.setup.team.title}
+          summary={[s.summaries.workers(String(workers.length)), ws.settings.herdCount != null ? m.setup.dashboard.camels(String(ws.settings.herdCount)) : null].filter(Boolean).join(" · ")}
+          open={groupOpen("settings-team", "team")}
+          onToggle={() => toggleGroup("settings-team")}
+          actions={controls}
+          status={edited === "team" && !preview ? <SaveState /> : null}
+        >
           <Card>
             <CardBody className="pt-2">
               <TeamFields {...draft} confirmPhone />
             </CardBody>
           </Card>
-        </SettingsSection>
+        </MobileGroup>
         }
         </SettingsDemoDraft>
       </div>
