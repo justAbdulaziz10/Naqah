@@ -178,7 +178,7 @@ function DemoLab() {
             <span className="shrink-0 whitespace-nowrap"><Badge tone={selectedAvailability.tone} dot>{m.lab.availability.label}</Badge></span>
             <p className="pt-0.5 text-sm leading-relaxed text-muted">
               {selectedAvailability.text}
-              {selectedAvailability.time ? <> <bdi className="ltr-nums">{selectedAvailability.time}</bdi></> : null}
+              {selectedAvailability.time ? <> <bdi className="ltr-nums whitespace-nowrap">{selectedAvailability.time}</bdi></> : null}
             </p>
           </div>
           {selectedAvailability.jump ? (
