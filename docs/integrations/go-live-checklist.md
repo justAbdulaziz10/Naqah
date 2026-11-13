@@ -81,7 +81,7 @@ Replace laptop + ngrok with an always-on host (Fly.io, Render or a small VPS in 
   3. Answer and stay silent: one reprompt, then one goodbye; run unanswered with a retry; no "sorry" line.
   4. Full report ending with «أحفظه؟», then an explicit yes: report saved; "saved" is spoken only after that.
 - [ ] After each call check Vercel function logs, the dashboard call log, the run state
-  (`select * from report_call_runs order by created_at desc limit 5;`; adjust columns to the schema) and that Twilio holds no recording.
+  (`select occurrence, state, attempts, report_id from report_call_runs order by created_at desc limit 5;`) and that Twilio holds no recording.
 
 ## 6. Enable scheduling **[approval][paid]**
 - [ ] Set `NAQAH_SCHEDULED_CALLS=1` in Vercel (add `NAQAH_CALL_OWNER=1` only if owner summary calls are approved) and redeploy.
