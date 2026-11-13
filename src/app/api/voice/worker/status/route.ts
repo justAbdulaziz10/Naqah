@@ -1,6 +1,7 @@
 import { verifyCallToken } from "@/server/calls/token";
 import { voiceMode } from "@/server/env";
-import { workerCallStatus } from "@/server/voice/farm-call";
+import { gateOutboundAnswer, workerCallStatus } from "@/server/voice/farm-call";
+import { twimlResponse } from "@/server/voice/twiml";
 import { farmWebhook } from "@/server/voice/farm-webhook";
 
 const empty = (status: number) => new Response(null, { status, headers: { "Cache-Control": "no-store" } });
@@ -13,6 +14,7 @@ export async function POST(request: Request): Promise<Response> {
   const token = verifyCallToken(new URL(request.url).searchParams.get("s"));
   if (token?.k !== "worker") return empty(403);
   try {
+    if (new URL(request.url).searchParams.get("amd") === "1") return twimlResponse(await gateOutboundAnswer(hook.client, { token, callSid: hook.callSid, answeredBy: hook.form.get("AnsweredBy"), now: new Date() }));
     await workerCallStatus(hook.client, { token, callSid: hook.callSid, status: hook.form.get("CallStatus") ?? "", now: new Date() });
     return empty(204);
   } catch (error) {

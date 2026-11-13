@@ -32,6 +32,34 @@ function farm(plan: Plan = "basic"): Workspace {
 }
 
 describe("schedule slots", () => {
+  it("counts silence after pickup as unanswered, with two capped retries and duplicate safety", () => {
+    const opened = startReportCall(farm(), THU_1700, "schedule");
+    let workspace = opened.ws;
+    let at = THU_1700;
+    for (const attempt of [1, 2, 3]) {
+      workspace = placeReportCallAttempt(workspace, at, opened.run!.id).ws;
+      workspace = resolveReportCallAttempt(workspace, at, opened.run!.id, true).ws;
+      workspace = resolveReportCallAttempt(workspace, at, opened.run!.id, false).ws;
+      const run = workspace.reportCalls![0];
+      expect(run.attempts).toHaveLength(attempt);
+      expect(run.attempts.at(-1)?.result).toBe("no_answer");
+      expect(resolveReportCallAttempt(workspace, at, run.id, false).ws).toBe(workspace);
+      at = new Date(at.getTime() + RETRY_DELAY_MS);
+      expect(run.state).toBe(attempt < 3 ? "calling" : "missed");
+      expect(run.nextAttemptAt).toBe(attempt < 3 ? at.toISOString() : null);
+    }
+  });
+
+  it("does not retry an unsaved manual pickup or reclassify a saved report", () => {
+    const opened = startReportCall(farm(), THU_1700, "manual");
+    const placed = placeReportCallAttempt(opened.ws, THU_1700, opened.run!.id).ws;
+    const answered = resolveReportCallAttempt(placed, THU_1700, opened.run!.id, true).ws;
+    const missed = resolveReportCallAttempt(answered, THU_1700, opened.run!.id, false).ws;
+    expect(missed.reportCalls![0]).toMatchObject({ state: "missed", nextAttemptAt: null });
+    answered.reportCalls![0].state = "completed";
+    answered.reportCalls![0].reportId = "saved-report";
+    expect(resolveReportCallAttempt(answered, THU_1700, opened.run!.id, false).ws).toBe(answered);
+  });
   it("finds the latest slot at or before now", () => {
     const schedule = { day: 4 as const, time: "17:00" };
     expect(previousScheduledCall(fromRiyadh(2026, 11, 5, 17, 0), "basic", schedule)?.toISOString()).toBe(THU_1700.toISOString());

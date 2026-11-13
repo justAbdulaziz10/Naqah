@@ -120,6 +120,11 @@ async function fixture(options = {}) {
       response.writeHead(options.toolStatus || 200, { 'content-type': 'application/json' });
       const result = typeof options.toolResult === 'function' ? options.toolResult(record.body) : options.toolResult;
       response.end(JSON.stringify(result || { output: '{"ok":true}', awaitingConfirmation: false, end: null, goodbye: null, sayText: 'Mock next question' }));
+    } else if (request.url === '/api/voice/realtime/closed') {
+      if (options.closedDelay) await delay(options.closedDelay);
+      record.acknowledged = true;
+      response.writeHead(options.closedStatus ?? 204);
+      response.end();
     } else {
       response.writeHead(207, 'Mock response', { 'x-mock-result': 'passed', 'set-cookie': ['first=1', 'second=2'] });
       response.write(rawBody.slice(0, 3));
@@ -1190,7 +1195,7 @@ test('watchdog: waits for the estimated playback of long audio, not just the las
 });
 
 test('watchdog: a natural call checks in once in its own words, then says goodbye and closes without any mark', async () => {
-  const state = await fixture({ session: { style: 'natural' }, limits: { watchdogMs: 80, repromptMs: 60_000 } });
+  const state = await fixture({ session: { style: 'natural' }, closedDelay: 100, limits: { watchdogMs: 80, repromptMs: 60_000 } });
   try {
     const connection = await state.connect();
     await state.ready(connection.socket);
@@ -1207,6 +1212,7 @@ test('watchdog: a natural call checks in once in its own words, then says goodby
     assert.ok(connection.messages.received.slice(offset).some((event) => event.event === 'media'));
     await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
     assert.equal(state.requests.at(-1).body.reason, 'silence');
+    assert.equal(state.requests.at(-1).acknowledged, true);
   } finally { await state.close(); }
 });
 
@@ -1237,6 +1243,85 @@ test('closed notice: a stream that never started sends nothing', async () => {
     await closed(connection.socket);
     await delay(30);
     assert.equal(state.requests.length, 0);
+  } finally { await state.close(); }
+});
+
+test('closed notice: a normal ending waits for persistence before releasing Twilio', async () => {
+  const state = await fixture({ closedDelay: 100, toolResult: { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: null } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'end-with-ack', 'end_call');
+    await waitFor(() => state.requests.some((request) => request.url === '/api/voice/realtime/closed'));
+    const notice = state.requests.at(-1);
+    assert.equal(connection.socket.readyState, WebSocket.OPEN);
+    assert.ok(!notice.acknowledged);
+    await closed(connection.socket);
+    assert.equal(notice.acknowledged, true);
+  } finally { await state.close(); }
+});
+
+test('closed notice: an unavailable acknowledgement cannot keep Twilio open past its bound', async () => {
+  const state = await fixture({ closedDelay: 300, limits: { closedNoticeMs: 50 }, toolResult: { output: '{}', awaitingConfirmation: false, end: 'hangup', goodbye: null } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'end-without-ack', 'end_call');
+    await closed(connection.socket);
+    assert.ok(!state.requests.at(-1).acknowledged);
+    assert.ok(state.logs.some((record) => record.event === 'closed_notice_failed'));
+  } finally { await state.close(); }
+});
+
+test('wrap-up: asks for the normal summary and explicit save near the cap, retaining tools', async () => {
+  for (const locale of ['ar', 'en']) {
+    const state = await fixture({ session: { style: 'natural', locale }, maxSeconds: 0.5, limits: { wrapUpMs: 400 } });
+    try {
+      const connection = await state.connect();
+      await state.ready(connection.socket);
+      await playPrompt(state, connection);
+      await waitFor(() => responses(state).length === 2);
+      const wrap = responses(state)[1].response;
+      assert.equal(wrap.tool_choice, 'auto');
+      assert.match(wrap.instructions, locale === 'ar' ? /أحفظه/ : /Shall I save it/);
+      assert.match(wrap.instructions, locale === 'ar' ? /لا تخترع تقرير/ : /do not invent a report/);
+      assert.equal(connection.socket.readyState, WebSocket.OPEN);
+    } finally { await state.close(); }
+  }
+});
+
+test('wrap-up: waits for the active reply instead of interrupting it', async () => {
+  const state = await fixture({ session: { style: 'natural' }, maxSeconds: 0.5, limits: { wrapUpMs: 450 } });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await delay(80);
+    assert.equal(responses(state).length, 1);
+    assert.ok(!state.providerEvents.some((event) => event.type === 'response.cancel'));
+    await playPrompt(state, connection);
+    await waitFor(() => responses(state).length === 2);
+    assert.match(responses(state)[1].response.instructions, /Shall I save it/);
+  } finally { await state.close(); }
+});
+
+test('wrap-up: pending confirmation gets bounded closing grace, without another prompt', async () => {
+  const state = await fixture({
+    session: { style: 'natural' }, maxSeconds: 0.3,
+    limits: { wrapUpMs: 50, confirmationGraceMs: 150 },
+    toolResult: { output: '{}', awaitingConfirmation: true, end: null, goodbye: null, summaryText: 'Mock summary. Shall I save it?' },
+  });
+  try {
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    await playPrompt(state, connection);
+    await workerTool(state, 'summary-at-deadline', 'submit_report');
+    await delay(300);
+    assert.equal(connection.socket.readyState, WebSocket.OPEN);
+    assert.ok(!responses(state).some((event) => /nearing its time limit/.test(event.response.instructions ?? '')));
+    await closed(connection.socket);
+    assert.ok(state.logs.some((record) => record.event === 'maximum_timeout'));
   } finally { await state.close(); }
 });
 

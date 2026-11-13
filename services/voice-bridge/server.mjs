@@ -49,6 +49,9 @@ const HARMLESS_PROVIDER_ERRORS = new Set(['response_cancel_not_active', 'convers
 const label = (value) => (typeof value === 'string' && /^[a-z0-9_.-]{1,64}$/i.test(value) ? value : null);
 
 const DEFAULT_LIMITS = Object.freeze({
+  wrapUpMs: 60_000,
+  confirmationGraceMs: 20_000,
+  closedNoticeMs: 2_000,
   startMs: 10_000,
   internalMs: 9_000,
   toolMs: 15_000,
@@ -210,6 +213,8 @@ class CallStream {
     this.ready = false;
     this.closed = false;
     this.ending = false;
+    this.wrapUpPending = false;
+    this.awaitingConfirmation = false;
     this.timer('start', limits.startMs, () => this.finish('start_timeout'));
     twilio.on('message', (raw, binary) => {
       if (this.closed) return;
@@ -329,18 +334,19 @@ class CallStream {
     return CLOSE_REASONS[event] ?? 'bridge_error';
   }
 
-  /** Tells Next how the stream ended, signed like every internal request. Never retried, never blocks the close. */
+  /** Signed, never retried; a normal or silent ending waits at most two seconds for persistence. */
   notifyClosed(event) {
     const body = JSON.stringify({ ticket: this.ticket, callSid: this.callSid, reason: this.closeReason(event), event });
     const notice = fetch(new URL('/api/voice/realtime/closed', this.config.upstream), {
       method: 'POST', body, headers: internalHeaders(body, this.config.voiceSecret),
-      signal: AbortSignal.timeout(this.limits.internalMs), redirect: 'error',
+      signal: AbortSignal.timeout(Math.min(this.limits.internalMs, this.limits.closedNoticeMs)), redirect: 'error',
     }).then(async (response) => {
       await response.body?.cancel();
       if (!response.ok) this.log('closed_notice_failed', { status: response.status });
     }).catch(() => this.log('closed_notice_failed'));
     this.notifications.add(notice);
     void notice.finally(() => this.notifications.delete(notice));
+    return notice;
   }
 
   finish(event) {
@@ -356,16 +362,21 @@ class CallStream {
     if (ownsCall) this.calls.delete(this.callSid);
     this.streams.delete(this);
     this.log(event, { reason: this.closeReason(event) });
-    if (ownsCall && this.ticket) this.notifyClosed(event);
+    const notice = ownsCall && this.ticket ? this.notifyClosed(event) : null;
     this.marks.clear();
     this.items.clear();
     for (const socket of [this.provider, this.twilio]) {
       if (!socket || socket.readyState === WebSocket.CLOSED) continue;
-      const force = setTimeout(() => socket.terminate(), this.limits.closeMs);
-      force.unref();
-      socket.once('close', () => clearTimeout(force));
-      if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
-      else socket.close(1000);
+      const close = () => {
+        if (socket.readyState === WebSocket.CLOSED) return;
+        const force = setTimeout(() => socket.terminate(), this.limits.closeMs);
+        force.unref();
+        socket.once('close', () => clearTimeout(force));
+        if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
+        else socket.close(1000);
+      };
+      if (socket === this.twilio && notice && ['normal', 'silence'].includes(this.closeReason(event))) void notice.then(close, close);
+      else close();
     }
   }
 
@@ -499,7 +510,17 @@ class CallStream {
         }
         if (this.closed) return;
         if (!validSession(this.session)) return this.finish('session_failed');
-        this.timer('maximum', Math.max(1, Math.min(this.session.maxSeconds, this.config.maxCallSeconds ?? 300) * 1000 - (Date.now() - this.createdAt)), () => this.finish('maximum_timeout'));
+        const remainingMs = Math.max(1, Math.min(this.session.maxSeconds, this.config.maxCallSeconds ?? 300) * 1000 - (Date.now() - this.createdAt));
+        this.timer('maximum', remainingMs, () => {
+          if (this.awaitingConfirmation || this.toolPending || this.ending || this.speaking || ['wrapup', 'summary', 'closing'].includes(this.responseKind)) {
+            this.timer('maximum', this.limits.confirmationGraceMs, () => this.finish('maximum_timeout'));
+          } else this.finish('maximum_timeout');
+        });
+        if (this.natural) this.timer('wrapup', Math.max(1, remainingMs - this.limits.wrapUpMs), () => {
+          if (this.closed || this.ending) return;
+          this.wrapUpPending = true;
+          this.flushResponse();
+        });
         this.activity();
         this.send(this.provider, {
           type: 'session.update',
@@ -552,15 +573,19 @@ class CallStream {
   }
 
   flushResponse() {
-    if (this.closed || !this.ready || this.responsePending || this.responseId || this.toolPending
-      || this.speaking || !this.nextResponse) return;
+    if (this.closed || !this.ready || this.responsePending || this.responseId || this.toolPending || this.speaking) return;
+    if (this.wrapUpPending && !this.nextResponse && !this.awaitingConfirmation) {
+      this.nextResponse = { kind: 'wrapup', wrapUp: true };
+      this.wrapUpPending = false;
+    }
+    if (!this.nextResponse) return;
     const next = this.nextResponse;
     this.nextResponse = null;
     this.responsePending = true;
     this.responseKind = next.kind;
     this.responseAudible = false;
     this.responsePrompt = null;
-    if (this.natural && !next.text && (next.kind === 'turn' || next.kind === 'nudge')) {
+    if (this.natural && !next.text && ['turn', 'nudge', 'wrapup'].includes(next.kind)) {
       // The model's own words: tracked so silence after them is noticed, never replayed word for word.
       this.responsePrompt = { kind: 'turn', text: '', natural: true, repromptText: null, played: false, cutOff: false };
       this.lastPrompt = this.responsePrompt;
@@ -580,7 +605,12 @@ class CallStream {
     this.activity();
     this.log('response_requested', { kind: next.kind });
     const response = { output_modalities: ['audio'] };
-    if (next.instructions) {
+    if (next.wrapUp) {
+      response.instructions = this.session.locale === 'ar'
+        ? 'وقت المكالمة قرب ينتهي. لا تفتح موضوع جديد. لخّص فقط المعلومات اللي قالها العامل باستخدام أداة تسليم التقرير المعتادة، ثم اسأله «أحفظه؟». انتظر تأكيده الصريح أو تصحيحه، ولا تقول انحفظ قبل نجاح الأداة. إذا ما عندك معلومات، لا تخترع تقرير.'
+        : 'The call is nearing its time limit. Start no new topic. Use the normal report submission tool to summarize only the worker’s actual information, then ask “Shall I save it?”. Wait for explicit confirmation or corrections. Never claim a save before the tool succeeds. With no information, do not invent a report.';
+      response.tool_choice = 'auto';
+    } else if (next.instructions) {
       response.instructions = next.instructions;
       response.tool_choice = 'none';
     } else if (next.text) {
@@ -1024,6 +1054,7 @@ class CallStream {
         });
       }
       this.log('tool_completed');
+      this.awaitingConfirmation = result.awaitingConfirmation;
       if (result.end) {
         this.ending = true;
         this.clearTimer('silence');
