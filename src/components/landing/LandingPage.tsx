@@ -151,7 +151,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
                 {landing.hero.title}
               </h1>
               <div className="mt-6 flex-wrap items-center justify-between gap-x-12 gap-y-6 max-sm:hidden sm:flex lg:mt-8">
-                <p className="naqah-arrive max-w-[34rem] text-xl leading-9 text-espresso" style={{ "--arrive-delay": "120ms" } as CSSProperties}>
+                <p className="naqah-arrive max-w-[34rem] text-pretty text-xl leading-9 text-espresso" style={{ "--arrive-delay": "120ms" } as CSSProperties}>
                   {landing.hero.description}
                 </p>
                 <div className="naqah-arrive flex flex-wrap items-center gap-x-7 gap-y-2" style={{ "--arrive-delay": "220ms" } as CSSProperties}>
@@ -164,7 +164,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
           {/* Phones: the photograph keeps the title; the line and the actions sit in thumb reach below it. */}
           <div className={`${frame} pt-7 sm:hidden`}>
             {/* Arabic wraps to three lines on narrow phones once its font arrives: hold that height so the actions don't move. */}
-            <p className="text-lg leading-8 text-espresso max-[405px]:[html[lang=ar]_&]:min-h-24">{landing.hero.description}</p>
+            <p className="text-pretty text-lg leading-8 text-espresso max-[405px]:[html[lang=ar]_&]:min-h-24">{landing.hero.description}</p>
             <div className="mt-6 flex flex-col items-stretch gap-1">
               <EntryActions
                 primary={{ size: "lg", className: `w-full ${flat}` }}
