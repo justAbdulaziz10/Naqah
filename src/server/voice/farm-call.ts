@@ -483,6 +483,8 @@ export const machineAnswered = (answeredBy: string | null) => /^(machine_start|m
 
 export async function gateOutboundAnswer(client: SupabaseClient, input: { token: CallToken; callSid: string; answeredBy: string | null; now: Date }): Promise<string> {
   const { token } = input;
+  // Tuning evidence for answering-machine detection; no phone numbers or farm ids.
+  console.info(`[NAQAH] call answered (${token.k}): ${input.answeredBy ?? "not_detected"}`);
   if (machineAnswered(input.answeredBy)) {
     const status = { ...input, status: "no-answer" };
     if (token.k === "report") await reportCallStatus(client, { ...status, token });
