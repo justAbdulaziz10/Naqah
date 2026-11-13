@@ -12,7 +12,7 @@ present does not mean the live project has been migrated or activated.
 - Production is https://naqah.vercel.app: demo only. Calling, account mode and the Voice Lab are off unless their
   flags are set there.
 - Hosted Supabase has migrations through `20261110090000_mvp_owner_runs.sql` applied (team notes, 2026-11-11).
-  `20261113090000_report_call_scheduler.sql` is **not** applied.
+  `20261113090000_report_call_scheduler.sql` and `20261113100000_worker_call_claims.sql` are **not** applied.
 - The repository is **public**: never commit real phone numbers, secrets or project-specific tokens.
 - Needs the owner's explicit approval: merging to `main`, deploying, live migrations, paid calls.
 
@@ -208,8 +208,9 @@ the same functions and swaps only the storage and the "who triggers it" layer.
   `0005_custom_question_retry`, `20261107213717_owner_flow`, `20261108000000_pending_worker_call_tasks`,
   `20261108010000_initial_plan_selection`, `20261109000000_rate_limits`, `20261109120000_test_calls`,
   `20261109130000_report_mode_coverage`, `20261109140000_report_mode_settings`,
-  `20261109182526_owner_summary_schedule`, `20261110090000_mvp_owner_runs`, `20261113090000_report_call_scheduler`.
-  Hosted: everything through `20261110090000` (see Current state); the scheduler migration is not applied.
+  `20261109182526_owner_summary_schedule`, `20261110090000_mvp_owner_runs`, `20261113090000_report_call_scheduler`,
+  `20261113100000_worker_call_claims`.
+  Hosted: everything through `20261110090000` (see Current state); the last two are not applied.
   Local validation uses stand-in Supabase roles/Auth; it does not prove live activation.
   Status, plan and manual go-live list: `docs/integrations/supabase-backend.md`.
   One owner (`auth.users`) → one `farms` row (owner, settings, call time, herd count, primary worker) → 1–3 (Basic) or

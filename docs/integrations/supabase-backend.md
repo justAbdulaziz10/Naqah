@@ -21,6 +21,7 @@ Complete sequence, in filename order (the same list as `AGENT.md` §8.1). Do not
 | `20261109182526_owner_summary_schedule` | `farms.owner_call_day` / `owner_call_time` and the summary queue | applied |
 | `20261110090000_mvp_owner_runs` | `farms.owner_call_run`; Basic farms refused on task tickets, relays and worker calls | applied |
 | `20261113090000_report_call_scheduler` | `pg_cron` + `pg_net` job calling `/api/cron/report-calls` every 5 min, `scheduler_heartbeats` | **not applied** |
+| `20261113100000_worker_call_claims` | `pending_worker_calls.dial_claimed_at`; bounds uncertain worker-call placements to the 3-attempt rule. Safe to deploy code first | **not applied** |
 
 Target project: `ydsgmzxqjimwbamnksxe`. Never apply this to any other project.
 
@@ -171,6 +172,7 @@ requests or disable `NAQAH_VOICE_MODE=farm`/service jobs. Those require separate
 - [ ] Review/merge the readiness PR separately, then obtain explicit activation authorization (issue #6 stays open).
 - [x] Apply every migration through `20261110090000` in order (team notes, 2026-11-11).
 - [ ] Apply `20261113090000_report_call_scheduler.sql` and set its Vault secrets (owner-approved; see `twilio-activation.md`).
+- [ ] Apply `20261113100000_worker_call_claims.sql` (owner-approved).
 - [ ] Set `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` and rebuild, after the migrations are applied.
 - [ ] Run Security and Performance Advisors and review the results.
 - [ ] Verify `SUPABASE_SECRET_KEY` (`sb_secret_…`) only for the service/voice path; owner CRUD uses session/RLS.
