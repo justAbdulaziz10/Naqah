@@ -233,6 +233,14 @@ export const app = defineMessages({
       notYet: "not yet",
       done: "done",
     },
+    calls2: {
+      answer: (when: string, outcome: string, week: string) => `Last call ${when}, ${outcome}. ${week}`,
+      outcomeReport: "the report arrived",
+      outcomeNoAnswer: "no answer",
+      outcomeRejected: "not accepted",
+      outcomeConnected: "connected",
+      thisWeek: (count: number) => (count === 0 ? "No calls this week." : count === 1 ? "1 call this week." : `${count} calls this week.`),
+    },
     tickets: {
       title: "Tasks",
       active: "Active",
@@ -565,6 +573,14 @@ export const app = defineMessages({
       confirmed: "أُكّدت",
       notYet: "لسا",
       done: "تم",
+    },
+    calls2: {
+      answer: (when: string, outcome: string, week: string) => `آخر مكالمة ${when}، ${outcome}. ${week}`,
+      outcomeReport: "ووصل التقرير",
+      outcomeNoAnswer: "وما رد",
+      outcomeRejected: "وما قُبلت",
+      outcomeConnected: "وتمت",
+      thisWeek: (count: number) => (count === 0 ? "ما فيه مكالمات هذا الأسبوع." : count === 1 ? "مكالمة واحدة هذا الأسبوع." : count === 2 ? "مكالمتان هذا الأسبوع." : `${count} مكالمات هذا الأسبوع.`),
     },
     tickets: {
       title: "المهام",

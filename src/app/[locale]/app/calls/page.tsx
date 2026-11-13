@@ -16,6 +16,7 @@ import { CallActivity } from "@/components/visuals/CallActivity";
 import { ReportFlow, type FlowStep } from "@/components/visuals/ReportFlow";
 import { Button, ButtonLink, Card, Segmented } from "@/components/ui";
 import { latestReportCall } from "@/domain";
+import { DAY } from "@/domain/clock";
 import type { CallLog, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
@@ -218,6 +219,16 @@ export default function CallsPage() {
 
   if (!ws) return null;
   const worker = ws.settings.worker.name.trim() || m.app.overview.unnamedWorker;
+  // The page's answer: the latest call and how the week went, before any filter or chart.
+  const lastCall = ws.calls.reduce<CallLog | null>((latest, call) => (!latest || Date.parse(call.at) > Date.parse(latest.at) ? call : latest), null);
+  const weekCount = ws.calls.filter((call) => now.getTime() - Date.parse(call.at) < 7 * DAY).length;
+  const lastOutcome = lastCall
+    ? lastCall.outcome === "no_answer" ? m.app.calls2.outcomeNoAnswer
+      : lastCall.outcome === "rejected" ? m.app.calls2.outcomeRejected
+        : lastCall.kind === "worker_report" ? m.app.calls2.outcomeReport
+          : m.app.calls2.outcomeConnected
+    : null;
+  const answer = lastCall && lastOutcome ? m.app.calls2.answer(fmt.relative(lastCall.at, now), lastOutcome, m.app.calls2.thisWeek(weekCount)) : null;
   const openReport = openReportId ? ws.reports.find((report) => report.id === openReportId) ?? null : null;
 
   function closeReport() {
@@ -229,7 +240,7 @@ export default function CallsPage() {
     <div className="naqah-page space-y-6 pb-8">
       <PageHeader
         title={c.title}
-        lead={c.lead}
+        answer={answer}
         action={ws.calls.length ? (
           <Segmented
             value={filter}
@@ -251,9 +262,8 @@ export default function CallsPage() {
 
       {ws.calls.length ? (
         <>
-          <Card className="px-5 py-4 sm:px-7">
-            <CallActivity calls={ws.calls} now={now} />
-          </Card>
+          {/* Plain, not boxed: a box here would read as a second control under the filter. */}
+          <CallActivity calls={ws.calls} now={now} className="px-1" />
 
           {days.length ? (
             <div className="space-y-7">
@@ -292,6 +302,8 @@ export default function CallsPage() {
           )}
         </>
       ) : <EmptyCalls ws={ws} worker={worker} account={account} />}
+
+      <p className="text-sm text-muted">{c.lead}</p>
 
       {openReport ? <ReportSheet ws={ws} report={openReport} worker={worker} onClose={closeReport} /> : null}
     </div>
