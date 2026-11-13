@@ -305,6 +305,7 @@ export const app = defineMessages({
       again: "Start over",
       back: "Back to the overview",
     },
+    loading: { ranch: "Opening your ranch…" },
     labels: {
       reported: "Reported by worker",
       approximate: "Approximate",
@@ -623,6 +624,7 @@ export const app = defineMessages({
       again: "ابدأ من جديد",
       back: "رجوع للرئيسية",
     },
+    loading: { ranch: "نفتح عزبتك…" },
     labels: {
       reported: "حسب إفادة العامل",
       approximate: "تقديري",
