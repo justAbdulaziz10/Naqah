@@ -66,13 +66,15 @@ function finishMissed(ws: Workspace, now: Date, run: OwnerCallRun): Workspace {
   run.nextAttemptAt = null;
   const name = ws.settings.owner.name;
   const attempts = run.attempts.length;
-  if (!attempts) {
-    pushEvent(ws, now, "attention", run.trigger === "manual"
-      ? { ar: `تعذر على ناقة الاتصال بـ${name} الآن`, en: `NAQAH couldn't place the call to ${name}` }
-      : {
-          ar: `تعذر على ناقة الاتصال بـ${name} في موعد مكالمته`,
-          en: `NAQAH couldn't place the scheduled call to ${name}`,
-        });
+  if (!run.attempts.some((attempt) => !attempt.placementUnknown)) {
+    pushEvent(ws, now, "attention", attempts
+      ? { ar: `لم تصل حالة مكالمة ${name} — توقفت المحاولات التلقائية`, en: `The call status for ${name} didn't arrive — automatic attempts stopped` }
+      : run.trigger === "manual"
+        ? { ar: `تعذر على ناقة الاتصال بـ${name} الآن`, en: `NAQAH couldn't place the call to ${name}` }
+        : {
+            ar: `تعذر على ناقة الاتصال بـ${name} في موعد مكالمته`,
+            en: `NAQAH couldn't place the scheduled call to ${name}`,
+          });
     return ws;
   }
   if (run.trigger === "manual") {
@@ -101,7 +103,7 @@ export function claimDueOwnerCall(
     const age = now.getTime() - Date.parse(last.at);
     if ((current.state === "calling" && age >= RING_LOST_MS) || (current.state === "answered" && age >= ANSWERED_LOST_MS)) {
       const result = current.state === "answered" ? "interrupted" : "unanswered";
-      return { ws: resolveOwnerCallAttempt(input, now, current.id, current.attempts.length, result), claim: null };
+      return { ws: resolveOwnerCallAttempt(input, now, current.id, current.attempts.length, result, current.state === "calling"), claim: null };
     }
   }
   // A retry left waiting while the scheduler was down must not ring hours later for an old slot.
@@ -168,12 +170,14 @@ export function resolveOwnerCallAttempt(
   runId: string,
   attempt: number,
   result: Exclude<OwnerAttemptResult, "pending">,
+  placementUnknown = false,
 ): Workspace {
   const current = input.ownerCallRun;
   if (!current || current.id !== runId || current.attempts.length !== attempt || current.attempts[attempt - 1].result !== "pending") return input;
   const ws = structuredClone(input);
   const run = ws.ownerCallRun!;
   run.attempts[attempt - 1].result = result;
+  if (placementUnknown) run.attempts[attempt - 1].placementUnknown = true;
   run.nextAttemptAt = null;
   if (result === "completed") {
     run.state = "completed";
@@ -183,7 +187,12 @@ export function resolveOwnerCallAttempt(
   if (attempt >= OWNER_CALL_ATTEMPTS || run.trigger === "manual") return finishMissed(ws, now, run);
   run.state = "calling";
   run.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
-  pushEvent(ws, now, "neutral", result === "interrupted"
+  pushEvent(ws, now, "neutral", placementUnknown
+    ? {
+        ar: `لم تصل حالة مكالمة ${ws.settings.owner.name} — ناقة تعيد المحاولة بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${attempt}/${OWNER_CALL_ATTEMPTS})`,
+        en: `The call status for ${ws.settings.owner.name} didn't arrive — NAQAH will try again in ${RETRY_DELAY_MS / MINUTE} minutes (${attempt}/${OWNER_CALL_ATTEMPTS})`,
+      }
+    : result === "interrupted"
     ? {
         ar: `انقطعت مكالمة ${ws.settings.owner.name} — ناقة تعيد الاتصال بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${attempt}/${OWNER_CALL_ATTEMPTS})`,
         en: `The call to ${ws.settings.owner.name} ended early — NAQAH will try again in ${RETRY_DELAY_MS / MINUTE} minutes (${attempt}/${OWNER_CALL_ATTEMPTS})`,
@@ -223,7 +232,7 @@ export function openOwnerCallNow(
   // A pending attempt whose webhook was lost is settled first, as the scheduler would.
   const lost = input.ownerCallRun;
   if (lost && lost.attempts.at(-1)?.result === "pending") {
-    base = resolveOwnerCallAttempt(input, now, lost.id, lost.attempts.length, lost.state === "answered" ? "interrupted" : "unanswered");
+    base = resolveOwnerCallAttempt(input, now, lost.id, lost.attempts.length, lost.state === "answered" ? "interrupted" : "unanswered", lost.state !== "answered");
   }
   const ws = structuredClone(base);
   const run: OwnerCallRun = {

@@ -111,7 +111,8 @@ describe("owner call now (local demo)", () => {
     const opened = openOwnerCallNow(farm(), NOW);
     const again = openOwnerCallNow(opened.ws, at(16));
     expect(again.blocked).toBeNull();
-    expect(notifications(again.ws)).toMatchObject([{ outcome: "no_answer" }]);
+    expect(notifications(again.ws)).toEqual([]);
+    expect(again.ws.missedNotificationAt).toBeNull();
     expect(again.ws.ownerCallRun!.id).not.toBe(opened.claim!.runId);
   });
 
