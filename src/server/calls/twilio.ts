@@ -3,7 +3,7 @@
  * returns `not_configured`, and any provider failure is `placed: false`. Recording is always off.
  */
 import type { OutboundConfig } from "./config";
-import { callTimeLimitSeconds, outboundConfig, SAUDI_MOBILE } from "./config";
+import { callTimeLimitSeconds, machineDetectionSettings, outboundConfig, SAUDI_MOBILE } from "./config";
 
 export interface OutboundCallRequest {
   /** E.164 number to call. */
@@ -59,6 +59,7 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
           answerUrl.searchParams.set("amd", "1");
           body.set("MachineDetection", "Enable");
           body.set("AsyncAmd", "false");
+          for (const [name, ms] of Object.entries(machineDetectionSettings())) body.set(name, String(ms));
         }
         body.set("Url", answerUrl.toString());
         body.set("Method", "POST");

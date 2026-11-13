@@ -101,9 +101,14 @@ function readApproved(file: string): string {
   }
 }
 
-/** The bridge's normal call cap. Twilio allows a short closing grace beyond it. */
+/** The bridge's normal call cap. Twilio allows a closing grace beyond it. */
 export const MAX_CALL_SECONDS = 300;
-export const CALL_END_GRACE_SECONDS = 30;
+/**
+ * Twilio's TimeLimit runs from the answer; the bridge's cap from the stream's start. The grace covers what happens
+ * outside that cap: synchronous AMD (about 4-6 s with the thresholds below), stream setup (4-10 s), the bridge's
+ * closing grace for a pending confirmation (20 s) and its wait for the closed notice (2 s), with room to spare.
+ */
+export const CALL_END_GRACE_SECONDS = 60;
 
 export function bridgeTimeLimitSeconds(): number {
   const configured = Number(value("NAQAH_CALL_TIME_LIMIT_SECONDS"));
@@ -112,6 +117,26 @@ export function bridgeTimeLimitSeconds(): number {
 
 export function callTimeLimitSeconds(): number {
   return bridgeTimeLimitSeconds() + CALL_END_GRACE_SECONDS;
+}
+
+/**
+ * Twilio answering-machine detection for calls NAQAH places. Twilio's 2400 ms speech default reads a long Arabic
+ * greeting («السلام عليكم ورحمة الله وبركاته، هلا مين؟») as a machine, so a person gets more time to finish it.
+ * Each value may be overridden within Twilio's accepted range; anything else keeps the default.
+ */
+export const MACHINE_DETECTION = {
+  MachineDetectionSpeechThreshold: { env: "NAQAH_AMD_SPEECH_THRESHOLD_MS", fallback: 3500, min: 1000, max: 6000 },
+  MachineDetectionSpeechEndThreshold: { env: "NAQAH_AMD_SPEECH_END_THRESHOLD_MS", fallback: 1000, min: 500, max: 5000 },
+  MachineDetectionSilenceTimeout: { env: "NAQAH_AMD_SILENCE_TIMEOUT_MS", fallback: 5000, min: 2000, max: 10000 },
+} as const;
+
+export function machineDetectionSettings(): Record<keyof typeof MACHINE_DETECTION, number> {
+  const entries = Object.entries(MACHINE_DETECTION).map(([name, { env, fallback, min, max }]) => {
+    const raw = value(env);
+    const configured = /^\d{1,6}$/.test(raw) ? Number(raw) : NaN;
+    return [name, configured >= min && configured <= max ? configured : fallback];
+  });
+  return Object.fromEntries(entries) as Record<keyof typeof MACHINE_DETECTION, number>;
 }
 
 /** «اتصال حقيقي»: at most this many placed calls per ranch, per window. */
