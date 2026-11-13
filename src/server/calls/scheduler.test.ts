@@ -116,15 +116,19 @@ describe("worker instruction and verification dialing", () => {
     expect(new Date(store.ws.pendingWorkerCalls[0].nextAttemptAt!).getTime()).toBe(now.getTime() + 20 * 60 * 1000);
   });
 
-  it.each(["instruction", "task_verification"] as const)("keeps an ambiguous %s claim until its stale lock expires", async (purpose) => {
+  it.each(["instruction", "task_verification"] as const)("bounds persistent ambiguous %s placement to three attempts, then Not delivered", async (purpose) => {
     store.ws.pendingWorkerCalls[0].purpose = purpose;
     const { caller, requests } = recordingCaller(() => ({ placed: false, reason: "network_error" }));
     expect(await runReportCallScheduler({} as never, caller, options)).toMatchObject({ failed: 1, errors: 0 });
-    expect(store.ws.pendingWorkerCalls[0]).toMatchObject({ attempts: [], nextAttemptAt: new Date(now.getTime() + 2 * 60 * 60_000).toISOString() });
-    await runReportCallScheduler({} as never, caller, { ...options, now: new Date(now.getTime() + 21 * 60_000) });
-    expect(requests).toHaveLength(1);
-    await runReportCallScheduler({} as never, caller, { ...options, now: new Date(now.getTime() + 2 * 60 * 60_000) });
-    expect(requests).toHaveLength(2);
+    expect(store.ws.pendingWorkerCalls[0]).toMatchObject({ attempts: [], dialClaimedAt: now.toISOString(), nextAttemptAt: new Date(now.getTime() + 15 * 60_000).toISOString() });
+    for (const minute of [14, 15, 34, 35, 49, 50, 69, 70, 84, 85, 105, 120, 240]) {
+      await runReportCallScheduler({} as never, caller, { ...options, now: new Date(now.getTime() + minute * 60_000) });
+      const expected = minute < 35 ? 1 : minute < 70 ? 2 : 3;
+      expect(requests).toHaveLength(expected);
+    }
+    expect(store.ws.pendingWorkerCalls[0]).toMatchObject({ state: "no_answer_ticket", nextAttemptAt: null, dialClaimedAt: null });
+    expect(store.ws.pendingWorkerCalls[0].attempts.map((attempt) => attempt.answered)).toEqual([false, false, false]);
+    expect(store.ws.noAnswerTickets).toEqual([]);
   });
 
   it("keeps a worker claim if the provider throws after sending", async () => {

@@ -4,7 +4,7 @@
  * Twilio to place the call. A call Twilio never placed is undone, not logged as unanswered.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { claimDueWorkerCall, releaseWorkerCallClaim } from "@/domain/actions";
+import { claimDueWorkerCall, markWorkerCallPlacementUnknown, releaseWorkerCallClaim } from "@/domain/actions";
 import {
   abandonReportCallAttempt, claimDueReportCall, dialableWorkerPhone, placeReportCallAttempt, startReportCall,
   type ReportCallBlock,
@@ -97,7 +97,9 @@ async function dialDueWorkerCall(
       return;
     }
     summary.failed += 1;
-    if (placed.reason !== "network_error") {
+    if (placed.reason === "network_error") {
+      await runFarmAction(client, farmId, (ws) => ({ ws: markWorkerCallPlacementUnknown(ws, pendingId, claim.attempt, options.now), result: null }));
+    } else {
       await runFarmAction(client, farmId, (ws) => ({ ws: releaseWorkerCallClaim(ws, pendingId, options.now), result: null }));
     }
   } catch (error) {

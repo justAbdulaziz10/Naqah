@@ -303,6 +303,7 @@ export interface PendingWorkerCall {
   /** When the next attempt is due; null when finished. */
   nextAttemptAt: string | null;
   state: "pending" | "delivered" | "no_answer_ticket";
+  dialClaimedAt?: string | null;
   /** Attempts already used when the owner asked for another try; only later attempts count toward the three. */
   retryBase?: number;
   /** Task C's approved conversation batch/event identity; optional for legacy calls. */
@@ -345,7 +346,7 @@ export interface OwnerCallRun {
   occurrence: string;
   /** The report summarized on this run. null: the owner is told no verified report has arrived. */
   reportId: string | null;
-  attempts: { at: string; result: OwnerAttemptResult }[];
+  attempts: { at: string; result: OwnerAttemptResult; placementUnknown?: boolean }[];
   /** When the next attempt should be placed; null while ringing or when finished. */
   nextAttemptAt: string | null;
   state: "calling" | "answered" | "completed" | "missed";

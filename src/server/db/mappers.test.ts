@@ -86,6 +86,16 @@ describe("workspace rows", () => {
     const run = { id: "r", occurrence: "2026-11-08T09:00:00+00:00", reportId: null, attempts: [{ at: "2026-11-08T09:00:00.000Z", result: "pending" }], nextAttemptAt: null, state: "calling" };
     expect(workspaceFromRows({ ...empty, farm: { ...farm, owner_call_run: run } }).ownerCallRun).toEqual({ ...run, occurrence: "2026-11-08T09:00:00.000Z" });
   });
+  it("round-trips placement-unknown owner attempts through the existing JSON column", () => {
+    const ws = workspaceFromRows(empty);
+    const run = { id: "ocr_0123456789", occurrence: now.toISOString(), reportId: null, attempts: [{ at: now.toISOString(), result: "unanswered" as const, placementUnknown: true }], nextAttemptAt: null, state: "missed" as const };
+    const changes = diffWorkspace(ws, { ...ws, ownerCallRun: run }, farmId);
+    const saved = changes.farm!.owner_call_run;
+    expect(saved).toEqual({ ...run, id: toDbId(farmId, run.id) });
+    const loaded = workspaceFromRows({ ...empty, farm: { ...farm, owner_call_run: saved } });
+    expect(loaded.ownerCallRun!.attempts).toEqual(run.attempts);
+    expect(hasChanges(diffWorkspace(loaded, structuredClone(loaded), farmId))).toBe(false);
+  });
   it("defaults the report mode and plan before the columns exist, and drops a malformed plan", () => {
     expect(workspaceFromRows(empty).settings).toMatchObject({ reportMode: "guided", questionPlan: [] });
     const entry = { id: "herd_health", enabled: false, required: true };

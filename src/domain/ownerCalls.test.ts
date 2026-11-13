@@ -3,7 +3,7 @@ import { completeWorkerReport } from "./actions";
 import { fromRiyadh, MINUTE, RETRY_DELAY_MS } from "./clock";
 import { routeOwnerInboundCall } from "./rules";
 import {
-  abandonOwnerCallAttempt, claimDueOwnerCall, dueOwnerCallSlot, markOwnerCallAnswered, newestUnsummarizedReport,
+  abandonOwnerCallAttempt, claimDueOwnerCall, dueOwnerCallSlot, markOwnerCallAnswered, newestUnsummarizedReport, openOwnerCallNow,
   resolveOwnerCallAttempt, OWNER_CALL_ATTEMPTS,
 } from "./ownerCalls";
 import { createEmptyWorkspace } from "./seed";
@@ -196,7 +196,53 @@ describe("each attempt's outcome", () => {
     const lost = claim(ws, 15);
     expect(lost.claim).toBeNull();
     expect(lost.ws.ownerCallRun!.attempts[0].result).toBe("unanswered");
+    expect(lost.ws.ownerCallRun!.attempts[0].placementUnknown).toBe(true);
     expect(lost.ws.ownerCallRun!.nextAttemptAt).toBe(at(35).toISOString());
+  });
+
+  it("exhausts placement-unknown attempts without recording a missed notification or granting a missed callback", () => {
+    let current = ws;
+    for (const minute of [15, 50, 85]) {
+      if (minute > 15) current = claim(current, minute - 15).ws;
+      current = claim(current, minute).ws;
+    }
+    expect(current.ownerCallRun).toMatchObject({ state: "missed", nextAttemptAt: null });
+    expect(current.ownerCallRun!.attempts).toHaveLength(3);
+    expect(current.ownerCallRun!.attempts.every((attempt) => attempt.placementUnknown)).toBe(true);
+    expect(notifications(current)).toEqual([]);
+    expect(current.missedNotificationAt).toBeNull();
+    expect(routeOwnerInboundCall(current, at(86))).not.toMatchObject({ mode: "missed_callback" });
+  });
+
+  it("still records a missed notification when a real no-answer precedes unknown placements", () => {
+    let current = resolveOwnerCallAttempt(ws, at(1), runId, 1, "unanswered");
+    current = claim(current, 21).ws;
+    current = claim(current, 36).ws;
+    current = claim(current, 56).ws;
+    current = claim(current, 71).ws;
+    expect(current.ownerCallRun!.state).toBe("missed");
+    expect(notifications(current)).toHaveLength(1);
+    expect(current.missedNotificationAt).toBe(THU_1800.toISOString());
+  });
+
+  it("does not grant a missed notification when an unknown retry ages out", () => {
+    const unknown = claim(ws, 15).ws;
+    const expired = claim(unknown, 181).ws;
+    expect(expired.ownerCallRun!.state).toBe("missed");
+    expect(expired.missedNotificationAt).toBeNull();
+    expect(notifications(expired)).toEqual([]);
+  });
+
+  it("does not grant a missed notification when a manual unknown call expires or is replaced", () => {
+    const opened = openOwnerCallNow(farm(), at(0));
+    const expired = claim(opened.ws, 15).ws;
+    expect(expired.ownerCallRun).toMatchObject({ state: "missed", attempts: [{ result: "unanswered", placementUnknown: true }] });
+    expect(expired.missedNotificationAt).toBeNull();
+    expect(notifications(expired)).toEqual([]);
+    const replacement = openOwnerCallNow(opened.ws, at(15));
+    expect(replacement.claim).not.toBeNull();
+    expect(replacement.ws.missedNotificationAt).toBeNull();
+    expect(notifications(replacement.ws)).toEqual([]);
   });
 
   it("frees an answered attempt whose final status never arrives", () => {

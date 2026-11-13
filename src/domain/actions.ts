@@ -478,21 +478,35 @@ export function startTaskVerification(input: Workspace, now: Date, taskId: strin
 }
 
 const WORKER_DIAL_LOCK_MS = 2 * 60 * 60 * 1000;
+const WORKER_PLACEMENT_UNKNOWN_MS = 15 * MINUTE;
 
 /**
  * Start due verifications, then reserve the next due worker call so a second scheduler pass cannot dial it.
- * The reservation is not an attempt. Twilio's status callback records the attempt.
+ * The reservation is not an attempt. Twilio's status callback or an expired claim records it.
  */
 export function claimDueWorkerCall(input: Workspace, now: Date): { ws: Workspace; pendingCallId: string | null; attempt: number } {
   let ws = clone(input);
+  for (const call of input.pendingWorkerCalls) {
+    if (call.state !== "pending" || !call.dialClaimedAt || !call.nextAttemptAt || Date.parse(call.nextAttemptAt) > now.getTime()) continue;
+    ws = resolveWorkerCallAttempt(ws, now, call.id, "unanswered").ws;
+  }
   for (const task of dueTaskVerifications(ws, now)) ws = startTaskVerification(ws, now, task.id).ws;
   // The worker's phone is one line: a second call now would ring busy and waste one of its three attempts.
   const onTheLine = (ws.reportCalls ?? []).some((run) => run.state === "answered" || (run.state === "calling" && run.attempts.at(-1)?.result === "pending"));
   if (onTheLine) return { ws, pendingCallId: null, attempt: 0 };
   const call = dueWorkerCalls(ws, now)[0];
   if (!call) return { ws, pendingCallId: null, attempt: 0 };
+  call.dialClaimedAt = iso(now);
   call.nextAttemptAt = new Date(now.getTime() + WORKER_DIAL_LOCK_MS).toISOString();
   return { ws, pendingCallId: call.id, attempt: call.attempts.length + 1 };
+}
+
+export function markWorkerCallPlacementUnknown(input: Workspace, pendingCallId: string, attempt: number, now: Date): Workspace {
+  const current = input.pendingWorkerCalls.find((call) => call.id === pendingCallId);
+  if (current?.state !== "pending" || Date.parse(current.dialClaimedAt ?? "") !== now.getTime() || current.attempts.length + 1 !== attempt) return input;
+  const ws = clone(input);
+  ws.pendingWorkerCalls.find((call) => call.id === pendingCallId)!.nextAttemptAt = new Date(now.getTime() + WORKER_PLACEMENT_UNKNOWN_MS).toISOString();
+  return ws;
 }
 
 /** Release a reservation when the provider never placed the call. */
@@ -500,6 +514,7 @@ export function releaseWorkerCallClaim(input: Workspace, pendingCallId: string, 
   const ws = clone(input);
   const call = ws.pendingWorkerCalls.find((item) => item.id === pendingCallId && item.state === "pending");
   if (!call) return ws;
+  if (call.dialClaimedAt) call.dialClaimedAt = null;
   // The attempt never happened, so it isn't counted, but the provider isn't asked again on the very next tick.
   call.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
   pushEvent(ws, now, "attention", {
@@ -553,6 +568,7 @@ export function resolveWorkerCallAttempt(
   const ws = clone(input);
   const call = ws.pendingWorkerCalls.find((c) => c.id === pendingCallId);
   if (!call || call.state !== "pending") return { ws, outcome: "delivered" };
+  if (call.dialClaimedAt) call.dialClaimedAt = null;
   const at = iso(now);
   const answered = result !== "unanswered";
   call.attempts.push({ at, answered });

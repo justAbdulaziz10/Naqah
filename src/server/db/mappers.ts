@@ -62,7 +62,7 @@ function ownerCallRunFrom(value: unknown): OwnerCallRun | null | undefined {
     id: run.id,
     occurrence: new Date(run.occurrence).toISOString(),
     reportId: run.reportId ?? null,
-    attempts: run.attempts.map((a) => ({ at: a.at, result: a.result })),
+    attempts: run.attempts.map((a) => ({ at: a.at, result: a.result, ...(a.placementUnknown === true ? { placementUnknown: true } : {}) })),
     nextAttemptAt: run.nextAttemptAt ?? null,
     state: run.state,
     ...(run.trigger === "manual" ? { trigger: "manual" as const } : {}),
@@ -183,6 +183,7 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
       taskTicketId: p.task_ticket_id,
       ...(p.batch_id ? { batchId: p.batch_id } : {}),
       ...(p.retry_base ? { retryBase: p.retry_base } : {}),
+      ...(p.dial_claimed_at === undefined ? {} : { dialClaimedAt: p.dial_claimed_at }),
       ...(p.task_links_explicit ? { coveredTaskIds: (p.pending_worker_call_tasks ?? [])
         .filter((link) => link.covered_order !== null)
         .sort((a, b) => a.covered_order! - b.covered_order!)
@@ -317,6 +318,7 @@ export function historyRows(ws: Workspace, farmId: string) {
       task_ticket_id: optional(p.taskTicketId),
       ...(p.batchId === undefined ? {} : { batch_id: p.batchId }),
       ...(p.retryBase === undefined ? {} : { retry_base: p.retryBase }),
+      ...(p.dialClaimedAt === undefined ? {} : { dial_claimed_at: p.dialClaimedAt }),
       ...(p.coveredTaskIds === undefined ? {} : { covered_task_ids: [...new Set(p.coveredTaskIds.map(id))] }),
       relay_id: optional(p.relayId),
       next_attempt_at: p.nextAttemptAt,
