@@ -36,6 +36,17 @@ export function CallActivity({ calls, now, maxDays = 14, className }: { calls: C
   const reports = columns.reduce((sum, column) => sum + column.calls.filter((call) => call.kind === "worker_report").length, 0);
   const missed = columns.reduce((sum, column) => sum + column.calls.filter((call) => call.outcome === "no_answer").length, 0);
   const summary = v.summary(total, reports, missed);
+  const populated = columns.filter((column) => column.calls.length).length;
+
+  // One day of calls is a sentence, not a chart: the columns would be mostly empty.
+  if (populated <= 1) {
+    return (
+      <p className={cn("flex flex-wrap items-baseline gap-x-4 gap-y-1", className)}>
+        <span className="text-sm font-semibold text-espresso">{v.title(days)}</span>
+        <span className="text-sm text-muted">{summary}</span>
+      </p>
+    );
+  }
 
   return (
     <figure className={cn("min-w-0", className)}>

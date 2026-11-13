@@ -1,15 +1,12 @@
 "use client";
 
 import { WEEKDAY_LABELS } from "@/domain/catalog";
-import { DAY, riyadhParts, weekStart } from "@/domain/clock";
+import { riyadhParts } from "@/domain/clock";
 import { isCallTime } from "@/domain/schedule";
 import type { CallSchedule, Plan } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
-
-const short = { weekday: "short", day: undefined, month: undefined, hour: undefined, minute: undefined } as const;
-// Arabic has no short weekday names, so a narrow strip uses the one-letter forms (ح ن ث …).
-const narrow = { weekday: "narrow", day: undefined, month: undefined, hour: undefined, minute: undefined } as const;
+import { isCallDay, weekdayForms } from "./weekdays";
 
 /**
  * The report call across a Riyadh week, Sunday first: Basic marks its one weekday, Ultimate marks
@@ -20,12 +17,10 @@ export function WeekStrip({ plan, schedule, now, className }: { plan: Plan; sche
   const v = m.visual.week;
   const hasTime = isCallTime(schedule?.time ?? "");
   const today = riyadhParts(now).weekday;
-  const start = weekStart(now).getTime();
   const time = hasTime && schedule ? fmt.time(new Date(`2026-01-01T${schedule.time}:00+03:00`)) : null;
   const days = WEEKDAY_LABELS.map((label, day) => {
-    const call = plan === "ultimate" ? Boolean(schedule) : schedule?.day === day;
-    const noon = new Date(start + day * DAY + 12 * 60 * 60 * 1000);
-    return { day, label: t(label), short: fmt.dateTime(noon, short), narrow: fmt.dateTime(noon, narrow), call };
+    const call = Boolean(schedule) && isCallDay(plan, schedule?.day, day);
+    return { day, label: t(label), ...weekdayForms(locale, day), call };
   });
 
   return (

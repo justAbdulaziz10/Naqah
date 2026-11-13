@@ -53,6 +53,7 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
     const camel = ws.camels.find((item) => mentions(finding.text.ar, item.name) || mentions(finding.text.en, item.name));
     return { id: finding.id, camel, text: t(finding.text) };
   });
+  const named = flagged.filter((item) => item.camel);
   let index = 0;
 
   return (
@@ -87,14 +88,17 @@ export function ReportLedger({ ws, report, worker }: { ws: Workspace; report: Fa
           <Line at={answers.length ? null : report.at} who={flagged.length ? o.flagged : o.nothingFlaggedShort} whoTone={flagged.length ? "text-warn" : "text-ok"} index={index++}>
             {flagged.length ? (
               <ul className="space-y-1.5">
-                {flagged.map((item) => (
+                {/* Findings about a named camel are told once, above; here they are only counted and pointed to. */}
+                {named.length ? (
+                  <li className="flex items-start gap-2 leading-relaxed text-espresso">
+                    <WarningCircle size={17} weight="fill" className="mt-1 shrink-0 text-warn" aria-hidden />
+                    <a href="#estate-matters" className="naqah-name -my-2.5 inline-block py-2.5 underline decoration-stone underline-offset-4 hover:decoration-brown">{o.flaggedAbove(named.length)}</a>
+                  </li>
+                ) : null}
+                {flagged.filter((item) => !item.camel).map((item) => (
                   <li key={item.id} className="flex items-start gap-2 leading-relaxed text-espresso">
                     <WarningCircle size={17} weight="fill" className="mt-1 shrink-0 text-warn" aria-hidden />
-                    {item.camel ? (
-                      <Link href={`${href("/app/herd")}#camel-${item.camel.id}`} className="naqah-name -my-2.5 inline-block py-2.5 font-semibold underline decoration-stone underline-offset-4 hover:decoration-brown">
-                        {item.camel.name}
-                      </Link>
-                    ) : <span>{item.text}</span>}
+                    <span>{item.text}</span>
                   </li>
                 ))}
               </ul>

@@ -10,9 +10,9 @@ import { useLabCall } from "@/components/lab/labStore";
 import { useIsAccount } from "@/store/workspace";
 import { ReportCallNow } from "./ReportCallNow";
 
-const simClass = "inline-flex min-h-11 items-center gap-2 rounded-full bg-cream px-5 text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
-const realClass = "inline-flex min-h-11 items-center gap-2 rounded-full border border-cream/40 px-5 text-sm font-semibold text-cream transition hover:border-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
-const linkClass = "inline-flex min-h-11 items-center font-semibold text-cream underline decoration-cream/40 underline-offset-4 transition hover:decoration-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
+const simClass = "inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-cream px-3 text-[0.8125rem] sm:px-5 sm:text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
+const realClass = "inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-full border border-cream/40 px-3 text-[0.8125rem] sm:px-5 sm:text-sm font-semibold text-cream transition hover:border-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
+const linkClass = "inline-flex min-h-11 items-center py-2 font-semibold text-cream underline decoration-cream/40 underline-offset-4 transition hover:decoration-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
 
 /**
  * The one place to call the worker: who NAQAH calls, their number and where to change it, and the
@@ -29,9 +29,10 @@ export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; no
   const team = `${href("/app/settings")}#settings-team`;
 
   return (
-    <div className="flex flex-col gap-3 border-t border-cream/15 pt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:pt-6">
-      <div className="min-w-0">
-        <p className="naqah-name text-[1.125rem] font-semibold leading-snug text-cream">{o.callsWorker(worker)}</p>
+    <div className="flex flex-col gap-2 border-t border-cream/15 pt-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:pt-6">
+      {/* On a phone the sentence and the number wrap on one line so what matters stays above the fold. */}
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 sm:block">
+        <p className="naqah-name text-base font-semibold leading-snug text-cream sm:text-[1.125rem]">{o.callsWorker(worker)}</p>
         <p className="flex flex-wrap items-center gap-x-2 text-sm text-cream/80">
           {phone ? (
             <>
@@ -46,10 +47,10 @@ export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; no
       </div>
       <div className="min-w-0 sm:max-w-sm">
         {account ? (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-2 sm:justify-end sm:text-end">
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end sm:text-end">
             {/* The real call is the main action; the simulation sits beside it as the quieter one. */}
             <ReportCallNow ws={ws} worker={worker} now={now} primary />
-            <Link href={href("/app/simulate")} prefetch={false} aria-describedby="call-sim-note" className={`${realClass} justify-center max-sm:w-full`}>
+            <Link href={href("/app/simulate")} prefetch={false} aria-describedby="call-sim-note" className={`${realClass} max-sm:flex-1`}>
               <Phone size={16} weight="fill" aria-hidden />
               {d.simulateWith}
             </Link>
@@ -57,7 +58,7 @@ export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; no
             <p id="call-sim-note" className="sr-only">{o.callBar.practice}</p>
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-2 sm:justify-end sm:text-end">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end sm:text-end">
             <Link href={href("/app/lab")} prefetch={false} onClick={() => { if (!useLabCall.getState().session) useLabCall.getState().patch({ selected: "report_call" }); }} aria-describedby="call-sim-note" className={simClass}>
               <Phone size={16} weight="fill" aria-hidden />
               {d.simulateWith}
@@ -74,7 +75,7 @@ export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; no
               </button>
             )}
             <p id="call-sim-note" className="sr-only">{o.callBar.simulated}</p>
-            <p id="call-real-note" className="basis-full text-[0.8125rem] leading-snug text-cream/70">{d.callNow}: {ACCOUNT_DATA ? o.callBar.signIn : o.callBar.realDemo}</p>
+            <p id="call-real-note" className="col-span-2 basis-full text-xs leading-snug text-cream/70 sm:text-[0.8125rem]">{ACCOUNT_DATA ? o.callBar.signIn : o.callBar.realDemo}</p>
           </div>
         )}
       </div>

@@ -142,6 +142,7 @@ export const app = defineMessages({
       noCallTimeYet: "No call time yet",
       setCallTime: "Set the call time",
       flagged: "Flagged",
+      flaggedAbove: (count: number) => (count === 1 ? "1 note, under Needs your attention" : `${count} notes, under Needs your attention`),
       nothingFlaggedShort: "Nothing flagged",
       briefedYou: "Called you with the update",
       briefMissed: "Called you. You didn't answer",
@@ -304,6 +305,7 @@ export const app = defineMessages({
       again: "Start over",
       back: "Back to the overview",
     },
+    loading: { ranch: "Opening your ranch…" },
     labels: {
       reported: "Reported by worker",
       approximate: "Approximate",
@@ -454,6 +456,7 @@ export const app = defineMessages({
       noCallTimeYet: "ما تحدد وقت المكالمة",
       setCallTime: "حدد وقت المكالمة",
       flagged: "ملاحظات",
+      flaggedAbove: (count: number) => (count === 1 ? "ملاحظة واحدة، تحت «يحتاج انتباهك»" : count === 2 ? "ملاحظتان، تحت «يحتاج انتباهك»" : `${count} ملاحظات، تحت «يحتاج انتباهك»`),
       nothingFlaggedShort: "ما فيه ملاحظات",
       briefedYou: "اتصلت عليك بالتحديث",
       briefMissed: "اتصلت عليك وما رديت",
@@ -621,6 +624,7 @@ export const app = defineMessages({
       again: "ابدأ من جديد",
       back: "رجوع للرئيسية",
     },
+    loading: { ranch: "نفتح عزبتك…" },
     labels: {
       reported: "حسب إفادة العامل",
       approximate: "تقديري",

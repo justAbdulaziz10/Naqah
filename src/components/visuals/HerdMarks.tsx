@@ -63,12 +63,14 @@ export function HerdMarks({ camels, herdCount, activeId, onOpen, className }: {
             </li>
           );
         })}
-        {Array.from({ length: unnamedMarks }, (_, index) => (
-          <li key={`unnamed-${index}`} aria-hidden className="flex min-h-14 items-center justify-center">
-            <span className="size-3 rounded-full border border-stone bg-cream" />
-          </li>
-        ))}
       </ul>
+      {unnamedMarks ? (
+        <div aria-hidden className="mt-3 flex flex-wrap gap-1.5 px-1">
+          {Array.from({ length: unnamedMarks }, (_, index) => (
+            <span key={`unnamed-${index}`} className="size-3 rounded-full border border-stone bg-cream" />
+          ))}
+        </div>
+      ) : null}
       <figcaption className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-muted">
         {groups.map(({ health, count }) => (
           <span key={health} className="inline-flex items-center gap-2 whitespace-nowrap">
