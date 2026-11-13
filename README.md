@@ -10,7 +10,8 @@ calls the owner with what matters, and the owner follows the ranch on this websi
   the browser, every call there is a labelled simulation, and nothing is saved outside the visitor's browser.
 - **Status:** investor MVP (November 2026). Real calling (Twilio, scripted or realtime voice), owner accounts
   (Supabase) and the AI Voice Lab are built but switched off in production; each needs its own flags, credentials and
-  approval. Nothing is charged.
+  approval. Nothing is charged. Hosted Supabase does not yet have `20261113090000_report_call_scheduler` or
+  `20261113100000_worker_call_claims`; see the [go-live checklist](docs/integrations/go-live-checklist.md).
 
 ## Stack
 
