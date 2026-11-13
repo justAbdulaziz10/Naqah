@@ -194,6 +194,8 @@ class CallStream {
     this.speechStartAudioMs = null;
     this.outputFrames = 0;
     this.userSpoke = false;
+    /** Any words from the caller this call: silence after them is an answered call that ended unsaved. */
+    this.workerSpoke = false;
     this.workerTurn = null;
     /** Recent worker turns in the order they were said; a natural call's tool reads its own turn and any after it. */
     this.turnLog = [];
@@ -334,12 +336,12 @@ class CallStream {
     return CLOSE_REASONS[event] ?? 'bridge_error';
   }
 
-  /** Signed, never retried; a normal or silent ending waits at most two seconds for persistence. */
+  /** Signed, never retried. The request has the usual internal timeout; only `finish` bounds how long Twilio waits. */
   notifyClosed(event) {
-    const body = JSON.stringify({ ticket: this.ticket, callSid: this.callSid, reason: this.closeReason(event), event });
+    const body = JSON.stringify({ ticket: this.ticket, callSid: this.callSid, reason: this.closeReason(event), event, workerSpoke: this.workerSpoke });
     const notice = fetch(new URL('/api/voice/realtime/closed', this.config.upstream), {
       method: 'POST', body, headers: internalHeaders(body, this.config.voiceSecret),
-      signal: AbortSignal.timeout(Math.min(this.limits.internalMs, this.limits.closedNoticeMs)), redirect: 'error',
+      signal: AbortSignal.timeout(this.limits.internalMs), redirect: 'error',
     }).then(async (response) => {
       await response.body?.cancel();
       if (!response.ok) this.log('closed_notice_failed', { status: response.status });
@@ -375,8 +377,15 @@ class CallStream {
         if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
         else socket.close(1000);
       };
-      if (socket === this.twilio && notice && ['normal', 'silence'].includes(this.closeReason(event))) void notice.then(close, close);
-      else close();
+      // A normal or silent ending waits at most closedNoticeMs for the closure to be stored, so /after can read it.
+      if (socket === this.twilio && notice && ['normal', 'silence'].includes(this.closeReason(event))) {
+        let bound;
+        const waited = new Promise((resolve) => {
+          bound = setTimeout(resolve, this.limits.closedNoticeMs);
+          bound.unref();
+        });
+        void Promise.race([notice, waited]).then(() => { clearTimeout(bound); close(); });
+      } else close();
     }
   }
 
@@ -516,7 +525,8 @@ class CallStream {
             this.timer('maximum', this.limits.confirmationGraceMs, () => this.finish('maximum_timeout'));
           } else this.finish('maximum_timeout');
         });
-        if (this.natural) this.timer('wrapup', Math.max(1, remainingMs - this.limits.wrapUpMs), () => {
+        // Too short a call for a wrap-up to help: no wrap-up at all, rather than one at the opening.
+        if (this.natural && remainingMs >= 2 * this.limits.wrapUpMs) this.timer('wrapup', remainingMs - this.limits.wrapUpMs, () => {
           if (this.closed || this.ending) return;
           this.wrapUpPending = true;
           this.flushResponse();
@@ -574,7 +584,7 @@ class CallStream {
 
   flushResponse() {
     if (this.closed || !this.ready || this.responsePending || this.responseId || this.toolPending || this.speaking) return;
-    if (this.wrapUpPending && !this.nextResponse && !this.awaitingConfirmation) {
+    if (this.wrapUpPending && !this.ending && !this.nextResponse && !this.awaitingConfirmation) {
       this.nextResponse = { kind: 'wrapup', wrapUp: true };
       this.wrapUpPending = false;
     }
@@ -818,6 +828,7 @@ class CallStream {
       const transcript = event.type.endsWith('.completed') && typeof event.transcript === 'string'
         && event.transcript.length <= 1000 && !/[\u0000-\u001f\u007f]/u.test(event.transcript) ? event.transcript : '';
       this.trace('worker', transcript);
+      if (transcript.trim()) this.workerSpoke = true;
       turn.settle(transcript);
     } else if (event.type === 'response.function_call_arguments.done') {
       if (!this.ending && !this.ignoredResponses.has(event.response_id)) this.queueTool(event);

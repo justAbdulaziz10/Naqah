@@ -3,7 +3,7 @@ import { GET as cron } from "@/app/api/cron/report-calls/route";
 import { POST as outbound } from "@/app/api/voice/outbound/route";
 import { POST as outboundStatus } from "@/app/api/voice/outbound/status/route";
 import { twilioRequestSignature } from "@/server/twilio/signature";
-import { outboundCallMissing, outboundConfig } from "./config";
+import { CALL_END_GRACE_SECONDS, outboundCallMissing, outboundConfig } from "./config";
 import { CALL_TOKEN_MAX_AGE_MS, signCallToken, verifyCallToken } from "./token";
 import { createTwilioCaller } from "./twilio";
 
@@ -139,17 +139,42 @@ describe("controlled-test allowlist", () => {
     expect(await caller.place(request("+966112345678"))).toEqual({ placed: false, reason: "invalid_number" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it("gives Twilio thirty seconds beyond the bridge cap; the setting can only lower that cap", async () => {
+  it("gives Twilio sixty seconds beyond the bridge cap; the setting can only lower that cap", async () => {
     const limitFor = async (value: string | undefined) => {
       vi.stubEnv("NAQAH_CALL_TIME_LIMIT_SECONDS", value ?? "");
       const fetchMock = ok();
       await createTwilioCaller(config, fetchMock as unknown as typeof fetch).place(request("+966501234567"));
       return (fetchMock.mock.calls[0] as unknown as [string, { body: URLSearchParams }])[1].body.get("TimeLimit");
     };
-    expect(await limitFor(undefined)).toBe("330");
-    expect(await limitFor("120")).toBe("150");
-    expect(await limitFor("900")).toBe("330");
-    expect(await limitFor("abc")).toBe("330");
+    expect(await limitFor(undefined)).toBe("360");
+    expect(await limitFor("120")).toBe("180");
+    expect(await limitFor("900")).toBe("360");
+    expect(await limitFor("abc")).toBe("360");
+  });
+  it("fits AMD, stream setup, the bridge's closing grace and the closed-notice wait inside the Twilio margin", () => {
+    const amdSeconds = 6, setupSeconds = 10, confirmationGraceSeconds = 20, closedNoticeSeconds = 2;
+    expect(CALL_END_GRACE_SECONDS).toBeGreaterThan(amdSeconds + setupSeconds + confirmationGraceSeconds + closedNoticeSeconds);
+  });
+  it("tunes AMD for long Arabic greetings, overridable only within Twilio's ranges", async () => {
+    const amdFor = async (env: Record<string, string> = {}) => {
+      for (const name of ["NAQAH_AMD_SPEECH_THRESHOLD_MS", "NAQAH_AMD_SPEECH_END_THRESHOLD_MS", "NAQAH_AMD_SILENCE_TIMEOUT_MS"]) vi.stubEnv(name, env[name] ?? "");
+      const fetchMock = ok();
+      await createTwilioCaller(config, fetchMock as unknown as typeof fetch).place({ ...request("+966501234567"), url: "https://naqah.test/api/voice/outbound?s=t" });
+      const body = (fetchMock.mock.calls[0] as unknown as [string, { body: URLSearchParams }])[1].body;
+      return [body.get("MachineDetectionSpeechThreshold"), body.get("MachineDetectionSpeechEndThreshold"), body.get("MachineDetectionSilenceTimeout")];
+    };
+    expect(await amdFor()).toEqual(["3500", "1000", "5000"]);
+    expect(await amdFor({ NAQAH_AMD_SPEECH_THRESHOLD_MS: "4200", NAQAH_AMD_SPEECH_END_THRESHOLD_MS: "1500", NAQAH_AMD_SILENCE_TIMEOUT_MS: "8000" }))
+      .toEqual(["4200", "1500", "8000"]);
+    expect(await amdFor({ NAQAH_AMD_SPEECH_THRESHOLD_MS: "60000", NAQAH_AMD_SPEECH_END_THRESHOLD_MS: "100", NAQAH_AMD_SILENCE_TIMEOUT_MS: "5s" }))
+      .toEqual(["3500", "1000", "5000"]);
+  });
+  it("sends no AMD settings for a TwiML-only call", async () => {
+    const fetchMock = ok();
+    await createTwilioCaller(config, fetchMock as unknown as typeof fetch).place({ to: "+966501234567", twiml: "<Response/>", statusCallback: "https://naqah.test/y" });
+    const body = (fetchMock.mock.calls[0] as unknown as [string, { body: URLSearchParams }])[1].body;
+    expect(body.get("MachineDetection")).toBeNull();
+    expect(body.get("MachineDetectionSpeechThreshold")).toBeNull();
   });
   it("always asks Twilio not to record", async () => {
     const fetchMock = ok();

@@ -108,14 +108,15 @@ describe("signed synchronous AMD gates", () => {
 describe("signed silence outcome plumbing", () => {
   const ticket = () => ({ sid: SID, f: FARM, r: RUN, j: "test-jti", l: "ar" as const, t: NOW.getTime() });
 
-  it("reclassifies an answered silent call once, even after the final completed callback", async () => {
+  it("leaves a run the final completed callback already resolved, without a duplicate attempt", async () => {
     db.ws = resolveReportCallAttempt(db.ws, NOW, RUN, true).ws;
     await reportStatus(webhook("report", "", true, false));
     await resolveSilentReportCall(client, ticket(), NOW);
     const first = structuredClone(run());
     await resolveSilentReportCall(client, ticket(), new Date(NOW.getTime() + 60_000));
     expect(run()).toEqual(first);
-    expect(run()).toMatchObject({ state: "calling", attempts: [{ result: "no_answer" }], nextAttemptAt: "2026-11-13T15:20:00.000Z" });
+    // The status callback ended it unsaved first; the late silence notice neither adds nor reclassifies an attempt.
+    expect(run()).toMatchObject({ state: "calling", attempts: [{ result: "answered" }], nextAttemptAt: "2026-11-13T15:20:00.000Z" });
   });
 
   it("never resolves a newer attempt or an unbound call from an old notice", async () => {
