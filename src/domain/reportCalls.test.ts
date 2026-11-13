@@ -50,6 +50,28 @@ describe("schedule slots", () => {
     }
   });
 
+  it("ignores a late silence notice for a run the status callback already resolved", () => {
+    const opened = startReportCall(farm(), THU_1700, "schedule");
+    let workspace = opened.ws;
+    let at = THU_1700;
+    for (const attempt of [1, 2, 3]) {
+      workspace = placeReportCallAttempt(workspace, at, opened.run!.id).ws;
+      workspace = resolveReportCallAttempt(workspace, at, opened.run!.id, true).ws;
+      // Twilio's status callback first: answered, then ended unsaved.
+      workspace = endReportCallWithoutReport(workspace, at, opened.run!.id);
+      const before = workspace;
+      // The bridge's /closed notice arrives afterwards and must change nothing.
+      const late = resolveReportCallAttempt(workspace, at, opened.run!.id, false);
+      expect(late.outcome).toBe("ignored");
+      expect(late.ws).toBe(before);
+      const run = workspace.reportCalls![0];
+      expect(run.attempts).toHaveLength(attempt);
+      expect(run.state).toBe(attempt < 3 ? "calling" : "missed");
+      expect(workspace.calls.filter((call) => call.kind === "worker_report_missed")).toHaveLength(0);
+      at = new Date(at.getTime() + RETRY_DELAY_MS);
+    }
+  });
+
   it("does not retry an unsaved manual pickup or reclassify a saved report", () => {
     const opened = startReportCall(farm(), THU_1700, "manual");
     const placed = placeReportCallAttempt(opened.ws, THU_1700, opened.run!.id).ws;

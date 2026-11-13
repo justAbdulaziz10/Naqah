@@ -139,7 +139,8 @@ export function resolveReportCallAttempt(
 ): { ws: Workspace; outcome: ReportCallOutcome } {
   const current = reportCallRuns(input).find((r) => r.id === runId);
   const pending = current?.attempts[current.attempts.length - 1];
-  const unansweredPickup = !answered && pending?.result === "answered" && current?.state !== "completed" && !current?.reportId;
+  // Only a live pickup may be undone: a late notice for a run already resolved (retry scheduled, missed) is ignored.
+  const unansweredPickup = !answered && pending?.result === "answered" && current?.state === "answered" && !current?.reportId;
   if (!current || (!unansweredPickup && (current.state !== "calling" || pending?.result !== "pending"))) return { ws: input, outcome: "ignored" };
   const ws = structuredClone(input);
   const run = reportCallRuns(ws).find((r) => r.id === runId)!;
