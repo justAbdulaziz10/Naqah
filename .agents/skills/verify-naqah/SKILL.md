@@ -37,7 +37,7 @@ relaunch), cached Playwright Chromium is present. Run before the first drive and
 | `features [--locale ar]` | landing "Explore the demo" «استكشف العرض التجريبي» → `/app` on the Ultimate sample; language switch keeps the path; settings "Load sample Ultimate farm"; herd "Add camel" +1 (no tag field, camel terms); Lab "Simulate a heat day" → report asks the water-and-shade question; clock +20 min; emergency shows the direct-call card and saves nothing; settings "Reset demo" clears the workspace |
 | `voice [--locale ar]` | signed Twilio webhooks on the sample line complete a report, then a tampered state is rejected. Dry-run by default; refuses when `WHATSAPP_TOKEN` or `NAQAH_CALL_OWNER=1` is set unless `--allow-paid` (see features/phone.md) |
 | `wizard [--locale ar]` | Basic onboarding at phone width, 4 steps (Ranch → Workers and herd → Report call → Ready), lands on `/app` with `setupComplete: true`, the worker, a custom question and the owner's Thursday 19:00 summary time saved; Settings has no overflow at 390 and 1440 |
-| `screens` | full-page screenshots of every page in `scripts/qa-screens.mjs` (ar/en × 375/1440), no horizontal overflow, no console errors. Known issue: the list now has 13 pages (52 shots) but the command still expects 32, so it reports `ok: false` until `verify-naqah.mjs` is updated; read the log and screenshots |
+| `screens` | full-page screenshots of every page in `scripts/qa-screens.mjs` (ar/en × 375/1440), no horizontal overflow, no console errors. The expected count follows the script's page list |
 
 Against the live site: add `--base https://naqah.vercel.app` (doctor then only checks the URL answers).
 Feature details, handles and gotchas: [features/README.md](features/README.md).
