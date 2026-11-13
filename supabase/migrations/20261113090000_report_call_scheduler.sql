@@ -20,6 +20,19 @@
 create extension if not exists pg_cron with schema pg_catalog;
 create extension if not exists pg_net with schema extensions;
 
+-- pg_net grants its queue and response tables to PUBLIC. The queued request carries the Bearer secret in its
+-- headers, so only the roles that already own them (postgres, the pg_net worker) may read either table.
+do $$
+begin
+  if to_regclass('net.http_request_queue') is not null then
+    revoke all on table net.http_request_queue from public, anon, authenticated;
+  end if;
+  if to_regclass('net._http_response') is not null then
+    revoke all on table net._http_response from public, anon, authenticated;
+  end if;
+end;
+$$;
+
 -- Last time the route ran after a valid secret, written by the route with the service key. Operational only:
 -- no farm data, never readable by owners or anonymous callers.
 create table if not exists public.scheduler_heartbeats (
@@ -72,16 +85,18 @@ language sql
 security invoker
 set search_path = ''
 as $$
+  -- Also history left by jobs that no longer exist (an earlier version of these jobs, or one removed by hand).
   delete from cron.job_run_details d
-  using cron.job j
-  where d.jobid = j.jobid
-    and j.jobname in ('naqah-report-calls', 'naqah-report-calls-history')
-    and d.end_time < now() - interval '7 days';
+  where d.end_time < now() - interval '7 days'
+    and (
+      d.jobid in (select j.jobid from cron.job j where j.jobname in ('naqah-report-calls', 'naqah-report-calls-history'))
+      or not exists (select 1 from cron.job j where j.jobid = d.jobid)
+    );
 $$;
 
 revoke execute on function private.prune_report_call_cron_history() from public, anon, authenticated, service_role;
 
--- Idempotent: drop any job with these names (including one made by the old runbook), then schedule.
-select cron.unschedule(jobid) from cron.job where jobname in ('naqah-report-calls', 'naqah-report-calls-history');
+-- Idempotent: scheduling by name updates an existing job in place (including one made by the old runbook)
+-- and keeps its id, so its history stays prunable.
 select cron.schedule('naqah-report-calls', '*/5 * * * *', 'select private.trigger_report_calls()');
 select cron.schedule('naqah-report-calls-history', '17 3 * * *', 'select private.prune_report_call_cron_history()');
