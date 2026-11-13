@@ -143,6 +143,8 @@ export function LandingPage({ locale }: { locale: Locale }) {
             <HeroDrift className="naqah-drift absolute inset-0 -z-10">
               <EstatePhoto id="hero" locale={locale} eager sizes="100vw" ground="bg-sand-soft" className="naqah-settle h-full w-full" />
             </HeroDrift>
+            {/* A light scrim from the page ground over the sky keeps the title readable wherever the herd stands. */}
+            <div aria-hidden className={'pointer-events-none absolute inset-x-0 top-0 -z-10 h-[62%] bg-linear-to-b from-ivory/80 via-ivory/35 to-transparent' /* taste-skill-ignore: scrim under text on the photograph */} />
             <div className={`${frame} pt-8 sm:pt-14 lg:pt-[clamp(2.5rem,7vh,5rem)]`}>
               <h1
                 id="landing-title"
