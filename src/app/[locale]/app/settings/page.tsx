@@ -378,7 +378,7 @@ export default function SettingsPage() {
         <Card>
           <CardBody className="space-y-8 pt-5">
             <ReportModeField {...draft} />
-            <QuestionsFields {...draft} />
+            <QuestionsFields {...draft} collapsible />
           </CardBody>
         </Card>
       </SettingsSection>

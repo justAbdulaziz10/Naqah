@@ -34,12 +34,10 @@ export function LabCallPreview({ selected, ws, m, availability, onStart }: {
             <p className="naqah-name text-lg font-bold">{caller.name}</p>
             <p className={caller.naqah ? "naqah-name text-sm text-cream/70" : "naqah-name text-sm text-cream/70 ltr-nums"}>{caller.subtitle}</p>
           </div>
-          <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-cream/75">
-            <span className="size-1.5 rounded-full bg-gold" />{m.lab.phone.callReady}
-          </span>
         </div>
+        {/* "Call ready" is said once, with the moment it refers to. */}
         <div className="mt-4 flex items-center justify-between border-t border-cream/15 pt-3 text-xs text-cream/70">
-          <span className="inline-flex items-center gap-2"><Phone size={16} aria-hidden />{m.lab.phone.callReady}</span>
+          <span className="inline-flex items-center gap-2"><span className="size-1.5 rounded-full bg-gold" aria-hidden /><Phone size={16} aria-hidden />{m.lab.phone.callReady}</span>
           <span>{m.lab.availability.label}</span>
         </div>
       </div>

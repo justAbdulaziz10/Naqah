@@ -113,6 +113,8 @@ export const setup = defineMessages({
     },
     questions: {
       title: "Questions in each call",
+      showAll: (count: number) => `Show ${count} more question${count === 1 ? "" : "s"}`,
+      showFewer: "Show fewer",
       lead: (worker: string) => `NAQAH asks ${worker} its own questions first, then yours.`,
       naqah: "NAQAH’s questions",
       naqahNote: "Asked every call",
@@ -436,6 +438,8 @@ export const setup = defineMessages({
     },
     questions: {
       title: "أسئلة كل مكالمة",
+      showAll: (count: number) => `اعرض باقي الأسئلة (${count})`,
+      showFewer: "اعرض أقل",
       lead: (worker: string) => `ناقة تسأل ${worker} أسئلتها أول، بعدين أسئلتك.`,
       naqah: "أسئلة ناقة",
       naqahNote: "تنسأل في كل مكالمة",
