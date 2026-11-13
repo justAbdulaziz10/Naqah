@@ -43,22 +43,35 @@ function RetryRail({ locale }: { locale: Locale }) {
   const minutes = RETRY_DELAY_MS / 60_000;
   const start = Date.parse("2026-01-01T17:40:00+03:00"); // The sample evening's call time.
   const tries = Array.from({ length: REPORT_CALL_RETRIES + 1 }, (_, index) => formatTime(new Date(start + index * RETRY_DELAY_MS), locale));
+  const columns = tries.length + 1;
+  const inset = `${50 / columns}%`;
   return (
-    <div role="img" aria-label={retry.label(REPORT_CALL_RETRIES, minutes)} className="mb-7 mt-4 flex max-w-sm items-center pe-2">
-      {tries.map((time, index) => (
-        <span key={time} className="flex flex-1 items-center">
-          <span className={`relative flex flex-col ${index ? "items-center" : "items-start"}`}>
-            <span aria-hidden className={`size-3 rounded-full border-2 ${index ? "border-sand bg-espresso" : "border-sand bg-sand"}`} />
-            <span aria-hidden className={`absolute top-5 whitespace-nowrap ${index ? "" : "start-0"}`}>
-              <span className="ltr-nums text-[0.8125rem] tabular-nums text-cream/70">{time}</span>
+    <div
+      role="img"
+      aria-label={retry.label(REPORT_CALL_RETRIES, minutes)}
+      className="mb-7 mt-4 grid max-w-md gap-x-1"
+      style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+    >
+      <span aria-hidden className="relative col-span-full h-3">
+        <span className="absolute top-1/2 h-0 -translate-y-1/2 border-t-2 border-dashed border-sand/50" style={{ insetInlineStart: inset, insetInlineEnd: inset }} />
+        <span className="absolute inset-0 grid" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+          {tries.map((time, index) => (
+            <span key={time} className="flex justify-center">
+              <span className={`size-3 rounded-full border-2 border-sand ${index ? "bg-espresso" : "bg-sand"}`} />
             </span>
+          ))}
+          <span className="flex justify-center">
+            <span className="size-3 rounded-full bg-gold" />
           </span>
-          <span aria-hidden className="h-0 flex-1 border-t-2 border-dashed border-sand/50" />
+        </span>
+      </span>
+      {tries.map((time) => (
+        <span key={time} aria-hidden className="mt-2 min-w-0 text-center">
+          <span className="ltr-nums text-[0.8125rem] tabular-nums text-cream/70">{time}</span>
         </span>
       ))}
-      <span aria-hidden className="relative flex flex-col items-end">
-        <span className="size-3 rounded-full bg-gold" />
-        <span className="absolute end-0 top-5 whitespace-nowrap text-[0.8125rem] font-semibold text-sand">{retry.flagged}</span>
+      <span aria-hidden className="mt-2 min-w-0 text-balance text-center text-[0.8125rem] font-semibold leading-tight text-sand">
+        {retry.flagged}
       </span>
     </div>
   );
