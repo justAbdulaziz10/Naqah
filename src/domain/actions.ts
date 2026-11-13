@@ -5,7 +5,7 @@
  */
 import { undeliveredCalls } from "./alerts";
 import { MAX_RETRIES, MINUTE, RETRY_DELAY_MS } from "./clock";
-import { coveredTasks, dueTaskVerifications, dueWorkerCalls, openCoveredTasks } from "./rules";
+import { coveredTasks, dueTaskVerifications, dueWorkerCalls, openCoveredTasks, returnableReportRun } from "./rules";
 import { coveredReportDraft, evaluateFindings, reportDraftIssue, type ReportDraft } from "./findings";
 import { uid } from "./id";
 import type {
@@ -139,9 +139,11 @@ export function completeWorkerReport(
   if (draft.coverage !== undefined) report.coverage = structuredClone(draft.coverage);
   if (draft.herdCount !== undefined && draft.herdCount !== null) report.herdCountReported = draft.herdCount;
   call.reportId = report.id;
-  // The report is in, whichever way it arrived: no open report call should ring again.
+  // The report is in, whichever way it arrived: no open report call should ring again, and a missed
+  // run the worker is returning is answered by this report.
+  const returned = run ? undefined : returnableReportRun(ws, new Date(at));
   for (const r of ws.reportCalls ?? []) {
-    if (r !== run && r.state !== "calling" && r.state !== "answered") continue;
+    if (r !== run && r !== returned && r.state !== "calling" && r.state !== "answered") continue;
     Object.assign(r, { state: "completed", nextAttemptAt: null, reportId: report.id });
   }
   ws.reports.push(report);

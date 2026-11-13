@@ -74,16 +74,34 @@ describe.each(["ultimate", "basic"] as const)("%s report periods across midnight
     expect(routeWorkerInboundCall(ws, nextSlot)).toEqual({ kind: "rejected", reason: "wait_for_call" });
   });
 
-  it("keeps a no-run callback in its save period even when it stops a scheduled retry", () => {
+  it("counts the worker's returned call before a retry in the run's slot period", () => {
     const first = claimDueReportCall(farm(plan), slot);
     const missed = resolveReportCallAttempt(first.ws, slot, first.claim!.runId, false).ws;
     const { ws } = completeWorkerReport(missed, after(20), draft);
     expect(ws.calls.at(-1)?.direction).toBe("inbound");
-    expect(ws.reportCalls?.[0].reportId).toBe(ws.reports[0].id);
-    expect(reportDoneThisPeriod(ws, slot)).toBe(false);
-    expect(reportDoneThisPeriod(ws, after(20))).toBe(true);
-    expect(reportCallBlock(ws, after(21))).toBe("already_reported");
-    expect(dueScheduledReportCall(ws, nextSlot)).toBeNull();
+    expect(ws.reportCalls?.[0]).toMatchObject({ state: "completed", reportId: ws.reports[0].id });
+    expect(reportDoneThisPeriod(ws, slot)).toBe(true);
+    expect(reportDoneThisPeriod(ws, after(21))).toBe(false);
+    expect(dueScheduledReportCall(ws, nextSlot)).toEqual(nextSlot);
+  });
+
+  it("counts a missed run returned after midnight in the run's slot period", () => {
+    const first = claimDueReportCall(farm(plan), slot);
+    const runId = first.claim!.runId;
+    let missed = first.ws;
+    for (let attempt = 0; attempt <= REPORT_CALL_RETRIES; attempt++) {
+      const now = after(attempt * (RETRY_DELAY_MS / MINUTE));
+      if (attempt) missed = placeReportCallAttempt(missed, now, runId).ws;
+      missed = resolveReportCallAttempt(missed, now, runId, false).ws;
+    }
+    expect(missed.reportCalls?.[0].state).toBe("missed");
+    expect(routeWorkerInboundCall(missed, after(55))).toEqual({ kind: "report" });
+    const { ws } = completeWorkerReport(missed, after(55), draft);
+    expect(ws.reportCalls?.[0]).toMatchObject({ state: "completed", reportId: ws.reports[0].id });
+    expect(reportDoneThisPeriod(ws, slot)).toBe(true);
+    expect(dueScheduledReportCall(ws, nextSlot)).toEqual(nextSlot);
+    // The slot's period is done; the new period waits for its own scheduled call.
+    expect(routeWorkerInboundCall(ws, after(56))).toEqual({ kind: "rejected", reason: "wait_for_call" });
   });
 
   it("still blocks a second report in the same day or Basic week", () => {

@@ -67,8 +67,9 @@ describe("workspace rows", () => {
     });
     expect(loaded.reportCalls?.[0].reportId).toBe(loaded.reports[0].id);
     expect(loaded.reports[0].at).toBe(savedAt.toISOString());
-    expect(reportDoneThisPeriod(loaded, occurrence)).toBe(scheduled);
-    expect(reportDoneThisPeriod(loaded, savedAt)).toBe(!scheduled);
+    // Saved on NAQAH's call or on the worker's returned call, the report answers the run's slot.
+    expect(reportDoneThisPeriod(loaded, occurrence)).toBe(true);
+    expect(reportDoneThisPeriod(loaded, savedAt)).toBe(false);
   });
   it("loads reports before the metadata columns exist and preserves them once present", () => {
     const legacy = { id: "report", farm_id: farmId, call_id: null, at: now.toISOString(), herd_count_reported: null, report_answers: [], findings: [] };
