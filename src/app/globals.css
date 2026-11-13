@@ -55,6 +55,13 @@
   --ease-weave: cubic-bezier(0.76, 0, 0.24, 1);
   --ease-soft: cubic-bezier(0.33, 1, 0.68, 1);
 
+  /* Premium v2: entrance and feedback timings. Entrances 180–260ms, stagger ≤ 40ms per item. */
+  --duration-enter: 220ms;
+  --duration-stagger: 40ms;
+  --duration-confirm: 260ms;
+  --radius-control: 0.75rem;
+  --radius-sheet: 1.5rem;
+
   @keyframes fade-up {
     from {
       opacity: 0;
@@ -106,11 +113,43 @@
   textarea {
     caret-color: var(--color-brown);
   }
-  /* Follows the element's text colour, so it stays visible on ivory, cream and espresso. */
+  /* One focus ring everywhere: brown, 2px, offset 2px. Inside a dark fill it turns cream. */
   :focus-visible {
-    outline: 2px solid currentColor;
+    outline: 2px solid var(--color-brown);
     outline-offset: 2px;
     border-radius: 6px;
+  }
+  .bg-espresso :focus-visible,
+  .bg-brown :focus-visible,
+  .bg-brown-deep :focus-visible,
+  .bg-espresso:focus-visible,
+  .bg-brown:focus-visible {
+    outline-color: var(--color-cream);
+  }
+  /* Headings and paragraphs avoid a lone last word. Arabic body text breathes a little more. */
+  h1,
+  h2,
+  h3,
+  h4,
+  p,
+  dt,
+  dd,
+  figcaption {
+    text-wrap: pretty;
+  }
+  html[lang="ar"] p,
+  html[lang="ar"] dd,
+  html[lang="ar"] li {
+    line-height: 1.8;
+  }
+  /* Data reads in columns: tabular numerals wherever a number sits next to another number. */
+  table,
+  time {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Themed scrollbars on the surfaces people scroll. */
+  * {
+    scrollbar-color: var(--color-stone) transparent;
   }
   /*
    * Numbers, phone numbers and ids render left-to-right. Text with Arabic letters in it («1 من 4»,
@@ -251,6 +290,143 @@
   }
 }
 
+
+/*
+ * Premium v2 type scale. One scale for the app; pages use these instead of ad-hoc sizes.
+ *   .naqah-title    page title       2xl → 3xl, semibold, tight
+ *   .naqah-heading  section heading  lg, semibold
+ *   .naqah-body     body             base, relaxed (Arabic +0.1)
+ *   .naqah-meta     meta             sm, muted
+ *   .naqah-lede     one-sentence answer under a title: base/lg, muted
+ */
+@utility naqah-title {
+  font-size: 1.5rem;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+  @media (min-width: 640px) {
+    font-size: 1.875rem;
+  }
+}
+@utility naqah-heading {
+  font-size: 1.125rem;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-wrap: balance;
+}
+@utility naqah-body {
+  font-size: 1rem;
+  line-height: 1.65;
+}
+@utility naqah-lede {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--color-muted);
+  @media (min-width: 640px) {
+    font-size: 1.125rem;
+  }
+}
+@utility naqah-meta {
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+html[lang="ar"] .naqah-title {
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+html[lang="ar"] .naqah-heading {
+  letter-spacing: 0;
+  line-height: 1.5;
+}
+html[lang="ar"] .naqah-body,
+html[lang="ar"] .naqah-lede {
+  line-height: 1.8;
+}
+/* Page gutters and section rhythm from the brief: 20/40px gutters, 32/48px between sections. */
+@utility naqah-gutter {
+  padding-inline: 1.25rem;
+  @media (min-width: 1024px) {
+    padding-inline: 2.5rem;
+  }
+}
+@utility naqah-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  @media (min-width: 1024px) {
+    gap: 3rem;
+  }
+}
+/* Tertiary action: a text link with an underline that sits clear of the glyphs. */
+@utility naqah-link {
+  font-weight: 600;
+  color: var(--color-brown);
+  text-decoration: underline;
+  text-decoration-color: var(--color-stone);
+  text-underline-offset: 0.3em;
+  text-decoration-thickness: 1.5px;
+  transition: text-decoration-color var(--duration-micro) var(--ease-standard);
+  &:hover {
+    text-decoration-color: currentColor;
+  }
+}
+/* Loading placeholder: a quiet sand shimmer that stays still under reduced motion. */
+.naqah-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--color-stone) 55%, var(--color-cream));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .naqah-skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    translate: -100% 0;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-cream) 70%, transparent), transparent);
+    animation: naqah-shimmer 1.6s var(--ease-soft) 3;
+  }
+  .naqah-skeleton:dir(rtl)::after {
+    translate: 100% 0;
+    animation-name: naqah-shimmer-rtl;
+  }
+  /* The v2 entrance: a short rise from an already-visible default. Set --i to stagger (≤ 40ms each). */
+  .naqah-enter-v2 {
+    animation: naqah-rise var(--duration-enter) var(--ease-standard) both;
+    animation-delay: calc(var(--i, 0) * var(--duration-stagger));
+  }
+  .naqah-stagger-v2 > * {
+    animation: naqah-rise var(--duration-enter) var(--ease-standard) both;
+    animation-delay: calc(var(--i, 0) * var(--duration-stagger));
+  }
+  /* A centred dialog lands: short fade and settle, no bounce. */
+  dialog.naqah-dialog[open] {
+    animation: naqah-dialog-in var(--duration-confirm) var(--ease-expo) both;
+  }
+  dialog.naqah-dialog[open]::backdrop {
+    animation: naqah-fade var(--duration-confirm) var(--ease-standard) both;
+  }
+}
+@keyframes naqah-shimmer {
+  to {
+    translate: 100% 0;
+  }
+}
+@keyframes naqah-shimmer-rtl {
+  to {
+    translate: -100% 0;
+  }
+}
+@keyframes naqah-dialog-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+    scale: 0.985;
+  }
+}
 
 /* owner app — design B. Still state is the default; motion only adds arrival and feedback. */
 /* Owner-entered names (ranch, camels, worker) may be one long unbroken word: break it rather than

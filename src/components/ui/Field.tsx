@@ -1,38 +1,56 @@
 "use client";
 
+import { WarningCircle } from "@phosphor-icons/react";
 import type { ComponentProps, ReactNode } from "react";
 import { useId } from "react";
 import { cn } from "@/lib/cn";
 
+/** Shared input surface: 12px radius, hairline border, brown focus ring, honest disabled state. */
 const control =
-  "w-full rounded-xl border border-stone bg-cream/70 px-4 text-[0.95rem] text-espresso placeholder:text-muted transition focus:border-brown focus:bg-cream focus:outline-none focus:ring-4 focus:ring-brown/15 disabled:cursor-not-allowed disabled:border-stone/70 disabled:bg-ivory disabled:text-muted";
+  "w-full rounded-[var(--radius-control)] border border-stone bg-cream px-4 text-[0.95rem] text-espresso placeholder:text-faint transition-[border-color,box-shadow] duration-[var(--duration-micro)] focus:border-brown focus:outline-none focus:ring-2 focus:ring-brown/25 focus:ring-offset-0 aria-invalid:border-danger aria-invalid:focus:ring-danger/25 disabled:cursor-not-allowed disabled:border-stone/70 disabled:bg-ivory disabled:text-muted";
 
+/**
+ * Label above, help below in muted, error in danger with an icon and text. The child receives the
+ * control id; pass `aria-invalid` and `aria-describedby` to the control through `describe` when
+ * screen readers should hear the help or error.
+ */
 export function Field({
   label,
   hint,
   error,
   children,
   className,
+  optional,
 }: {
   label: ReactNode;
   hint?: ReactNode;
   error?: ReactNode;
-  children: (id: string) => ReactNode;
+  /** Receives the control id; the second argument holds aria attributes for the control. */
+  children: (id: string, describe: { "aria-describedby"?: string; "aria-invalid"?: true }) => ReactNode;
   className?: string;
+  /** Short word shown after the label, like "optional". */
+  optional?: ReactNode;
 }) {
   const id = useId();
+  const noteId = `${id}-note`;
+  const describe = {
+    "aria-describedby": error || hint ? noteId : undefined,
+    ...(error ? { "aria-invalid": true as const } : {}),
+  };
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       <label htmlFor={id} className="text-sm font-semibold text-espresso">
         {label}
+        {optional ? <span className="ms-1.5 font-normal text-muted">{optional}</span> : null}
       </label>
-      {children(id)}
+      {children(id, describe)}
       {error ? (
-        <p className="text-sm text-danger" role="alert">
-          {error}
+        <p id={noteId} className="flex items-start gap-1.5 text-sm leading-snug text-danger" role="alert">
+          <WarningCircle size={16} weight="fill" className="mt-0.5 shrink-0" aria-hidden />
+          <span>{error}</span>
         </p>
       ) : hint ? (
-        <p className="text-sm text-muted">{hint}</p>
+        <p id={noteId} className="text-sm leading-snug text-muted">{hint}</p>
       ) : null}
     </div>
   );
