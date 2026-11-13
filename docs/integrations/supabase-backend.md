@@ -182,7 +182,7 @@ requests or disable `NAQAH_VOICE_MODE=farm`/service jobs. Those require separate
 **Needs building**
 - [ ] Account deletion as a service-side step. `0004` removed owners' direct delete on `farms`.
 - [ ] Generate database types once the schema is applied, and replace `src/server/db/rows.ts`.
-- [ ] A scheduler for retries and task checks. Vercel Hobby cron is too slow for 20-minute retries.
+- [x] A scheduler for retries and task checks: `20261113090000_report_call_scheduler.sql` (pg_cron + pg_net, Vault secrets; not applied live). Vercel Hobby cron is too slow for 20-minute retries.
 - [ ] Weather on the server: it is not stored, so the heat-day question needs a fresh forecast.
 - [ ] Reject a worker phone that matches the owner's on the same farm, so setup can warn early.
 

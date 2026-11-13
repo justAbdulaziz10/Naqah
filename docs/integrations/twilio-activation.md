@@ -119,18 +119,32 @@ Each step needs the owner's approval. Do the inbound steps below first.
    # optional, paid: NAQAH_CALL_OWNER=1
    ```
 3. **Migration `20261107213717_owner_flow.sql`** applied with the others, in the authorized activation phase.
-4. **A scheduler every ~5 minutes.** Vercel Hobby cron runs once a day, which misses both the call
-   time and the 20-minute retries. Use one of:
-   - Vercel Pro cron on `/api/cron/report-calls` (Vercel sends `Authorization: Bearer $CRON_SECRET`).
-   - Supabase `pg_cron` + `pg_net`:
-     ```sql
-     select cron.schedule('naqah-report-calls', '*/5 * * * *', $$
-       select net.http_get('https://<origin>/api/cron/report-calls',
-         headers := jsonb_build_object('Authorization', 'Bearer <CRON_SECRET>'))
-     $$);
-     ```
-     Keep the secret in Vault rather than inline if the project uses it.
-   - Any external scheduler that can send the header.
+4. **The scheduler: Supabase `pg_cron` + `pg_net` every 5 minutes.** Migration
+   `20261113090000_report_call_scheduler.sql` schedules the job `naqah-report-calls`. It reads the URL
+   and secret from Vault on every run and sends nothing while either is missing, so it is safe to apply
+   early. Vercel Hobby cron runs at most once a day, which misses the call time and the 20-minute
+   retries; Vercel Pro cron or any external scheduler that sends the header would also work.
+
+   Activation checklist:
+   1. Vercel: set `CRON_SECRET` (random, at least 32 bytes) and `NAQAH_SCHEDULED_CALLS=1`, then redeploy.
+   2. Supabase SQL editor, typing the values there (never commit them):
+      ```sql
+      select vault.create_secret('https://<origin>/api/cron/report-calls', 'naqah_scheduler_url', 'NAQAH scheduler route');
+      select vault.create_secret('<CRON_SECRET>', 'naqah_cron_secret', 'Bearer secret for the NAQAH scheduler route');
+      ```
+      To rotate: `select vault.update_secret((select id from vault.secrets where name = 'naqah_cron_secret'), '<new>');`
+   3. Apply the migration with the others, in the authorized activation phase.
+   4. Verify after 5–10 minutes:
+      ```sql
+      select status, return_message, start_time from cron.job_run_details order by start_time desc limit 5;
+      select status_code, content, error_msg from net._http_response order by created desc limit 5;  -- kept 6 h
+      select * from public.scheduler_heartbeats;  -- last run the route accepted, with counts only
+      ```
+      `status_code` 200 with `"skipped":"scheduled_calls_off"` means the trigger works but calls are off;
+      401 means the Vault secret and `CRON_SECRET` differ.
+   5. Pause: `select cron.alter_job((select jobid from cron.job where jobname = 'naqah-report-calls'), active := false);`
+      (`active := true` resumes). Remove: `select cron.unschedule('naqah-report-calls');`. Turning
+      `NAQAH_SCHEDULED_CALLS` off also stops dialling while the job keeps running.
 5. **Test farm.** In Settings, set the worker's number with the country code (`+9665…`) and a report
    time two or three minutes ahead. Check the scheduler by hand once:
    `curl -H "Authorization: Bearer $CRON_SECRET" https://<origin>/api/cron/report-calls` → `placed: 1`.
