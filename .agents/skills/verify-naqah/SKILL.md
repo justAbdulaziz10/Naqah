@@ -5,9 +5,11 @@ description: Launch, drive and prove the NAQAH investor demo (Next.js web app, A
 
 # verify-naqah
 
-NAQAH is a web app; everything runs in the browser (state = `localStorage["naqah-workspace-v1"]`). Nothing dials,
-records, bills or emails, so every drive here is safe. The only outward side effect in this repo is deploying:
-pushing `main` triggers a Vercel **production** deploy (https://naqah.vercel.app) — push only when the user asked.
+The demo runs in the browser (state = `localStorage["naqah-workspace-v1"]`). The drives here never dial, record, bill
+or email: `call-lab`, `features`, `wizard` and `screens` stay in the browser, and `voice` posts signed webhooks to the
+sample line of a server you launched. The repo also places real Twilio calls, but only with farm mode, credentials and
+call flags set (`docs/integrations/twilio-activation.md`); never set those for a verify run. Pushing or merging to
+`main` triggers a Vercel **production** deploy (https://naqah.vercel.app) — only when the user asked.
 
 All commands run from the repo root. Each prints JSON and exits nonzero with `"ok": false` and a `reason`.
 
@@ -31,11 +33,11 @@ relaunch), cached Playwright Chromium is present. Run before the first drive and
 ## Drive
 | Command | Proves (asserted, not printed) |
 |---|---|
-| `call-lab [--locale ar]` | sample farm → worker report saved with a sick-camel finding → owner call opens a task ticket and queues a worker call → 4 missed attempts (20-min skips) → No Answer ticket, transcript says so → worker calls back: ticket closed, no new report; no page errors |
-| `features [--locale ar]` | "Try Basic" «جرّب الأساسية» → `/app` on Basic; language switch keeps the path; settings "Load sample Ultimate farm"; herd "Add camel" +1; Lab "Simulate a heat day" → worker report asks the water-and-shade question; clock +20 min; owner inquiry logs a call; emergency shows the direct-call card and saves nothing; settings "Reset demo" clears the workspace |
-| `voice [--locale ar]` | signed Twilio webhooks on the sample line: sample call finished and labelled in ≤40 turns, tampered state rejected (see features/phone.md for env) |
-| `wizard [--locale ar]` | onboarding with "Fill sample data": 9 steps, lands on `/app`, `setupComplete: true` |
-| `screens` | 32 full-page screenshots (ar/en × 375/1440 × 8 pages), no horizontal overflow, no console errors |
+| `call-lab [--locale ar]` | sample ranch → simulated report call saved with a sick-camel finding → owner call opens a task ticket and queues a worker call → 3 missed attempts (20-min skips) → calls stop, no No Answer ticket, transcript says so, the task stays open; no page errors |
+| `features [--locale ar]` | landing "Explore the demo" «استكشف العرض التجريبي» → `/app` on the Ultimate sample; language switch keeps the path; settings "Load sample Ultimate farm"; herd "Add camel" +1 (no tag field, camel terms); Lab "Simulate a heat day" → report asks the water-and-shade question; clock +20 min; emergency shows the direct-call card and saves nothing; settings "Reset demo" clears the workspace |
+| `voice [--locale ar]` | signed Twilio webhooks on the sample line complete a report, then a tampered state is rejected. Dry-run by default; refuses when `WHATSAPP_TOKEN` or `NAQAH_CALL_OWNER=1` is set unless `--allow-paid` (see features/phone.md) |
+| `wizard [--locale ar]` | Basic onboarding at phone width, 4 steps (Ranch → Workers and herd → Report call → Ready), lands on `/app` with `setupComplete: true`, the worker, a custom question and the owner's Thursday 19:00 summary time saved; Settings has no overflow at 390 and 1440 |
+| `screens` | full-page screenshots of every page in `scripts/qa-screens.mjs` (ar/en × 375/1440), no horizontal overflow, no console errors. Known issue: the list now has 13 pages (52 shots) but the command still expects 32, so it reports `ok: false` until `verify-naqah.mjs` is updated; read the log and screenshots |
 
 Against the live site: add `--base https://naqah.vercel.app` (doctor then only checks the URL answers).
 Feature details, handles and gotchas: [features/README.md](features/README.md).
