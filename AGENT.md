@@ -142,7 +142,7 @@ npm run typecheck && npm run lint && npm run build
 
 ## 5a. Integrations (Settings → Connections)
 
-Production calling go-live: `docs/integrations/go-live-checklist.md`.
+Production calling go-live: `docs/integrations/go-live-checklist.md`; release runbook: `docs/release/calling-v1.md`.
 
 Each integration has its own guide in `docs/integrations/`. Free ones work today; paid ones are fully coded but
 stay off until their env vars are set (see `.env.example`). Nothing here needs a paid account for the demo.
