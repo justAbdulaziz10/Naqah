@@ -364,6 +364,11 @@ class CallStream {
     if (ownsCall) this.calls.delete(this.callSid);
     this.streams.delete(this);
     this.log(event, { reason: this.closeReason(event) });
+    this.logger({
+      event: 'call_ended', callSid: this.callSid?.slice(-6) || '',
+      reason: this.closeReason(event), durationMs: Date.now() - this.createdAt,
+      workerSpoke: this.workerSpoke,
+    });
     const notice = ownsCall && this.ticket ? this.notifyClosed(event) : null;
     this.marks.clear();
     this.items.clear();
@@ -1116,6 +1121,7 @@ export function createBridge({ config, limits: overrides = {}, logger = (record)
   const calls = new Map();
   const streams = new Set();
   const notifications = new Set();
+  let closing;
   const sockets = new WebSocketServer({
     noServer: true, maxPayload: limits.twilioMessageBytes, perMessageDeflate: false,
   });
@@ -1149,6 +1155,10 @@ export function createBridge({ config, limits: overrides = {}, logger = (record)
     proxy(request, response, config.upstream);
   });
   server.on('upgrade', (request, socket, head) => {
+    if (closing) {
+      socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
     if (request.url !== '/voice-bridge/media') {
       socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;
@@ -1164,11 +1174,17 @@ export function createBridge({ config, limits: overrides = {}, logger = (record)
   });
   return {
     server,
-    async close() {
-      for (const stream of streams) stream.finish('server_stopped');
-      await Promise.allSettled([...notifications]);
-      sockets.close();
-      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    close() {
+      if (closing) return closing;
+      closing = Promise.resolve().then(async () => {
+        const httpClosed = new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+        for (const stream of streams) stream.finish('server_stopped');
+        const socketsClosed = new Promise((resolve) => sockets.close(resolve));
+        await Promise.allSettled([...notifications]);
+        server.closeAllConnections();
+        await Promise.all([httpClosed, socketsClosed]);
+      });
+      return closing;
     },
   };
 }

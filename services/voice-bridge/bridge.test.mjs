@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { once } from 'node:events';
 import http from 'node:http';
@@ -1258,8 +1259,69 @@ test('closed notice: a server-ended call is normal and a credit error is named',
       assert.equal(notice.body.reason, expected, scenario);
       assert.equal(notice.body.ticket, 'mock-ticket');
       assert.equal(state.requests.filter((request) => request.url === '/api/voice/realtime/closed').length, 1);
+      const summaries = state.logs.filter((record) => record.event === 'call_ended');
+      assert.equal(summaries.length, 1);
+      assert.deepEqual(Object.keys(summaries[0]).sort(), ['callSid', 'durationMs', 'event', 'reason', 'workerSpoke']);
+      assert.equal(summaries[0].callSid, CALL_SID.slice(-6));
+      assert.equal(summaries[0].reason, expected);
+      assert.equal(summaries[0].workerSpoke, scenario === 'ended');
+      assert.ok(Number.isInteger(summaries[0].durationMs) && summaries[0].durationMs >= 0);
+      assert.ok(!JSON.stringify(state.logs).includes(CALL_SID));
+      assert.ok(!JSON.stringify(state.logs).includes('Mock worker words'));
     } finally { await state.close(); }
   }
+});
+
+test('SIGTERM drains active sockets and persists the closed notice before exiting', { timeout: 8000 }, async () => {
+  const state = await fixture({ closedDelay: 1200 });
+  let child;
+  try {
+    await state.bridge.close();
+    child = spawn(process.execPath, [new URL('./index.mjs', import.meta.url).pathname], {
+      env: TEST_ENV, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const exited = once(child, 'exit');
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    await waitFor(() => stdout.includes('server_listening'));
+    const connection = await state.connect();
+    await state.ready(connection.socket);
+    const providerClosed = once(state.provider, 'close');
+    child.kill('SIGTERM');
+    await closed(connection.socket);
+    await providerClosed;
+    assert.deepEqual(await exited, [0, null], stderr);
+    const notices = state.requests.filter((request) => request.url === '/api/voice/realtime/closed');
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].body.event, 'server_stopped');
+    assert.equal(notices[0].acknowledged, true);
+    const summaries = stdout.trim().split('\n').map((line) => JSON.parse(line)).filter((record) => record.event === 'call_ended');
+    assert.equal(summaries.length, 1);
+    assert.equal(summaries[0].reason, 'bridge_error');
+    assert.equal(summaries[0].callSid, CALL_SID.slice(-6));
+    assert.ok(!stdout.includes(CALL_SID));
+    assert.equal(stderr, '');
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL');
+      await once(child, 'exit');
+    }
+    await state.close();
+  }
+});
+
+test('container healthcheck succeeds only for a healthy local bridge', async () => {
+  const state = await fixture();
+  try {
+    for (const [port, expected] of [['3903', 0], ['3901', 1], ['0', 1]]) {
+      const child = spawn(process.execPath, [new URL('./healthcheck.mjs', import.meta.url).pathname], {
+        env: { PORT: port }, stdio: 'ignore',
+      });
+      assert.deepEqual(await once(child, 'exit'), [expected, null]);
+    }
+  } finally { await state.close(); }
 });
 
 test('closed notice: a stream that never started sends nothing', async () => {
