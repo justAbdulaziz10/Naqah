@@ -29,11 +29,11 @@ Code: `src/domain/ownerCalls.ts`, `src/domain/ownerSummary.ts`, `src/server/call
 
 Apply the migration before deploying this code, or at least before setting `NAQAH_CALL_OWNER=1`. The old `owner_summary_*` columns stay and are no longer used.
 
-## Scheduler trigger (not applied)
+## Scheduler trigger
 
 `GET /api/cron/report-calls` with `Authorization: Bearer $CRON_SECRET`. Vercel Hobby cron runs at most once a day, so it can't serve the 20-minute retries.
 
-- **Supabase `pg_cron` + `pg_net`:** run `docs/integrations/scheduler-trigger.sql` by hand. It keeps the URL and secret in Vault. It is deliberately outside `supabase/migrations/`, so `db push` never applies it.
+- **Supabase `pg_cron` + `pg_net`:** migration `20261113090000_report_call_scheduler.sql` calls the route every 5 minutes with the URL and secret from Vault, and sends nothing until both secrets exist. Activation checklist: `twilio-activation.md`, step 4.
 - **Local:** `CRON_SECRET=... node scripts/run-scheduler-local.mjs --base http://127.0.0.1:3000`. Add `--every 300` to keep running. It refuses any server that isn't on this machine.
 
 A farm that fails is counted in `errors` and the next farm still runs. Overlapping runs are safe: a claim is saved under a revision check before dialling.

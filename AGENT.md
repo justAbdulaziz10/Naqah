@@ -237,8 +237,8 @@ The implemented contract is `docs/integrations/voice-data-contract.md`.
 | Owner calls in | `POST /api/voice/inbound` (caller = owner) | `routeOwnerInboundCall` → `recordOwnerInquiry` / `rejectOwnerInquiry` |
 | Emergency | none: the worker calls the owner directly | — |
 
-Note: Vercel Hobby cron runs at most once a day; the 20-minute retry needs Vercel Pro, Supabase `pg_cron`
-(free) calling the route, or Twilio's own scheduling.
+Note: Vercel Hobby cron runs at most once a day, so the trigger is Supabase `pg_cron` + `pg_net` every 5 minutes
+(`20261113090000_report_call_scheduler.sql`, URL and secret in Vault; idle until both are set). Checklist: `twilio-activation.md`.
 
 ### 8.5 Payments and displayed prices
 Payment processing is out of scope for the MVP; showing prices does not charge or subscribe an owner. The public
