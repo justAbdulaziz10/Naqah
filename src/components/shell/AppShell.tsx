@@ -6,7 +6,6 @@
  * Also gates every /app page: no workspace → friendly start screen.
  */
 import {
-  ArrowRight,
   ClipboardText,
   Flask,
   GearSix,
@@ -160,7 +159,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
         {account ? null : (
           <div className="mt-6 border-t border-stone/70 pt-4">
-            <p className="px-3 text-xs font-semibold text-muted">{m.common.demo.label}</p>
             <Link
               href={href("/app/lab")}
               prefetch={false}
@@ -209,10 +207,17 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
         ) : null}
         <div className="mt-auto space-y-3 px-2">
-          <div className="border-t border-stone/70 pt-4">
-            {ws.settings.owner.name.trim() ? <p className="truncate text-sm font-semibold">{ws.settings.owner.name}</p> : null}
-            {account ? null : <p className="mt-0.5 text-xs text-muted">{m.common.demo.badge}</p>}
-          </div>
+          {/* The owner's name opens Settings: the block is a door, not a label. "Demo" is said once, in the top bar. */}
+          {ws.settings.owner.name.trim() ? (
+            <div className="border-t border-stone/70 pt-3">
+              <Link
+                href={`${href("/app/settings")}#settings-ranch`}
+                className="-mx-1 flex min-h-11 items-center truncate rounded-lg px-1 text-sm font-semibold text-espresso underline-offset-4 hover:underline"
+              >
+                {ws.settings.owner.name}
+              </Link>
+            </div>
+          ) : null}
           <LocaleSwitcher className="-ms-2.5" />
         </div>
       </aside>
@@ -223,6 +228,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           {/* Phones only: on desktop the sidebar names the product and the estate. */}
           <div className={cn("mx-auto flex h-14 max-w-6xl items-center px-3 sm:px-6 lg:hidden", voiceLab && testCall ? "gap-1" : "gap-3")}>
             <Logo locale={locale} href={href("/")} className="min-h-11" />
+            {/* Phones: "demo" is said once, here, so no second bar sits under the header. */}
+            {account ? null : (
+              <span role="note" className="inline-flex min-w-0 items-center gap-1 text-xs font-semibold text-brown">
+                <Flask size={14} className="shrink-0" aria-hidden />
+                <span className="truncate">{m.common.demo.label}</span>
+              </span>
+            )}
             <div className={cn("ms-auto flex items-center", !(voiceLab && testCall) && "gap-1")}>
               <LocaleSwitcher />
               {voiceLab ? (
@@ -244,7 +256,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
             </div>
           </div>
-          {account ? null : <DemoNotice showSimulate={!isActive("/app/lab") && !isActive("/app")} labHref={href("/app/lab")} />}
+          {account ? null : <DemoNotice />}
         </header>
 
         <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-5 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-5 focus:outline-none sm:px-6 lg:px-10 lg:pb-12 lg:pt-8">{children}</main>
@@ -287,29 +299,22 @@ export function AppShell({ children }: { children: ReactNode }) {
 
 /**
  * Every record in this browser workspace is simulated (sample farm or Call Lab runs); real
- * calls don't reach it yet. Shown on every dashboard page so no one mistakes it for live data.
+ * calls don't reach it yet. One bar, identical on every dashboard page, so no one mistakes it for
+ * live data. Simulating a call is not a header action: it lives in the Overview call row and the
+ * Call Lab. On phones the header row carries the chip instead (see above), so this bar is desktop only.
  */
-function DemoNotice({ showSimulate, labHref }: { showSimulate: boolean; labHref: string }) {
+function DemoNotice() {
   const { m } = useI18n();
   return (
-    <div role="note" className="border-t border-stone/60 bg-cream lg:border-t-0">
-      <div className="mx-auto flex min-h-8 max-w-6xl items-center gap-1.5 px-3 text-xs sm:min-h-11 sm:gap-2 sm:px-6 sm:text-sm lg:px-10">
-        <Flask size={14} className="shrink-0 text-brown sm:size-4" aria-hidden />
+    <div role="note" className="hidden bg-cream lg:block">
+      <div className="mx-auto flex min-h-11 max-w-6xl items-center gap-2 px-10 text-sm">
+        <Flask size={16} className="shrink-0 text-brown" aria-hidden />
         <span className="shrink-0 font-semibold text-brown">{m.common.demo.label}</span>
         <span aria-hidden className="text-muted">·</span>
-        <span className="min-w-0 truncate text-muted sm:hidden">{m.common.demo.badge}</span>
-        <span className="hidden min-w-0 truncate text-muted sm:inline xl:hidden">{m.common.demo.noticeShort}</span>
+        <span className="min-w-0 truncate text-muted xl:hidden">{m.common.demo.noticeShort}</span>
         <span className="hidden min-w-0 truncate text-muted xl:inline">{m.common.demo.notice}</span>
-        <div className="ms-auto flex shrink-0 items-center gap-1">
-          <div className="max-sm:hidden">
-            <DemoClock />
-          </div>
-          {showSimulate ? (
-            <Link href={labHref} prefetch={false} className="naqah-nudge naqah-link inline-flex min-h-8 items-center gap-1 sm:min-h-11">
-              {m.common.demo.simulateCall}
-              <ArrowRight size={14} className="naqah-nudge-icon rtl:-scale-x-100" aria-hidden />
-            </Link>
-          ) : null}
+        <div className="ms-auto shrink-0">
+          <DemoClock />
         </div>
       </div>
     </div>
