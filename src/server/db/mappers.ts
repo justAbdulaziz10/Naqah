@@ -183,7 +183,7 @@ export function workspaceFromRows(rows: FarmRows): Workspace {
       taskTicketId: p.task_ticket_id,
       ...(p.batch_id ? { batchId: p.batch_id } : {}),
       ...(p.retry_base ? { retryBase: p.retry_base } : {}),
-      ...(p.dial_claimed_at === undefined ? {} : { dialClaimedAt: p.dial_claimed_at }),
+      ...(p.dial_claimed_at ? { dialClaimedAt: p.dial_claimed_at } : {}),
       ...(p.task_links_explicit ? { coveredTaskIds: (p.pending_worker_call_tasks ?? [])
         .filter((link) => link.covered_order !== null)
         .sort((a, b) => a.covered_order! - b.covered_order!)
