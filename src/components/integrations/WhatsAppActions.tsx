@@ -1,8 +1,7 @@
 "use client";
 
-import type { ResourceKind } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
-import { isSampleWorkerPhone, supplierOrderText, waLink, workerMessageText } from "@/lib/whatsapp/links";
+import { isSampleWorkerPhone, waLink, workerMessageText } from "@/lib/whatsapp/links";
 import { useWorkspace } from "@/store/workspace";
 
 const linkClass =
@@ -20,24 +19,6 @@ export function MessageWorkerLink() {
   return (
     <a className={linkClass} href={href} target="_blank" rel="noopener noreferrer">
       {m.integrations.whatsapp.messageWorker}
-    </a>
-  );
-}
-
-export function OrderSupplierLink({ kinds }: { kinds: readonly ResourceKind[] }) {
-  const ws = useWorkspace();
-  const { locale, m } = useI18n();
-  if (!ws) return null;
-
-  const text = supplierOrderText(ws, locale, kinds);
-  const href = text && ws.settings.integrations?.supplierPhone
-    ? waLink(ws.settings.integrations.supplierPhone, text)
-    : null;
-  if (!href) return null;
-
-  return (
-    <a className={linkClass} href={href} target="_blank" rel="noopener noreferrer">
-      {m.integrations.whatsapp.orderSupplier}
     </a>
   );
 }

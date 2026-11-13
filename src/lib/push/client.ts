@@ -11,7 +11,7 @@ function decodeVapidKey(value: string): ArrayBuffer {
   return buffer;
 }
 
-export function canSubscribeToPush(): boolean {
+function canSubscribeToPush(): boolean {
   return typeof window !== "undefined"
     && "serviceWorker" in navigator
     && "PushManager" in window

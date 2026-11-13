@@ -3,14 +3,12 @@ import type { Locale } from "@/domain/types";
 import { PlanPrice } from "@/components/plans/PlanPrice";
 import { getMessages } from "@/i18n/messages";
 import { cn } from "@/lib/cn";
+import { weekdayForms } from "@/components/visuals/weekdays";
 
 const plans = ["basic", "ultimate"] as const;
 const planRows = ["cadence", "questions", "update", "calls", "tickets"] as const;
 /** Thursday, the sample Basic call's day (weeks run Sunday first, as in the product). */
 const CALL_DAY = 4;
-/** Arabic has no short weekday names, so a phone's seven-day row uses the one-letter forms (ح ن ث …). */
-const narrowDay = (index: number) =>
-  new Intl.DateTimeFormat("ar", { weekday: "narrow", timeZone: "UTC" }).format(Date.UTC(2023, 0, 1 + index)); // 1 Jan 2023 was a Sunday.
 
 /** One plan's week on the product's time line: the report call, and NAQAH's call to you after it. */
 function Week({ locale, plan }: { locale: Locale; plan: (typeof plans)[number] }) {
@@ -35,7 +33,7 @@ function Week({ locale, plan }: { locale: Locale; plan: (typeof plans)[number] }
               <span className={cn("text-[0.8125rem]", on ? `font-semibold ${c.on}` : c.off)}>
                 {locale === "ar" ? (
                   <>
-                    <span className="sm:hidden">{narrowDay(index)}</span>
+                    <span className="sm:hidden">{weekdayForms("ar", index).narrow}</span>
                     <span className="hidden sm:inline">{day}</span>
                   </>
                 ) : (
