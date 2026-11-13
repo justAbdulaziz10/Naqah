@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Workspace } from "@/domain/types";
-import { supplierOrderText, toWaDigits, waLink, workerMessageText } from "./links";
+import { isSampleWorkerPhone, supplierOrderText, toWaDigits, waLink, workerMessageText } from "./links";
 
 function workspace(): Workspace {
   return {
@@ -78,5 +78,14 @@ describe("WhatsApp links", () => {
   it("creates a worker message in the requested locale", () => {
     expect(workerMessageText(workspace(), "ar")).toContain("هلا سالم");
     expect(workerMessageText(workspace(), "en")).toContain("Hello سالم");
+  });
+});
+
+describe("sample worker number", () => {
+  it.each(["+966 50 778 2190", "0507782190", "966507782190", "٠٥٠٧٧٨٢١٩٠"])("is recognised as %s", (phone) => {
+    expect(isSampleWorkerPhone(phone)).toBe(true);
+  });
+  it.each(["0512345678", "", "not a number"])("does not block %s", (phone) => {
+    expect(isSampleWorkerPhone(phone)).toBe(false);
   });
 });

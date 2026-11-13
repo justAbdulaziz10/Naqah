@@ -1,4 +1,5 @@
 import { levelLabel, RESOURCE_LABELS } from "@/domain/catalog";
+import { SAMPLE_WORKER_PHONE } from "@/domain/seed";
 import type { Locale, ResourceKind, Workspace } from "@/domain/types";
 import { whatsapp } from "@/i18n/messages/integrations/whatsapp";
 
@@ -50,4 +51,10 @@ export function supplierOrderText(
 
 export function workerMessageText(ws: Workspace, locale: Locale): string {
   return whatsapp[locale].workerMessage(ws.settings.worker.name);
+}
+
+/** Compared as digits, so re-saving the sample number in another format still counts as the sample. */
+export function isSampleWorkerPhone(phone: string): boolean {
+  const digits = toWaDigits(phone);
+  return digits !== null && digits === toWaDigits(SAMPLE_WORKER_PHONE);
 }

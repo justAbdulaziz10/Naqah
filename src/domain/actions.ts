@@ -68,7 +68,7 @@ export function completeWorkerReport(
     outcome: "completed",
     attempt: null,
     summary: findings.length
-      ? { ar: `تحديث مكتمل — ${findings.length} ملاحظة مهمة`, en: `Update completed — ${findings.length} important finding(s)` }
+      ? { ar: `تحديث مكتمل — ${findings.length} ملاحظة مهمة`, en: `Update completed — ${findings.length} important ${findings.length === 1 ? "finding" : "findings"}` }
       : { ar: "تحديث مكتمل — لا ملاحظات مهمة", en: "Update completed — nothing important flagged" },
     ticketId: null,
     reportId: null,
@@ -86,12 +86,12 @@ export function completeWorkerReport(
   if (closed)
     pushEvent(ws, now, "success", {
       ar: `أُغلقت ${closed} مهمة بعد تأكيد العامل`,
-      en: `${closed} task ticket(s) closed after the worker confirmed`,
+      en: `${closed} task ${closed === 1 ? "ticket" : "tickets"} closed after the worker confirmed`,
     });
   if (findings.length)
     pushEvent(ws, now, "attention", {
       ar: `رُصدت ${findings.length} ملاحظة تطابق معايير المالك`,
-      en: `${findings.length} finding(s) match the owner's criteria`,
+      en: `${findings.length} ${findings.length === 1 ? "finding matches" : "findings match"} the owner's criteria`,
     });
   return { ws, report };
 }

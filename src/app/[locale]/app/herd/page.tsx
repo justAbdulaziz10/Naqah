@@ -1,25 +1,29 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { PencilSimple, Plus, Trash } from "@phosphor-icons/react";
+import { PencilSimple, Plus } from "@phosphor-icons/react";
 import { CamelEditorDialog, type CamelFormValues } from "@/components/dashboard/CamelEditorDialog";
 import { CertaintyBadge, EmptyState, HealthBadge } from "@/components/dashboard/DashboardPrimitives";
-import { Button, Card, Field, IconButton, Input, Segmented } from "@/components/ui";
+import { Button, Card, ConfirmDialog, Field, IconButton, Input, Segmented } from "@/components/ui";
 import { uid } from "@/domain/id";
+import { CERTAINTY_LABELS } from "@/domain";
 import type { Camel } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { useNow, useWorkspace, useWorkspaceStore } from "@/store/workspace";
 
 type HerdFilter = "all" | "attention" | "healthy";
 
+const concern: Record<Camel["health"], number> = { sick: 0, watch: 1, unknown: 2, healthy: 3 };
+
 export default function HerdPage() {
-  const { m, fmt, locale } = useI18n();
+  const { m, t, fmt, locale } = useI18n();
   const ws = useWorkspace();
   const now = useNow();
   const [filter, setFilter] = useState<HerdFilter>("all");
   const [search, setSearch] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<Camel | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
 
@@ -31,7 +35,7 @@ export default function HerdPage() {
       const matchesFilter = filter === "all" || (filter === "healthy" ? camel.health === "healthy" : camel.health !== "healthy");
       const matchesSearch = !normalized || `${camel.name} ${camel.tag}`.toLocaleLowerCase(locale).includes(normalized);
       return matchesFilter && matchesSearch;
-    });
+    }).sort((a, b) => concern[a.health] - concern[b.health]);
   }, [filter, locale, search, ws]);
 
   if (!ws) return null;
@@ -70,21 +74,77 @@ export default function HerdPage() {
     closeEditor();
   }
 
-  function removeCamel(camel: Camel) {
-    if (!window.confirm(m.app.herd.removeConfirm(camel.name))) return;
+  function askToRemove() {
+    const camel = editingCamel;
+    setEditorOpen(false);
+    setEditingId(null);
+    setRemoving(camel);
+  }
+
+  function removeCamel() {
+    const id = removing?.id;
+    setRemoving(null);
     useWorkspaceStore.getState().update((current) => ({
       ...current,
-      camels: current.camels.filter((item) => item.id !== camel.id),
+      camels: current.camels.filter((item) => item.id !== id),
     }));
     requestAnimationFrame(() => addButtonRef.current?.focus());
   }
 
+  const describe = (camel: Camel) =>
+    [
+      camel.sex === "female" ? m.app.herd.female : m.app.herd.male,
+      camel.ageYears === null ? m.app.herd.ageUnknown : m.app.herd.ageYears(fmt.number(camel.ageYears)),
+      camel.tag,
+    ].filter(Boolean).join(" · ");
+
+  const updated = (camel: Camel) =>
+    camel.updatedAt ? m.app.herd.updated(fmt.relative(camel.updatedAt, now)) : m.app.herd.neverUpdated;
+
+  // Most camels share one source and time, so it is said once and only exceptions show on a row.
+  const usual = (values: string[]) => {
+    const counts = new Map<string, number>();
+    values.forEach((value) => counts.set(value, (counts.get(value) ?? 0) + 1));
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  };
+  const usualCertainty = usual(ws.camels.map((camel) => camel.certainty)) as Camel["certainty"] | null;
+  const usualUpdate = usual(ws.camels.map(updated));
+
+  const provenance = (camel: Camel) => {
+    const certainty = camel.certainty !== usualCertainty;
+    const time = updated(camel) !== usualUpdate;
+    if (!certainty && !time) return null;
+    return (
+      <span className="mt-0.5 flex flex-wrap gap-x-2 text-[0.8125rem] text-muted">
+        {certainty ? <CertaintyBadge certainty={camel.certainty} /> : null}
+        {time ? <span>{updated(camel)}</span> : null}
+      </span>
+    );
+  };
+
+  const editButton = (camel: Camel) => (
+    <IconButton
+      label={`${m.common.actions.edit} ${camel.name}`}
+      className="min-h-11 min-w-11 shrink-0"
+      onClick={(event) => {
+        dialogTriggerRef.current = event.currentTarget;
+        setEditingId(camel.id);
+        setEditorOpen(true);
+      }}
+    >
+      <PencilSimple size={18} aria-hidden />
+    </IconButton>
+  );
+
   return (
-    <div className="space-y-5 pb-8">
+    <div className="space-y-4 pb-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-espresso sm:text-[1.8rem]">{m.app.herd.title}</h1>
-          <p className="mt-1 text-sm text-muted">{m.app.herd.count(fmt.number(ws.camels.length))}</p>
+          <p className="mt-1 text-sm text-muted">
+            <span className="whitespace-nowrap">{m.app.herd.count(fmt.number(ws.camels.length))}</span>
+            {usualCertainty && ws.camels.length ? <><span aria-hidden> · </span>{t(CERTAINTY_LABELS[usualCertainty])}<span aria-hidden> · </span>{usualUpdate}</> : null}
+          </p>
         </div>
         <Button ref={addButtonRef} className="w-full sm:w-auto" onClick={openNewCamel}>
           <Plus size={18} weight="fill" aria-hidden />
@@ -121,55 +181,49 @@ export default function HerdPage() {
       ) : visibleCamels.length === 0 ? (
         <Card><EmptyState title={m.app.herd.noResults} /></Card>
       ) : (
-        <ul className="grid gap-3">
-          {visibleCamels.map((camel) => (
-            <li key={camel.id}>
-              <Card className="px-4 py-4 sm:px-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                      <h2 className="text-lg font-bold leading-tight">{camel.name}</h2>
-                      {camel.tag ? <span className="text-sm font-medium text-muted ltr-nums">{camel.tag}</span> : null}
-                      <HealthBadge health={camel.health} />
-                    </div>
-                    <p className="mt-2 text-sm leading-relaxed text-muted">
-                      {camel.healthNote || m.app.herd.noHealthNote}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <IconButton
-                      label={`${m.common.actions.edit} ${camel.name}`}
-                      className="min-h-11 min-w-11"
-                      onClick={(event) => {
-                        dialogTriggerRef.current = event.currentTarget;
-                        setEditingId(camel.id);
-                        setEditorOpen(true);
-                      }}
-                    >
-                      <PencilSimple size={18} aria-hidden />
-                    </IconButton>
-                    <IconButton
-                      label={`${m.app.herd.removeCamel} ${camel.name}`}
-                      className="min-h-11 min-w-11 text-danger"
-                      onClick={() => removeCamel(camel)}
-                    >
-                      <Trash size={18} aria-hidden />
-                    </IconButton>
-                  </div>
-                </div>
+        <Card className="overflow-hidden">
+          <table className="hidden w-full border-collapse text-start md:table">
+            <thead>
+              <tr className="border-b border-stone/70 text-sm text-muted">
+                <th scope="col" className="px-6 py-3 text-start font-medium">{m.app.herd.name}</th>
+                <th scope="col" className="px-3 py-3 text-start font-medium">{m.app.herd.health}</th>
+                <th scope="col" className="px-3 py-3 text-start font-medium">{m.app.herd.healthNote}</th>
+                <th scope="col" className="w-16 px-3 py-3"><span className="sr-only">{m.common.actions.edit}</span></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone/70">
+              {visibleCamels.map((camel) => (
+                <tr key={camel.id} className="align-top transition-colors hover:bg-ivory/50">
+                  <th scope="row" className="px-6 py-3.5 text-start font-normal">
+                    <span className="block text-lg font-semibold leading-snug text-espresso">{camel.name}</span>
+                    <span className="mt-0.5 block text-sm text-muted">{describe(camel)}</span>
+                  </th>
+                  <td className="whitespace-nowrap px-3 py-4">
+                    <HealthBadge health={camel.health} />
+                    {provenance(camel)}
+                  </td>
+                  <td className="px-3 py-4 text-sm leading-relaxed text-espresso">{camel.healthNote || <><span className="text-muted" aria-hidden>—</span><span className="sr-only">{m.app.herd.noHealthNote}</span></>}</td>
+                  <td className="px-3 py-2.5 text-end">{editButton(camel)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-stone/70 pt-3 text-sm">
-                  <span className="text-muted">{camel.sex === "female" ? m.app.herd.female : m.app.herd.male}</span>
-                  <span className="text-muted">{camel.ageYears === null ? m.app.herd.ageUnknown : m.app.herd.ageYears(fmt.number(camel.ageYears))}</span>
-                  <CertaintyBadge certainty={camel.certainty} />
-                  <span className="text-xs text-muted">
-                    {camel.updatedAt ? m.app.herd.updated(fmt.relative(camel.updatedAt, now)) : m.app.herd.neverUpdated}
-                  </span>
+          <ul className="divide-y divide-stone/70 md:hidden">
+            {visibleCamels.map((camel) => (
+              <li key={camel.id} className="flex items-start justify-between gap-3 px-5 py-4">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold leading-snug text-espresso">{camel.name}</h2>
+                  <div className="mt-0.5"><HealthBadge health={camel.health} /></div>
+                  {camel.healthNote ? <p className="mt-1.5 text-sm leading-relaxed text-espresso">{camel.healthNote}</p> : null}
+                  <p className="mt-1.5 text-sm text-muted">{describe(camel)}</p>
+                  {provenance(camel)}
                 </div>
-              </Card>
-            </li>
-          ))}
-        </ul>
+                {editButton(camel)}
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
 
       <CamelEditorDialog
@@ -178,7 +232,21 @@ export default function HerdPage() {
         camel={editingCamel}
         onClose={closeEditor}
         onSave={saveCamel}
+        onRemove={askToRemove}
       />
+      {removing ? (
+        <ConfirmDialog
+          title={m.app.herd.removeConfirm(removing.name)}
+          body={m.app.herd.removeBody}
+          confirmLabel={m.app.herd.removeCamel}
+          cancelLabel={m.common.actions.cancel}
+          onConfirm={removeCamel}
+          onCancel={() => {
+            setRemoving(null);
+            requestAnimationFrame(() => addButtonRef.current?.focus());
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -67,7 +67,7 @@ export function WhatsAppCard() {
             />
           )}
         </Field>
-        <div className="border-t border-stone/70 pt-2">
+        <div className="border-t border-stone/70 pt-2 empty:hidden">
           <MessageWorkerLink />
         </div>
       </CardBody>

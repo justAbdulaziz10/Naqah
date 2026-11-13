@@ -77,27 +77,22 @@ export default function CallsPage() {
         />
       </header>
 
-      <Card className="border-info/20 bg-info-soft/55">
-        <CardBody className="flex items-start gap-3 py-4">
-          <WarningCircle size={20} weight="fill" className="mt-0.5 shrink-0 text-info" aria-hidden />
-          <p className="text-sm font-medium leading-relaxed text-espresso">{m.app.calls.note}</p>
-        </CardBody>
-      </Card>
+      <p className="text-sm leading-relaxed text-muted">{m.app.calls.note}</p>
 
       {calls.length ? (
         <div className="space-y-6">
           {days.map(([day, group]) => (
             <section key={day} aria-labelledby={`calls-day-${day}`}>
               <h2 id={`calls-day-${day}`} className="mb-3 text-sm font-bold text-muted">{fmt.date(group[0].at)}</h2>
-              <ul className="space-y-3">
+              <Card>
+              <ul className="divide-y divide-stone/70">
                 {group.map((call) => {
                   const report = call.reportId ? ws.reports.find((item) => item.id === call.reportId) : null;
                   return (
                     <li key={call.id}>
-                      <Card>
                         <CardBody className="py-4">
                           <div className="flex items-start gap-3">
-                            <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-ivory">
+                            <span className="mt-0.5 shrink-0">
                               <CallMarker call={call} />
                             </span>
                             <div className="min-w-0 flex-1">
@@ -106,7 +101,7 @@ export default function CallsPage() {
                                 <OutcomeBadge outcome={call.outcome} />
                                 {call.attempt !== null ? <span className="text-xs text-muted">{m.app.calls.attempt(fmt.number(call.attempt))}</span> : null}
                               </div>
-                              <p className="mt-1 text-xs text-muted ltr-nums">{fmt.time(call.at)}</p>
+                              <p className="mt-1 text-[0.8125rem] text-muted ltr-nums">{fmt.dateTime(call.at, { hour: "numeric", minute: "2-digit", hour12: true })}</p>
                               <p className="mt-2 text-sm leading-relaxed text-espresso">{t(call.summary)}</p>
 
                               {call.reportId ? (
@@ -153,11 +148,11 @@ export default function CallsPage() {
                             </div>
                           </div>
                         </CardBody>
-                      </Card>
                     </li>
                   );
                 })}
               </ul>
+              </Card>
             </section>
           ))}
         </div>
