@@ -135,7 +135,7 @@ describe("a plain yes to «أحفظه؟», said many ways", () => {
   const camels = () => summary().ws.camels;
   it.each([
     "إيه", "ايوه", "أيوه", "اي", "صح", "تمام", "تمام احفظ", "خلاص", "خلاص احفظ", "ماشي", "اوكي", "زين", "طيب احفظ", "كذا تمام", "كله صح",
-    "كل شي تمام", "احفظه", "احفظ", "سجله", "يلا", "توكل على الله", "الله يعطيك العافية", "يعطيك العافية", "yes", "ok", "okay", "sure",
+    "كل شي تمام", "احفظه", "احفظ", "سجله", "يلا", "توكل على الله", "ايه يعطيك العافية", "احفظ الله يعطيك العافية", "yes", "ok", "okay", "sure",
     "done", "save it", "correct", "yes please", "that's right",
   ])("saves on «%s»", (heard) => {
     expect(isNaturalConfirmation(heard, summary().session, "ar", camels())).toBe(true);
@@ -144,6 +144,8 @@ describe("a plain yes to «أحفظه؟», said many ways", () => {
   it.each([
     // Doubt, waiting or a question.
     "لحظة", "تمام لحظة", "انتظر", "وش", "مين", "بعدين", "اظن", "يمكن", "ايه يمكن", "wait", "what", "maybe", "okay wait",
+    // Thanks or a goodbye alone is not an explicit yes.
+    "الله يعطيك العافية", "يعطيك العافية", "يعطيك العافية يا شيخ",
     // A no, alone or last.
     "لا", "لا شكرا", "احفظ لا", "تمام لا", "no", "yes no",
     // A correction: a number, a camel's name, a topic.
