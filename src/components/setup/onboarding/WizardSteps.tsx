@@ -21,7 +21,7 @@ import { ResourcesFields } from "../fields/ResourcesFields";
 import { TeamFields } from "../fields/TeamFields";
 import { formatSaudiMobile, phoneNeedsFixing } from "../phone";
 import type { SetupFieldsProps } from "../types";
-import { FieldGroup } from "./WizardParts";
+import { FieldGroup, MobileFold } from "./WizardParts";
 import { PlanChoice } from "./PlanChoice";
 import { RanchWeek } from "./RanchWeek";
 
@@ -62,10 +62,20 @@ export function RanchStep(props: SetupFieldsProps) {
 }
 
 export function TeamStep(props: SetupFieldsProps) {
+  const { m, t } = useI18n();
+  const { ws } = props;
+  // Phones: the ranch's resources start sensibly ticked, so they wait behind their current list.
+  const present = RESOURCE_KINDS.filter((kind) => ws.resources.some((item) => item.kind === kind && item.present));
   return (
     <div className="space-y-12">
       <TeamFields {...props} />
-      <ResourcesFields {...props} />
+      <MobileFold
+        title={m.setup.resources.title}
+        summary={present.length ? present.map((kind) => t(RESOURCE_LABELS[kind])).join(" · ") : m.setup.ready.noResources}
+        action={m.onboarding.flow.changeResources}
+      >
+        <ResourcesFields {...props} />
+      </MobileFold>
     </div>
   );
 }
@@ -108,13 +118,22 @@ export function CallStep(props: SetupFieldsProps) {
   return (
     <div className="space-y-12">
       <ReportCallFields {...props} />
-      <FieldGroup title={m.setup.questions.title}>
-        <ReportModeField {...props} />
-        {/* What the worker will hear, set like the call itself. */}
-        <div className="rounded-2xl border border-stone bg-cream p-5 sm:p-7">
-          <QuestionsFields {...props} headingLevel={2} />
-        </div>
-      </FieldGroup>
+      {/* Phones: the times are the question here; the mode and the questions already have a sensible
+          default, so they wait behind one line until the owner wants them (or an error needs fixing). */}
+      <MobileFold
+        title={m.setup.questions.title}
+        summary={`${m.setup.questions.mode.options[reportModeOf(ws)]} · ${m.setup.ready.questionsPlanned(plannedQuestions(ws).length)}`}
+        action={m.onboarding.flow.changeQuestions}
+        open={props.showErrors}
+      >
+        <FieldGroup title={m.setup.questions.title}>
+          <ReportModeField {...props} />
+          {/* What the worker will hear, set like the call itself. */}
+          <div className="rounded-2xl border border-stone bg-cream p-5 sm:p-7">
+            <QuestionsFields {...props} headingLevel={2} />
+          </div>
+        </FieldGroup>
+      </MobileFold>
     </div>
   );
 }
