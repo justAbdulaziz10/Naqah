@@ -19,7 +19,7 @@ export function EveningRail({ locale, className }: { locale: Locale; className?:
       <div className="relative mt-5 lg:mt-6">
         {/* One line through every moment: solid to the saved report, then dashed to the call ahead. */}
         <span aria-hidden className="absolute inset-y-2 start-[5px] w-0.5 bg-brown lg:hidden" />
-        <span aria-hidden className="naqah-evening-line absolute start-0 top-[5px] hidden h-0.5 w-[calc((100%_-_4rem)/3_+_2rem)] bg-brown lg:block" />
+        <span aria-hidden className="absolute start-0 top-[5px] hidden h-0.5 w-[calc((100%_-_4rem)/3_+_2rem)] bg-brown lg:block" />
         <span
           aria-hidden
           className="absolute start-[calc((100%_-_4rem)/3_+_2rem)] top-[5px] hidden h-0 w-[calc((100%_-_4rem)/3_+_2rem)] border-t-2 border-dashed border-brown/50 lg:block"
