@@ -7,6 +7,8 @@ import { Card } from "@/components/ui/Card";
 import { Field, Input } from "@/components/ui/Field";
 import { Switch } from "@/components/ui/Switch";
 import type { Workspace } from "@/domain";
+import { nowFor } from "@/domain/clock";
+import { upcomingReportCall } from "@/domain/schedule";
 import type { AnswerInput, CallSession } from "@/domain/conversation/engine";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
@@ -112,6 +114,7 @@ export function PhoneStage({
   onEnd: () => void;
 }) {
   const caller = callerFor(session, selected, ws, m);
+  const { fmt } = useI18n();
   const [timerNow, setTimerNow] = useState(() => Date.now());
   const [revealed, setRevealed] = useState({ key: timerStarted ?? 0, count: session?.turns.length ?? 0 });
   const revealedCount = timerStarted !== null && revealed.key === timerStarted ? revealed.count : 0;
@@ -171,12 +174,19 @@ export function PhoneStage({
     setInput("");
   }
 
+  const timer = formatDuration(timerStarted, timerNow);
+  // The scenario is named once, in the picker; the stage says what is next for this call instead.
+  const nextCall = selected === "report_call" && !session ? upcomingReportCall(ws, nowFor(ws)) : null;
+  const stageLine = session
+    ? m.lab.phone.duration(timer)
+    : nextCall
+      ? m.lab.phone.nextCall(fmt.dateTime(nextCall, { weekday: "short", day: undefined, month: undefined, hour: "numeric", minute: "2-digit", hour12: true }))
+      : m.lab.scenarios[scenarioMessageKey(selected)].detail;
   const conversationActive = Boolean(session && !session.done && session.scenario !== "emergency");
   const inputMode = session?.inputMode ?? "none";
   const typing = Boolean(session && session.turns.length > revealedCount);
   const interactionReady = conversationActive && !typing;
   const showTextInput = interactionReady && (inputMode === "text" || inputMode === "number" || inputMode === "time");
-  const timer = formatDuration(timerStarted, timerNow);
 
   return (
     <Card className="min-w-0 overflow-hidden">
@@ -205,7 +215,7 @@ export function PhoneStage({
         <div className="mt-4 flex items-center justify-between border-t border-cream/15 pt-3">
           <div className="inline-flex items-center gap-2 text-xs text-cream/70">
             <Phone size={16} aria-hidden />
-            <span>{session ? m.lab.phone.duration(timer) : m.lab.scenarios[scenarioMessageKey(selected)].title}</span>
+            <span>{stageLine}</span>
           </div>
           {voiceSupported ? (
             <div className="flex items-center gap-2">
@@ -229,8 +239,7 @@ export function PhoneStage({
           ))
         ) : (
           <div className="m-auto max-w-xs py-8 text-center">
-            <p className="font-semibold text-espresso">{m.lab.scenarios[scenarioMessageKey(selected)].title}</p>
-            <p className="mt-1 text-sm text-muted">{blockedReason ?? m.lab.scenarios[scenarioMessageKey(selected)].detail}</p>
+            <p className="text-sm leading-relaxed text-muted">{blockedReason ?? m.lab.phone.transcriptHint}</p>
           </div>
         )}
         {typing ? (

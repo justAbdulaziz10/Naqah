@@ -10,13 +10,10 @@ import { useHashTarget } from "@/components/dashboard/useHashTarget";
 import { callKindLabel } from "@/components/dashboard/callLabels";
 import { TaskCalendarLink } from "@/components/integrations/TaskCalendarLink";
 import { VerificationSteps } from "@/components/tasks/VerificationSteps";
-import { upcomingReportCall } from "@/components/schedule/ReportCallSection";
 import { AttemptDots } from "@/components/visuals/AttemptDots";
-import { formatDuration } from "@/components/visuals/duration";
-import { TimeRail } from "@/components/visuals/TimeRail";
 import { Badge, ButtonLink, Card, Segmented } from "@/components/ui";
 import { openTaskTickets } from "@/domain";
-import type { TaskTicket, Workspace } from "@/domain";
+import type { TaskTicket } from "@/domain";
 import { undeliveredCalls, type UndeliveredCall } from "@/domain/alerts";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
@@ -26,10 +23,6 @@ import { retryUndeliveredCall } from "@/domain/actions";
 
 type TicketTab = "active" | "history";
 
-const dateTime = { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true } as const;
-// Rail ends: the day and time lead, the date sits underneath, so a phone never wraps mid-time.
-const dayTime = { weekday: "short", day: undefined, month: undefined } as const;
-const dayMonth = { weekday: undefined, hour: undefined, minute: undefined } as const;
 
 function TicketGroup({ id, title, quiet = false, footer, children }: { id: string; title: string; quiet?: boolean; footer?: ReactNode; children: ReactNode }) {
   return (
@@ -39,75 +32,6 @@ function TicketGroup({ id, title, quiet = false, footer, children }: { id: strin
       <ul className={cn("naqah-stagger divide-y divide-stone/70", !quiet && "mt-3")}>{children}</ul>
       {footer}
     </section>
-  );
-}
-
-/**
- * When a task was given and where it stands against its time: the check call ahead (or passed), the
- * next report call for "any time" tasks, or how long the worker took to confirm a closed one.
- */
-function TaskTiming({ ws, ticket, worker, now, className, undelivered = false }: { ws: Workspace; ticket: TaskTicket; worker: string; now: Date; className?: string; undelivered?: boolean }) {
-  const { m, fmt, locale } = useI18n();
-  const v = m.visual.tasks;
-  const stamp = (iso: string) => <time className="ltr-nums" dateTime={iso}>{fmt.dateTime(iso, dayTime)}</time>;
-  const start = { at: ticket.createdAt, label: v.given, value: fmt.relative(ticket.createdAt, now), detail: <time className="ltr-nums" dateTime={ticket.createdAt}>{fmt.dateTime(ticket.createdAt, dateTime)}</time> };
-  if (ticket.status === "closed" && ticket.closedAt) {
-    const took = formatDuration(Date.parse(ticket.closedAt) - Date.parse(ticket.createdAt), locale);
-    return (
-      <TimeRail
-        compact
-        className={className}
-        label={v.timing(fmt.dateTime(ticket.createdAt, dateTime), v.done(took))}
-        start={{ ...start, value: stamp(ticket.createdAt), detail: fmt.dateTime(ticket.createdAt, dayMonth) }}
-        end={{ at: ticket.closedAt, label: m.app.tickets.closedAt, value: stamp(ticket.closedAt), detail: fmt.dateTime(ticket.closedAt, dayMonth), extra: <p className="mt-0.5 text-[0.8125rem] text-muted">{v.done(took)}</p> }}
-      />
-    );
-  }
-  // The worker never got this instruction, so no check or later question is on its way.
-  if (undelivered) return <p className={cn("text-sm text-muted", className)}>{m.app.tickets.created(fmt.relative(ticket.createdAt, now))}</p>;
-  if (ticket.scheduledFor) {
-    const passed = now.getTime() > Date.parse(ticket.scheduledFor);
-    const when = fmt.dateTime(ticket.scheduledFor, dateTime);
-    return (
-      <TimeRail
-        compact
-        now={now}
-        className={className}
-        endTone="border-warn"
-        label={v.timing(fmt.relative(ticket.createdAt, now), `${passed ? v.checkPassed : v.check}: ${when}`)}
-        start={start}
-        end={{
-          at: ticket.scheduledFor,
-          label: passed ? <span className="font-semibold text-warn">{v.checkPassed}</span> : v.check,
-          value: stamp(ticket.scheduledFor),
-          detail: passed ? fmt.dateTime(ticket.scheduledFor, dayMonth) : <>{fmt.dateTime(ticket.scheduledFor, dayMonth)} · {fmt.relative(ticket.scheduledFor, now)}</>,
-        }}
-      />
-    );
-  }
-  const next = upcomingReportCall(ws, now);
-  if (!next) return <p className={cn("text-sm text-muted", className)}>{m.app.tickets.anyTime(worker)} · {m.app.tickets.created(fmt.relative(ticket.createdAt, now))}</p>;
-  return (
-    <TimeRail
-      compact
-      now={now}
-      className={className}
-      label={v.timing(fmt.relative(ticket.createdAt, now), `${v.nextCall}: ${fmt.dateTime(next, dateTime)}. ${v.asksWorker(worker)}`)}
-      start={start}
-      end={{ at: next, label: v.nextCall, value: stamp(next.toISOString()), detail: v.asksWorker(worker) }}
-    />
-  );
-}
-
-/** Where an open task stands with the worker, in one line: a ring for "not confirmed yet". */
-function TaskStatus({ ticket, worker, now }: { ticket: TaskTicket; worker: string; now: Date }) {
-  const { m } = useI18n();
-  const passed = ticket.scheduledFor !== null && now.getTime() > Date.parse(ticket.scheduledFor);
-  return (
-    <p className={cn("mt-1.5 flex items-center gap-2 text-sm font-semibold", passed ? "text-warn" : "text-brown")}>
-      <span aria-hidden className={cn("size-2.5 shrink-0 rounded-full border-2", passed ? "border-warn" : "border-brown")} />
-      <span className="naqah-name">{m.app.overview.waitingFor(worker)}</span>
-    </p>
   );
 }
 
@@ -246,9 +170,10 @@ export default function TicketsPage() {
                   className={cn("py-5 first:pt-2 last:pb-0 focus:outline-none", linkedTaskId === ticket.id && "border-s-2 border-s-brown ps-3")}
                 >
                   <p className="text-lg font-semibold leading-relaxed text-espresso">{ticket.instruction}</p>
-                  {active && !neverDelivered ? <TaskStatus ticket={ticket} worker={worker} now={now} /> : null}
-                  <VerificationSteps ws={ws} ticket={ticket} className="mt-3" />
-                  <TaskTiming ws={ws} ticket={ticket} worker={worker} now={now} undelivered={neverDelivered} className="mt-4 max-w-xl" />
+                  {/* The worker never got this instruction, so no check or later question is on its way. */}
+                  {neverDelivered
+                    ? <p className="mt-2 text-sm text-muted">{m.app.tickets.created(fmt.relative(ticket.createdAt, now))}</p>
+                    : <VerificationSteps ws={ws} ticket={ticket} worker={worker} now={now} className="mt-4 max-w-xl" />}
                   {stopped ? <UndeliveredNote call={stopped} worker={worker} /> : null}
                   {active && ticket.status === "open" && ticket.scheduledFor ? <TaskCalendarLink ticket={ticket} /> : null}
                   {!active && ticket.closedVia ? (
@@ -314,7 +239,7 @@ export default function TicketsPage() {
                   {recentlyClosed.map((ticket, index) => (
                     <li key={ticket.id} className="py-5 first:pt-2 last:pb-0" style={{ "--i": index } as CSSProperties}>
                       <p className="font-medium leading-relaxed text-espresso">{ticket.instruction}</p>
-                      <TaskTiming ws={ws} ticket={ticket} worker={worker} now={now} className="mt-3" />
+                      <VerificationSteps ws={ws} ticket={ticket} worker={worker} now={now} className="mt-3" />
                     </li>
                   ))}
                 </TicketGroup>
