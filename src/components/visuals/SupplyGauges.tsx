@@ -28,7 +28,10 @@ export function SupplyGauges({ resources, className }: { resources: Resource[]; 
   const present = resources.filter((resource) => resource.present);
   if (!present.length) return null;
   return (
-    <ul className={cn("divide-y divide-stone/60", className)}>
+    // One grid for the list, the same at every width: the words column is as wide as the longest
+    // supply and its state, so every meter sits right beside them, centred on the first line, with
+    // the worker's note under the words. Each row shares the columns through a subgrid.
+    <ul className={cn("grid grid-cols-[minmax(0,max-content)_4rem] gap-x-3 divide-y divide-stone/60 sm:grid-cols-[minmax(0,max-content)_7rem] sm:gap-x-5", className)}>
       {present.map((resource) => {
         const colours = isCondition(resource) ? conditionTone : tone;
         // A reported amount with no level ("25 كيس") is the answer itself, not «غير معروف».
@@ -36,15 +39,15 @@ export function SupplyGauges({ resources, className }: { resources: Resource[]; 
         const level = amountOnly ? resource.quantity! : t(levelLabel(resource.kind, resource.level));
         const note = [amountOnly ? null : resource.quantity, resource.certainty !== "reported" ? t(CERTAINTY_LABELS[resource.certainty]) : null].filter(Boolean).join(" · ");
         return (
-          <li key={resource.kind} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-3 first:pt-0 last:pb-0">
+          <li key={resource.kind} className="col-span-2 grid grid-cols-subgrid items-start py-3 first:pt-0 last:pb-0">
             <div className="min-w-0">
-              <p className="flex flex-wrap items-baseline gap-x-2.5">
+              <p className="flex flex-wrap items-baseline gap-x-2.5 leading-6">
                 <span className="font-semibold text-espresso">{t(RESOURCE_LABELS[resource.kind])}</span>
                 <span className={cn("text-[0.9375rem] font-medium", amountOnly ? "text-espresso" : colours[resource.level].text)}>{level}</span>
               </p>
               {note ? <p className="mt-0.5 text-[0.8125rem] text-muted">{note}</p> : null}
             </div>
-            <span aria-hidden className={cn("relative h-2 w-20 overflow-hidden rounded-full sm:w-28", resource.level === "unknown" ? "border border-dashed border-faint" : "bg-stone/60")}>
+            <span aria-hidden className={cn("relative mt-2 h-2 w-full overflow-hidden rounded-full", resource.level === "unknown" ? "border border-dashed border-faint" : "bg-stone/60")}>
               {resource.level === "unknown" ? null : (
                 <span className={cn("naqah-fill absolute inset-y-0 start-0 rounded-full", colours[resource.level].bar)} style={{ width: `${fill[resource.level] * 100}%` }} />
               )}

@@ -72,17 +72,18 @@ export function EstateHeader({ name, answer, tone, provenance, call, rhythm, nex
           {call ? <div className="naqah-enter mt-3 sm:mt-7" style={step(4)}>{call}</div> : null}
         </div>
         {fold ? (
-          <div className="naqah-enter mt-2.5 border-t border-cream/15 pt-2.5 sm:hidden" style={step(5)}>
+          <div className="naqah-enter mt-2.5 border-t border-cream/15 pt-2.5 sm:hidden" style={step(3)}>
             <button
               type="button"
               aria-expanded={open}
               aria-controls="estate-week"
               onClick={() => setOpen((value) => !value)}
-              className="-mx-2 flex min-h-11 w-[calc(100%+1rem)] items-center justify-between gap-3 rounded-md px-2 text-start text-sm leading-snug transition hover:bg-cream/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream"
+              className="-mx-2 flex min-h-11 w-[calc(100%+1rem)] items-start justify-between gap-3 rounded-md px-2 py-1.5 text-start text-sm leading-5 transition hover:bg-cream/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream"
             >
               <span className="min-w-0">{summary}</span>
               <span className="sr-only">{open ? m.app.overview.compact.hide : m.app.overview.compact.show}</span>
-              <CaretDown size={16} weight="bold" className={cn("shrink-0 text-cream/70 transition-transform duration-200 motion-reduce:transition-none", open && "rotate-180")} aria-hidden />
+              {/* On the first line, beside the worker's call, whatever the second line says. */}
+              <CaretDown size={16} weight="bold" className={cn("mt-0.5 shrink-0 text-cream/70 transition-transform duration-200 motion-reduce:transition-none", open && "rotate-180")} aria-hidden />
             </button>
           </div>
         ) : null}
@@ -90,7 +91,8 @@ export function EstateHeader({ name, answer, tone, provenance, call, rhythm, nex
           {rhythm ? <div className="mt-2.5 border-t border-cream/15 pt-2 sm:mt-8 sm:pt-6 lg:order-last lg:col-span-2">{rhythm}</div> : null}
           <div
             className={cn("naqah-enter lg:mt-0 lg:border-s lg:border-t-0 lg:ps-10 lg:pt-1", rhythm ? "mt-1.5 border-t border-cream/15 pt-2.5 sm:mt-5 sm:border-0 sm:pt-0" : "mt-5 border-t border-cream/15 pt-4 sm:mt-7 sm:pt-5")}
-            style={step(5)}
+            // The next call arrives with the answer, never after the call row: it is the header's second fact.
+            style={step(2)}
           >
             {next}
           </div>

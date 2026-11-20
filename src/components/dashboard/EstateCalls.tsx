@@ -125,9 +125,9 @@ export function EstateCalls({ ws, now, worker, hasReport, scheduledOff, nextWork
 }
 
 /**
- * The same two calls in one line, for the phone's first screen: the next call to the worker and to
- * the owner, each as a day word and a time. A live attempt (ringing, retry) replaces the time, so
- * the line never promises a call that is already under way.
+ * The same two calls for the phone's first screen, one short line each: who, then the day word and
+ * the time. A live attempt (ringing, retry) replaces the worker's line, so it never promises a call
+ * that is already under way.
  */
 export function NextCallsLine({ ws, now, worker, nextWorker, workerStatus }: {
   ws: Workspace;
@@ -147,18 +147,16 @@ export function NextCallsLine({ ws, now, worker, nextWorker, workerStatus }: {
   );
   if (live) return <span className="naqah-name font-medium text-cream">{live}</span>;
   if (!nextWorker) return <span className="font-medium text-cream">{m.app.overview.noCallTimeYet}</span>;
+  const line = (who: string, date: Date) => (
+    <span className="block text-pretty">
+      <span className="naqah-name text-cream/70">{who} · </span>
+      <span className="naqah-name font-semibold text-cream">{at(date)}</span>
+    </span>
+  );
   return (
     <>
-      <span className="text-cream/70">{c.next} </span>
-      <span className="naqah-name font-semibold text-cream">{at(nextWorker)}</span>
-      <span className="text-cream/70"> · {worker}</span>
-      {nextOwner ? (
-        <>
-          <span className="text-cream/50" aria-hidden> | </span>
-          <span className="naqah-name font-semibold text-cream">{at(nextOwner)}</span>
-          <span className="text-cream/70"> · {c.you}</span>
-        </>
-      ) : null}
+      {line(worker, nextWorker)}
+      {nextOwner ? line(c.you, nextOwner) : null}
     </>
   );
 }
