@@ -28,12 +28,14 @@ type CallFilter = "all" | CallGroup;
 const attemptMark = (call: CallLog): AttemptMark => (call.outcome === "no_answer" ? "no_answer" : call.outcome === "rejected" ? "rejected" : call.party === "worker" ? "answered" : "owner");
 
 function Direction({ call, worker }: { call: CallLog; worker: string }) {
-  const { m } = useI18n();
+  const { m, dir } = useI18n();
   const v = m.visual.calls;
   const other = call.party === "worker" ? worker : v.you;
   const [from, to] = call.direction === "inbound" ? [other, v.naqah] : [v.naqah, other];
+  // The row carries its own direction: the caller sits on the start side and the arrow points at the callee,
+  // whatever the sibling <time> (.ltr-nums) does to the surrounding bidi context.
   return (
-    <span className="inline-flex items-center gap-1.5">
+    <span dir={dir} className="inline-flex items-center gap-1.5">
       {/* One sentence for screen readers ("NAQAH to Ahmed"); the arrow form is for the eye. */}
       <span className="sr-only">{v.direction(from, to)}</span>
       <span aria-hidden>{from}</span>

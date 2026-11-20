@@ -218,11 +218,11 @@ export default function HerdPage() {
         <Card className="px-5 py-6 sm:px-7">
           <HerdCountFact ws={ws} worker={worker} />
           {marks ? (
-            <HerdMarks camels={camels} herdCount={herdCount} activeId={viewingId} onOpen={setViewingId} className="mt-6" />
+            <HerdMarks camels={camels} herdCount={herdCount} activeId={viewingId} onOpen={setViewingId} legend="unnamed" className="mt-6" />
           ) : dots ? (
             <div className="mt-6">
               <h2 className="text-sm font-semibold text-muted">{h.wholeHerd}</h2>
-              <HerdDots camels={camels} herdCount={herdCount} className="mt-3" />
+              <HerdDots camels={camels} herdCount={herdCount} legend="unnamed" className="mt-3" />
             </div>
           ) : null}
           {camels.length > 1 ? (

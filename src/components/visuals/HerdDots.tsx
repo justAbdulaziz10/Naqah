@@ -14,7 +14,7 @@ export const HERD_DOTS_MAX = 150;
  * The whole herd, one dot per camel: named camels in their health colour (most concerning first),
  * the rest of the owner's official count only as a number in the legend. The legend says every number in words.
  */
-export function HerdDots({ camels, herdCount, className }: { camels: Camel[]; herdCount: number | null | undefined; className?: string }) {
+export function HerdDots({ camels, herdCount, legend = "full", className }: { camels: Camel[]; herdCount: number | null | undefined; legend?: "full" | "unnamed"; className?: string }) {
   const { m, fmt, locale } = useI18n();
   const h = m.visual.herd;
   const named = [...camels].sort((a, b) => ORDER.indexOf(a.health) - ORDER.indexOf(b.health));
@@ -34,17 +34,17 @@ export function HerdDots({ camels, herdCount, className }: { camels: Camel[]; he
           <span key={camel.id} className={cn("naqah-pop size-2.5 rounded-full", mark[camel.health])} style={{ animationDelay: `${Math.min(index, 40) * 12}ms` }} />
         ))}
       </div>
-      <figcaption aria-hidden className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
-        {groups.map(({ health }, index) => (
+      {legend === "full" || unnamed ? <figcaption aria-hidden className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
+        {legend === "full" ? groups.map(({ health }, index) => (
           <span key={health} className="inline-flex items-center gap-1.5 whitespace-nowrap">
             <span className={cn("size-2 shrink-0 rounded-full", mark[health])} />
             <span className={health === "sick" || health === "watch" ? "font-semibold text-espresso" : undefined}>{words[index]}</span>
           </span>
-        ))}
+        )) : null}
         {unnamed ? (
           <span className="whitespace-nowrap">{words.at(-1)}</span>
         ) : null}
-      </figcaption>
+      </figcaption> : null}
     </figure>
   );
 }
