@@ -250,11 +250,12 @@ export function LandingPage({ locale }: { locale: Locale }) {
           <div className="absolute inset-0 -z-10">
             <EstatePhoto id="closing" locale={locale} sizes="100vw" ground="bg-espresso" className="h-full w-full" />
           </div>
-          <div className={`${frame} flex min-h-[32rem] items-end justify-center pt-16 sm:min-h-[34rem] sm:justify-end lg:min-h-[62svh] lg:pt-20`}>
+          {/* The slip sits centred on the dusk, so neither half of the photograph is left empty. */}
+          <div className={`${frame} flex min-h-[32rem] items-end justify-center pt-16 sm:min-h-[34rem] lg:min-h-[62svh] lg:pt-20`}>
             <div
               data-reveal=""
               data-reveal-kind="slip"
-              className="naqah-slip -mb-6 w-full bg-cream p-8 pb-14 text-center text-espresso [--tilt:-1.5deg] sm:max-w-[30rem] sm:p-12 sm:pb-16 lg:me-[6%] lg:pb-20"
+              className="naqah-slip -mb-6 w-full bg-cream p-8 pb-14 text-center text-espresso [--tilt:-1.5deg] sm:max-w-[30rem] sm:p-12 sm:pb-16 lg:pb-20"
             >
               <CamelMark className="mx-auto h-12 w-auto" />
               <h2 id="final-title" className={`mt-6 text-balance text-[clamp(2.25rem,3.6vw,3.5rem)] font-semibold leading-[1.06] tracking-[-0.025em] ${arabicDisplay}`}>
@@ -263,7 +264,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
               <p className="mt-4 text-pretty text-lg leading-8 text-espresso/85">{landing.final.body}</p>
               <div className="mt-8 flex flex-col items-stretch gap-1">
                 <EntryActions
-                  primary={{ size: "lg", className: `w-full bg-espresso! hover:bg-brown! ${flat}` }}
+                  primary={{ size: "lg", className: `w-full ${flat}` }}
                   arrow={<Arrow />}
                   demoClassName={`${textLink} justify-center text-espresso hover:text-brown`}
                 />

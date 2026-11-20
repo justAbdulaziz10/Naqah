@@ -32,15 +32,6 @@
     transition-delay: var(--reveal-delay, 0ms);
   }
 
-  /* The evening line draws along the reading direction once. */
-  .naqah-evening-line {
-    animation: naqah-evening-line 900ms cubic-bezier(0.65, 0, 0.35, 1) 500ms both;
-    transform-origin: left center;
-  }
-  [dir="rtl"] .naqah-evening-line {
-    transform-origin: right center;
-  }
-
   .naqah-photo-hover img {
     transition: scale 900ms cubic-bezier(0.33, 1, 0.68, 1);
   }
@@ -53,12 +44,6 @@
   from {
     opacity: 0;
     translate: 0 20px;
-  }
-}
-
-@keyframes naqah-evening-line {
-  from {
-    scale: 0 1;
   }
 }
 
@@ -146,8 +131,7 @@
 
 @keyframes naqah-stamp {
   from {
-    scale: 1.6;
-    rotate: -8deg;
+    scale: 1.25;
   }
 }
 

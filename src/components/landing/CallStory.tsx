@@ -61,9 +61,16 @@ function ReportVisual() {
   const { call, report, preview } = m.landing;
   return (
     <div className="relative w-full max-w-[30rem] bg-cream p-6 sm:p-9">
-      <div className="flex items-baseline justify-between gap-4">
-        <p className="text-xl font-semibold">{report.title}</p>
-        <p className="text-[0.875rem] text-muted">{preview.ranch}</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xl font-semibold">{report.title}</p>
+          <p className="mt-0.5 text-[0.875rem] text-muted">{preview.ranch}</p>
+        </div>
+        {/* The saved mark: coloured text with a check, as the dashboard's outcome text. */}
+        <p className="naqah-stamp inline-flex shrink-0 items-center gap-1.5 pt-1 text-[0.875rem] font-semibold text-ok">
+          <Check size={16} weight="bold" aria-hidden />
+          <span className="ltr-nums">{report.saved}</span>
+        </p>
       </div>
       <dl className="mt-6 grid gap-0">
         {call.facts.map((fact, index) => (
@@ -83,10 +90,6 @@ function ReportVisual() {
         ))}
       </dl>
       <p style={seq(2)} className="naqah-seq border-t border-stone pt-4 text-[0.875rem] leading-relaxed text-muted">{call.kept}</p>
-      <p className="naqah-stamp absolute -top-4 end-6 inline-flex items-center gap-2 bg-ok px-3.5 py-2 text-[0.875rem] font-semibold text-cream">
-        <Check size={16} weight="bold" aria-hidden />
-        <span className="ltr-nums">{report.saved}</span>
-      </p>
     </div>
   );
 }

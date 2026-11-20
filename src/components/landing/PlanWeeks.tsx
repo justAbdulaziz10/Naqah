@@ -1,12 +1,13 @@
 import { CaretDown } from "@phosphor-icons/react/dist/ssr";
 import type { Locale } from "@/domain/types";
 import { PlanPrice } from "@/components/plans/PlanPrice";
+import { PLAN_LIMITS } from "@/domain/catalog";
 import { getMessages } from "@/i18n/messages";
 import { cn } from "@/lib/cn";
 import { weekdayForms } from "@/components/visuals/weekdays";
 
 const plans = ["basic", "ultimate"] as const;
-const planRows = ["cadence", "questions", "update", "calls", "tickets"] as const;
+const planRows = ["cadence", "questions", "calls", "workers", "tickets"] as const;
 /** Thursday, the sample Basic call's day (weeks run Sunday first, as in the product). */
 const CALL_DAY = 4;
 
@@ -104,7 +105,7 @@ export function PlanWeeks({ locale }: { locale: Locale }) {
                   <dd className="text-end font-semibold">{copy.rows.questions}</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-6">
-                  <dt className={daily ? "text-cream/75" : "text-muted"}>{p.yourCalls}</dt>
+                  <dt className={daily ? "text-cream/75" : "text-muted"}>{p.labels.calls}</dt>
                   <dd className="text-end font-semibold">{copy.rows.calls}</dd>
                 </div>
                 {daily ? (
@@ -154,7 +155,9 @@ export function PlanWeeks({ locale }: { locale: Locale }) {
                   </th>
                   {plans.map((plan) => (
                     <td key={plan} className="p-4 text-[0.9375rem] font-semibold">
-                      {row === "tickets" && plan === "basic" ? (
+                      {row === "workers" ? (
+                        p.workersValue(PLAN_LIMITS[plan].workers)
+                      ) : row === "tickets" && plan === "basic" ? (
                         <>
                           <span aria-hidden>{p[plan].rows[row]}</span>
                           <span className="sr-only">{p.notIncluded}</span>
