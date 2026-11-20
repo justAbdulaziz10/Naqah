@@ -101,7 +101,7 @@ export const common = defineMessages({
     demo: {
       badge: "عزبة تجريبية",
       fill: "تعبئة تجريبية",
-      label: "عرض تجريبي",
+      label: "تجريبي",
       noticeShort: "المكالمات هنا محاكاة.",
       simulateCall: "محاكاة مكالمة",
       labHint: "جرّب كل المكالمات، محاكاة",

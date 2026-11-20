@@ -230,9 +230,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Logo locale={locale} href={href("/")} className="min-h-11" />
             {/* Phones: "demo" is said once, here, so no second bar sits under the header. */}
             {account ? null : (
-              <span role="note" className="inline-flex min-w-0 items-center gap-1 text-xs font-semibold text-brown">
+              <span role="note" className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-brown">
                 <Flask size={14} className="shrink-0" aria-hidden />
-                <span className="truncate">{m.common.demo.label}</span>
+                <span>{m.common.demo.label}</span>
               </span>
             )}
             <div className={cn("ms-auto flex items-center", !(voiceLab && testCall) && "gap-1")}>
