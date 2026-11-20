@@ -29,16 +29,16 @@ export function ageBand(age: number | null): AgeBand {
 function Row({ title, parts, separator }: { title: string; parts: Part[]; separator: string }) {
   const shown = parts.filter((part) => part.count > 0);
   return (
-    <div className="grid gap-x-6 gap-y-2 sm:grid-cols-[6rem_minmax(0,1fr)] sm:items-center">
+    <div className="min-w-0">
       <p className="text-sm font-semibold text-espresso">{title}</p>
-      <div className="min-w-0">
+      <div className="mt-2 min-w-0">
         <p className="sr-only">{`${title}: ${shown.map((part) => part.label).join(separator)}`}</p>
         <div aria-hidden className="flex h-2.5 gap-0.5">
           {shown.map((part) => (
             <span key={part.key} className={cn("naqah-fill min-w-1.5 rounded-[3px]", part.fill)} style={{ flexGrow: part.count, flexBasis: 0 }} />
           ))}
         </div>
-        <p aria-hidden className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[0.8125rem] text-muted">
+        <p aria-hidden className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[0.8125rem] text-muted sm:flex-nowrap">
           {shown.map((part) => (
             <span key={part.key} className="inline-flex items-center gap-1.5 whitespace-nowrap">
               <span className={cn("size-2 shrink-0 rounded-full", part.fill)} />

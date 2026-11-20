@@ -81,16 +81,18 @@ export function VerificationSteps({ ws, ticket, worker, now, className }: { ws: 
       {steps.map((step, index) => {
         const done = step.state === "done";
         const last = index === steps.length - 1;
+        // "Now" sits on the rail between the last thing that happened and the first still ahead.
+        const marksNow = firstWaiting > 0 && index === firstWaiting - 1;
         return (
-          <li key={step.key} className="relative flex items-start gap-3 pb-3 last:pb-0">
+          <li key={step.key} className={cn("relative flex items-start gap-3 last:pb-0", marksNow ? "pb-8" : "pb-3")}>
             {/* The rail between marks: solid where it happened, dashed ahead. */}
             {!last ? (
               <span aria-hidden className={cn("absolute top-5 bottom-0 start-[7px] w-px", done && steps[index + 1].state === "done" ? "bg-brown" : "border-s border-dashed border-faint")} />
             ) : null}
-            {/* Now: a quiet hairline with a word, placed before the first thing still ahead. */}
-            {index === firstWaiting && index > 0 ? (
-              <span aria-hidden className="absolute -top-1.5 start-5 end-0 flex items-center gap-2">
-                <span className="h-px flex-1 bg-stone" />
+            {/* Now: a short gold tick across the spine (the header strip's mark) with the word beside it, no rule across the row. */}
+            {marksNow ? (
+              <span aria-hidden className="absolute bottom-2 start-0 flex items-center gap-2">
+                <span className="h-[3px] w-4 rounded-full bg-gold" />
                 <span className="text-[0.6875rem] font-semibold leading-none text-muted">{m.visual.now}</span>
               </span>
             ) : null}

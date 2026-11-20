@@ -56,6 +56,7 @@ export function VoiceLabPage() {
         <h1 className="text-2xl font-bold">{gate.title}</h1>
         <p className="mt-2 text-muted" role={access === "loading" ? "status" : undefined}>{gate.body}</p>
         {access === "signed_out" ? <ButtonLink href={href("/login")} className="mt-6">{copy.signedOut.action}</ButtonLink> : null}
+        {access === "private" || access === "error" ? <ButtonLink href={href("/app")} variant="secondary" className="mt-6">{m.app.simulate.back}</ButtonLink> : null}
       </div>
     );
   }
