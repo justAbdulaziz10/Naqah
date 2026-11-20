@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject, type UIEvent } from "react";
 import { CaretDown, CheckCircle, WarningCircle } from "@phosphor-icons/react";
 import { Button, Card, CardBody, ConfirmDialog } from "@/components/ui";
 import {
@@ -240,6 +240,43 @@ function useStickyOffsets() {
   return offsets;
 }
 
+/**
+ * The phone's one-row section strip: which edges still hide tabs (for the fades), and the current tab
+ * brought into view by scrolling the strip itself, never the page. `scrollLeft` is negative in RTL,
+ * so positions are measured from the strip's start edge whichever side that is.
+ */
+function useTabStrip(ref: RefObject<HTMLDivElement | null>, currentId: string, active: boolean) {
+  const [edges, setEdges] = useState({ atStart: true, atEnd: true });
+  const measure = (strip: HTMLDivElement) => {
+    const max = strip.scrollWidth - strip.clientWidth;
+    const position = Math.abs(strip.scrollLeft);
+    const next = { atStart: position <= 1, atEnd: position >= max - 1 };
+    setEdges((current) => (current.atStart === next.atStart && current.atEnd === next.atEnd ? current : next));
+  };
+  useEffect(() => {
+    const strip = ref.current;
+    if (!strip || !active) return;
+    measure(strip);
+    const observer = new ResizeObserver(() => measure(strip));
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, [ref, active]);
+  useEffect(() => {
+    const strip = ref.current;
+    if (!strip || !active) return;
+    const tab = strip.querySelector<HTMLElement>(`a[href="#${currentId}"]`);
+    if (!tab) return;
+    const rtl = getComputedStyle(strip).direction === "rtl";
+    const max = strip.scrollWidth - strip.clientWidth;
+    // Centre the tab; the browser clamps to the strip's ends.
+    const centred = tab.offsetLeft - (strip.clientWidth - tab.offsetWidth) / 2;
+    const left = rtl ? centred - max : centred;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    strip.scrollTo({ left, behavior: reduce ? "auto" : "smooth" });
+  }, [ref, currentId, active]);
+  return { onScroll: (event: UIEvent<HTMLDivElement>) => measure(event.currentTarget), ...edges };
+}
+
 /** The group currently under the section nav. */
 function useCurrentGroup(ids: string[], offset: number) {
   const [current, setCurrent] = useState(ids[0]);
@@ -312,11 +349,12 @@ export default function SettingsPage() {
   }, []);
   const { header: headerHeight, padding: scrollPadding } = useStickyOffsets();
   const desktop = useDesktop();
+  // `short` is the phone strip's name for a group where the full one is a sentence.
   const groups = [
     { id: "settings-report-call", label: s.groups.call },
     { id: "settings-questions", label: s.groups.questions },
-    { id: "settings-ranch", label: s.groups.ranch },
-    { id: "settings-more", label: s.more },
+    { id: "settings-ranch", label: s.groups.ranch, short: s.tabs.ranch },
+    { id: "settings-more", label: s.more, short: s.tabs.more },
     { id: "connections", label: s.groups.connections },
     { id: "settings-account", label: account ? s.groups.account : s.groups.demo },
   ];
@@ -345,7 +383,7 @@ export default function SettingsPage() {
     return () => document.removeEventListener("click", guard, true);
   }, [account]);
   const navRef = useRef<HTMLDivElement>(null);
-  // On a phone the tabs wrap into rows, so every section is one tap away; measure the strip's real height.
+  // On a phone the tabs sit in one row that scrolls sideways; measure the strip's real height for the offsets.
   const [navHeight, setNavHeight] = useState(0);
   const mounted = Boolean(ws); // The strip only exists once the workspace has loaded.
   useEffect(() => {
@@ -358,6 +396,8 @@ export default function SettingsPage() {
     return () => observer.disconnect();
   }, [desktop, mounted]);
   const currentGroup = useCurrentGroup(groups.map((group) => group.id), headerHeight + navHeight);
+  const stripRef = useRef<HTMLDivElement>(null);
+  const strip = useTabStrip(stripRef, currentGroup, mounted && !desktop);
 
   if (!ws) return null;
 
@@ -385,7 +425,7 @@ export default function SettingsPage() {
     >
       {/* Desktop: a quiet index beside the page that follows the scroll. */}
       <nav aria-label={s.title} className="hidden lg:block lg:sticky lg:self-start lg:pt-1" style={{ top: headerHeight + 24 }}>
-        <ul className="space-y-0.5 border-s border-stone/70">
+        <ul className="space-y-0.5">
           {groups.map((group) => {
             const current = group.id === currentGroup;
             return (
@@ -394,8 +434,8 @@ export default function SettingsPage() {
                   href={`#${group.id}`}
                   aria-current={current ? "location" : undefined}
                   className={cn(
-                    "-ms-px flex min-h-10 items-center border-s-2 ps-4 text-[0.9375rem] transition-colors focus-visible:rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brown",
-                    current ? "border-brown font-semibold text-espresso" : "border-transparent text-muted hover:text-espresso",
+                    "flex min-h-10 items-center text-[0.9375rem] transition-[padding,color] duration-200 motion-reduce:transition-none focus-visible:rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brown",
+                    current ? "ps-3 font-semibold text-espresso" : "ps-0 text-muted hover:text-espresso",
                   )}
                 >
                   {group.label}
@@ -411,27 +451,36 @@ export default function SettingsPage() {
         <p className="mt-1.5 text-[1.0625rem] text-muted">{s.lead}</p>
       </div>
       <div ref={navRef} className="sticky z-20 !mt-4 -mx-4 border-b border-stone/60 bg-ivory sm:-mx-6 lg:hidden" style={{ top: headerHeight }}>
-        <nav aria-label={s.title} className="px-4 sm:px-6">
-          <ul className="flex flex-wrap gap-x-5 sm:gap-x-6">
-            {groups.map((group) => {
-              const current = group.id === currentGroup;
-              return (
-                <li key={group.id}>
-                  <a
-                    href={`#${group.id}`}
-                    aria-current={current ? "location" : undefined}
-                    onClick={() => openGroup(group.id)}
-                    className={cn(
-                      "-mb-px inline-flex min-h-11 items-center border-b-2 text-sm font-semibold transition-colors focus-visible:rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brown",
-                      current ? "border-brown text-espresso" : "border-transparent text-muted hover:text-espresso",
-                    )}
-                  >
-                    {group.label}
-                  </a>
-                </li>
-              );
-            })}
-          </ul>
+        {/* One row: it scrolls sideways, snaps to a tab, fades at the edge that still has tabs, and keeps the current tab in view. */}
+        <nav aria-label={s.title} className="relative">
+          <div
+            ref={stripRef}
+            onScroll={strip.onScroll}
+            className="snap-x scroll-px-4 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] sm:scroll-px-6 sm:px-6 [&::-webkit-scrollbar]:hidden"
+          >
+            <ul className="flex w-max gap-x-5 sm:gap-x-6">
+              {groups.map((group) => {
+                const current = group.id === currentGroup;
+                return (
+                  <li key={group.id} className="snap-start">
+                    <a
+                      href={`#${group.id}`}
+                      aria-current={current ? "location" : undefined}
+                      onClick={() => openGroup(group.id)}
+                      className={cn(
+                        "-mb-px inline-flex min-h-11 items-center whitespace-nowrap border-b-2 text-sm font-semibold transition-colors focus-visible:rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brown",
+                        current ? "border-brown text-espresso" : "border-transparent text-muted hover:text-espresso",
+                      )}
+                    >
+                      {group.short ?? group.label}
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          <span aria-hidden className={cn("pointer-events-none absolute inset-y-0 start-0 w-8 bg-linear-to-r from-ivory to-transparent transition-opacity rtl:bg-linear-to-l", strip.atStart && "opacity-0")} />
+          <span aria-hidden className={cn("pointer-events-none absolute inset-y-0 end-0 w-8 bg-linear-to-l from-ivory to-transparent transition-opacity rtl:bg-linear-to-r", strip.atEnd && "opacity-0")} />
         </nav>
       </div>
 
@@ -450,7 +499,7 @@ export default function SettingsPage() {
           <Card>
             <CardBody className="space-y-10 pt-5">
               <MobileGroup id="settings-plan" level={3} title={s.plan} summary={s.summaries.planCurrent(planLabel)} open={groupOpen("settings-plan", "call")} onToggle={() => toggleGroup("settings-plan")}>
-                <PlanChoice {...draft} showRhythm={false} />
+                <PlanChoice {...draft} showRhythm={false} showLegend={false} />
                 <details className="group mt-3" onToggle={(event) => setShowPlanComparison(event.currentTarget.open)}>
                   <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-[0.9375rem] font-semibold text-brown underline decoration-sand underline-offset-4 hover:decoration-brown focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown [&::-webkit-details-marker]:hidden">
                     {m.setup.plans.compare}
