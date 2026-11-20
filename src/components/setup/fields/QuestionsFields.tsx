@@ -310,8 +310,8 @@ function QuestionRow({ row, position, total, open, onToggle, onRequired, onMove,
         />
         <div className="col-start-1 row-start-2 -mt-1 min-w-0">
           {open && row.enabled ? null : row.enabled ? (
-            <label className="-ms-1 inline-flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[0.9375rem]">
-              <input type="checkbox" checked={row.required} onChange={(event) => onRequired(event.target.checked)} className="size-[1.125rem] shrink-0 accent-brown" />
+            <label className="-ms-1 flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-md px-1 text-[0.9375rem] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brown">
+              <input type="checkbox" checked={row.required} onChange={(event) => onRequired(event.target.checked)} className="size-[1.125rem] shrink-0 accent-brown focus-visible:outline-none" />
               <span className={row.required ? "font-medium text-espresso" : "text-muted"}>
                 {q.mustAnswer}<span className="sr-only"> · {q.nth(position)}</span>
               </span>

@@ -312,8 +312,6 @@ export default function SettingsPage() {
   }, []);
   const { header: headerHeight, padding: scrollPadding } = useStickyOffsets();
   const desktop = useDesktop();
-  // The tab strip only sits under the header on smaller screens; on desktop the index is beside the page.
-  const navHeight = desktop ? 0 : 52;
   const groups = [
     { id: "settings-report-call", label: s.groups.call },
     { id: "settings-questions", label: s.groups.questions },
@@ -346,41 +344,20 @@ export default function SettingsPage() {
     document.addEventListener("click", guard, true);
     return () => document.removeEventListener("click", guard, true);
   }, [account]);
-  const currentGroup = useCurrentGroup(groups.map((group) => group.id), headerHeight + navHeight);
-  const navRef = useRef<HTMLElement>(null);
-  // Which side of the tab strip still has tabs hidden, so an edge fade can say so (RTL or LTR).
-  const [hidden, setHidden] = useState({ start: false, end: false });
+  const navRef = useRef<HTMLDivElement>(null);
+  // On a phone the tabs wrap into rows, so every section is one tap away; measure the strip's real height.
+  const [navHeight, setNavHeight] = useState(0);
+  const mounted = Boolean(ws); // The strip only exists once the workspace has loaded.
   useEffect(() => {
     const nav = navRef.current;
     if (!nav) return;
-    const measure = () => {
-      const max = nav.scrollWidth - nav.clientWidth;
-      const position = Math.abs(nav.scrollLeft);
-      setHidden({ start: position > 2, end: position < max - 2 });
-    };
+    const measure = () => setNavHeight(desktop ? 0 : Math.round(nav.getBoundingClientRect().height));
     measure();
-    nav.addEventListener("scroll", measure, { passive: true });
     const observer = new ResizeObserver(measure);
     observer.observe(nav);
-    return () => {
-      nav.removeEventListener("scroll", measure);
-      observer.disconnect();
-    };
-  }, []);
-  // On a phone the tabs scroll sideways: keep the current one in view (either direction, RTL or LTR).
-  useEffect(() => {
-    const nav = navRef.current;
-    const link = nav?.querySelector<HTMLElement>("[aria-current]");
-    if (!nav || !link) return;
-    const box = nav.getBoundingClientRect();
-    const tab = link.getBoundingClientRect();
-    const margin = 24;
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let delta = 0;
-    if (tab.left < box.left + margin) delta = tab.left - (box.left + margin);
-    else if (tab.right > box.right - margin) delta = tab.right - (box.right - margin);
-    if (delta) nav.scrollBy({ left: delta, behavior: reduced ? "auto" : "smooth" });
-  }, [currentGroup]);
+    return () => observer.disconnect();
+  }, [desktop, mounted]);
+  const currentGroup = useCurrentGroup(groups.map((group) => group.id), headerHeight + navHeight);
 
   if (!ws) return null;
 
@@ -433,13 +410,9 @@ export default function SettingsPage() {
         <h1 className="text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-espresso sm:text-[2.5rem] rtl:tracking-normal">{s.title}</h1>
         <p className="mt-1.5 text-[1.0625rem] text-muted">{s.lead}</p>
       </div>
-      <div className="sticky z-20 !mt-4 -mx-4 border-b border-stone/60 bg-ivory sm:-mx-6 lg:hidden" style={{ top: headerHeight }}>
-        <nav
-          ref={navRef}
-          aria-label={s.title}
-          className="overflow-x-auto px-4 [scrollbar-width:none] sm:px-6 lg:px-8 [&::-webkit-scrollbar]:hidden"
-        >
-          <ul className="flex gap-x-6 whitespace-nowrap">
+      <div ref={navRef} className="sticky z-20 !mt-4 -mx-4 border-b border-stone/60 bg-ivory sm:-mx-6 lg:hidden" style={{ top: headerHeight }}>
+        <nav aria-label={s.title} className="px-4 sm:px-6">
+          <ul className="flex flex-wrap gap-x-5 sm:gap-x-6">
             {groups.map((group) => {
               const current = group.id === currentGroup;
               return (
@@ -449,7 +422,7 @@ export default function SettingsPage() {
                     aria-current={current ? "location" : undefined}
                     onClick={() => openGroup(group.id)}
                     className={cn(
-                      "-mb-px inline-flex min-h-12 items-center border-b-2 text-sm font-semibold transition-colors focus-visible:rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brown",
+                      "-mb-px inline-flex min-h-11 items-center border-b-2 text-sm font-semibold transition-colors focus-visible:rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brown",
                       current ? "border-brown text-espresso" : "border-transparent text-muted hover:text-espresso",
                     )}
                   >
@@ -460,21 +433,6 @@ export default function SettingsPage() {
             })}
           </ul>
         </nav>
-        {/* Edge fades: there are more tabs that way. Logical sides, so they swap in RTL. */}
-        <span
-          aria-hidden
-          className={cn(
-            "pointer-events-none absolute inset-y-0 start-0 w-10 bg-linear-to-r from-ivory to-transparent transition-opacity duration-200 rtl:bg-linear-to-l motion-reduce:transition-none",
-            hidden.start ? "opacity-100" : "opacity-0",
-          )}
-        />
-        <span
-          aria-hidden
-          className={cn(
-            "pointer-events-none absolute inset-y-0 end-0 w-12 bg-linear-to-l from-ivory to-transparent transition-opacity duration-200 rtl:bg-linear-to-r motion-reduce:transition-none",
-            hidden.end ? "opacity-100" : "opacity-0",
-          )}
-        />
       </div>
 
       {saveFailed ? (
