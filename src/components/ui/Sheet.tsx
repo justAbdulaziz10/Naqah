@@ -10,6 +10,8 @@ import { cn } from "@/lib/cn";
  * modal <dialog>, so focus stays inside, Escape closes it, and focus returns to what opened it.
  * Elevated on purpose: a sheet sits above the page, unlike the flat cards beneath it.
  */
+type Slot = ReactNode | ((close: () => void) => ReactNode);
+
 export function Sheet({
   title,
   description,
@@ -18,15 +20,18 @@ export function Sheet({
   footer,
   children,
   className,
+  swap = false,
 }: {
   title: ReactNode;
   description?: ReactNode;
   closeLabel: string;
   onClose: () => void;
-  /** Actions pinned to the bottom of the panel. */
-  footer?: ReactNode;
-  children: ReactNode;
+  /** Actions pinned to the bottom of the panel. A function receives the animated close, for a Cancel or Save. */
+  footer?: Slot;
+  children: Slot;
   className?: string;
+  /** Mounted in place of a sheet that just closed: appears where it stood, without the entrance animation. */
+  swap?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [closing, setClosing] = useState(false);
@@ -53,11 +58,13 @@ export function Sheet({
     setClosing(true);
     setTimeout(onClose, 230);
   }
+  const body = typeof children === "function" ? children(requestClose) : children;
+  const actions = typeof footer === "function" ? footer(requestClose) : footer;
 
   return (
     <dialog
       ref={dialogRef}
-      data-state={closing ? "closing" : "open"}
+      data-state={closing ? "closing" : swap ? "swap" : "open"}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
       onCancel={(event) => {
@@ -89,8 +96,8 @@ export function Sheet({
             <X size={20} aria-hidden />
           </button>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-6 sm:px-7">{children}</div>
-        {footer ? <div className="shrink-0 border-t border-stone/70 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-7">{footer}</div> : null}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-6 sm:px-7">{body}</div>
+        {actions ? <div className="shrink-0 border-t border-stone/70 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-7">{actions}</div> : null}
       </div>
     </dialog>
   );
