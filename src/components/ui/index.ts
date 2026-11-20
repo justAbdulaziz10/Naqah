@@ -9,3 +9,4 @@ export * from "./State";
 export * from "./Switch";
 export * from "./Sheet";
 export * from "./Toast";
+export * from "./Choice";
