@@ -132,8 +132,7 @@ export const app = defineMessages({
       callsYou: "NAQAH calls you",
       plannedForYou: "Planned call to you",
       compact: {
-        next: "Next",
-        you: "you",
+        you: "You",
         show: "Show the week and call times",
         hide: "Hide the week and call times",
       },
@@ -468,8 +467,7 @@ export const app = defineMessages({
       callsYou: "ناقة تتصل عليك",
       plannedForYou: "موعد مكالمتك",
       compact: {
-        next: "الجاية",
-        you: "لك",
+        you: "أنت",
         show: "عرض الأسبوع ومواعيد المكالمات",
         hide: "إخفاء الأسبوع ومواعيد المكالمات",
       },

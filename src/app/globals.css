@@ -475,19 +475,20 @@ html:has(.naqah-app #settings-ranch) {
     opacity: 0;
     animation: naqah-ring-soft 1600ms var(--ease-standard) 700ms 2 both;
   }
-  /* The first look: the header's lines arrive in reading order, once. Set --i on each. */
+  /* The first look: the header's lines arrive in reading order, once. Set --i on each.
+     Every stagger below is capped at 300ms, so the last fact never lands a second after the first. */
   .naqah-enter {
-    animation: naqah-rise 560ms var(--ease-expo) both;
-    animation-delay: calc(var(--i, 0) * 70ms);
+    animation: naqah-rise 480ms var(--ease-expo) both;
+    animation-delay: min(calc(var(--i, 0) * 60ms), 300ms);
   }
   .naqah-stagger-item {
-    animation: naqah-rise 520ms var(--ease-expo) both;
-    animation-delay: calc(var(--i, 0) * 55ms + 180ms);
+    animation: naqah-rise 480ms var(--ease-expo) both;
+    animation-delay: min(calc(var(--i, 0) * 40ms + 60ms), 300ms);
   }
   /* Rows and marks that arrive one after another. Set --i on each. */
   .naqah-stagger > * {
-    animation: naqah-rise 520ms var(--ease-expo) both;
-    animation-delay: calc(var(--i, 0) * 45ms + 60ms);
+    animation: naqah-rise 480ms var(--ease-expo) both;
+    animation-delay: min(calc(var(--i, 0) * 40ms + 60ms), 300ms);
   }
   /* Meters fill from the start edge once. */
   .naqah-fill {
