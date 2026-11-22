@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CallSession } from "@/domain/conversation/engine";
 import type { Locale } from "@/domain/types";
+import { requireCallingFarm, testCallScope } from "@/server/test-ranch";
 import { fromPostgrest } from "./errors";
 
 export interface VoiceSessionRow {
@@ -17,13 +18,18 @@ export interface VoiceSessionRow {
 type NewSession = Omit<VoiceSessionRow, "seq" | "misses"> & { created_at: string };
 
 export async function readVoiceSession(client: SupabaseClient, callSid: string): Promise<VoiceSessionRow | null> {
-  const { data, error } = await client.from("voice_call_sessions").select("*").eq("call_sid", callSid).maybeSingle();
+  const scope = testCallScope();
+  if (scope.kind === "invalid") return null;
+  let query = client.from("voice_call_sessions").select("*").eq("call_sid", callSid);
+  if (scope.kind === "ranch") query = query.eq("farm_id", scope.farmId);
+  const { data, error } = await query.maybeSingle();
   if (error) throw fromPostgrest(error);
   return data as VoiceSessionRow | null;
 }
 
 /** Twilio can repeat the first webhook, so the row that got in first is the call. */
 export async function createVoiceSession(client: SupabaseClient, row: NewSession): Promise<VoiceSessionRow | null> {
+  requireCallingFarm(row.farm_id);
   const { error } = await client.from("voice_call_sessions").upsert(row, { onConflict: "call_sid", ignoreDuplicates: true });
   if (error) throw fromPostgrest(error);
   return readVoiceSession(client, row.call_sid);
@@ -37,11 +43,14 @@ export async function advanceVoiceSession(
   next: Pick<VoiceSessionRow, "session" | "misses" | "last_response">,
   requireRealtimeOpen = false,
 ): Promise<VoiceSessionRow | null> {
+  const scope = testCallScope();
+  if (scope.kind === "invalid") return null;
   let query = client
     .from("voice_call_sessions")
     .update({ ...next, seq: seq + 1, updated_at: new Date().toISOString() })
     .eq("call_sid", callSid)
     .eq("seq", seq);
+  if (scope.kind === "ranch") query = query.eq("farm_id", scope.farmId);
   if (requireRealtimeOpen) query = query.eq("session->realtime->closed", false);
   const { data, error } = await query.select("*").maybeSingle();
   if (error) throw fromPostgrest(error);
@@ -49,12 +58,20 @@ export async function advanceVoiceSession(
 }
 
 export async function deleteVoiceSession(client: SupabaseClient, callSid: string): Promise<void> {
-  const { error } = await client.from("voice_call_sessions").delete().eq("call_sid", callSid);
+  const scope = testCallScope();
+  if (scope.kind === "invalid") return;
+  let query = client.from("voice_call_sessions").delete().eq("call_sid", callSid);
+  if (scope.kind === "ranch") query = query.eq("farm_id", scope.farmId);
+  const { error } = await query;
   if (error) throw fromPostgrest(error);
 }
 
 /** Catches calls whose final status callback never arrived. */
 export async function deleteStaleVoiceSessions(client: SupabaseClient, before: Date): Promise<void> {
-  const { error } = await client.from("voice_call_sessions").delete().lt("created_at", before.toISOString());
+  const scope = testCallScope();
+  if (scope.kind === "invalid") return;
+  let query = client.from("voice_call_sessions").delete().lt("created_at", before.toISOString());
+  if (scope.kind === "ranch") query = query.eq("farm_id", scope.farmId);
+  const { error } = await query;
   if (error) throw fromPostgrest(error);
 }

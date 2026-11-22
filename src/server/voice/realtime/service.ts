@@ -6,6 +6,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { answer, reportSummaryId, resumeOpenAsGuided, type CallSession } from "@/domain/conversation/engine";
 import type { Locale, Workspace } from "@/domain/types";
+import { callingFarmAllowed } from "@/server/test-ranch";
 import { loadFarm, requireFarm } from "@/server/db/queries";
 import { readVoiceSession, type VoiceSessionRow } from "@/server/db/voice-sessions";
 import type { CallToken } from "@/server/calls/token";
@@ -329,7 +330,7 @@ const AFTER_ATTEMPTS = 3;
 /** The stream closed. A finished call hangs up; anything else carries on by script from where it was. */
 export async function afterRealtimeCall(client: SupabaseClient, input: { token: Extract<CallToken, { k: "report" | "owner" }>; callSid: string }): Promise<string> {
   const { token, callSid } = input;
-  if (token.k === "report" && await boundElsewhere(client, token, callSid)) return twimlGoodbye(token.l);
+  if (!callingFarmAllowed(token.f) || (token.k === "report" && await boundElsewhere(client, token, callSid))) return twimlGoodbye(token.l);
   for (let attempt = 0; attempt < AFTER_ATTEMPTS; attempt += 1) {
     const row = await readVoiceSession(client, callSid);
     if (!row || row.farm_id !== token.f) return twimlGoodbye(token.l);

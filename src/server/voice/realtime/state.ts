@@ -77,6 +77,7 @@ async function writeRealtime(client: SupabaseClient, row: VoiceSessionRow, realt
     .from("voice_call_sessions")
     .update({ session: withRealtime(row.session, realtime), updated_at: new Date().toISOString() })
     .eq("call_sid", row.call_sid)
+    .eq("farm_id", row.farm_id)
     .eq("seq", row.seq)
     .eq("session->realtime->closed", false);
   if (unclaimedOnly) query = query.eq("session->realtime->>jti", realtime.jti).is("session->realtime->>claimedAt", null);

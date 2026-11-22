@@ -1,6 +1,9 @@
 import { connection } from "next/server";
 import { getOwner } from "@/lib/supabase/server";
 import { callAllowlist, demoOwnerCallNow, demoOwnerCallNowEnabled } from "@/server/calls/config";
+import { testCallScope, verifyCallingOwner } from "@/server/test-ranch";
+import { callingFarmForOwner } from "@/server/db/service-repository";
+import { reserveRateLimit } from "@/server/rate-limit";
 import { ownerCallNowView } from "@/server/calls/owner-call-now";
 import { callFailureMessages } from "@/server/calls/reliability";
 import { createServiceClient } from "@/server/db/service-client";
@@ -18,21 +21,24 @@ const json = (value: unknown, status = 200) => Response.json(value, { status, he
 export async function GET(request: Request): Promise<Response> {
   await connection(); // read at request time: the runner's flag is not in the build
   if (!demoOwnerCallNowEnabled()) return json({ ok: false }, 404);
-  const { user } = await getOwner();
-  if (!user) return json({ ok: false }, 401);
+  const scope = testCallScope();
+  if (scope.kind === "invalid") return json({ ok: false }, 503);
+  const { user, unavailable } = await getOwner();
+  if (!user) return json({ ok: false }, scope.kind === "ranch" && unavailable ? 503 : 401);
   const client = createServiceClient();
   if (!client) return json({ ok: false }, 503);
   try {
-    const { data, error } = await client.from("farms").select("id").eq("owner_id", user.id).maybeSingle();
-    if (error || !data) return json({ ok: false }, 503);
-    if (!demoOwnerCallNow(data.id)) return json({ ok: true, enabled: false });
+    const farmId = await callingFarmForOwner(client, user.id);
+    if (!farmId || !await verifyCallingOwner(client, farmId)) return json({ ok: false }, 503);
+    if (!demoOwnerCallNow(farmId)) return json({ ok: true, enabled: false });
     if (new URL(request.url).searchParams.get("preflight") === "1") {
-      const result = await freeCallPreflight(client, data.id);
+      if (scope.kind === "ranch" && !await reserveRateLimit(`call-preflight:farm:${farmId}:day`, 10, 86400)) return json({ ok: false, ready: false, reason: "rate_limited" }, 429);
+      const result = await freeCallPreflight(client, farmId);
       const failed = result.checks.find((entry) => !entry.passed && entry.name !== "worker_allowlisted" && entry.name !== "no_active_run");
       return json({ ok: true, ready: !failed, message: failed ? callFailureMessages[failed.reason] : null });
     }
-    const { workspace } = requireFarm(await loadFarm(client, { id: data.id }));
-    const view = await ownerCallNowView(client, data.id, workspace, callAllowlist(), new Date());
+    const { workspace } = requireFarm(await loadFarm(client, { id: farmId }));
+    const view = await ownerCallNowView(client, farmId, workspace, callAllowlist(), new Date());
     return json({ ok: true, enabled: true, numberApproved: view.numberApproved, live: view.live, runId: view.runId, state: view.state });
   } catch { return json({ ok: false }, 503); }
 }

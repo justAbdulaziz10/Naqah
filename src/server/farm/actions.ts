@@ -12,6 +12,7 @@ import type { LoadedFarm } from "@/server/db/queries";
 import { isUuid } from "@/server/db/ids";
 import { manualCallsEnabled, outboundCallMissing, outboundConfig, demoRepeatReports, demoOwnerCallNow, demoOwnerCallNowEnabled } from "@/server/calls/config";
 import { requestOwnerCallNow, type OwnerCallNowResult } from "@/server/calls/owner-call-now";
+import { testCallScope } from "@/server/test-ranch";
 import { withCallNowLimit } from "@/server/calls/call-now-limit";
 import { withWorkerRetryLimit } from "@/server/calls/retry-limit";
 import { requestReportCallNow, type CallNowResult } from "@/server/calls/scheduler";
@@ -35,7 +36,12 @@ async function asOwner<T>(work: (repository: OwnerRepository, ownerId: string) =
     if (!user) return { ok: false, error: unavailable ? "unavailable" : "unauthenticated" };
     const client = await createWritableClient();
     if (!client) return { ok: false, error: "unavailable" };
-    return { ok: true, data: await withTimeout(work(createOwnerRepository(client, user.id), user.id), DB_TIMEOUT_MS) };
+    const repository = createOwnerRepository(client, user.id, user);
+    const data = await withTimeout((async () => {
+      await repository.authorize();
+      return work(repository, user.id);
+    })(), DB_TIMEOUT_MS);
+    return { ok: true, data };
   } catch (error) {
     return { ok: false, error: error instanceof DbError ? error.code : "unavailable" };
   }
@@ -126,7 +132,11 @@ export async function deleteEmergency(id: unknown) { return asOwner((r) => r.del
 
 /** Whether this deployment can place the owner's controlled "Call now". Names nothing secret. */
 function callNowReady(): boolean {
-  return manualCallsEnabled() && voiceMode() === "farm" && !farmVoiceMissing().length && !outboundCallMissing().length;
+  return testCallScope().kind !== "invalid" && manualCallsEnabled() && voiceMode() === "farm" && !farmVoiceMissing().length && !outboundCallMissing().length;
+}
+
+async function ownerCallingFarm(repository: OwnerRepository): Promise<string> {
+  return testCallScope().kind === "off" ? (await repository.load()).farmId : repository.callingFarmId();
 }
 
 /**
@@ -136,7 +146,7 @@ function callNowReady(): boolean {
 export async function retryUndelivered(id: unknown): Promise<ActionResult<boolean>> {
   return asOwner(async (r) => {
     if (typeof id !== "string" || !isUuid(id)) throw new DbError("invalid_input");
-    const { farmId } = await r.load();
+    const farmId = await ownerCallingFarm(r);
     const service = createServiceClient();
     if (!service) throw new DbError("unavailable");
     const now = new Date();
@@ -151,7 +161,16 @@ export async function retryUndelivered(id: unknown): Promise<ActionResult<boolea
 }
 
 export async function callNowAvailable() {
-  return asOwner(async () => callNowReady());
+  return asOwner(async (r) => {
+    if (!callNowReady()) return false;
+    if (testCallScope().kind === "off") return true;
+    try {
+      await ownerCallingFarm(r);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /**
@@ -162,7 +181,7 @@ export async function callNowAvailable() {
 export async function callWorkerNow(): Promise<ActionResult<CallNowResult>> {
   if (!callNowReady()) return { ok: false, error: "unavailable" };
   return asOwner(async (r) => {
-    const { farmId } = await r.load(); // Proves the session owns this farm, under RLS.
+    const farmId = await ownerCallingFarm(r); // Proves the session owns this farm, under RLS.
     const service = createServiceClient();
     const config = outboundConfig();
     if (!service || !config) throw new DbError("unavailable");
@@ -181,7 +200,7 @@ export async function callWorkerNow(): Promise<ActionResult<CallNowResult>> {
 export async function callOwnerNow(): Promise<ActionResult<OwnerCallNowResult>> {
   if (!demoOwnerCallNowEnabled() || !callNowReady()) return { ok: false, error: "unavailable" };
   return asOwner(async (r) => {
-    const { farmId } = await r.load(); // Proves the session owns this farm, under RLS.
+    const farmId = await ownerCallingFarm(r); // Proves the session owns this farm, under RLS.
     if (!demoOwnerCallNow(farmId)) throw new DbError("unavailable");
     const service = createServiceClient();
     const config = outboundConfig();

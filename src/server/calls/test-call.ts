@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { farmVoiceMissing, realtimeVoiceConfig, voiceMode } from "@/server/env";
 import { reserveRateLimit, type RateLimitLease } from "@/server/rate-limit";
+import { testCallScope } from "@/server/test-ranch";
 import { callAllowlist, outboundConfig } from "./config";
 import { requestReportCallNow } from "./scheduler";
 import { createTwilioCaller, type OutboundCaller } from "./twilio";
@@ -9,6 +10,7 @@ import type { TestCallBlocker, TestCallError, TestCallFailure, TestCallView } fr
 import { ACTIVE_TEST_CALLS, closeTestCallRun, expireTestCalls, isTestRanch, requireTestCallData, TEST_CALL_COLUMNS, testCallView, type TestCallRow } from "./test-call-store";
 
 export async function testCallReadiness(client: SupabaseClient, actorId: string) {
+  if (testCallScope().kind !== "off") return { farmId: null, config: null, allowlist: [], blockers: ["not_configured"] satisfies TestCallBlocker[] };
   const farm = requireTestCallData(await client.from("farms").select("id").eq("owner_id", actorId).maybeSingle());
   const farmId: string | null = farm && await isTestRanch(client, farm.id) ? farm.id : null;
   const config = outboundConfig();
@@ -21,6 +23,7 @@ export async function testCallReadiness(client: SupabaseClient, actorId: string)
 }
 
 export async function latestTestCall(client: SupabaseClient, actorId: string): Promise<TestCallView | null> {
+  if (testCallScope().kind !== "off") return null;
   await expireTestCalls(client, new Date(), actorId);
   const row = requireTestCallData(await client.from("test_calls").select(TEST_CALL_COLUMNS).eq("actor_id", actorId).order("created_at", { ascending: false }).limit(1).maybeSingle()) as TestCallRow | null;
   return row ? testCallView(client, row) : null;
@@ -42,6 +45,7 @@ export async function startTestCall(
   input: { phone: string; requestId: string },
   options: { now?: Date; caller?: OutboundCaller } = {},
 ): Promise<StartResult> {
+  if (testCallScope().kind !== "off") return { ok: false, error: "unavailable" };
   const now = options.now ?? new Date();
   await expireTestCalls(client, now, actorId);
   const existing = requireTestCallData(await client.from("test_calls").select(TEST_CALL_COLUMNS).eq("request_id", input.requestId).maybeSingle()) as TestCallRow | null;

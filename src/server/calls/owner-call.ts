@@ -10,6 +10,8 @@ import { toDbId } from "@/server/db/ids";
 import { runFarmAction } from "@/server/db/service-repository";
 import { voiceLocale } from "@/server/env";
 import { ownerUpdateCallEnabled, outboundConfig } from "./config";
+import { callingFarmAllowed } from "@/server/test-ranch";
+import { placeFarmCall } from "./test-placement";
 import { signCallToken } from "./token";
 import { createTwilioCaller, type OutboundCaller, type OutboundCallResult } from "./twilio";
 import { testCallsEnabled } from "./test-call-config";
@@ -21,7 +23,7 @@ export async function dialDueOwnerCall(
   caller: OutboundCaller = createTwilioCaller(),
 ): Promise<OutboundCallResult | null> {
   const { farmId, now } = input;
-  if (!ownerUpdateCallEnabled()) return null;
+  if (!callingFarmAllowed(farmId) || !ownerUpdateCallEnabled()) return null;
   if (testCallsEnabled() && await isTestRanch(client, farmId)) return null;
   const config = outboundConfig();
   if (!config) return { placed: false, reason: "not_configured" };
@@ -39,13 +41,13 @@ export async function dialDueOwnerCall(
   const query = `s=${encodeURIComponent(signCallToken({ k: "owner", f: farmId, o: runId, r: reportId, n: claim.attempt, l: voiceLocale(), t: now.getTime() }))}`;
   let placed: OutboundCallResult;
   try {
-    placed = await caller.place({
+    placed = await placeFarmCall(client, caller, farmId, {
       to: claim.phone,
       url: `${config.baseUrl}/api/voice/owner?${query}`,
       statusCallback: `${config.baseUrl}/api/voice/owner/status?${query}`,
       timeoutSeconds: REPORT_CALL_RING_SECONDS,
       statusEvents: ["completed"],
-    });
+    }, now);
   } catch {
     placed = { placed: false, reason: "network_error" };
   }

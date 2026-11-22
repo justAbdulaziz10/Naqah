@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { callAllowlist, scheduledCallsEnabled } from "@/server/calls/config";
+import { callingFarmAllowed, testCallScope } from "@/server/test-ranch";
 import { voiceLocale, voiceMode } from "@/server/env";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { dialableWorkerPhone, reportCallIsLive } from "@/domain/reportCalls";
@@ -12,11 +13,14 @@ export async function freeCallPreflight(client: SupabaseClient, farmId: string, 
   const checks: { name: string; passed: boolean; reason: CallFailure }[] = [];
   const check = (name: string, passed: boolean, reason: CallFailure) => checks.push({ name, passed, reason });
   const config = outboundConfig();
-  if (!config) return { ready: false, checks: [{ name: "configuration", passed: false, reason: "configuration" as const }], message: callFailureMessages.configuration };
+  if (!callingFarmAllowed(farmId) || !config) return { ready: false, checks: [{ name: "configuration", passed: false, reason: "configuration" as const }], message: callFailureMessages.configuration };
   await cleanStaleReportCalls(client, farmId, new Date());
   const { workspace } = requireFarm(await loadFarm(client, { id: farmId }));
   const worker = dialableWorkerPhone(workspace);
-  check("worker_allowlisted", Boolean(worker && SAUDI_MOBILE.test(worker) && config.allowlist.includes(worker)), "not_allowed");
+  const scope = testCallScope();
+  const allowed = worker && SAUDI_MOBILE.test(worker) && config.allowlist.includes(worker)
+    && (scope.kind !== "ranch" || scope.allowlist.includes(worker));
+  check("worker_allowlisted", Boolean(allowed), "not_allowed");
   check("no_active_run", !(workspace.reportCalls ?? []).some((run) => reportCallIsLive(run, new Date())), "in_progress");
   const get = async (url: string | URL, headers?: Record<string, string>) => {
     try {

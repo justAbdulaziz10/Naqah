@@ -4,6 +4,7 @@ import { cookies, headers } from 'next/headers';
 import { connection } from 'next/server';
 import { getSupabaseConfig, sessionCookieOptionsFor } from './config';
 import { withTimeout } from './timeout';
+import { testOwnerCanAccess } from '@/server/test-ranch';
 
 const OWNER_CHECK_TIMEOUT_MS = 3_000;
 
@@ -38,6 +39,9 @@ export async function getOwner() {
   if (!client) return { user: null, unavailable: true };
   try {
     const { data, error } = await withTimeout(client.auth.getUser(), OWNER_CHECK_TIMEOUT_MS);
+    if (!error && data.user && !await withTimeout(testOwnerCanAccess(client, data.user), OWNER_CHECK_TIMEOUT_MS)) {
+      return { user: null, unavailable: true };
+    }
     return { user: error ? null : data.user, unavailable: !!error && error.status !== 401 && error.status !== 403 && error.name !== 'AuthSessionMissingError' };
   } catch { return { user: null, unavailable: true }; }
 }

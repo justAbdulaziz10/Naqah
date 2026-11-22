@@ -1,8 +1,10 @@
 import { DbError } from "@/server/db/errors";
 import { reserveRateLimit, type RateLimitLease } from "@/server/rate-limit";
 import { CALL_NOW_LIMITS } from "./config";
+import { requireCallingFarm } from "@/server/test-ranch";
 
 export async function withWorkerRetryLimit(farmId: string, now: Date, retry: () => Promise<boolean>): Promise<boolean> {
+  requireCallingFarm(farmId);
   const leases: RateLimitLease[] = [];
   const release = () => Promise.all(leases.map((lease) => lease.release()));
   for (const { window, limit, seconds } of CALL_NOW_LIMITS) {

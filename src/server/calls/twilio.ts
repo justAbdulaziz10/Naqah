@@ -2,6 +2,8 @@
  * Minimal Twilio REST client for calls NAQAH places. Never pretends: without credentials it
  * returns `not_configured`, and any provider failure is `placed: false`. Recording is always off.
  */
+import { testCallScope } from "@/server/test-ranch";
+import { verifyCallToken } from "./token";
 import type { OutboundConfig } from "./config";
 import { callTimeLimitSeconds, machineDetectionSettings, outboundConfig, SAUDI_MOBILE } from "./config";
 
@@ -20,7 +22,7 @@ export interface OutboundCallRequest {
 
 export type OutboundCallResult =
   | { placed: true; sid: string }
-  | { placed: false; reason: "not_configured" | "invalid_number" | "not_allowed" | "rejected" | "network_error"; status?: number; code?: number };
+  | { placed: false; reason: "not_configured" | "invalid_number" | "not_allowed" | "rejected" | "network_error" | "rate_limited"; status?: number; code?: number };
 
 export interface OutboundCaller {
   provider?: "twilio";
@@ -40,6 +42,20 @@ export function createTwilioCaller(config: (Omit<OutboundConfig, "baseUrl"> & { 
       if (!config.allowlist.includes(request.to)) {
         console.info("[NAQAH] outbound call refused: number is not on NAQAH_CALL_ALLOWLIST");
         return { placed: false, reason: "not_allowed" };
+      }
+      const scope = testCallScope();
+      if (scope.kind === "invalid") return { placed: false, reason: "not_configured" };
+      if (scope.kind === "ranch") {
+        if (!scope.allowlist.includes(request.to) || !request.url || !request.statusCallback) return { placed: false, reason: "not_allowed" };
+        const answer = new URL(request.url);
+        const callback = new URL(request.statusCallback);
+        const signed = answer.searchParams.get("s");
+        const token = verifyCallToken(signed);
+        const path = token?.k === "report" ? "outbound" : token?.k;
+        if (!token || answer.pathname !== `/api/voice/${path}` || callback.pathname !== `${answer.pathname}/status`
+          || answer.origin !== config.baseUrl || callback.origin !== answer.origin || callback.searchParams.get("s") !== signed) {
+          return { placed: false, reason: "not_allowed" };
+        }
       }
       const body = new URLSearchParams({
         To: request.to,

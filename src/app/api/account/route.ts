@@ -8,6 +8,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
 /**
  * The dashboard's data path. Not a Server Action: Next queues those behind navigation and drops
  * one in flight when a page changes, which would lose the save that finishes setup.
+ * Every operation uses the same session and ranch guard as its standalone Server Action.
  */
 export async function POST(request: Request): Promise<Response> {
   if (!isAccountDataEnabled()) return Response.json({ ok: false, error: "unavailable" }, { status: 404, headers: NO_STORE });

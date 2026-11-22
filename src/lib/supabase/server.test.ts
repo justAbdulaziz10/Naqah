@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ getUser: vi.fn(), create: vi.fn(), config: vi.fn(), set: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('@supabase/ssr', () => ({ createServerClient: mock.create }));
@@ -17,6 +17,33 @@ describe('server-confirmed owner session', () => {
     mock.getUser.mockResolvedValue({ data: { user: { id: 'owner-test' } }, error: null });
     expect((await getOwner()).user?.id).toBe('owner-test');
     expect(mock.getUser).toHaveBeenCalledOnce();
+  });
+  afterEach(() => vi.unstubAllEnvs());
+  it('returns an unavailable sign-in result for any unconfirmed or foreign email in test setup', async () => {
+    vi.stubEnv('NAQAH_TEST_OWNER_EMAIL', 'TEST-OWNER@example.test');
+    vi.stubEnv('NAQAH_TEST_RANCH_ID', undefined);
+    const user = { id: 'owner-test', email: 'test-owner@example.test', email_confirmed_at: '2026-11-23' };
+    for (const denied of [{ ...user, email_confirmed_at: undefined }, { ...user, email: 'another-owner@example.test' }]) {
+      mock.getUser.mockResolvedValue({ data: { user: denied }, error: null });
+      expect(await getOwner()).toEqual({ user: null, unavailable: true });
+    }
+    mock.getUser.mockResolvedValue({ data: { user }, error: null });
+    expect(await getOwner()).toEqual({ user, unavailable: false });
+  });
+  it('checks the configured ranch owner before accepting the sign-in result', async () => {
+    const farmId = '11111111-1111-4111-8111-111111111111';
+    vi.stubEnv('NAQAH_TEST_OWNER_EMAIL', 'test-owner@example.test');
+    vi.stubEnv('NAQAH_TEST_RANCH_ID', farmId);
+    const user = { id: 'owner-test', email: 'test-owner@example.test', email_confirmed_at: '2026-11-23' };
+    const maybeSingle = vi.fn().mockResolvedValueOnce({ data: null, error: null }).mockResolvedValueOnce({ data: { id: farmId }, error: null });
+    const query = { eq: vi.fn().mockReturnThis(), maybeSingle };
+    const from = vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue(query) });
+    mock.create.mockReturnValue({ auth: { getUser: mock.getUser }, from });
+    mock.getUser.mockResolvedValue({ data: { user }, error: null });
+    expect(await getOwner()).toEqual({ user: null, unavailable: true });
+    expect(await getOwner()).toEqual({ user, unavailable: false });
+    expect(from).toHaveBeenCalledWith('farms');
+    expect(query.eq.mock.calls.slice(0, 2)).toEqual([['id', farmId], ['owner_id', user.id]]);
   });
   it('rejects an expired or revoked session', async () => {
     mock.getUser.mockResolvedValue({ data: { user: null }, error: { status: 401 } });

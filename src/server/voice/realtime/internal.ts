@@ -2,6 +2,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceClient } from "@/server/db/service-client";
+import { testCallScope, verifyCallingOwner } from "@/server/test-ranch";
 import { realtimeVoiceConfig } from "@/server/env";
 import { readBoundedText } from "@/lib/http/body";
 
@@ -48,7 +49,8 @@ export async function bridgeRequest(request: Request): Promise<BridgeRequest | R
     return new Response(null, { status: 400 });
   }
   if (typeof body !== "object" || body === null || Array.isArray(body)) return new Response(null, { status: 400 });
+  if (testCallScope().kind === "invalid") return new Response(null, { status: 503 });
   const client = createServiceClient();
-  if (!client) return new Response(null, { status: 503 });
+  if (!client || !await verifyCallingOwner(client)) return new Response(null, { status: 503 });
   return { client, body: body as Record<string, unknown>, secret: config.secret, now };
 }

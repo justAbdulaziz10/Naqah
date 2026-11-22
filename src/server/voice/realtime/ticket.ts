@@ -4,6 +4,7 @@
  * row (see state.ts): this module only proves who issued it and what it is bound to.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { callingFarmAllowed } from "@/server/test-ranch";
 import type { Locale } from "@/domain/types";
 
 export interface RealtimeTicket {
@@ -51,7 +52,7 @@ export function verifyRealtimeTicket(value: unknown, secret: string, now: number
     if (ticket.p !== undefined && ticket.p !== "owner") return null;
     if ((ticket.l !== "ar" && ticket.l !== "en") || typeof ticket.j !== "string" || !ID.test(ticket.j)) return null;
     if (!Number.isSafeInteger(ticket.t) || now - ticket.t! > maxAgeMs || ticket.t! > now + 60_000) return null;
-    return ticket as RealtimeTicket;
+    return callingFarmAllowed(ticket.f) ? ticket as RealtimeTicket : null;
   } catch {
     return null;
   }

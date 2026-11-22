@@ -26,6 +26,10 @@ export const SAUDI_MOBILE = /^\+9665\d{8}$/;
 export function callAllowlist(): string[] {
   const file = approvedNumbersFile();
   const raw = file === null ? value("NAQAH_CALL_ALLOWLIST") : readApproved(file);
+  return parseCallAllowlist(raw);
+}
+
+export function parseCallAllowlist(raw: string): string[] {
   return raw.split(/[,\n]/).map((item) => item.replace(/[\s-]/g, "")).filter((item) => SAUDI_MOBILE.test(item));
 }
 

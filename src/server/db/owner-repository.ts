@@ -1,4 +1,5 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { testCallScope, testOwnerCanAccess, testOwnerScope } from "@/server/test-ranch";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { farmAlerts, farmInstructions } from "@/domain/alerts";
 import { PREDEFINED_QUESTIONS } from "@/domain/catalog";
 import { reportPlanHasContent } from "@/domain/rules";
@@ -37,14 +38,44 @@ function rowId(id: unknown): string {
  * Everything an owner can do to their own farm. Takes the owner's session client, so RLS and
  * the column grants apply to every call; the farm filter below only keeps queries precise.
  */
-export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
+export function createOwnerRepository(
+  client: SupabaseClient,
+  ownerId: string,
+  sessionUser?: Pick<User, "id" | "email" | "email_confirmed_at">,
+) {
   let farmId: string | null = null;
+  const scope = testOwnerScope();
+  let authorization: Promise<void> | undefined;
 
-  async function currentFarmId() {
+  async function authorizeTestOwner() {
+    if (scope.kind === "off") return;
+    if (scope.kind === "invalid") throw new DbError("unavailable");
+    let user = sessionUser;
+    if (!user) {
+      const { data, error } = await client.auth.getUser();
+      if (error || !data.user) throw new DbError("unavailable");
+      user = data.user;
+    }
+    if (user.id !== ownerId || !await testOwnerCanAccess(client, user)) throw new DbError("unavailable");
+  }
+
+  function authorize() {
+    return authorization ??= authorizeTestOwner();
+  }
+
+  function ownerFarmQuery<Columns extends string>(columns: Columns) {
+    const query = client.from("farms").select(columns).eq("owner_id", ownerId);
+    return scope.kind === "ranch" ? query.eq("id", scope.farmId) : query;
+  }
+
+  async function currentFarmId(calling = false) {
+    if (calling && testCallScope().kind === "invalid") throw new DbError("unavailable");
+    await authorize();
     if (farmId) return farmId;
-    const { data, error } = await client.from("farms").select("id, plan_selected_at, setup_complete").eq("owner_id", ownerId).maybeSingle();
+    const query = ownerFarmQuery("id, plan_selected_at, setup_complete");
+    const { data, error } = await query.maybeSingle();
     if (error) throw fromPostgrest(error);
-    if (!data) throw new DbError("not_found");
+    if (!data) throw new DbError(scope.kind === "ranch" ? "unavailable" : "not_found");
     const row = data as Pick<FarmRow, "id" | "plan_selected_at" | "setup_complete">;
     if (!row.setup_complete && row.plan_selected_at === null) throw new DbError("plan_required");
     const id = row.id;
@@ -89,14 +120,17 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
   }
 
   return {
+    authorize,
+
     /** Read-only routing signal. A missing/default plan is never treated as owner consent. */
     async initialPlanState(): Promise<InitialPlanState> {
-      const { data, error } = await client.from("farms")
-        .select("plan_selected_at, setup_complete")
-        .eq("owner_id", ownerId)
-        .maybeSingle();
+      await authorize();
+      const { data, error } = await ownerFarmQuery("plan_selected_at, setup_complete").maybeSingle();
       if (error) throw fromPostgrest(error);
-      if (!data) return { required: true, setupComplete: false, existingFarm: false };
+      if (!data) {
+        if (scope.kind === "ranch") throw new DbError("unavailable");
+        return { required: true, setupComplete: false, existingFarm: false };
+      }
       const row = data as Pick<FarmRow, "plan_selected_at" | "setup_complete">;
       if (row.setup_complete) return { required: false, setupComplete: true, existingFarm: true };
       if (row.plan_selected_at === null) return { required: true, setupComplete: false, existingFarm: true };
@@ -105,6 +139,7 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
 
     /** Database RPC is the only owner-facing path for setting the service-controlled plan column. */
     async selectInitialPlan(plan: Plan): Promise<void> {
+      await authorize();
       const result = await client.rpc("select_initial_plan", { p_plan: plan });
       assertOk(result);
       farmId = null;
@@ -140,6 +175,8 @@ export function createOwnerRepository(client: SupabaseClient, ownerId: string) {
       assertOk(await client.from("farms").update({ primary_worker_id: primary }).eq("id", farm).is("primary_worker_id", null));
       return farm;
     },
+
+    callingFarmId: () => currentFarmId(true),
 
     async load(): Promise<LoadedFarm> {
       const farm = await currentFarmId();

@@ -15,6 +15,8 @@ import { reserveRateLimit, type RateLimitLease } from "@/server/rate-limit";
 import { CALL_NOW_LIMITS, demoNoCallLimit } from "./config";
 import { ACTIVE_TEST_CALLS } from "./test-call-store";
 import { CALL_STALE_MS } from "./reliability";
+import { requireCallingFarm, testCallScope, verifyCallingOwner } from "@/server/test-ranch";
+import { placeFarmCall } from "./test-placement";
 import { signCallToken } from "./token";
 import type { OutboundCaller, OutboundCallResult } from "./twilio";
 
@@ -26,6 +28,7 @@ type Block = Extract<OwnerCallNowResult, { status: "blocked" }>["reason"];
 
 /** A call row the voice service still holds for this ranch (any party), or a Lab test call still going. */
 async function callConnected(client: SupabaseClient, farmId: string, now: Date): Promise<boolean> {
+  requireCallingFarm(farmId);
   const since = new Date(now.getTime() - CALL_STALE_MS).toISOString();
   const sessions = await client.from("voice_call_sessions").select("call_sid").eq("farm_id", farmId).gte("created_at", since).limit(1);
   if (sessions.error) throw new DbError("unavailable");
@@ -37,6 +40,7 @@ async function callConnected(client: SupabaseClient, farmId: string, now: Date):
 
 /** Whether the owner's saved number may be called here and whether any call is live, for the Dashboard. */
 export async function ownerCallNowView(client: SupabaseClient, farmId: string, workspace: Parameters<typeof dialableOwnerPhone>[0], allowlist: string[], now: Date) {
+  requireCallingFarm(farmId);
   const phone = dialableOwnerPhone(workspace);
   const run = workspace.ownerCallRun ?? null;
   return {
@@ -50,7 +54,7 @@ export async function ownerCallNowView(client: SupabaseClient, farmId: string, w
 
 /** The «اتصال حقيقي» limits (3 an hour, 10 a day) under their own owner-call keys; the demo's no-limit switch applies. */
 async function withOwnerCallLimit(farmId: string, now: Date, place: () => Promise<OwnerCallNowResult>): Promise<OwnerCallNowResult> {
-  if (demoNoCallLimit(farmId)) return place();
+  if (testCallScope().kind === "off" && demoNoCallLimit(farmId)) return place();
   const leases: RateLimitLease[] = [];
   const release = () => Promise.all(leases.map((lease) => lease.release()));
   for (const { window, limit, seconds } of CALL_NOW_LIMITS) {
@@ -73,6 +77,7 @@ export async function requestOwnerCallNow(
   options: { baseUrl: string; now: Date; allowlist: string[] },
 ): Promise<OwnerCallNowResult> {
   const { baseUrl, now, allowlist } = options;
+  if (!await verifyCallingOwner(client, farmId)) return { status: "blocked", reason: "unavailable" };
   return withOwnerCallLimit(farmId, now, async () => {
     if (await callConnected(client, farmId, now)) return { status: "blocked", reason: "call_live" };
     type Opened = { blocked: Block } | { claim: NonNullable<ReturnType<typeof openOwnerCallNow>["claim"]> };
@@ -95,13 +100,13 @@ export async function requestOwnerCallNow(
     const query = `s=${encodeURIComponent(signCallToken({ k: "owner", f: farmId, o: runId, r: reportId, n: claim.attempt, l: voiceLocale(), t: now.getTime() }))}`;
     let placed: OutboundCallResult;
     try {
-      placed = await caller.place({
+      placed = await placeFarmCall(client, caller, farmId, {
         to: claim.phone,
         url: `${baseUrl}/api/voice/owner?${query}`,
         statusCallback: `${baseUrl}/api/voice/owner/status?${query}`,
         timeoutSeconds: REPORT_CALL_RING_SECONDS,
         statusEvents: ["completed"],
-      });
+      }, now);
     } catch {
       placed = { placed: false, reason: "network_error" };
     }
@@ -109,6 +114,7 @@ export async function requestOwnerCallNow(
     if (placed.reason !== "network_error") {
       await runFarmAction(client, farmId, (ws) => ({ ws: abandonOwnerCallAttempt(ws, now, runId, claim.attempt), result: null }));
     }
+    if (placed.reason === "rate_limited") return { status: "blocked", reason: "rate_limited" };
     return { status: "failed", reason: "not_placed", ...(placed.code === undefined ? {} : { code: placed.code }) };
   });
 }

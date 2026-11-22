@@ -23,6 +23,15 @@ describe('sending the owner code', () => {
     expect(await sendOwnerOtp({ phone })).toEqual({ issue: 'invalidPhone' });
     expect(mock.signInWithOtp).not.toHaveBeenCalled();
   });
+  it('sends no SMS on a test-ranch preview, where only the email test owner can sign in', async () => {
+    vi.stubEnv('NAQAH_TEST_OWNER_EMAIL', 'owner@example.test');
+    try {
+      expect(await sendOwnerOtp({ phone: '966501234567', captchaToken: 'test-only' })).toEqual({ issue: 'unavailable' });
+      expect(mock.signInWithOtp).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('rejects non-string input from a forged request', async () => {
     expect(await sendOwnerOtp({ phone: { toString: () => '0501234567' } as unknown as string })).toEqual({ issue: 'invalidPhone' });
   });

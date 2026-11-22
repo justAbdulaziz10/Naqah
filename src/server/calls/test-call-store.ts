@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { testCallScope } from "@/server/test-ranch";
 import { runFarmAction } from "@/server/db/service-repository";
 import type { TestCallFailure, TestCallResult, TestCallStatus, TestCallView } from "./test-call-api";
 
@@ -26,10 +27,12 @@ export function requireTestCallData<T>({ data, error }: { data: T; error: unknow
 }
 
 export async function isTestRanch(client: SupabaseClient, farmId: string): Promise<boolean> {
+  if (testCallScope().kind !== "off") return false;
   return Boolean(requireTestCallData(await client.from("test_call_ranches").select("farm_id").eq("farm_id", farmId).maybeSingle()));
 }
 
 export async function testCallView(client: SupabaseClient, row: TestCallRow): Promise<TestCallView> {
+  if (testCallScope().kind !== "off") throw new Error("Call Lab unavailable");
   const run = row.run_id ? requireTestCallData(await client.from("report_call_runs").select("report_id").eq("id", row.run_id).eq("farm_id", row.farm_id).maybeSingle()) : null;
   const reportSaved = row.run_id ? Boolean(run?.report_id) : row.report_saved;
   return {
@@ -41,7 +44,7 @@ export async function testCallView(client: SupabaseClient, row: TestCallRow): Pr
 }
 
 export async function closeTestCallRun(client: SupabaseClient, farmId: string, runId: string | null): Promise<void> {
-  if (!runId) return;
+  if (testCallScope().kind !== "off" || !runId) return;
   await runFarmAction(client, farmId, (workspace) => {
     const run = workspace.reportCalls?.find((entry) => entry.id === runId);
     if (!run || (run.state !== "calling" && run.state !== "answered")) return { ws: workspace, result: null };
@@ -55,6 +58,7 @@ export async function closeTestCallRun(client: SupabaseClient, farmId: string, r
 }
 
 export async function expireTestCalls(client: SupabaseClient, now: Date, actorId?: string): Promise<void> {
+  if (testCallScope().kind !== "off") return;
   const cutoff = new Date(now.getTime() - 15 * 60_000).toISOString();
   let query = client.from("test_calls").select(TEST_CALL_COLUMNS).in("status", ACTIVE_TEST_CALLS).lt("created_at", cutoff);
   if (actorId) query = query.eq("actor_id", actorId);
@@ -79,6 +83,7 @@ export function testCallProgress(status: string): { status: TestCallStatus; resu
 }
 
 export async function recordTestCallProgress(client: SupabaseClient, runId: string, farmId: string, status: string, now: Date): Promise<void> {
+  if (testCallScope().kind !== "off") return;
   const progress = testCallProgress(status);
   if (!progress) return;
   const row = requireTestCallData(await client.from("test_calls").select(TEST_CALL_COLUMNS).eq("run_id", runId).eq("farm_id", farmId).maybeSingle()) as TestCallRow | null;

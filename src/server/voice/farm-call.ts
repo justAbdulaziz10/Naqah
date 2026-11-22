@@ -16,7 +16,8 @@ import { taskTicketsEnabled, workerAttemptState } from "@/domain/rules";
 import type { Locale, Workspace } from "@/domain/types";
 import { DbError } from "@/server/db/errors";
 import { loadFarm, requireFarm } from "@/server/db/queries";
-import { findCaller, findReportCallRun, recordedOutcome, runFarmAction } from "@/server/db/service-repository";
+import { findCaller, findReportCallRun, recordedOutcome, reportCallBoundOutsideTestRanch, runFarmAction } from "@/server/db/service-repository";
+import { callingFarmAllowed, testCallScope } from "@/server/test-ranch";
 import { afterResponse } from "@/server/calls/after";
 import { recordCallFailure } from "@/server/calls/reliability";
 import { signCallToken, workerTokenAttempt, type CallToken } from "@/server/calls/token";
@@ -229,14 +230,26 @@ function save(client: SupabaseClient, farmId: string, party: VoiceSessionRow["pa
 
 export async function startFarmCall(client: SupabaseClient, input: { from: string; callSid: string; now: Date }): Promise<string> {
   const { from, callSid, now } = input;
-  const repeated = await readVoiceSession(client, callSid);
-  if (repeated) return repeated.last_response;
-  await deleteStaleVoiceSessions(client, new Date(now.getTime() - STALE_AFTER_MS));
+  const scope = testCallScope();
+  const fallback = voiceLocale();
+  const closed = () => twimlGoodbye(fallback, OWNER_LINE_CLOSED[fallback]);
+  if (scope.kind === "invalid") return closed();
+  const repeated = () => readVoiceSession(client, callSid);
+  const clean = () => deleteStaleVoiceSessions(client, new Date(now.getTime() - STALE_AFTER_MS));
+  if (scope.kind === "off") {
+    const session = await repeated();
+    if (session) return session.last_response;
+    await clean();
+  }
 
   const caller = await findCaller(client, from);
-  const fallback = voiceLocale();
-  if (caller.kind === "unknown") return twimlGoodbye(fallback, NOT_REGISTERED[fallback]);
-  if (caller.kind === "owner") return twimlGoodbye(fallback, OWNER_LINE_CLOSED[fallback]);
+  if (caller.kind === "unknown") return scope.kind === "ranch" ? closed() : twimlGoodbye(fallback, NOT_REGISTERED[fallback]);
+  if (caller.kind === "owner" || !callingFarmAllowed(caller.farmId)) return closed();
+  if (scope.kind === "ranch") {
+    const session = await repeated();
+    if (session) return session.last_response;
+    await clean();
+  }
 
   const { workspace } = requireFarm(await loadFarm(client, { id: caller.farmId }));
   const locale = caller.kind === "worker" ? (workspace.settings.worker.language === "en" ? "en" : "ar") : fallback;
@@ -424,6 +437,8 @@ type ReportToken = Extract<CallToken, { k: "report" }>;
 
 /** The CallSid, once stored on a run, must belong to the run the signed URL names. */
 export async function boundElsewhere(client: SupabaseClient, token: ReportToken, callSid: string): Promise<boolean> {
+  if (!callingFarmAllowed(token.f)) return true;
+  if (testCallScope().kind === "ranch" && await reportCallBoundOutsideTestRanch(client, callSid, token.f)) return true;
   const bound = await findReportCallRun(client, callSid);
   return Boolean(bound && (bound.farmId !== token.f || bound.runId !== token.r));
 }
@@ -503,6 +518,7 @@ export const machineAnswered = (answeredBy: string | null) => /^(machine_start|m
 
 export async function gateOutboundAnswer(client: SupabaseClient, input: { token: CallToken; callSid: string; answeredBy: string | null; now: Date }): Promise<string> {
   const { token } = input;
+  if (!callingFarmAllowed(token.f)) return twimlGoodbye(token.l);
   // Tuning evidence for answering-machine detection; no phone numbers or farm ids.
   console.info(`[NAQAH] call answered (${token.k}): ${input.answeredBy ?? "not_detected"}`);
   if (machineAnswered(input.answeredBy)) {
@@ -517,6 +533,7 @@ export async function gateOutboundAnswer(client: SupabaseClient, input: { token:
 }
 
 export async function resolveSilentReportCall(client: SupabaseClient, ticket: RealtimeTicket, now: Date): Promise<void> {
+  if (!callingFarmAllowed(ticket.f)) return;
   const bound = await findReportCallRun(client, ticket.sid);
   if (!bound || bound.farmId !== ticket.f || bound.runId !== ticket.r) return;
   await runFarmAction(client, ticket.f, (workspace) => {
@@ -536,7 +553,7 @@ export async function reportCallStatus(
   input: { token: ReportToken; callSid: string; status: string; now: Date },
 ): Promise<void> {
   const { token, callSid, status, now } = input;
-  if (!FINAL_STATUSES.has(status)) return;
+  if (!callingFarmAllowed(token.f) || !FINAL_STATUSES.has(status)) return;
   if (await boundElsewhere(client, token, callSid)) return;
   const row = await readVoiceSession(client, callSid);
   const silent = row?.farm_id === token.f && (row.session as BridgeClosedSession).bridgeCloseReason === "silence" && Boolean(realtimeOf(row.session)?.naturalBase);
@@ -581,6 +598,7 @@ export async function answerOwnerCall(
   input: { token: Extract<CallToken, { k: "owner" }>; callSid: string; now: Date },
 ): Promise<string> {
   const { token, callSid, now } = input;
+  if (!callingFarmAllowed(token.f)) return twimlGoodbye(token.l);
   const repeated = await readVoiceSession(client, callSid);
   if (repeated) return repeated.farm_id === token.f ? repeated.last_response : twimlGoodbye(token.l);
   const { result: workspace } = await runFarmAction(client, token.f, (ws) => {
@@ -630,6 +648,7 @@ export async function ownerCallHeard(
   input: { token: Extract<CallToken, { k: "owner" }>; callSid: string; now: Date },
 ): Promise<string> {
   const { token, callSid, now } = input;
+  if (!callingFarmAllowed(token.f)) return twimlGoodbye(token.l);
   await save(client, token.f, { party: "system" }, ownerAttemptEvent(callSid, token.o, token.n, "completed"), now);
   return "<Response><Hangup/></Response>";
 }
@@ -640,6 +659,7 @@ export async function answerWorkerCall(
   input: { token: Extract<CallToken, { k: "worker" }>; callSid: string; now: Date },
 ): Promise<string> {
   const { token, callSid, now } = input;
+  if (!callingFarmAllowed(token.f)) return twimlGoodbye(token.l);
   const repeated = await readVoiceSession(client, callSid);
   if (repeated) return repeated.farm_id === token.f ? repeated.last_response : twimlGoodbye(token.l);
   const { workspace } = requireFarm(await loadFarm(client, { id: token.f }));
@@ -666,7 +686,7 @@ export async function workerCallStatus(
   input: { token: Extract<CallToken, { k: "worker" }>; callSid: string; status: string; now: Date },
 ): Promise<void> {
   const { token, callSid, status, now } = input;
-  if (!FINAL_STATUSES.has(status)) return;
+  if (!callingFarmAllowed(token.f) || !FINAL_STATUSES.has(status)) return;
   const event = {
     version: 1,
     eventId: `${callSid}:worker:${token.p}`,
@@ -690,7 +710,7 @@ export async function ownerCallStatus(
   input: { token: Extract<CallToken, { k: "owner" }>; callSid: string; status: string; now: Date },
 ): Promise<void> {
   const { token, callSid, status, now } = input;
-  if (!FINAL_STATUSES.has(status)) return;
+  if (!callingFarmAllowed(token.f) || !FINAL_STATUSES.has(status)) return;
   const result = status === "completed" ? "interrupted" : "unanswered";
   await save(client, token.f, { party: "system" }, ownerAttemptEvent(callSid, token.o, token.n, result), now);
   if ((await readVoiceSession(client, callSid))?.session.done) await deleteVoiceSession(client, callSid);

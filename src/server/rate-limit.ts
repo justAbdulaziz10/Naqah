@@ -1,7 +1,10 @@
 import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-type RpcClient = Pick<SupabaseClient, "rpc">;
+import { testCallScope } from "@/server/test-ranch";
+import { reserveTestBucket } from "@/server/calls/test-rate-limit";
+
+type RpcClient = Pick<SupabaseClient, "rpc" | "from">;
 type LocalBucket = { count: number; resetAt: number };
 export type RateLimitLease = { release(): Promise<void> };
 
@@ -65,6 +68,26 @@ export async function reserveRateLimit(
 ): Promise<RateLimitLease | null> {
   if (!key || key.length > 240 || !Number.isSafeInteger(limit) || limit < 1 || !Number.isSafeInteger(windowSeconds) || windowSeconds < 1) {
     throw new RangeError("Invalid rate-limit bucket configuration");
+  }
+
+  const scope = testCallScope();
+  const ordinary = key.startsWith("otp:") || key.startsWith("push:");
+  if (!ordinary && scope.kind !== "off") {
+    if (scope.kind !== "ranch" || ![
+      `call-now:farm:${scope.farmId}:hour`, `call-now:farm:${scope.farmId}:day`,
+      `owner-call-now:farm:${scope.farmId}:hour`, `owner-call-now:farm:${scope.farmId}:day`,
+      `worker-retry:farm:${scope.farmId}:hour`, `worker-retry:farm:${scope.farmId}:day`,
+      `call-preflight:farm:${scope.farmId}:day`,
+    ].includes(key)) return null;
+    try {
+      const client = configuredClient();
+      // Refused operations also use a slot in the preview, so no concurrent refund can
+      // release another request's slot after a window expires.
+      return client && await reserveTestBucket(client, `test-ranch:${scope.farmId}:${key}`, limit, nowMs, windowSeconds)
+        ? { async release() {} } : null;
+    } catch {
+      return null;
+    }
   }
 
   const client = configuredClient();

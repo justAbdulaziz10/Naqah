@@ -1,3 +1,4 @@
+import { testCallScope } from "@/server/test-ranch";
 import { shouldRefuseUnsignedVoice, voiceConfiguration, voiceLocale, voiceMode } from "@/server/env";
 import { answerFarmCall } from "@/server/voice/farm-call";
 import { farmResponse, farmWebhook } from "@/server/voice/farm-webhook";
@@ -43,6 +44,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const config = voiceConfiguration();
+  if (testCallScope().kind !== "off") return twimlResponse(twimlGoodbye(config.locale, voiceMessages[config.locale].lineNotConfigured));
   if (!config.secret || !config.workerPhone || shouldRefuseUnsignedVoice()) {
     return twimlResponse(twimlGoodbye(config.locale, voiceMessages[config.locale].lineNotConfigured));
   }
