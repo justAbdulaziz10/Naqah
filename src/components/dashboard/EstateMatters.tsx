@@ -8,7 +8,7 @@ import type { Workspace } from "@/domain";
 import type { UndeliveredCall } from "@/domain/alerts";
 import { useI18n } from "@/i18n/client";
 import { AttemptDots } from "@/components/visuals/AttemptDots";
-import { isHerdFinding, type EstateMatter, type MatterInstruction } from "./matters";
+import { findingBeyondHealth, isHerdFinding, type EstateMatter, type MatterInstruction } from "./matters";
 
 const ROW_LIMIT = 4;
 const recordLink = "underline decoration-stone underline-offset-4 transition-colors hover:decoration-brown focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown";
@@ -60,7 +60,9 @@ function undeliveredDetail(call: UndeliveredCall, m: ReturnType<typeof useI18n>[
 function MatterRow({ ws, matter, reportAt, worker, now, undelivered, index }: { ws: Workspace; matter: EstateMatter; reportAt: string | null; worker: string; now: Date; undelivered: UndeliveredCall[]; index: number }) {
   const { m, t, fmt, href } = useI18n();
   const { camel, findings, instructions } = matter;
-  const reported = findings[0] ? t(findings[0].text) : camel?.healthNote ?? null;
+  // The headline and its health mark already say the camel's state; the step adds only what the worker said beyond it.
+  const said = findings[0] ? (camel ? findingBeyondHealth(findings[0], camel) : findings[0].text) : null;
+  const reported = (said ? t(said) : null) || (camel?.healthNote ?? null);
   const instruction = instructions[0] ?? null;
   // NAQAH gave up reaching the worker about this: that is where it stands, so it is said here.
   const stopped = instruction ? undelivered.find((call) => call.taskIds.includes(instruction.id) || call.relayId === instruction.id) ?? null : null;

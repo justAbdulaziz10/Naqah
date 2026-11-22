@@ -22,6 +22,9 @@ function useRecaps(ws: Workspace): Record<WizardStepKey, string | null> {
   return { ranch: ranch || null, team: team || null, call: call?.sentence ?? null, ready: null };
 }
 
+/** Small credit text with a 44px tall hit area that stops above the photo's bottom edge. */
+const creditLink = "relative rounded-sm underline decoration-cream/40 underline-offset-2 after:absolute after:-inset-x-1 after:-top-[1.3125rem] after:-bottom-2 after:content-[''] hover:text-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
+
 /**
  * Setup as a journey on the product's time line: filled dots for finished steps, a gold ring for the
  * step in hand, open rings ahead. Finished steps carry what was entered, so the owner sees the ranch
@@ -93,10 +96,11 @@ export function JourneyPanel({ ws, step, onGo }: { ws: Workspace; step: number; 
           <Image src={photo.src} alt="" fill sizes="25rem" className="object-cover" style={{ objectPosition: photo.focus }} />
           <div aria-hidden className={"absolute inset-x-0 top-0 h-1/2 bg-linear-to-b from-espresso to-transparent" /* taste-skill-ignore: scrim joining photo to panel */} />
           {/* CC BY-SA asks for the creator and licence wherever the photograph is shown. */}
+          {/* Each link reaches 44px through an invisible hit area; the caption itself stays small. */}
           <p className="absolute bottom-2 end-2 rounded bg-espresso/75 px-2 py-0.5 text-[0.75rem] text-cream/90">
-            <a href={photo.credit.sourceUrl} className="underline decoration-cream/40 underline-offset-2 hover:text-cream">{f.photoBy}: {photo.credit.creator}</a>
+            <a href={photo.credit.sourceUrl} className={creditLink}>{f.photoBy}: {photo.credit.creator}</a>
             {" · "}
-            <a href={photo.credit.licenseUrl} className="underline decoration-cream/40 underline-offset-2 hover:text-cream">{photo.credit.license}</a>
+            <a href={photo.credit.licenseUrl} className={creditLink}>{photo.credit.license}</a>
           </p>
         </div>
       ) : null}

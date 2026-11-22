@@ -31,6 +31,16 @@ export interface ReportDraft {
 
 const LOW = new Set(["low", "critical"]);
 
+/** Separates a camel's health line from the worker's note in a finding. */
+export const NOTE_SEPARATOR = " — ";
+
+/** The opening of a sick-camel finding: the camel's name and health, before any note. */
+export function camelHealthLine(name: string, health: "sick" | "watch"): LocalizedText {
+  return health === "sick"
+    ? { ar: `${name} مريضة بحسب إفادة العامل`, en: `${name} is sick, as reported by the worker` }
+    : { ar: `${name} تحت الملاحظة`, en: `${name} is under watch` };
+}
+
 export function reportDraftIssue(draft: ReportDraft): string | null {
   const questions = (draft.coverage ?? []).map((entry) => entry.questionId);
   if (new Set(questions).size !== questions.length) return "coverage";
@@ -78,12 +88,8 @@ export function evaluateFindings(ws: Workspace, draft: ReportDraft): Finding[] {
         for (const u of draft.camelUpdates) {
           if (u.health !== "sick" && u.health !== "watch") continue;
           const name = camel(u.camelId)?.name ?? "?";
-          const note = u.note ? ` — ${u.note}` : "";
-          push(
-            u.health === "sick"
-              ? { ar: `${name} مريضة بحسب إفادة العامل${note}`, en: `${name} is sick, as reported by the worker${note}` }
-              : { ar: `${name} تحت الملاحظة${note}`, en: `${name} is under watch${note}` },
-          );
+          const line = camelHealthLine(name, u.health);
+          push(u.note ? { ar: `${line.ar}${NOTE_SEPARATOR}${u.note}`, en: `${line.en}${NOTE_SEPARATOR}${u.note}` } : line);
         }
         break;
       case "missing_camel":
