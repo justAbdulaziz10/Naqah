@@ -1,6 +1,6 @@
 # NAQAH Premium v2 — design brief
 
-One direction for every page. Agents implement it; the lead keeps pages consistent. AGENT.md §4 and its
+One design direction for every page. AGENT.md §4 and its
 "Design rules" still apply; this brief sharpens them.
 
 ## Direction

@@ -1,17 +1,10 @@
 # Twilio activation: one authorized test call
 
-Status (2026-11-08): the NAQAH **Twilio subaccount** is connected in the local preview (git-ignored
-`.env.local` of the `NAQAH-owner-flow` worktree; never in git). One manual test reached Twilio and ended `no-answer`. Webhooks are
-verified over HTTPS through an ngrok tunnel. Unattended scheduled calls are off.
-
-| Item | State |
-|---|---|
-| Account | NAQAH subaccount, active, full (not trial). Bills to the parent account's balance. |
-| Caller ID | a UK voice-capable number (kept out of the repo), `TWILIO_PHONE_NUMBER` |
-| Saudi (+966) | Allowed: the subaccount inherits the parent's voice geo permissions (Saudi low-risk on) |
-| Credentials | The subaccount's own SID and auth token (Twilio signs its webhooks with that token) |
-| Public origin | the local ngrok domain (kept out of the repo) → `next start -p 3300`, set as `NAQAH_PUBLIC_BASE_URL` |
-| Number's own Voice URL | Not set (only needed for workers phoning in; outbound calls carry their own URLs) |
+Keep unattended scheduled calls off during activation. Configure a voice-capable caller ID
+(`TWILIO_PHONE_NUMBER`), enable Saudi voice permissions, and set `NAQAH_PUBLIC_BASE_URL` to the
+public HTTPS origin for webhooks. Use the account SID and auth token for the Twilio account
+placing the calls. Inbound calls need the number's own Voice URL. Outbound calls supply callback
+URLs when they are placed.
 
 ## Controlled test switches (all server-side, all off unless set)
 
@@ -28,9 +21,9 @@ number of allowlisted numbers (never the numbers or secrets).
 ### Local preview sign-in
 
 Supabase Auth only returns Google sign-in to callback URLs on its allow-list (Authentication → URL
-Configuration). `http://localhost:3300/{ar,en}/login/callback?**` was added on 2026-11-08 next to the
-production, Vercel-preview and `localhost:3000/3002` entries; the Site URL stays `https://naqah.vercel.app`.
-A preview on any other port needs its own two entries, or Google returns to production with no session.
+Configuration). Add a callback for each locale on the actual preview origin, such as
+`http://localhost:3300/ar/login/callback?**` and `http://localhost:3300/en/login/callback?**`.
+Keep the Site URL set to the production origin.
 On plain-http loopback the session cookies are not `Secure` (Safari drops Secure cookies on
 `http://localhost`); every other origin keeps them Secure (`sessionCookieOptionsFor`).
 
@@ -113,7 +106,7 @@ Each step needs the owner's approval. Do the inbound steps below first.
    TWILIO_AUTH_TOKEN=<primary auth token>
    TWILIO_PHONE_NUMBER=<+E.164 caller ID>
    SUPABASE_SECRET_KEY=<sb_secret_...>                     # or SUPABASE_SERVICE_ROLE_KEY
-   NEXT_PUBLIC_SUPABASE_URL=https://ydsgmzxqjimwbamnksxe.supabase.co
+   NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<sb_publishable_...>
    CRON_SECRET=<random>
    # optional, paid: NAQAH_CALL_OWNER=1
@@ -177,25 +170,13 @@ is missing, the caller hears that the line isn't configured.
 It is scripted, not conversational AI: `src/domain/conversation/engine.ts` asks fixed questions and
 `src/server/voice/speech.ts` matches keywords. No model is called and nothing is billed for one.
 
-## Blocked
+## Activation prerequisites
 
-These stop the first real call. None can be worked around with sample data.
-
-| Dependency | Why | Owner |
-|---|---|---|
-| Application schema on `ydsgmzxqjimwbamnksxe` | The latest team report says the project exists with Auth test users but no application migrations (issue #6). Confirm access/history and obtain activation approval first; Task A does not query or change live data. | Project owner |
-| `SUPABASE_SECRET_KEY` | Reported set in production/preview; still verify service-only scope and the intended activation environment without exposing it. Local readiness tests require no live key. | Project owner |
-| Twilio credentials | None on this machine, and no Twilio tool is connected, so the account could not be checked. | Project owner |
-
-Decisions needed from the owner:
-
-- **Owner notification.** Not sent in farm mode. The existing summary goes to one number from the
-  environment, which would send one farm's report to the wrong person, and nothing records whether
-  the owner answered. It needs an outbound call that uses `farms.owner_phone` and a status webhook
-  that sends `owner_notification`.
-- **Owner calls.** NAQAH always places them. An owner phoning in hears a short closed line.
-  be spoofed and an inquiry reads farm data aloud. Decide whether a PIN is needed first.
-- **A worker number on two farms** is refused for both. That is deliberate (open decision 4).
+- Confirm the target Supabase project (`<project-ref>`) and its migration history before enabling farm voice.
+- Verify the service-only `SUPABASE_SECRET_KEY` is set in the intended environment. Local readiness tests use local keys.
+- Confirm the Twilio voice credentials and Saudi voice permissions before authorizing a test call.
+- Owner summary calls are outbound only. An owner phoning in hears a short closed line.
+- A worker number registered on two farms is refused for both.
 
 ## Expected cost
 
@@ -210,7 +191,7 @@ Read from Twilio's pages on 2026-11-06. Confirm before buying.
 | **Twilio total** | | **about $1.45** |
 | Caller's carrier charge, Saudi mobile to a US number | Not published by Twilio | Check with the carrier |
 
-No owner call or WhatsApp message is sent in farm mode.
+This estimate covers the worker call only. Owner calls, if enabled, are billed separately. WhatsApp summaries are sample-line only.
 
 Sources: [US pricing](https://www.twilio.com/en-us/voice/pricing/us),
 [voice pricing](https://www.twilio.com/en-us/voice/pricing),
@@ -227,13 +208,13 @@ so a call from Saudi may not connect, and a trial plays its own message first.
 
 Each step is the owner's to approve.
 
-1. **Confirm the project.** Check that you can open `ydsgmzxqjimwbamnksxe`. Never apply this
+1. **Confirm the project.** Check that you can open `<project-ref>`. Never apply this
    schema to any other project.
 2. **Apply the schema only in a separately authorized activation phase.** Follow `supabase-preparation.md`.
    The complete order is `0001_init.sql`, `0002_backend_foundation.sql`, `0003_voice_call_sessions.sql`,
    `0004_owner_write_limits.sql`, `0005_custom_question_retry.sql`. An empty application's dry run must
    list all five; otherwise reconcile migration history first. Then run Security and Performance Advisors.
-   Task A's readiness PR does not apply them or enable voice/account flags. Issue #6 remains an activation dependency.
+   Check all later migrations in [the Supabase backend guide](supabase-backend.md) before enabling voice or account mode.
 3. **Get a public HTTPS address.** Either run the branch locally behind a tunnel, which needs no
    deployment, or use a deployment without Vercel Authentication. Twilio can't pass that login.
 4. **Set the server variables** there, never in a `NEXT_PUBLIC_` name:
@@ -244,7 +225,7 @@ Each step is the owner's to approve.
    NAQAH_PUBLIC_BASE_URL=https://<exact public origin>
    TWILIO_AUTH_TOKEN=<primary auth token>
    SUPABASE_SECRET_KEY=<sb_secret_...>
-   NEXT_PUBLIC_SUPABASE_URL=https://ydsgmzxqjimwbamnksxe.supabase.co
+   NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<sb_publishable_...>
    ```
 
@@ -256,8 +237,9 @@ Each step is the owner's to approve.
    ```
 
 6. **Create the test farm.** Sign in on the site and finish setup with
-   the test phone as the worker. Use a different phone for the owner. It stays on Basic, so set a
-   reporting window that covers the call, in Settings.
+   the consenting test recipient as the worker. Use a different phone for the owner and set the
+   report schedule in Settings. Before testing the inbound report, establish a missed report call
+   for that period.
 
 7. **Buy the number and point it here.** Upgrade the account, buy a US voice number, then under
    Voice Configuration set **A call comes in** to `https://<origin>/api/voice/inbound` and

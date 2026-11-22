@@ -1,17 +1,15 @@
 # NAQAH — Frontend Experience & Brand Handoff v1.0
 
-> Complete text transcription of the existing 13-page handoff, not a new design proposal or summary. Approved, selected, provisional, optional and pending statuses are preserved.
->
-> Source: `~/Downloads/NAQAH_Frontend_Experience_Build_Handoff_v1.0.pdf`, prepared 5 November 2026. Only this Markdown file has been added to the repository; the source PDF remains outside it.
->
-> Conversion notes: PDF table cells are transcribed in row order beneath their column headings; page markers preserve provenance across split rows. Repeated running headers/footers were removed, and Arabic extraction artifacts were normalized. This transcription adds no approvals and does not authorize implementation. Resolve product conflicts using the source-of-truth hierarchy below.
+> Historical frontend handoff dated 5 November 2026. The workflow and plan rules below may be
+> outdated. See the [project handbook](../../AGENT.md) for current product rules.
+
+Source page markers and table order follow the original design handoff.
 
 <!-- Source page 1 of 13 -->
 
 NAQAH | ناقة  — Frontend Experience & Brand Art Direction
 Version: 1.0 — DESIGN / IMPLEMENTATION HANDOFF (not final product approval)
 Prepared: 5 November 2026
-Intended readers: NAQAH team, frontend designer, AI coding agent, investor-demo reviewers
 Primary use: Apply the agreed experience and art direction to an already working web app after its core 
 flows are functional. This is not an instruction to overwrite the existing application or backend.
 Source-of-truth hierarchy: (1) Main NAQAH Product Requirements / owner decisions; (2) existing 
@@ -19,8 +17,6 @@ working app & confirmed technical behavior; (3) approved brand assets and brand 
 frontend/design handoff for the details it explicitly covers. If the documents conflict, STOP and 
 flag the issue; do not silently invent or replace functionality. The designer may make cosmetic 
 implementation choices only within the statuses defined below.
-No overnight guarantee: this file is ready for a coding agent whenever the project is ready. It 
-does not assume that any code, imagery, voice calls, payments, or tests have been completed.
 ## 00 — Non-negotiable boundaries
 - NAQAH is a Saudi private camel estate operations service. Promise: «اطمئنان، دون انشغال» / 
 Peace of Mind. Premium but discreet, never theatrical or flashy.
@@ -341,8 +337,10 @@ orientation will show the camel's face at every crop.
 
 Welcome copy (proposed, NOT already approved)
 - Eyebrow: WELCOME TO NAQAH
-- H1: اك الله في ناقةيّح.
-- Body: ز مربطك والعامل المسؤول عنه، ونضبط طريقة المتابعة اللي تناسبكهّخلنا نج.
+- H1: اك الله في ناقة
+يّح.
+- Body: ز مربطك والعامل المسؤول عنه، ونضبط طريقة المتابعة اللي تناسبك
+هّخلنا نج.
 - CTA: ابدأ إعداد مربطك
 - Secondary help (only if existing support/help flow exists): كيف تشتغل ناقة؟
 Transition into onboarding
@@ -447,7 +445,8 @@ complete”.
 - Required vs optional fields should mirror existing backend validation; do not guess what is required.
 - Preserve existing entered values on navigation and validation errors. Persisting progress across 
 sessions has NOT been approved or verified. Do not claim auto-save until tested.
-- When AI question generation is loading, show specific state: ز أسئلة المتابعةهّنج... with retry on 
+- When AI question generation is loading, show specific state: ز أسئلة المتابعة
+هّنج... with retry on
 failure. Do not create fake questions as if AI returned them.
 - Worker language displayed as selected; no made-up voice-language capabilities.
 - Completion state tells user what comes next: worker calls the AI and first actual report populates 
@@ -905,10 +904,9 @@ Does not auto-close at due
 time
 Writing system: Contemporary Saudi, naturally warm, short and clear. First show status and action; deeper 
 detail on demand. No AI hype, no excessive exclamation marks, no promises of perfect care.
-## 11 — Build order for the AI agent once core functionality is ready
+## 11 — Frontend implementation sequence
 Instruction: polish existing app without rewriting working API routes, database workflows, Twilio 
-logic, agent tools, subscription limits or ticket transitions. Begin with a short current-app audit. Create 
-a checkpoint/branch and confirm git diff; don't push/deploy without approval.
+logic, agent tools, subscription limits or ticket transitions. Begin with a short current-app audit.
 Stage Work Deliverable/acceptance
 0. Audit Inspect current routes, 
 components, responsive 
@@ -963,20 +961,7 @@ brand changes
 Priority rule if time is constrained: real working forms/dashboard > truthful data states > responsive & 
 accessible design > images > decorative scroll animation/tumbleweed. Do not sacrifice the core demo to 
 finish animation.
-AI coding-agent handoff prompt (paste after the app is working)
-Use NAQAH_Frontend_Experience_Build_Handoff_v1.0.md as the design/experience 
-brief, alongside the master NAQAH product requirements and the existing working code. Do 
-not implement immediately. First inspect the repository and give me (1) the current 
-route/component inventory, (2) what already satisfies the brief, (3) missing licensed imagery/brand 
-assets, and (4) a minimal safe implementation sequence. Then implement only after approval in 
-small reviewable phases. Preserve the exact official camel logo, the core brand palette, RTL and 
-functional Basic/Ultimate behavior; use Deep Crimson #8F3040 only as a proposed restrained 
-editorial accent. Do not touch Twilio, MCP, database/API logic or subscription rules unless 
-separately asked. Do not invent test results or fake data. If motion/image assets are absent, use 
-clearly labeled placeholders or still fallbacks, not unapproved image substitutions. Test 
-desktop/mobile, keyboard navigation, reduced-motion and existing functional flows. At the end 
-show changed files, screenshots or descriptions, tests run, and remaining gaps; do not 
-commit/push/deploy without permission.
+
 ## 12 — Frontend QA / acceptance checklist
 - ☐ Real source-of-truth status preserved; no fake updates/AI completion promises.
 - ☐ Existing worker inbound report flow and owner outbound notification not changed.

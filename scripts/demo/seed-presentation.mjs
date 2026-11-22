@@ -2,6 +2,7 @@
 /**
  * LOCAL DEMO ONLY. Adds (or with --reset removes) the fictional presentation ranch «عزبة الوسم (عرض تجريبي)»
  * on a local stand-in stack. Refuses anything that isn't loopback.
+ * Set NAQAH_PRESENTATION_EMAIL and NAQAH_PRESENTATION_PASSWORD to credentials for the local demo account.
  *
  *   PGHOST=127.0.0.1 PGPORT=54600 node scripts/demo/seed-presentation.mjs --db naqah_staging --gateway http://127.0.0.1:54602
  *   … --reset        removes the demo ranch (cascades to all its rows); the login stays
@@ -20,12 +21,17 @@ const arg = (name, fallback) => {
 };
 const DB = arg("db", "naqah_staging");
 const GATEWAY = arg("gateway", "http://127.0.0.1:54602");
-const EMAIL = arg("email", "demo@naqah.demo");
-const PASSWORD = arg("password", "naqah-demo-2026");
+const EMAIL = arg("email", process.env.NAQAH_PRESENTATION_EMAIL);
+const PASSWORD = arg("password", process.env.NAQAH_PRESENTATION_PASSWORD);
 const WORKER_PHONE = arg("worker-phone", undefined);
 if (WORKER_PHONE !== undefined && !/^\+9665\d{8}$/.test(WORKER_PHONE)) throw new Error("--worker-phone takes a Saudi mobile such as +9665XXXXXXXX");
 if (!/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(GATEWAY) || !/^(127\.0\.0\.1|localhost)$/.test(process.env.PGHOST ?? "")) {
   throw new Error("Local stand-in stack only (PGHOST and --gateway must be loopback)");
+}
+
+const reset = process.argv.includes("--reset");
+if (!reset && (!EMAIL || !PASSWORD)) {
+  throw new Error("Set NAQAH_PRESENTATION_EMAIL and NAQAH_PRESENTATION_PASSWORD for the local demo account.");
 }
 
 const PSQL = "/opt/homebrew/opt/postgresql@17/bin/psql";
@@ -38,7 +44,7 @@ const { diffWorkspace } = await jiti.import(join(ROOT, "src/server/db/diff.ts"))
 const { toDbId } = await jiti.import(join(ROOT, "src/server/db/ids.ts"));
 
 const existing = sql(`select id from farms where name = ${quote(DEMO_RANCH_NAME)}`);
-if (process.argv.includes("--reset")) {
+if (reset) {
   if (existing) sql(`delete from farms where name = ${quote(DEMO_RANCH_NAME)}`);
   console.log(existing ? "Removed the demo ranch." : "No demo ranch to remove.");
   process.exit(0);

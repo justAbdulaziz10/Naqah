@@ -1,14 +1,34 @@
 # Presentation: one real call (local only)
 
-## Before the room (10 minutes)
+> Internal runbook for a supervised presentation call on the local demo stack.
 
-1. Tunnel: `ngrok http --url=<your-ngrok-domain> 3302` (leave it running).
-2. Stack (wipes and recreates the local database):
-   `node scripts/test-call-local.mjs --live --dashboard-call --secrets /tmp/naqah-live-call/secrets.env --public-url https://<your-ngrok-domain> --allow +966500000073 --bridge-port 3302 --max-call-seconds 300`
-3. Demo ranch, with today still open for a report:
-   `PGHOST=127.0.0.1 PGPORT=54350 PGUSER=postgres node scripts/demo/seed-presentation.mjs --db naqah_test_call --gateway http://127.0.0.1:54352 --worker-phone +966500000073 --end-yesterday`
-4. Free checks, no call: `node scripts/preflight-call.mjs --providers --secrets /tmp/naqah-live-call/secrets.env --base https://<your-ngrok-domain> --farm <demo farm id>`. All nine must say PASS.
-5. Open `http://127.0.0.1:3301/ar/app`, sign in `demo@naqah.demo` / `naqah-demo-2026`.
+## Before the presentation
+
+1. Start an HTTPS tunnel to the local voice bridge. Set `PUBLIC_ORIGIN` to its HTTPS origin.
+2. Set `CALL_SECRETS_FILE` to a private, untracked file and `APPROVED_WORKER_PHONE` to the consenting
+   participant's number. Start a fresh local stack from the repository root. This recreates the local database.
+
+   ```sh
+   node scripts/test-call-local.mjs --live --dashboard-call --secrets "$CALL_SECRETS_FILE" \
+     --public-url "$PUBLIC_ORIGIN" --allow "$APPROVED_WORKER_PHONE" --bridge-port 3302 --max-call-seconds 300
+   ```
+
+3. Set `NAQAH_PRESENTATION_EMAIL` and `NAQAH_PRESENTATION_PASSWORD` in the shell environment to
+   credentials chosen for the local demo account. Seed the ranch with today still open for a report.
+
+   ```sh
+   PGHOST=127.0.0.1 PGPORT=54350 PGUSER=postgres node scripts/demo/seed-presentation.mjs \
+     --db naqah_test_call --gateway http://127.0.0.1:54352 --worker-phone "$APPROVED_WORKER_PHONE" --end-yesterday
+   ```
+
+4. Set `DEMO_FARM_ID` to the ID of the seeded ranch, then run the preflight checks.
+
+   ```sh
+   node scripts/preflight-call.mjs --providers --secrets "$CALL_SECRETS_FILE" \
+     --base "$PUBLIC_ORIGIN" --farm "$DEMO_FARM_ID"
+   ```
+
+5. Open `http://127.0.0.1:3301/ar/app` and sign in with the local demo credentials.
 
 The seed writes about three weeks of history: daily reports and findings, briefings, instructions with retries, a
 missed report call the worker returned, a No Answer ticket closed by a callback, closed tasks and owner inquiries.
@@ -17,8 +37,8 @@ running it again adds nothing):
 `node scripts/demo/enrich-presentation.mjs --db-url postgresql://postgres@127.0.0.1:54350/naqah_test_call --dry-run`,
 then the same without `--dry-run`. Reload the Dashboard afterwards.
 
-**Run again after a call:** add `--reset` to step 3, then run step 3 again. A ranch takes one report a day, so
-this is the only way to repeat the call. Limits stay: 3 calls an hour, 10 a day, no automatic redial.
+**Run again after a call** by running the seed command with `--reset` to remove the local demo ranch, then running it
+again without `--reset`. A ranch normally takes one report a day. Limits stay: 3 calls an hour, 10 a day, no automatic redial.
 
 ## On stage (about 3 minutes)
 

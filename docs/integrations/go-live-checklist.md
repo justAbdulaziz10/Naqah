@@ -6,12 +6,12 @@ Background: [twilio-activation](twilio-activation.md), [realtime-voice](realtime
 [phone](phone.md), [voice bridge](../../services/voice-bridge/README.md).
 
 ## 0. Preconditions
-- [ ] PR `integration/calling-reliability` merged to `main`; CI green (`npm run typecheck && npm run lint && npm test && npm run build`).
+- [ ] Calling code is on `main` and CI is green (`npm run typecheck && npm run lint && npm test && npm run build`).
 - [ ] `NAQAH_SCHEDULED_CALLS` is **unset** in Vercel and stays so until step 6. `NAQAH_CALL_OWNER` unset too.
 - [ ] Recording and transcription storage off in Twilio (no-recordings rule, AGENT.md 8.3).
 
 ## 1. Caller ID **[approval][paid]**
-Why: calls from the +44 test number were screened as spam by Saudi carriers (evidence 11-12 Nov), so workers did not answer.
+Saudi carriers screened some calls from an international caller ID as spam.
 - [ ] Verify an owned `+966…` number as an outbound caller ID in the Twilio console (code by SMS/voice), or buy a Saudi number
   (needs a regulatory bundle: business documents, see twilio-activation.md).
 - [ ] Twilio console, Voice, Geographic permissions: Saudi Arabia enabled.
@@ -20,7 +20,7 @@ Why: calls from the +44 test number were screened as spam by Saudi carriers (evi
   Policy: start with the consenting test worker (and owner); add a farm's worker only after the owner confirms the worker agreed.
 
 ## 2. Hosted voice bridge **[approval][paid]**
-Replace laptop + ngrok with an always-on small VPS in a Gulf/EU region (or Fly.io).
+Host the bridge on an always-on VPS in a Gulf or EU region, or on Fly.io.
 Routing/container/monitoring details: [voice-bridge-hosting](voice-bridge-hosting.md).
 - [ ] Run `services/voice-bridge` (start command in its README) with `OPENAI_API_KEY`, `TWILIO_AUTH_TOKEN`,
   `NAQAH_VOICE_SECRET` (same value as Vercel, at least 32 random bytes), `NAQAH_BRIDGE_PUBLIC_URL=wss://<bridge-domain>/voice-bridge/media`,

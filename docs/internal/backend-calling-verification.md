@@ -1,7 +1,6 @@
 # Backend and calling verification
 
-Verified locally on 2026-11-08 by `gpt-6.1-sol` (high reasoning effort), starting at `d56e16b`.
-Worktree: `/Users/moha/.t3/worktrees/NAQAH/t3-641b784b`, branch `t3/verify-backend-calling`.
+Historical local verification from 8 November 2026, starting at commit `d56e16b`.
 
 ## Scope and safety
 
@@ -9,10 +8,8 @@ Worktree: `/Users/moha/.t3/worktrees/NAQAH/t3-641b784b`, branch `t3/verify-backe
 - No other checkout's environment files were read. All credentials were locally generated or fake.
 - PostgreSQL 17 ran on loopback port 54355, PostgREST on 54356, mock Auth on 54357,
   and the outbound transport mock on 54359. App ports: 3460–3464.
-- Databases: `naqah_codex_stack`, `naqah_codex_voice`, `naqah_codex_account`, `naqah_codex_foundation`.
 - Scheduled calling stayed unset in the production preview processes. No migration was added.
-- Protected ports 3000, 3017, 3212, 3300 and 4040 were neither used nor stopped.
-- Evidence is gitignored under `artifacts/qa-codex/`; screenshots were visually inspected.
+- Screenshots were visually inspected.
 
 ## Results
 
@@ -76,22 +73,21 @@ change product rules. No confirmed bug in frontend-owned files remains from this
 - The extra foundation runner retains its documented legacy `no functions in public` expected failure:
   `apply_farm_changes` intentionally exists and is service-only. Its revision/event race errors are
   expected assertions. Its eight domain round-trip tests pass.
-- Logs are in `artifacts/qa-codex/{owner-flow,account,calling,voice-pg,account-pg,foundation,owner-stack,npm-test,typecheck,lint,build}.log`.
-- The pre-fix notification regression is retained in `artifacts/qa-codex/voice-regression-before.log`.
 
 ## Reproducing the additional calling proof
 
-Start `run-stack.sh` with the loopback ports and disposable DB above. Source only its generated local
+Start `run-stack.sh` with the loopback ports above and a disposable database. Source only its generated local
 `stack.env`, then build with the account flag. Start a second `mock-gateway.mjs` on port 54359 pointing
 to the same local PostgREST; this instance receives intercepted outbound requests only.
 
-For the manual preview, use fake `TWILIO_ACCOUNT_SID=AC00000000000000000000000000000000`,
-`TWILIO_AUTH_TOKEN=local-test-auth-token`, `TWILIO_PHONE_NUMBER=+15555550100`,
-`NAQAH_CALL_ALLOWLIST=+15555550101,+15555550102`, `NAQAH_MANUAL_REPORT_CALLS=1`,
-`NAQAH_CALL_OWNER=1`, `NAQAH_VOICE_MODE=farm`, `NAQAH_VOICE_LOCALE=en`,
-`NAQAH_VOICE_SECRET=local-only-codex-verification-secret`, `CRON_SECRET=local-only-cron-secret`,
-and `NAQAH_TEST_OUTBOUND_GATEWAY=http://127.0.0.1:54359`. The transport preload rejects non-loopback
-fetches and accepts only fake credentials; the mock endpoint accepts only the two fake recipient numbers.
+Set the local Twilio fixtures to match the mock gateway and verifier in
+[`mock-outbound.mjs`](../../supabase/local-validation/mock-outbound.mjs) and
+[`verify-calling.mjs`](../../scripts/verify-calling.mjs). Enable `NAQAH_MANUAL_REPORT_CALLS=1`
+and `NAQAH_CALL_OWNER=1`. Set `NAQAH_VOICE_MODE=farm`, `NAQAH_VOICE_LOCALE=en`, local secrets
+for `NAQAH_VOICE_SECRET` and `CRON_SECRET`, and
+`NAQAH_TEST_OUTBOUND_GATEWAY=http://127.0.0.1:54359`. Run the verifier with the same voice and
+cron secrets. The transport preload accepts only loopback requests with fake credentials, and
+the gateway accepts only the fixture recipients.
 
 ```sh
 NAQAH_PUBLIC_BASE_URL=https://localhost:3463 node --import ./supabase/local-validation/mock-outbound.mjs ./node_modules/next/dist/bin/next start -p 3463

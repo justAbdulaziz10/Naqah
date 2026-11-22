@@ -1,7 +1,7 @@
 # Supabase backend foundation
 
-Status (2026-11-13, from team notes dated 2026-11-11; not a new live inspection): every migration through
-**`20261110090000_mvp_owner_runs`** is applied to the live project `ydsgmzxqjimwbamnksxe`.
+Status (2026-11-13): every migration through
+**`20261110090000_mvp_owner_runs`** is applied to the live project `<project-ref>`.
 `20261113090000_report_call_scheduler.sql` is **not** applied. Account mode is still opt-in: until the exact
 build-time `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` is set, everyone stays on the browser demo and `/api/account` returns
 404. The voice routes use this code only when `NAQAH_VOICE_MODE=farm`; see `twilio-activation.md`.
@@ -23,7 +23,7 @@ Complete sequence, in filename order (the same list as `AGENT.md` §8.1). Do not
 | `20261113090000_report_call_scheduler` | `pg_cron` + `pg_net` job calling `/api/cron/report-calls` every 5 min, `scheduler_heartbeats` | **not applied** |
 | `20261113100000_worker_call_claims` | `pending_worker_calls.dial_claimed_at`; bounds uncertain worker-call placements to the 3-attempt rule. Safe to deploy code first | **not applied** |
 
-Target project: `ydsgmzxqjimwbamnksxe`. Never apply this to any other project.
+Target project: `<project-ref>`. Never apply this to any other project.
 
 ## How it fits together
 
@@ -168,9 +168,9 @@ requests or disable `NAQAH_VOICE_MODE=farm`/service jobs. Those require separate
 ## Before going live
 
 **Needs the project owner**
-- [x] Confirm owner access to the existing `ydsgmzxqjimwbamnksxe` and inspect its actual migration history.
-- [ ] Review/merge the readiness PR separately, then obtain explicit activation authorization (issue #6 stays open).
-- [x] Apply every migration through `20261110090000` in order (team notes, 2026-11-11).
+- [x] Confirm owner access to the existing `<project-ref>` and inspect its actual migration history.
+- [ ] Obtain explicit authorization before activating hosted features.
+- [x] Apply every migration through `20261110090000` in order.
 - [ ] Apply `20261113090000_report_call_scheduler.sql` and set its Vault secrets (owner-approved; see `twilio-activation.md`).
 - [ ] Apply `20261113100000_worker_call_claims.sql` (owner-approved).
 - [ ] Set `NEXT_PUBLIC_NAQAH_ACCOUNT_DATA=1` and rebuild, after the migrations are applied.
