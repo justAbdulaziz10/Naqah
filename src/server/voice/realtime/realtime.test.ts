@@ -42,7 +42,7 @@ const NOW = new Date("2026-11-08T11:04:58Z");
 
 /** One voice_call_sessions row, with the filters that decide who wins a race applied for real. */
 function fakeClient() {
-  const store: { row: Record<string, unknown> | null } = { row: null };
+  const store: { row: Record<string, unknown> | null; onUpdate?: () => void } = { row: null };
   const read = (row: Record<string, unknown>, path: string) =>
     path.split(/->>?/).reduce<unknown>((value, key) => (value as Record<string, unknown> | undefined)?.[key], row);
   const builder = () => {
@@ -62,7 +62,10 @@ function fakeClient() {
       is: (key: string, value: unknown) => { filters.push((row) => (read(row, key) ?? null) === value); return query; },
       maybeSingle: async () => {
         const found = matching();
-        if (found && patch) store.row = JSON.parse(JSON.stringify({ ...found, ...patch }));
+        if (found && patch) {
+          store.row = JSON.parse(JSON.stringify({ ...found, ...patch }));
+          store.onUpdate?.();
+        }
         return { data: found ? JSON.parse(JSON.stringify(store.row)) : null, error: null };
       },
       then: (resolve: (value: { error: null }) => void) => resolve({ error: null }),
@@ -1440,6 +1443,20 @@ describe("the natural call (local presentation style)", () => {
     expect(xml).toContain("معليش");
     expect(xml).not.toContain("<Gather");
     expect(xml).toContain("<Hangup");
+  });
+
+  it("says the report was saved when confirmation commits as the natural stream closes", async () => {
+    await openNatural();
+    const workspace = answeredFarm();
+    mock.load.mockImplementation(async () => ({ workspace: structuredClone(workspace) }));
+    db.store.onUpdate = () => {
+      if (realtimeOf(row().session)?.closed) workspace.reportCalls![0].reportId = RUN;
+    };
+    const request = () => twilio(`/api/voice/realtime/after?s=${encodeURIComponent(signCallToken(token(), SECRET))}`, { CallSid: CALL });
+    const xml = await (await afterRoute(request())).text();
+    expect(xml).toContain("انحفظ، الله يعطيك العافية");
+    expect(xml).not.toContain("معليش");
+    expect(await (await afterRoute(request())).text()).toBe(xml);
   });
 
   it.each(["normal", "silence"])("does not replay a goodbye after the bridge closed for %s", async (reason) => {

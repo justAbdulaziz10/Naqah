@@ -5,7 +5,8 @@
  */
 import { undeliveredCalls } from "./alerts";
 import { MAX_RETRIES, MINUTE, RETRY_DELAY_MS } from "./clock";
-import { coveredTasks, dueTaskVerifications, dueWorkerCalls, openCoveredTasks, returnableReportRun } from "./rules";
+import { coveredTasks, dueTaskVerifications, dueWorkerCalls, openCoveredTasks, returnableReportRun, workerAttemptState, workerCallClaimIsActive } from "./rules";
+import { reportCallOccupiesWorkerLine, reportCallRuns } from "./reportCalls";
 import { coveredReportDraft, evaluateFindings, reportDraftIssue, type ReportDraft } from "./findings";
 import { uid } from "./id";
 import type {
@@ -68,8 +69,8 @@ export function retainDemoHistory(input: Workspace): Workspace {
 }
 
 /** @internal Shared with reportCalls.ts. */
-export function pushEvent(ws: Workspace, at: Date, tone: EventTone, text: LocalizedText) {
-  ws.events.push({ id: uid("evt"), at: iso(at), tone, text });
+export function pushEvent(ws: Workspace, at: Date, tone: EventTone, text: LocalizedText, id = uid("evt")) {
+  ws.events.push({ id, at: iso(at), tone, text });
   if (ws.events.length > 200) ws.events.splice(0, ws.events.length - 200);
 }
 
@@ -451,6 +452,7 @@ export function startTaskVerification(input: Workspace, now: Date, taskId: strin
       call.purpose === "task_verification" &&
       call.state === "pending" &&
       call.attempts.length === 0 &&
+      !call.dialClaimedAt &&
       call.nextAttemptAt !== null &&
       Date.parse(call.nextAttemptAt) <= now.getTime() &&
       dueAt(taskId) !== null &&
@@ -484,7 +486,7 @@ const WORKER_PLACEMENT_UNKNOWN_MS = 15 * MINUTE;
  * Start due verifications, then reserve the next due worker call so a second scheduler pass cannot dial it.
  * The reservation is not an attempt. Twilio's status callback or an expired claim records it.
  */
-export function claimDueWorkerCall(input: Workspace, now: Date): { ws: Workspace; pendingCallId: string | null; attempt: number } {
+export function claimDueWorkerCall(input: Workspace, now: Date): { ws: Workspace; pendingCallId: string | null; attempt: number; retryBase: number } {
   let ws = clone(input);
   for (const call of input.pendingWorkerCalls) {
     if (call.state !== "pending" || !call.dialClaimedAt || !call.nextAttemptAt || Date.parse(call.nextAttemptAt) > now.getTime()) continue;
@@ -492,21 +494,30 @@ export function claimDueWorkerCall(input: Workspace, now: Date): { ws: Workspace
   }
   for (const task of dueTaskVerifications(ws, now)) ws = startTaskVerification(ws, now, task.id).ws;
   // The worker's phone is one line: a second call now would ring busy and waste one of its three attempts.
-  const onTheLine = (ws.reportCalls ?? []).some((run) => run.state === "answered" || (run.state === "calling" && run.attempts.at(-1)?.result === "pending"));
-  if (onTheLine) return { ws, pendingCallId: null, attempt: 0 };
+  if (reportCallRuns(ws).some((run) => reportCallOccupiesWorkerLine(run, now)) || ws.pendingWorkerCalls.some((call) => workerCallClaimIsActive(call, now))) {
+    return { ws, pendingCallId: null, attempt: 0, retryBase: 0 };
+  }
   const call = dueWorkerCalls(ws, now)[0];
-  if (!call) return { ws, pendingCallId: null, attempt: 0 };
+  if (!call) return { ws, pendingCallId: null, attempt: 0, retryBase: 0 };
   call.dialClaimedAt = iso(now);
   call.nextAttemptAt = new Date(now.getTime() + WORKER_DIAL_LOCK_MS).toISOString();
-  return { ws, pendingCallId: call.id, attempt: call.attempts.length + 1 };
+  return { ws, pendingCallId: call.id, attempt: call.attempts.length + 1, retryBase: call.retryBase ?? 0 };
 }
 
-export function markWorkerCallPlacementUnknown(input: Workspace, pendingCallId: string, attempt: number, now: Date): Workspace {
+function setWorkerCallClaimDeadline(input: Workspace, pendingCallId: string, attempt: number, now: Date, durationMs: number): Workspace {
   const current = input.pendingWorkerCalls.find((call) => call.id === pendingCallId);
   if (current?.state !== "pending" || Date.parse(current.dialClaimedAt ?? "") !== now.getTime() || current.attempts.length + 1 !== attempt) return input;
   const ws = clone(input);
-  ws.pendingWorkerCalls.find((call) => call.id === pendingCallId)!.nextAttemptAt = new Date(now.getTime() + WORKER_PLACEMENT_UNKNOWN_MS).toISOString();
+  ws.pendingWorkerCalls.find((call) => call.id === pendingCallId)!.nextAttemptAt = new Date(now.getTime() + durationMs).toISOString();
   return ws;
+}
+
+export function markWorkerCallPlaced(input: Workspace, pendingCallId: string, attempt: number, now: Date, durationMs: number): Workspace {
+  return setWorkerCallClaimDeadline(input, pendingCallId, attempt, now, durationMs);
+}
+
+export function markWorkerCallPlacementUnknown(input: Workspace, pendingCallId: string, attempt: number, now: Date): Workspace {
+  return setWorkerCallClaimDeadline(input, pendingCallId, attempt, now, WORKER_PLACEMENT_UNKNOWN_MS);
 }
 
 /** Release a reservation when the provider never placed the call. */
@@ -564,15 +575,18 @@ export function resolveWorkerCallAttempt(
   now: Date,
   pendingCallId: string,
   result: WorkerAttemptResult,
+  confirmedAttempt?: number,
 ): { ws: Workspace; outcome: AttemptOutcome } {
   const ws = clone(input);
   const call = ws.pendingWorkerCalls.find((c) => c.id === pendingCallId);
-  if (!call || call.state !== "pending") return { ws, outcome: "delivered" };
+  const upgrade = call && result === "delivered" && confirmedAttempt !== undefined && workerAttemptState(call, confirmedAttempt) === "settled";
+  if (!call || (!upgrade && call.state !== "pending")) return { ws, outcome: "delivered" };
+  const wasExhausted = call.state === "no_answer_ticket";
   if (call.dialClaimedAt) call.dialClaimedAt = null;
   const at = iso(now);
   const answered = result !== "unanswered";
-  call.attempts.push({ at, answered });
-  const attempt = call.attempts.length;
+  if (!upgrade) call.attempts.push({ at, answered });
+  const attempt = call.attempts.length - (call.retryBase ?? 0);
   const kind: CallKind = call.purpose === "instruction" ? "worker_instruction" : "worker_task_verification";
 
   if (result === "delivered") {
@@ -596,7 +610,10 @@ export function resolveWorkerCallAttempt(
       ticketId: call.taskTicketId,
       reportId: null,
     });
-    pushEvent(ws, now, "success", {
+    pushEvent(ws, now, "success", wasExhausted ? {
+      ar: "وصل تأكيد العامل بعد توقف المحاولات — اكتملت المكالمة.",
+      en: "The worker’s confirmation arrived after retries stopped — the call is complete.",
+    } : {
       ar: call.purpose === "instruction" ? "رد العامل ووصلته التعليمات" : "رد العامل على مكالمة التحقق",
       en: call.purpose === "instruction" ? "Worker answered and received the instruction" : "Worker answered the verification call",
     });
@@ -617,17 +634,16 @@ export function resolveWorkerCallAttempt(
     reportId: null,
   });
 
-  const inRound = attempt - (call.retryBase ?? 0);
-  if (inRound <= MAX_RETRIES) {
+  if (attempt <= MAX_RETRIES) {
     call.nextAttemptAt = new Date(now.getTime() + RETRY_DELAY_MS).toISOString();
     pushEvent(ws, now, "neutral", result === "interrupted"
       ? {
-          ar: `انقطع الاتصال — إعادة المحاولة بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${inRound}/${MAX_RETRIES + 1})`,
-          en: `The call ended early — retrying in ${RETRY_DELAY_MS / MINUTE} minutes (${inRound}/${MAX_RETRIES + 1})`,
+          ar: `انقطع الاتصال — إعادة المحاولة بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${attempt}/${MAX_RETRIES + 1})`,
+          en: `The call ended early — retrying in ${RETRY_DELAY_MS / MINUTE} minutes (${attempt}/${MAX_RETRIES + 1})`,
         }
       : {
-          ar: `لم يرد العامل — إعادة المحاولة بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${inRound}/${MAX_RETRIES + 1})`,
-          en: `Worker didn't answer — retrying in ${RETRY_DELAY_MS / MINUTE} minutes (${inRound}/${MAX_RETRIES + 1})`,
+          ar: `لم يرد العامل — إعادة المحاولة بعد ${RETRY_DELAY_MS / MINUTE} دقيقة (${attempt}/${MAX_RETRIES + 1})`,
+          en: `Worker didn't answer — retrying in ${RETRY_DELAY_MS / MINUTE} minutes (${attempt}/${MAX_RETRIES + 1})`,
         });
     return { ws, outcome: "retry_scheduled" };
   }

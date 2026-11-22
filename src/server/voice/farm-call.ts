@@ -12,14 +12,14 @@ import { makePersonalizer, personalizeTree } from "@/domain/conversation/persona
 import type { ReportDraft } from "@/domain/findings";
 import { markOwnerCallAnswered } from "@/domain/ownerCalls";
 import { ownerSummaryText } from "@/domain/ownerSummary";
-import { taskTicketsEnabled } from "@/domain/rules";
+import { taskTicketsEnabled, workerAttemptState } from "@/domain/rules";
 import type { Locale, Workspace } from "@/domain/types";
 import { DbError } from "@/server/db/errors";
 import { loadFarm, requireFarm } from "@/server/db/queries";
 import { findCaller, findReportCallRun, recordedOutcome, runFarmAction } from "@/server/db/service-repository";
 import { afterResponse } from "@/server/calls/after";
 import { recordCallFailure } from "@/server/calls/reliability";
-import { signCallToken, type CallToken } from "@/server/calls/token";
+import { signCallToken, workerTokenAttempt, type CallToken } from "@/server/calls/token";
 import {
   advanceVoiceSession, createVoiceSession, deleteStaleVoiceSessions, deleteVoiceSession, readVoiceSession,
   type VoiceSessionRow,
@@ -48,7 +48,7 @@ import type { BridgeClosedSession } from "./realtime/closed";
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
 type Copy = Record<Locale, string>;
-export type VoiceCallSession = CallSession & { voiceSilences?: number; voiceUnmatched?: number; voiceKeypad?: boolean };
+export type VoiceCallSession = CallSession & { voiceSilences?: number; voiceUnmatched?: number; voiceKeypad?: boolean; workerAttempt?: number };
 
 const NOT_REGISTERED: Copy = { ar: "هذا الرقم غير مسجل لدى ناقة.", en: "This number is not registered with NAQAH." };
 const NOT_READY: Copy = {
@@ -80,6 +80,10 @@ const SAVE_RETRY: Copy = {
 export const SAVE_FAILED: Copy = {
   ar: "صار خلل وما قدرت أتأكد من حفظ شيء. فضلاً اتصل مرة ثانية.",
   en: "Something went wrong and I couldn't confirm that anything was saved. Please call again.",
+};
+const EARLIER_ANSWERS_SAVED: Copy = {
+  ar: "إجاباتك السابقة محفوظة، لكن ما قدرت أتأكد من حفظ الإجابة الأخيرة. يعطيك العافية.",
+  en: "Your earlier answers are saved, but I couldn't confirm the latest answer. Thank you.",
 };
 const INSTRUCTIONS_ALREADY_SAVED: Copy = {
   ar: "هذي التعليمات انحفظت قبل، وما تغير شيء. يعطيك العافية.",
@@ -182,11 +186,12 @@ export function eventFor(before: CallSession | null, result: EngineResult, input
     };
   } else if (before.scenario === "worker_outbound" && before.data.currentCallId) {
     const pendingCallId = before.data.currentCallId;
-    const eventId = `${callSid}:worker:${pendingCallId}`;
+    const eventId = `${callSid}:worker:${pendingCallId}:answer`;
+    const attempt = (before as VoiceCallSession).workerAttempt;
     if (before.step === "outbound_answer") {
-      return { ...base, eventId, type: "worker_call_attempt", pendingCallId, answered: false };
+      return { ...base, eventId, type: "worker_call_attempt", pendingCallId, answered: false, attempt };
     }
-    if (before.step === "outbound_receipt") return { ...base, eventId, type: "worker_call_attempt", pendingCallId, answered: true, completed: true };
+    if (before.step === "outbound_receipt") return { ...base, eventId, type: "worker_call_attempt", pendingCallId, answered: true, completed: true, attempt };
     if (before.step === "outbound_task_confirmation") {
       const taskId = before.data.currentTaskId;
       const done = input?.value === "yes";
@@ -197,6 +202,7 @@ export function eventFor(before: CallSession | null, result: EngineResult, input
         eventId,
         type: "worker_call_attempt",
         pendingCallId,
+        attempt,
         answered: true,
         completed: result.session.data.deliveryCompleted === true,
         answeredTaskIds: (result.session.data.answeredTaskIds ?? []).filter((id) => id !== taskId),
@@ -207,9 +213,9 @@ export function eventFor(before: CallSession | null, result: EngineResult, input
   throw new DbError("invalid_input", "call outcome has no voice event");
 }
 
-/** One event id per call, so whichever of the conversation or Twilio's status lands first decides. */
+/** Completion and provider status replay independently; completion takes precedence for that attempt. */
 const ownerAttemptEvent = (callSid: string, runId: string, attempt: number, result: "unanswered" | "interrupted" | "completed") => ({
-  version: 1, eventId: `${callSid}:owner-attempt`, providerCallId: callSid, type: "owner_call_attempt", runId, attempt, result,
+  version: 1, eventId: `${callSid}:owner-attempt${result === "completed" ? ":confirmed" : ""}`, providerCallId: callSid, type: "owner_call_attempt", runId, attempt, result,
 });
 
 const contextFor = (party: VoiceSessionRow["party"]): VoiceContext =>
@@ -270,7 +276,7 @@ async function advance(client: SupabaseClient, row: VoiceSessionRow, session: Vo
   return (await readVoiceSession(client, row.call_sid))?.last_response ?? response;
 }
 
-/** The conversation reached its end without a failed save. Twilio's final status is then a replay. */
+/** The conversation reached its end without a failed save. */
 async function completeOwnerRun(client: SupabaseClient, farmId: string, session: CallSession, callSid: string, now: Date): Promise<void> {
   const { ownerRunId, ownerAttempt } = session.data;
   if (!ownerRunId || !ownerAttempt) return;
@@ -303,8 +309,20 @@ export async function planTurn(
   const next = row.seq + 1;
   const closing = (ended: VoiceCallSession, misses: number, text: string, outcome: TurnOutcome, onAdvanced?: () => Promise<void>): TurnPlan =>
     ({ session: ended, misses, response: twimlGoodbye(locale, text), outcome, goodbye: text, onAdvanced });
+  const saveFailed = (misses = 0) => closing({ ...session, done: true }, misses,
+    (session.workerAttempt !== undefined && session.data.answeredTaskIds?.length ? EARLIER_ANSWERS_SAVED : SAVE_FAILED)[locale], "save_failed");
 
-  const result = answer(session, workspace, now, chosen);
+  let engineWorkspace = workspace;
+  if (session.workerAttempt !== undefined) {
+    const call = workspace.pendingWorkerCalls.find((item) => item.id === session.data.currentCallId);
+    const state = call && workerAttemptState(call, session.workerAttempt);
+    if (!call || !state) return saveFailed();
+    if (state === "settled") {
+      engineWorkspace = { ...workspace, pendingWorkerCalls: workspace.pendingWorkerCalls.map((item) => item === call
+        ? { ...item, state: "pending", attempts: item.attempts.slice(0, -1) } : item) };
+    }
+  }
+  const result = answer(session, engineWorkspace, now, chosen);
   const event = eventFor(session, result, chosen, callSid);
   const saveParty = session.scenario === "owner_notification"
     ? { party: "owner" as const, call: "notification" as const }
@@ -318,7 +336,7 @@ export async function planTurn(
     } catch (error) {
       console.error(`[NAQAH] voice save failed (${error instanceof DbError ? error.code : "unknown"})`);
       const retry = row.misses === 0 && !(error instanceof DbError && error.code === "invalid_input");
-      if (!retry) return closing({ ...session, done: true }, row.misses, SAVE_FAILED[locale], "save_failed");
+      if (!retry) return saveFailed(row.misses);
       return { session, misses: 1, response: respond(session, session.turns.length - 1, workspace, locale, next, SAVE_RETRY[locale]), outcome: "retry_save", goodbye: null };
     }
   }
@@ -333,7 +351,9 @@ export async function planTurn(
     const landed = await recordedOutcome<VoiceOutcome>(client, row.farm_id, `${callSid}:report`);
     if (landed?.status === "saved") return closing(result.session, 0, SAVED[locale], "saved");
   }
-  if (outcome?.status === "rejected") return closing({ ...session, done: true }, 0, SAVE_FAILED[locale], "save_failed");
+  if (outcome?.status === "rejected" || (event?.type === "worker_call_attempt" && outcome?.status === "saved" && outcome.detail === "ignored" && event.completed)) {
+    return saveFailed();
+  }
   if (event?.type === "owner_instruction") {
     await completeOwnerRun(client, row.farm_id, session, callSid, now);
     // Only what the contract wrote is claimed: a replay of this run's batch saved nothing new.
@@ -532,7 +552,7 @@ export async function reportCallStatus(
 
 async function openLiveCall(
   client: SupabaseClient,
-  input: { farmId: string; callSid: string; locale: Locale; now: Date; party: "owner" | "worker"; result: EngineResult },
+  input: { farmId: string; callSid: string; locale: Locale; now: Date; party: "owner" | "worker"; result: EngineResult; workerAttempt?: number },
 ): Promise<string> {
   const { workspace } = requireFarm(await loadFarm(client, { id: input.farmId }));
   const response = respond(input.result.session, 0, workspace, input.locale, 0);
@@ -542,7 +562,7 @@ async function openLiveCall(
     farm_id: input.farmId,
     party: input.party,
     locale: input.locale,
-    session: withoutTranscript(input.result.session),
+    session: withoutTranscript({ ...input.result.session, ...(input.workerAttempt === undefined ? {} : { workerAttempt: input.workerAttempt }) } as VoiceCallSession),
     last_response: response,
     created_at: input.now.toISOString(),
   });
@@ -564,7 +584,7 @@ export async function answerOwnerCall(
   const repeated = await readVoiceSession(client, callSid);
   if (repeated) return repeated.farm_id === token.f ? repeated.last_response : twimlGoodbye(token.l);
   const { result: workspace } = await runFarmAction(client, token.f, (ws) => {
-    const marked = markOwnerCallAnswered(ws, now, token.o);
+    const marked = markOwnerCallAnswered(ws, now, token.o, token.n);
     return { ws: marked, result: marked };
   });
   const run = workspace.ownerCallRun;
@@ -624,21 +644,22 @@ export async function answerWorkerCall(
   if (repeated) return repeated.farm_id === token.f ? repeated.last_response : twimlGoodbye(token.l);
   const { workspace } = requireFarm(await loadFarm(client, { id: token.f }));
   const call = workspace.pendingWorkerCalls.find((item) => item.id === token.p && item.state === "pending");
-  if (!call || call.attempts.length + 1 !== token.n || !taskTicketsEnabled(workspace)) return twimlGoodbye(token.l);
+  const attempt = workerTokenAttempt(token);
+  if (!call || workerAttemptState(call, attempt) !== "active" || !taskTicketsEnabled(workspace)) return twimlGoodbye(token.l);
   return openLiveCall(client, {
     farmId: token.f,
     callSid,
     locale: token.l,
     now,
     party: "worker",
+    workerAttempt: attempt,
     result: startLiveWorkerDelivery(workspace, now, call.id),
   });
 }
 
 /**
  * Final status of an instruction or verification call.
- * Picking up is not delivery. The conversation records delivery with this same event id;
- * a status that arrives afterwards is a replay and cannot mark the call delivered.
+ * Picking up is not delivery. Keep the session for an in-flight Gather; stale sessions expire normally.
  */
 export async function workerCallStatus(
   client: SupabaseClient,
@@ -654,15 +675,15 @@ export async function workerCallStatus(
     pendingCallId: token.p,
     answered: status === "completed",
     completed: false,
-    attempt: token.n,
+    attempt: workerTokenAttempt(token),
   };
   await save(client, token.f, { party: "system" }, event, now);
-  await deleteVoiceSession(client, callSid);
+  if ((await readVoiceSession(client, callSid))?.session.done) await deleteVoiceSession(client, callSid);
 }
 
 /**
  * Twilio's final status for the owner's call. The phone never connected → unanswered. It connected
- * but no completion was recorded → interrupted. A recorded completion wins: same event id, so this is a replay.
+ * but no completion was recorded → interrupted unless confirmation arrives for the same attempt.
  */
 export async function ownerCallStatus(
   client: SupabaseClient,
@@ -672,5 +693,5 @@ export async function ownerCallStatus(
   if (!FINAL_STATUSES.has(status)) return;
   const result = status === "completed" ? "interrupted" : "unanswered";
   await save(client, token.f, { party: "system" }, ownerAttemptEvent(callSid, token.o, token.n, result), now);
-  await deleteVoiceSession(client, callSid);
+  if ((await readVoiceSession(client, callSid))?.session.done) await deleteVoiceSession(client, callSid);
 }

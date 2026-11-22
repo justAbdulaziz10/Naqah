@@ -7,7 +7,7 @@
 import { pushCall, pushEvent } from "./actions";
 import { HOUR, MINUTE, REPORT_CALL_GRACE_MS, REPORT_CALL_RETRIES, RETRY_DELAY_MS } from "./clock";
 import { uid } from "./id";
-import { reportDoneThisPeriod, reportPlanHasContent } from "./rules";
+import { reportDoneThisPeriod, reportPlanHasContent, workerCallClaimIsActive } from "./rules";
 import { previousScheduledCall } from "./schedule";
 import type { ReportCallRun, Workspace } from "./types";
 
@@ -29,6 +29,9 @@ function isAbandoned(run: ReportCallRun, now: Date): boolean {
 
 /** Still ringing, waiting for a retry or in conversation, and not left open by a lost status. */
 export const reportCallIsLive = (run: ReportCallRun, now: Date) => isActive(run) && !isAbandoned(run, now);
+
+export const reportCallOccupiesWorkerLine = (run: ReportCallRun, now: Date) =>
+  reportCallIsLive(run, now) && (run.state === "answered" || run.attempts.at(-1)?.result === "pending");
 
 export const reportCallRuns = (ws: Workspace): ReportCallRun[] => ws.reportCalls ?? [];
 
@@ -60,6 +63,7 @@ export type ReportCallOptions = { repeatReports?: boolean };
 export function reportCallBlock(ws: Workspace, now: Date, options: ReportCallOptions = {}, periodAt: Date = now): ReportCallBlock | null {
   if (!dialableWorkerPhone(ws)) return "no_worker_phone";
   if (reportCallRuns(ws).some((run) => reportCallIsLive(run, now))) return "in_progress";
+  if (ws.pendingWorkerCalls.some((call) => workerCallClaimIsActive(call, now))) return "in_progress";
   if (reportDoneThisPeriod(ws, periodAt) && !options.repeatReports) return "already_reported";
   if (!reportPlanHasContent(ws, now)) return "no_questions";
   return null;
@@ -70,10 +74,14 @@ export function reportCallBlock(ws: Workspace, now: Date, options: ReportCallOpt
  * recorded), only within the grace period after its time, and never after the period's report is in.
  */
 export function dueScheduledReportCall(ws: Workspace, now: Date): Date | null {
+  const slot = recentUnusedReportSlot(ws, now, REPORT_CALL_GRACE_MS);
+  return slot && !reportCallBlock(ws, now, {}, slot) ? slot : null;
+}
+
+function recentUnusedReportSlot(ws: Workspace, now: Date, maxAgeMs: number): Date | null {
   const slot = previousScheduledCall(now, ws.settings.plan, ws.settings.callSchedule);
-  if (!slot || now.getTime() - slot.getTime() > REPORT_CALL_GRACE_MS) return null;
+  if (!slot || now.getTime() - slot.getTime() > maxAgeMs) return null;
   if (reportCallRuns(ws).some((run) => run.occurrence === iso(slot))) return null;
-  if (reportCallBlock(ws, now, {}, slot)) return null;
   return slot;
 }
 
@@ -246,18 +254,30 @@ export interface ReportCallClaim {
  * attempt before anything is dialled. Saved through a revision-checked write, so two schedulers
  * running at once can't both claim it. Unchanged workspace and null when nothing is due.
  */
-export function claimDueReportCall(input: Workspace, now: Date): { ws: Workspace; claim: ReportCallClaim | null } {
+export function claimDueReportCall(input: Workspace, now: Date, eventId = (id: string) => id): { ws: Workspace; claim: ReportCallClaim | null } {
   // A retry left waiting while every question was off must not ring days later for an old slot.
   const stale = dueReportCallAttempts(input, now).find((run) => now.getTime() - new Date(run.occurrence).getTime() > REPORT_CALL_GIVE_UP_MS);
   if (stale) return { ws: giveUpReportCall(input, now, stale.id), claim: null };
   const phone = dialableWorkerPhone(input);
   // A retry is checked here too: the owner may have switched everything off since the first attempt.
   if (!phone || !reportPlanHasContent(input, now)) return { ws: input, claim: null };
+  const slot = recentUnusedReportSlot(input, now, REPORT_CALL_GIVE_UP_MS);
+  const fresh = slot !== null && now.getTime() - slot.getTime() <= REPORT_CALL_GRACE_MS;
+  const deferredId = slot && eventId(`report-call-deferred:${iso(slot)}`);
+  const deferred = deferredId && input.events.some((event) => event.id === deferredId);
+  if (reportCallRuns(input).some((run) => reportCallOccupiesWorkerLine(run, now)) || input.pendingWorkerCalls.some((call) => workerCallClaimIsActive(call, now))) {
+    if (!slot || !fresh || !deferredId || deferred || reportDoneThisPeriod(input, slot)) return { ws: input, claim: null };
+    const ws = structuredClone(input);
+    pushEvent(ws, now, "neutral", {
+      ar: "تأجلت مكالمة التقرير لأن خط العامل كان مشغولًا.",
+      en: "The report call was delayed because the worker’s line was busy.",
+    }, deferredId);
+    return { ws, claim: null };
+  }
   let ws = input;
   let run: ReportCallRun | undefined = dueReportCallAttempts(input, now)[0];
   if (!run) {
-    const slot = dueScheduledReportCall(input, now);
-    if (!slot) return { ws: input, claim: null };
+    if (!slot || (!fresh && !deferred)) return { ws: input, claim: null };
     const opened = startReportCall(input, now, "schedule", slot);
     if (!opened.run) return { ws: input, claim: null };
     ws = opened.ws;

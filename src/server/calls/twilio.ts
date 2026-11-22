@@ -30,7 +30,7 @@ export interface OutboundCaller {
 const E164 = /^\+[1-9]\d{7,14}$/;
 const CALL_SID = /^CA[0-9a-f]{32}$/i;
 
-export function createTwilioCaller(config: OutboundConfig | null = outboundConfig(), fetchImpl: typeof fetch = fetch): OutboundCaller {
+export function createTwilioCaller(config: (Omit<OutboundConfig, "baseUrl"> & { baseUrl?: string }) | null = outboundConfig(), fetchImpl: typeof fetch = fetch): OutboundCaller {
   return {
     provider: "twilio",
     async place(request) {
@@ -44,13 +44,15 @@ export function createTwilioCaller(config: OutboundConfig | null = outboundConfi
       const body = new URLSearchParams({
         To: request.to,
         From: config.from,
-        StatusCallback: request.statusCallback,
-        StatusCallbackMethod: "POST",
         Timeout: String(request.timeoutSeconds ?? 30),
         // A hard ceiling on every call's length: Twilio ends the call when it is reached.
         TimeLimit: String(callTimeLimitSeconds()),
         Record: "false",
       });
+      if (request.statusCallback) {
+        body.set("StatusCallback", request.statusCallback);
+        body.set("StatusCallbackMethod", "POST");
+      }
       for (const event of request.statusEvents ?? []) body.append("StatusCallbackEvent", event);
       if (request.url) {
         const answerUrl = new URL(request.url);

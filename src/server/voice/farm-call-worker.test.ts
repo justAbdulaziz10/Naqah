@@ -1,9 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { claimDueWorkerCall } from "@/domain/actions";
+import { claimDueWorkerCall, confirmTask, resolveWorkerCallAttempt, retryUndeliveredCall } from "@/domain/actions";
 import { createEmptyWorkspace } from "@/domain/seed";
 import type { Workspace } from "@/domain/types";
 import type { VoiceSessionRow } from "@/server/db/voice-sessions";
+import { signCallToken, type CallToken } from "@/server/calls/token";
+import { POST as workerAnswer } from "@/app/api/voice/worker/route";
+import { POST as workerStatus } from "@/app/api/voice/worker/status/route";
 import type { VoiceEvent, VoiceContext } from "./contract";
 import { eventAllowed, voiceStep } from "./contract";
 import { answerFarmCall, answerWorkerCall, workerCallStatus } from "./farm-call";
@@ -11,9 +14,16 @@ import { answerFarmCall, answerWorkerCall, workerCallStatus } from "./farm-call"
 /** One farm and one call in memory; saves run the real contract rules, once per event id. */
 const db = vi.hoisted(() => ({ ws: null as unknown as Workspace, row: null as VoiceSessionRow | null, events: [] as { type: string; eventId: string }[], seen: new Set<string>() }));
 vi.mock("server-only", () => ({}));
+vi.mock("./farm-webhook", () => ({
+  farmWebhook: async (request: Request) => {
+    const form = new URLSearchParams(await request.text());
+    return { client: {}, form, callSid: form.get("CallSid") };
+  },
+  farmResponse: async (work: Promise<string>) => new Response(await work),
+}));
 vi.mock("@/server/db/voice-sessions", async (original) => ({
   ...(await original<typeof import("@/server/db/voice-sessions")>()),
-  readVoiceSession: async () => db.row,
+  readVoiceSession: async (_client: unknown, callSid: string) => db.row?.call_sid === callSid ? db.row : null,
   createVoiceSession: async (_client: unknown, row: VoiceSessionRow) => { db.row = { ...row, seq: 0, misses: 0 }; return db.row; },
   advanceVoiceSession: async (_client: unknown, _sid: string, seq: number, next: Partial<VoiceSessionRow>) => { db.row = { ...db.row!, ...next, seq: seq + 1 }; return db.row; },
   deleteVoiceSession: async () => { db.row = null; },
@@ -91,10 +101,40 @@ describe("a real verification call", () => {
     expect(taskStatus(T2)).toBe("open");
     expect(db.events.map((event) => event.type)).toEqual(["task_confirmation", "worker_call_attempt"]);
     expect(db.row?.session.done).toBe(true);
-    // Twilio's final status repeats the conversation's event id, so it records nothing more.
+    // Twilio's final status cannot downgrade a confirmation.
     await workerCallStatus(client, { token, callSid: sid(1), status: "completed", now });
     expect(call()).toMatchObject({ state: "delivered" });
     expect(call().attempts).toHaveLength(1);
+  });
+
+  it("keeps the final task answer when final status wins on the third attempt", async () => {
+    const token = claim();
+    call().attempts = [{ at: now.toISOString(), answered: false }, { at: now.toISOString(), answered: false }];
+    const last = { ...token, n: 3 };
+    await answerWorkerCall(client, { token: last, callSid: sid(1), now });
+    await say(sid(1), 0, "2");
+    await workerCallStatus(client, { token: last, callSid: sid(1), status: "completed", now });
+    expect(call().state).toBe("no_answer_ticket");
+    expect(db.ws.events.at(-1)?.text.en).toContain("Automatic calls stopped after 3 attempts");
+    await say(sid(1), 1, "1");
+    await say(sid(1), 1, "1");
+    await workerCallStatus(client, { token: last, callSid: sid(1), status: "completed", now });
+    expect(taskStatus(T2)).toBe("closed");
+    expect(call()).toMatchObject({ state: "delivered", nextAttemptAt: null });
+    expect(call().attempts).toHaveLength(3);
+    expect(db.ws.calls.filter((entry) => entry.outcome === "completed" && entry.kind === "worker_task_verification")).toHaveLength(1);
+    expect(db.ws.events.filter((event) => event.text.en.includes("confirmation arrived after retries stopped"))).toHaveLength(1);
+  });
+
+  it("acknowledges the saved first answer when another interaction closes the remaining task", async () => {
+    const token = claim();
+    await answerWorkerCall(client, { token, callSid: sid(1), now });
+    await say(sid(1), 0, "1");
+    expect(taskStatus(T1)).toBe("closed");
+    db.ws = confirmTask(db.ws, now, T2, true, "worker_report");
+    expect(call().state).toBe("delivered");
+    expect(spoken(await say(sid(1), 1, "1"))).toContain("Your earlier answers are saved");
+    expect(db.events.map((event) => event.type)).toEqual(["task_confirmation"]);
   });
 
   it("counts a hang-up as interrupted, keeps the answer, and retries only what is open", async () => {
@@ -143,6 +183,45 @@ describe("a real verification call", () => {
     const token = claim();
     db.ws = { ...db.ws, settings: { ...db.ws.settings, plan: "basic" } };
     expect(await answerWorkerCall(client, { token, callSid: sid(1), now })).toContain("<Hangup/>");
+  });
+});
+
+describe("signed worker routes", () => {
+  it("accepts all three attempts of a requeued batch and ignores a stale previous-round callback", async () => {
+    const secret = "unit-test-voice-secret-at-least-32-bytes";
+    vi.stubEnv("NAQAH_VOICE_MODE", "farm");
+    vi.stubEnv("NAQAH_VOICE_SECRET", secret);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now);
+    try {
+      const initial = claim();
+      for (let index = 0; index < 3; index += 1) db.ws = resolveWorkerCallAttempt(db.ws, now, CALL, "unanswered").ws;
+      db.ws = retryUndeliveredCall(db.ws, now, CALL);
+      const send = (path: string, token: CallToken, callSid: string) => new Request(`https://naqah.test/api/voice/worker${path}?s=${encodeURIComponent(signCallToken(token, secret))}`, {
+        method: "POST", body: new URLSearchParams({ CallSid: callSid, CallStatus: "completed" }),
+      });
+      for (let index = 0; index < 3; index += 1) {
+        const at = new Date(now.getTime() + index * 20 * 60_000);
+        vi.setSystemTime(at);
+        const reserved = claimDueWorkerCall(db.ws, at);
+        db.ws = reserved.ws;
+        const token = { ...initial, n: reserved.attempt - reserved.retryBase, b: reserved.retryBase, t: at.getTime() };
+        const callSid = sid(index + 2);
+        expect(spoken(await (await workerAnswer(send("", token, callSid))).text())).toContain("Fix the gate");
+        expect((await workerStatus(send("/status", initial, sid(1)))).status).toBe(204);
+        expect(call().attempts).toHaveLength(3 + index);
+        expect((await workerStatus(send("/status", token, callSid))).status).toBe(204);
+        expect(db.ws.calls.at(-1)?.attempt).toBe(index + 1);
+        if (index < 2) expect(call().nextAttemptAt).toBe(new Date(at.getTime() + 20 * 60_000).toISOString());
+      }
+      expect(db.ws.pendingWorkerCalls).toHaveLength(1);
+      expect(call()).toMatchObject({ id: CALL, state: "no_answer_ticket", nextAttemptAt: null, retryBase: 3 });
+      expect(call().attempts).toHaveLength(6);
+      expect(db.ws.taskTickets).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
   });
 });
 

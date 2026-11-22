@@ -319,8 +319,10 @@ describe("voice webhook routes", () => {
     vi.stubEnv("NAQAH_CALL_OWNER", "1");
     vi.stubEnv("TWILIO_ACCOUNT_SID", "AC-test");
     vi.stubEnv("TWILIO_PHONE_NUMBER", "+966500000000");
+    vi.stubEnv("NAQAH_CALL_ALLOWLIST", "+966550000344");
     const fetchMock = vi.fn(async (...args: [string | URL, RequestInit?]) => {
-      void args;
+      // Twilio answers a placed call with its sid; the guarded caller treats anything else as not placed.
+      if (String(args[0]).includes("api.twilio.com")) return Response.json({ sid: `CA${"0".repeat(32)}` }, { status: 201 });
       return new Response(null, { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);

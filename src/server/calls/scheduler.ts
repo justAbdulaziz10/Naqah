@@ -4,16 +4,17 @@
  * Twilio to place the call. A call Twilio never placed is undone, not logged as unanswered.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { claimDueWorkerCall, markWorkerCallPlacementUnknown, releaseWorkerCallClaim } from "@/domain/actions";
+import { claimDueWorkerCall, markWorkerCallPlaced, markWorkerCallPlacementUnknown, releaseWorkerCallClaim } from "@/domain/actions";
 import {
   abandonReportCallAttempt, claimDueReportCall, dialableWorkerPhone, placeReportCallAttempt, startReportCall,
   type ReportCallBlock,
 } from "@/domain/reportCalls";
-import { REPORT_CALL_RING_SECONDS } from "@/domain/clock";
+import { MINUTE, REPORT_CALL_RING_SECONDS } from "@/domain/clock";
 import type { Locale } from "@/domain/types";
 import { DbError } from "@/server/db/errors";
 import { toDbId } from "@/server/db/ids";
 import { listScheduledFarmIds, runFarmAction } from "@/server/db/service-repository";
+import { callTimeLimitSeconds } from "./config";
 import { dialDueOwnerCall } from "./owner-call";
 import { signCallToken } from "./token";
 import type { OutboundCaller, OutboundCallResult } from "./twilio";
@@ -34,13 +35,15 @@ export async function runReportCallScheduler(
   options: { baseUrl: string; now: Date },
 ): Promise<SchedulerSummary> {
   const { baseUrl, now } = options;
+  // `now` stays fixed for the whole run; this measures how far real time has moved on since it was taken.
+  const runStarted = performance.now();
   const farmIds = await listScheduledFarmIds(client);
   const summary: SchedulerSummary = { farms: farmIds.length, placed: 0, failed: 0, errors: 0 };
 
   for (const farmId of farmIds) {
     try {
       const { result: claim } = await runFarmAction(client, farmId, (ws) => {
-        const claimed = claimDueReportCall(expireReportRuns(ws, farmId, now), now);
+        const claimed = claimDueReportCall(expireReportRuns(ws, farmId, now), now, (id) => toDbId(farmId, id));
         return { ws: claimed.ws, result: claimed.claim ? { ...claimed.claim, locale: workerLocale(ws) } : null };
       });
       if (claim) {
@@ -52,7 +55,7 @@ export async function runReportCallScheduler(
       summary.errors += 1;
       console.error(`[NAQAH] report call scheduler failed for a farm (${error instanceof DbError ? error.code : error instanceof Error ? error.name : "unknown"})`);
     }
-    await dialDueWorkerCall(client, caller, farmId, summary, { baseUrl, now });
+    await dialDueWorkerCall(client, caller, farmId, summary, { baseUrl, now, runStarted });
     await dialOwner(client, caller, farmId, summary, now);
   }
   return summary;
@@ -64,7 +67,7 @@ async function dialDueWorkerCall(
   caller: OutboundCaller,
   farmId: string,
   summary: SchedulerSummary,
-  options: { baseUrl: string; now: Date },
+  options: { baseUrl: string; now: Date; runStarted: number },
 ) {
   try {
     const { result: claim } = await runFarmAction(client, farmId, (ws) => {
@@ -74,12 +77,21 @@ async function dialDueWorkerCall(
       if (!phone) return { ws: releaseWorkerCallClaim(claimed.ws, claimed.pendingCallId, options.now), result: null };
       return {
         ws: claimed.ws,
-        result: { pendingCallId: claimed.pendingCallId, attempt: claimed.attempt, phone, locale: workerLocale(ws) },
+        result: { pendingCallId: claimed.pendingCallId, attempt: claimed.attempt, retryBase: claimed.retryBase, phone, locale: workerLocale(ws) },
       };
     });
     if (!claim) return;
     const pendingId = toDbId(farmId, claim.pendingCallId);
-    const query = `s=${encodeURIComponent(signCallToken({ k: "worker", f: farmId, p: pendingId, n: claim.attempt, l: claim.locale, t: options.now.getTime() }))}`;
+    const { result: persisted } = await runFarmAction(client, farmId, (ws) => {
+      const call = ws.pendingWorkerCalls.find((item) => toDbId(farmId, item.id) === pendingId);
+      return { ws, result: call?.state === "pending" && Date.parse(call.dialClaimedAt ?? "") === options.now.getTime() && call.attempts.length + 1 === claim.attempt };
+    });
+    if (!persisted) {
+      summary.errors += 1;
+      console.error("[NAQAH] Worker call suppressed: dial claim was not persisted; verify migration 20261113100000 is applied");
+      return;
+    }
+    const query = `s=${encodeURIComponent(signCallToken({ k: "worker", f: farmId, p: pendingId, n: claim.attempt - claim.retryBase, ...(claim.retryBase ? { b: claim.retryBase } : {}), l: claim.locale, t: options.now.getTime() }))}`;
     let placed: OutboundCallResult;
     try {
       placed = await caller.place({
@@ -94,6 +106,11 @@ async function dialDueWorkerCall(
     }
     if (placed.placed) {
       summary.placed += 1;
+      // The line stays held from the moment Twilio placed the call, not from the start of this run, which may
+      // be minutes earlier after other ranches. If this save fails, the longer claim lock stays: safe, never a second call.
+      const elapsedMs = Math.max(0, Math.floor((performance.now() - options.runStarted) / 1000) * 1000);
+      const durationMs = (REPORT_CALL_RING_SECONDS + callTimeLimitSeconds()) * 1000 + MINUTE + elapsedMs;
+      await runFarmAction(client, farmId, (ws) => ({ ws: markWorkerCallPlaced(ws, pendingId, claim.attempt, options.now, durationMs), result: null }));
       return;
     }
     summary.failed += 1;

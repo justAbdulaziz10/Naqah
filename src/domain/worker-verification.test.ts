@@ -49,10 +49,14 @@ describe("verification calls group by exact due time", () => {
     expect(call).toMatchObject({ coveredTaskIds: ["t1"], taskTicketId: "t1" });
   });
 
-  it("gives different due times their own call, one claimed per pass", () => {
+  it("gives different due times their own call without overlapping claims", () => {
     const first = claimed(farm("ultimate", [["t1", dueAt], ["t2", later]]), later);
     expect(verify(first.ws).map((call) => call.coveredTaskIds)).toEqual([["t1"], ["t2"]]);
-    const second = claimed(first.ws, later);
+    const waiting = claimDueWorkerCall(first.ws, later);
+    expect(waiting.pendingCallId).toBeNull();
+    expect(verify(waiting.ws)[1].attempts).toEqual([]);
+    const done = resolveWorkerCallAttempt(waiting.ws, later, first.call.id, "delivered");
+    const second = claimed(done.ws, later);
     expect(second.call.id).not.toBe(first.call.id);
   });
 

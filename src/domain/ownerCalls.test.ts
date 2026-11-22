@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { completeWorkerReport } from "./actions";
-import { fromRiyadh, MINUTE, RETRY_DELAY_MS } from "./clock";
+import { fromRiyadh, MINUTE, REPORT_CALL_GRACE_MS, RETRY_DELAY_MS } from "./clock";
 import { routeOwnerInboundCall } from "./rules";
 import {
   abandonOwnerCallAttempt, claimDueOwnerCall, dueOwnerCallSlot, markOwnerCallAnswered, newestUnsummarizedReport, openOwnerCallNow,
@@ -16,7 +16,7 @@ const draft = { answers: [], camelUpdates: [], resourceUpdates: [], herdAccounte
 function farm(plan: Plan = "basic"): Workspace {
   const ws = createEmptyWorkspace(plan);
   ws.setupComplete = true;
-  ws.settings.owner = { name: "Abdullah", phone: "+966 55 012 3344" };
+  ws.settings.owner = { name: "Abdullah", phone: "+966 55 000 0344" };
   ws.settings.worker = { ...ws.settings.worker, name: "Ahmed", phone: "+966501234567" };
   ws.settings.ownerCallSchedule = { day: plan === "basic" ? 4 : null, time: "18:00" };
   return ws;
@@ -52,9 +52,30 @@ describe("missed owner notification periods", () => {
 });
 
 describe("opening an owner slot", () => {
+  it("does not invent a missed owner call when an unobserved slot has expired", () => {
+    const ws = farm();
+    ws.createdAt = at(-1).toISOString();
+    const late = REPORT_CALL_GRACE_MS / MINUTE + 1;
+    const result = claim(ws, late);
+    expect(result.claim).toBeNull();
+    expect(result.ws).toBe(ws);
+  });
+
+  it.each(["schedule change", "plan upgrade", "missing phone"])("does not mark a retroactive owner slot missed after %s", (change) => {
+    const ws = farm(change === "plan upgrade" ? "basic" : "ultimate");
+    ws.createdAt = fromRiyadh(2026, 11, 1, 12, 0).toISOString();
+    if (change === "plan upgrade") ws.settings.ownerCallSchedule = { day: 5, time: "09:00" };
+    ws.settings.plan = "ultimate";
+    if (change !== "plan upgrade") ws.settings.ownerCallSchedule = { day: null, time: "09:00" };
+    if (change === "missing phone") ws.settings.owner.phone = "";
+    const result = claimDueOwnerCall(ws, fromRiyadh(2026, 11, 12, 12, 0));
+    expect(result.claim).toBeNull();
+    expect(result.ws).toBe(ws);
+  });
+
   it("opens once per occurrence, recorded before anything is dialled", () => {
     const first = claim(farm(), 0);
-    expect(first.claim).toMatchObject({ attempt: 1, phone: "+966550123344", reportId: null });
+    expect(first.claim).toMatchObject({ attempt: 1, phone: "+966550000344", reportId: null });
     expect(first.ws.ownerCallRun).toMatchObject({ occurrence: THU_1800.toISOString(), state: "calling", nextAttemptAt: null });
     expect(first.ws.ownerCallRun!.attempts).toEqual([{ at: THU_1800.toISOString(), result: "pending" }]);
     expect(claim(first.ws, 1).claim).toBeNull();
@@ -162,6 +183,20 @@ describe("each attempt's outcome", () => {
     expect(notifications(done)).toEqual([expect.objectContaining({ outcome: "completed" })]);
     expect(done.ownerAllowanceUsedAt).toBe(at(2).toISOString());
     expect(resolveOwnerCallAttempt(done, at(3), runId, 1, "completed")).toBe(done);
+  });
+
+  it("corrects the exhausted owner call once when its third attempt is confirmed late", () => {
+    let current = ws;
+    for (const attempt of [1, 2, 3]) {
+      current = resolveOwnerCallAttempt(current, at((attempt - 1) * 21 + 1), runId, attempt, "interrupted");
+      if (attempt < 3) current = claim(current, attempt * 21).ws;
+    }
+    expect(current.ownerCallRun?.state).toBe("missed");
+    const done = resolveOwnerCallAttempt(current, at(44), runId, 3, "completed");
+    expect(done.ownerCallRun?.state).toBe("completed");
+    expect(done.missedNotificationAt).toBeNull();
+    expect(done.events.at(-1)?.text.en).toContain("confirmed complete after");
+    expect(resolveOwnerCallAttempt(done, at(45), runId, 3, "completed")).toBe(done);
   });
 
   it("never downgrades a completion", () => {

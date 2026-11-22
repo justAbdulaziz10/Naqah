@@ -152,17 +152,16 @@ export function abandonOwnerCallAttempt(input: Workspace, now: Date, runId: stri
 }
 
 /** The owner picked up. Idempotent: a repeated webhook changes nothing. */
-export function markOwnerCallAnswered(input: Workspace, _now: Date, runId: string): Workspace {
+export function markOwnerCallAnswered(input: Workspace, _now: Date, runId: string, attempt?: number): Workspace {
   const current = input.ownerCallRun;
-  if (!current || current.id !== runId || current.state !== "calling" || current.attempts.at(-1)?.result !== "pending") return input;
+  if (!current || current.id !== runId || current.state !== "calling" || (attempt !== undefined && current.attempts.length !== attempt) || current.attempts.at(-1)?.result !== "pending") return input;
   const ws = structuredClone(input);
   ws.ownerCallRun!.state = "answered";
   return ws;
 }
 
 /**
- * How one attempt ended. Only a pending attempt can change, so a repeated or late webhook does
- * nothing and a completion is never downgraded. Interrupted counts as unsuccessful.
+ * How one attempt ended. Confirmation can supersede the same attempt's final status, never a newer attempt.
  */
 export function resolveOwnerCallAttempt(
   input: Workspace,
@@ -173,15 +172,24 @@ export function resolveOwnerCallAttempt(
   placementUnknown = false,
 ): Workspace {
   const current = input.ownerCallRun;
-  if (!current || current.id !== runId || current.attempts.length !== attempt || current.attempts[attempt - 1].result !== "pending") return input;
+  const last = current?.attempts.at(-1);
+  if (!current || current.id !== runId || current.attempts.length !== attempt || !last || last.result === "completed" || (last.result !== "pending" && result !== "completed")) return input;
   const ws = structuredClone(input);
   const run = ws.ownerCallRun!;
   run.attempts[attempt - 1].result = result;
   if (placementUnknown) run.attempts[attempt - 1].placementUnknown = true;
   run.nextAttemptAt = null;
   if (result === "completed") {
+    delete run.attempts[attempt - 1].placementUnknown;
+    const missed = ws.calls.findLast((call) => call.kind === "owner_notification" && call.outcome === "no_answer");
+    if (current.state === "missed" && ws.missedNotificationAt === (run.trigger === "manual" ? missed?.at : run.occurrence)) ws.missedNotificationAt = null;
     run.state = "completed";
-    return recordOwnerNotification(ws, now, run.reportId, true);
+    const completed = recordOwnerNotification(ws, now, run.reportId, true);
+    if (current.state === "missed") pushEvent(completed, now, "success", {
+      ar: "وصل تأكيد اكتمال مكالمة المالك بعد تسجيلها كمكالمة غير مكتملة.",
+      en: "The owner call was confirmed complete after it had been marked incomplete.",
+    });
+    return completed;
   }
   // A manual demo call authorized one call. Only scheduled runs retry unattended.
   if (attempt >= OWNER_CALL_ATTEMPTS || run.trigger === "manual") return finishMissed(ws, now, run);

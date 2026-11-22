@@ -11,7 +11,7 @@ import { reportDraftIssue, type ReportDraft } from "@/domain/findings";
 import { isHerdCount } from "@/domain/herd";
 import { resolveOwnerCallAttempt } from "@/domain/ownerCalls";
 import { endReportCallWithoutReport, reportCallRuns, resolveReportCallAttempt, type ReportCallOutcome } from "@/domain/reportCalls";
-import { coveredTasks, dueTaskVerifications, reportDoneThisPeriod, routeOwnerInboundCall, routeWorkerInboundCall, taskTicketsEnabled, workerDeliveryResult } from "@/domain/rules";
+import { coveredTasks, dueTaskVerifications, reportDoneThisPeriod, routeOwnerInboundCall, routeWorkerInboundCall, taskTicketsEnabled, workerAttemptState, workerDeliveryResult } from "@/domain/rules";
 import { uid } from "@/domain/id";
 import { heatWaterFinding } from "@/domain/weather";
 import type { CallKind, Certainty, Level, ReportAnswer, ReportCallRun, ResourceKind, Workspace } from "@/domain/types";
@@ -126,6 +126,11 @@ function count(value: unknown, field: string): number {
 
 function attemptNumber(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 10) throw invalid(field);
+  return value;
+}
+
+function workerAttemptNumber(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw invalid("attempt");
   return value;
 }
 
@@ -244,7 +249,7 @@ export function parseVoiceEvent(value: unknown): VoiceEvent {
         ...(input.completed === undefined ? {} : { completed: bool(input.completed, "completed") }),
         ...(input.taskId === undefined ? {} : { taskId: uuid(input.taskId, "taskId") }),
         ...(input.taskDone === undefined ? {} : { taskDone: bool(input.taskDone, "taskDone") }),
-        ...(input.attempt === undefined ? {} : { attempt: attemptNumber(input.attempt, "attempt") }),
+        ...(input.attempt === undefined ? {} : { attempt: workerAttemptNumber(input.attempt) }),
         ...(input.answeredTaskIds === undefined ? {} : { answeredTaskIds: list(input.answeredTaskIds, "answeredTaskIds").map((id) => uuid(id, "answeredTaskIds")) }),
       };
     case "report_call_attempt":
@@ -378,14 +383,16 @@ export function voiceStep(ws: Workspace, now: Date, event: VoiceEvent, repeatRep
       if (!tasksToVerify(ws, now).some((task) => task.id === event.taskId)) return { ws, result: saved };
       return { ws: startTaskVerification(ws, now, event.taskId).ws, result: saved };
     case "worker_call_attempt": {
-      const call = ws.pendingWorkerCalls.find((item) => item.id === event.pendingCallId && item.state === "pending");
-      // A late callback for an earlier attempt must not resolve the one ringing now.
-      if (call && event.attempt !== undefined && call.attempts.length + 1 !== event.attempt) return { ws, result: { status: "saved", detail: "ignored" } };
+      const call = ws.pendingWorkerCalls.find((item) => item.id === event.pendingCallId);
+      const state = call && (event.attempt === undefined ? (call.state === "pending" ? "active" : null) : workerAttemptState(call, event.attempt));
+      if (!call || !state) return { ws, result: { status: "saved", detail: "ignored" } };
       const answers = [...(event.answeredTaskIds ?? []), ...(event.taskId ? [event.taskId] : [])];
-      const result = !event.answered ? "unanswered" as const : call && event.completed ? workerDeliveryResult(ws, call, answers) : "interrupted" as const;
-      const attempt = resolveWorkerCallAttempt(ws, now, event.pendingCallId, result);
+      const result = !event.answered ? "unanswered" as const : event.completed ? workerDeliveryResult(ws, call, answers) : "interrupted" as const;
+      const attempt = state === "active" || result === "delivered"
+        ? resolveWorkerCallAttempt(ws, now, event.pendingCallId, result, event.attempt)
+        : { ws, outcome: "ignored" as const };
       // The last answer travels with the attempt, even when an earlier task is still unanswered.
-      const answered = call && event.answered && event.taskId && event.taskDone !== undefined && coveredTasks(call).includes(event.taskId);
+      const answered = event.answered && event.taskId && event.taskDone !== undefined && coveredTasks(call).includes(event.taskId);
       const confirmed = answered ? confirmTask(attempt.ws, now, event.taskId!, event.taskDone!, "worker_task_verification") : attempt.ws;
       return { ws: confirmed, result: { status: "saved", detail: attempt.outcome } };
     }
