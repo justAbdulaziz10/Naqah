@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveWorkerCallAttempt, retryUndeliveredCall } from "@/domain/actions";
+import { MINUTE, REPORT_CALL_RING_SECONDS } from "@/domain/clock";
 import { createDemoWorkspace } from "@/domain/seed";
 import type { Workspace } from "@/domain/types";
 import { toDbId } from "@/server/db/ids";
+import { callTimeLimitSeconds } from "./config";
 import { verifyCallToken } from "./token";
 import { recordingCaller } from "./twilio";
 
@@ -9,7 +12,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/server/rate-limit", () => ({ reserveRateLimit: async () => ({ release: async () => {} }) }));
 
 /** One farm held in memory; runFarmAction applies the pure action to it like the database would. */
-const store = vi.hoisted(() => ({ ws: null as unknown as Workspace, saves: 0, farmIds: [] as string[], fails: new Set<string>() }));
+const store = vi.hoisted(() => ({ ws: null as unknown as Workspace, saves: 0, farmIds: [] as string[], fails: new Set<string>(), oldWorkerRpc: false }));
 vi.mock("@/server/db/service-repository", () => ({
   listScheduledFarmIds: async () => store.farmIds,
   runFarmAction: async (_client: unknown, farm: string, action: (ws: Workspace) => { ws: Workspace; result: unknown }) => {
@@ -19,6 +22,8 @@ vi.mock("@/server/db/service-repository", () => ({
     // Ids as the database would return them: domain ids become stable UUIDs.
     store.ws = {
       ...ws,
+      ...(store.oldWorkerRpc ? { pendingWorkerCalls: ws.pendingWorkerCalls.map((call) => ({ ...call, dialClaimedAt: undefined })) } : {}),
+      events: ws.events.map((event) => ({ ...event, id: toDbId(FARM, event.id) })),
       reportCalls: ws.reportCalls?.map((run) => ({ ...run, id: toDbId(FARM, run.id) })),
       ...(ws.ownerCallRun ? { ownerCallRun: { ...ws.ownerCallRun, id: toDbId(FARM, ws.ownerCallRun.id) } } : {}),
     };
@@ -38,6 +43,7 @@ beforeEach(() => {
   const ws = createDemoWorkspace("en", "basic");
   store.ws = { ...ws, reports: [], calls: [], lastUpdateAt: null, reportCalls: [], clockOffsetMs: 0, settings: { ...ws.settings, worker: { ...ws.settings.worker, phone: "+966501234567" }, callSchedule: { day: 4, time: "17:00" } } };
   store.saves = 0;
+  store.oldWorkerRpc = false;
   store.farmIds = [FARM];
   store.fails = new Set();
 });
@@ -108,6 +114,95 @@ describe("worker instruction and verification dialing", () => {
     expect(store.ws.pendingWorkerCalls[0].nextAttemptAt).toBe(now.toISOString());
   });
 
+  it("waits one tick for an active worker claim before placing another worker call or report", async () => {
+    const first = recordingCaller();
+    await runReportCallScheduler({} as never, first.caller, options);
+    const secondId = "44444444-4444-4444-8444-444444444444";
+    store.ws.pendingWorkerCalls.push({ ...store.ws.pendingWorkerCalls[0], id: secondId, dialClaimedAt: null, nextAttemptAt: now.toISOString() });
+    store.ws.settings.callSchedule = { day: 4, time: "17:00" };
+    const next = recordingCaller();
+    const later = new Date(now.getTime() + 5 * MINUTE);
+    await runReportCallScheduler({} as never, next.caller, { ...options, now: later });
+    expect(next.requests).toHaveLength(0);
+    expect(store.ws.pendingWorkerCalls.find((call) => call.id === secondId)).toMatchObject({ attempts: [], nextAttemptAt: now.toISOString() });
+    expect(store.ws.reportCalls).toEqual([]);
+    store.ws = resolveWorkerCallAttempt(store.ws, later, pendingId, "delivered").ws;
+    await runReportCallScheduler({} as never, next.caller, { ...options, now: later });
+    expect(next.requests).toHaveLength(1);
+    expect(next.requests[0].url).toContain("/api/voice/outbound");
+  });
+
+  it("dials the 17:00 report after a lost status on a 16:50 worker call", async () => {
+    vi.stubEnv("NAQAH_CALL_TIME_LIMIT_SECONDS", "300");
+    const start = new Date(now.getTime() - 10 * MINUTE);
+    const { caller, requests } = recordingCaller();
+    store.ws.settings.callSchedule = { day: null, time: "17:00" };
+    store.ws.pendingWorkerCalls[0].nextAttemptAt = start.toISOString();
+    await runReportCallScheduler({} as never, caller, { ...options, now: start });
+    const deadline = start.getTime() + (REPORT_CALL_RING_SECONDS + callTimeLimitSeconds()) * 1000 + MINUTE;
+    expect(store.ws.pendingWorkerCalls[0].nextAttemptAt).toBe(new Date(deadline).toISOString());
+    expect(requests.map((request) => new URL(request.url!).pathname)).toEqual(["/api/voice/worker"]);
+    await runReportCallScheduler({} as never, caller, options);
+    expect(requests.map((request) => new URL(request.url!).pathname)).toEqual(["/api/voice/worker", "/api/voice/outbound"]);
+    expect(store.ws.reportCalls).toMatchObject([{ state: "calling", attempts: [{ result: "pending" }] }]);
+  });
+
+  it("holds the worker line from when the call was placed, not from the start of a slow run", async () => {
+    vi.stubEnv("NAQAH_CALL_TIME_LIMIT_SECONDS", "300");
+    const start = new Date(now.getTime() - 10 * MINUTE);
+    let clock = 0;
+    const timer = vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const slow = { place: vi.fn(async () => { clock += 3 * MINUTE; return { placed: true as const, sid: `CA${"0".repeat(32)}` }; }) };
+    store.ws.pendingWorkerCalls[0].nextAttemptAt = start.toISOString();
+    await runReportCallScheduler({} as never, slow, { ...options, now: start });
+    const deadline = start.getTime() + 3 * MINUTE + (REPORT_CALL_RING_SECONDS + callTimeLimitSeconds()) * 1000 + MINUTE;
+    expect(store.ws.pendingWorkerCalls[0].nextAttemptAt).toBe(new Date(deadline).toISOString());
+    timer.mockRestore();
+  });
+
+  it("unblocks Call now after the placed worker call's deadline", async () => {
+    vi.stubEnv("NAQAH_CALL_TIME_LIMIT_SECONDS", "120");
+    const { caller } = recordingCaller();
+    await runReportCallScheduler({} as never, caller, options);
+    const deadline = now.getTime() + (REPORT_CALL_RING_SECONDS + callTimeLimitSeconds()) * 1000 + MINUTE;
+    expect(await requestReportCallNow({} as never, caller, FARM, { ...options, now: new Date(deadline - 1) })).toEqual({ status: "blocked", reason: "in_progress" });
+    expect(await requestReportCallNow({} as never, caller, FARM, { ...options, now: new Date(deadline) })).toEqual({ status: "placed" });
+    expect(store.ws.reportCalls).toMatchObject([{ trigger: "manual", attempts: [{ result: "pending" }] }]);
+  });
+
+  it("persists the busy deferral across ticks and dials after initial grace", async () => {
+    vi.stubEnv("NAQAH_CALL_TIME_LIMIT_SECONDS", "300");
+    const start = new Date(now.getTime() + 56 * MINUTE);
+    const { caller, requests } = recordingCaller();
+    store.ws.pendingWorkerCalls[0].nextAttemptAt = start.toISOString();
+    await runReportCallScheduler({} as never, caller, { ...options, now: start });
+    store.ws.settings.callSchedule = { day: null, time: "17:00" };
+    for (const minute of [57, 59]) await runReportCallScheduler({} as never, caller, { ...options, now: new Date(now.getTime() + minute * MINUTE) });
+    expect(store.ws.events.filter((event) => event.text.en.includes("line was busy"))).toHaveLength(1);
+    expect(store.ws.reportCalls).toEqual([]);
+    await runReportCallScheduler({} as never, caller, { ...options, now: new Date(now.getTime() + 65 * MINUTE) });
+    expect(requests.map((request) => new URL(request.url!).pathname)).toEqual(["/api/voice/worker", "/api/voice/outbound"]);
+    expect(store.ws.reportCalls).toMatchObject([{ occurrence: now.toISOString(), attempts: [{ result: "pending" }] }]);
+  });
+
+  it("starts a requeued batch with a signed attempt one and keeps the old history", async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) store.ws = resolveWorkerCallAttempt(store.ws, now, pendingId, "unanswered").ws;
+    store.ws = retryUndeliveredCall(store.ws, now, pendingId);
+    const { caller, requests } = recordingCaller();
+    await runReportCallScheduler({} as never, caller, options);
+    const token = verifyCallToken(new URL(requests[0].url!).searchParams.get("s"), SECRET, now.getTime());
+    expect(token).toMatchObject({ k: "worker", p: pendingId, n: 1, b: 3 });
+    expect(store.ws.pendingWorkerCalls[0].attempts).toHaveLength(3);
+  });
+
+  it("does not dial if the old RPC drops a persisted worker claim", async () => {
+    store.oldWorkerRpc = true;
+    const { caller, requests } = recordingCaller();
+    expect(await runReportCallScheduler({} as never, caller, options)).toMatchObject({ placed: 0, errors: 1 });
+    expect(requests).toEqual([]);
+    expect(store.ws.pendingWorkerCalls[0].attempts).toEqual([]);
+  });
+
   it.each(["rejected", "not_configured", "invalid_number", "not_allowed"] as const)("releases the worker claim after %s and waits before asking again", async (reason) => {
     const { caller } = recordingCaller(() => ({ placed: false, reason, status: 400 }));
     const result = await runReportCallScheduler({} as never, caller, options);
@@ -153,20 +248,20 @@ describe("scheduled owner call", () => {
     vi.stubEnv("NAQAH_PUBLIC_BASE_URL", "https://naqah.test");
     store.ws.reports = [{ id: reportId, at: now.toISOString(), callId: "c", answers: [], findings: [] }];
     store.ws.lastUpdateAt = now.toISOString();
-    store.ws.settings.owner.phone = "+966550123344";
+    store.ws.settings.owner.phone = "+966550000344";
     store.ws.settings.ownerCallSchedule = { day: 4, time: "17:00" };
     store.ws.ownerCallRun = null;
   });
 
   it("dials a due slot as a conversation URL, saved before dialling, and not twice", async () => {
     const { caller, requests } = recordingCaller((request) => {
-      if (request.to === "+966550123344") expect(store.ws.ownerCallRun?.attempts).toHaveLength(1);
+      if (request.to === "+966550000344") expect(store.ws.ownerCallRun?.attempts).toHaveLength(1);
       return { placed: true, sid: `CA${"2".repeat(32)}` };
     });
     expect(await runReportCallScheduler({} as never, caller, options)).toEqual({ farms: 1, placed: 1, failed: 0, errors: 0 });
     expect(requests[0].url).toContain("https://naqah.test/api/voice/owner?s=");
     expect(requests[0].twiml).toBeUndefined();
-    expect(requests[0].to).toBe("+966550123344");
+    expect(requests[0].to).toBe("+966550000344");
     expect(tokenOf(requests[0].url)).toMatchObject({ k: "owner", f: FARM, o: store.ws.ownerCallRun!.id, r: reportId, n: 1 });
 
     const again = recordingCaller();
@@ -196,7 +291,7 @@ describe("scheduled owner call", () => {
     vi.stubEnv("NAQAH_CALL_OWNER", "");
     const { caller, requests } = recordingCaller();
     await runReportCallScheduler({} as never, caller, options);
-    expect(requests.filter((request) => request.to === "+966550123344")).toHaveLength(0);
+    expect(requests.filter((request) => request.to === "+966550000344")).toHaveLength(0);
     expect(store.ws.ownerCallRun).toBeNull();
   });
 
@@ -204,7 +299,7 @@ describe("scheduled owner call", () => {
     store.ws.ownerCallRun = undefined;
     const { caller, requests } = recordingCaller();
     await runReportCallScheduler({} as never, caller, options);
-    expect(requests.filter((request) => request.to === "+966550123344")).toHaveLength(0);
+    expect(requests.filter((request) => request.to === "+966550000344")).toHaveLength(0);
   });
 
   it.each(["rejected", "not_configured", "invalid_number", "not_allowed"] as const)("releases the owner claim after %s and retries it 20 minutes later", async (reason) => {
@@ -243,11 +338,11 @@ describe("scheduled owner call", () => {
     const chain = { select: () => chain, eq: () => chain, gte: () => chain, in: () => chain, limit: async () => ({ data: [], error: null }) };
     const client = { from: () => chain };
     const { caller } = recordingCaller(() => ({ placed: false, reason }));
-    expect(await requestOwnerCallNow(client as never, caller, FARM, { ...options, allowlist: ["+966550123344"] })).toEqual({ status: "failed", reason: "not_placed" });
+    expect(await requestOwnerCallNow(client as never, caller, FARM, { ...options, allowlist: ["+966550000344"] })).toEqual({ status: "failed", reason: "not_placed" });
     expect(attempts()).toHaveLength(reason === "network_error" ? 1 : 0);
     expect(store.ws.ownerCallRun!.state).toBe(reason === "network_error" ? "calling" : "missed");
     if (reason === "network_error") {
-      expect(await requestOwnerCallNow(client as never, caller, FARM, { ...options, allowlist: ["+966550123344"] })).toEqual({ status: "blocked", reason: "call_live" });
+      expect(await requestOwnerCallNow(client as never, caller, FARM, { ...options, allowlist: ["+966550000344"] })).toEqual({ status: "blocked", reason: "call_live" });
     }
   });
 

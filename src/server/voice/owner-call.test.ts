@@ -59,7 +59,7 @@ const token = (over: Partial<OwnerToken> = {}): OwnerToken => ({ k: "owner", f: 
 function ring(plan: Plan, reports = true) {
   const ws = createEmptyWorkspace(plan);
   ws.setupComplete = true;
-  ws.settings.owner = { name: "Abdullah", phone: "+966550123344" };
+  ws.settings.owner = { name: "Abdullah", phone: "+966550000344" };
   ws.settings.worker = { ...ws.settings.worker, name: "Ahmed", phone: "+966501234567" };
   ws.settings.ownerCallSchedule = { day: 4, time: "18:00" };
   ws.ownerCallRun = null;
@@ -109,6 +109,17 @@ describe("Basic: the summary played to the end", () => {
     await ownerCallStatus(client, { token: token(), callSid: CALL, status: "completed", now: later });
     expect(run()).toMatchObject({ state: "completed" });
     expect(run().attempts[0].result).toBe("completed");
+    expect(notifications()).toHaveLength(1);
+  });
+
+  it("lets a delayed Basic heard callback supersede final status for the same attempt", async () => {
+    ring("basic");
+    await answerOwnerCall(client, { token: token(), callSid: CALL, now });
+    await ownerCallStatus(client, { token: token(), callSid: CALL, status: "completed", now: later });
+    expect(run().attempts[0].result).toBe("interrupted");
+    await ownerCallHeard(client, { token: token(), callSid: CALL, now: later });
+    await ownerCallHeard(client, { token: token(), callSid: CALL, now: later });
+    expect(run()).toMatchObject({ state: "completed", attempts: [{ result: "completed" }], nextAttemptAt: null });
     expect(notifications()).toHaveLength(1);
   });
 
@@ -166,6 +177,15 @@ describe("a call that doesn't match the run", () => {
     expect(await answerOwnerCall(client, { token: token(over), callSid: CALL, now })).toContain("<Hangup/>");
     expect(store.sessions.size).toBe(0);
   });
+
+  it("leaves the current attempt untouched when the previous attempt picks up late", async () => {
+    ring("basic");
+    run().attempts[0].result = "unanswered";
+    run().attempts.push({ at: later.toISOString(), result: "pending" });
+    expect(await answerOwnerCall(client, { token: token(), callSid: CALL, now: later })).toContain("<Hangup/>");
+    expect(run().state).toBe("calling");
+    expect(run().attempts[1].result).toBe("pending");
+  });
 });
 
 describe("Ultimate: completion needs the instructions step", () => {
@@ -188,6 +208,15 @@ describe("Ultimate: completion needs the instructions step", () => {
     await ownerCallStatus(client, { token: token(), callSid: CALL, status: "completed", now: later });
     expect(run().attempts[0].result).toBe("completed");
     expect(store.sessions.size).toBe(0);
+  });
+
+  it("finishes an Ultimate scripted turn that arrives after final status", async () => {
+    ring("ultimate");
+    await answerOwnerCall(client, { token: token(), callSid: CALL, now });
+    await ownerCallStatus(client, { token: token(), callSid: CALL, status: "completed", now: later });
+    await turn("2", 0);
+    expect(run()).toMatchObject({ state: "completed", attempts: [{ result: "completed" }], nextAttemptAt: null });
+    expect(notifications()).toHaveLength(1);
   });
 
   it("counts silence until the line drops as interrupted", async () => {

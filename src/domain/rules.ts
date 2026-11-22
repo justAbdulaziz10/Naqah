@@ -288,3 +288,14 @@ export function dueWorkerCalls(ws: Workspace, now: Date) {
     (c) => c.state === "pending" && c.nextAttemptAt && new Date(c.nextAttemptAt).getTime() <= now.getTime(),
   );
 }
+
+export function workerCallClaimIsActive(call: PendingWorkerCall, now: Date): boolean {
+  return call.state === "pending" && Boolean(call.dialClaimedAt && call.nextAttemptAt && Date.parse(call.nextAttemptAt) > now.getTime());
+}
+
+export function workerAttemptState(call: PendingWorkerCall, attempt: number): "active" | "settled" | null {
+  if (attempt <= (call.retryBase ?? 0) || call.state === "delivered") return null;
+  if (call.state === "pending" && call.attempts.length + 1 === attempt) return "active";
+  if (!call.dialClaimedAt && call.attempts.length === attempt) return "settled";
+  return null;
+}

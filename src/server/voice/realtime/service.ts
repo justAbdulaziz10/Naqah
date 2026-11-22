@@ -320,8 +320,8 @@ const SAVE_AGAIN: Record<Locale, string> = { ar: "ما قدرت أتأكد من 
 const NATURAL_SAVED: Record<Locale, string> = { ar: "انحفظ، الله يعطيك العافية. مع السلامة.", en: "It's saved. Thank you, goodbye." };
 
 const NATURAL_SORRY: Record<Locale, string> = {
-  ar: "معليش، صار عندنا خلل في الاتصال. ما انحفظ شي. مع السلامة.",
-  en: "Sorry, the call ran into a problem. Nothing was saved. Goodbye.",
+  ar: "معليش، صار عندنا خلل في الاتصال وما قدرت أتأكد من الحفظ. مع السلامة.",
+  en: "Sorry, the call ran into a problem. I couldn't confirm the save. Goodbye.",
 };
 
 const AFTER_ATTEMPTS = 3;
@@ -348,15 +348,16 @@ export async function afterRealtimeCall(client: SupabaseClient, input: { token: 
       return row.party === "owner" || (last && JSON.parse(last.output).status === "saved") ? "<Response><Hangup/></Response>" : row.last_response;
     }
     if (row.session.done || !realtime || realtime.fallbackPrepared) return row.last_response;
-    // A natural call has no keypad script to fall back to: a short apology, nothing saved.
+    // Close the stream before checking storage; a confirmation already in flight can still commit.
     if (realtime.naturalBase && row.party !== "owner") {
-      // Said only after checking: a report that did land is never called lost.
-      const { workspace: latest } = requireFarm(await loadFarm(client, { id: row.farm_id }));
-      const savedReport = latest.reportCalls?.some((run) => run.id === row.session.data.reportCallId && run.reportId);
-      const goodbye = twimlGoodbye(row.locale, (savedReport ? NATURAL_SAVED : NATURAL_SORRY)[row.locale]);
+      const goodbye = twimlGoodbye(row.locale, NATURAL_SORRY[row.locale]);
       const ended = await advanceRow(client, row, withRealtime({ ...row.session, done: true }, { ...realtime, closed: true, fallbackPrepared: true }), row.misses, goodbye);
-      if (ended) return goodbye;
-      continue;
+      if (!ended) continue;
+      const { workspace: latest } = requireFarm(await loadFarm(client, { id: row.farm_id }));
+      if (!latest.reportCalls?.some((run) => run.id === token.r && run.reportId)) return goodbye;
+      const saved = twimlGoodbye(row.locale, NATURAL_SAVED[row.locale]);
+      await advanceRow(client, ended, ended.session, ended.misses, saved);
+      return saved;
     }
     const workspace = await farmOf(client, row, new Date());
     const session = scriptedFrom(row.session, workspace, new Date());

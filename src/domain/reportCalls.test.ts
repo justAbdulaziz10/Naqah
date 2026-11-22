@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { completeWorkerReport } from "./actions";
-import { fromRiyadh, MINUTE, RETRY_DELAY_MS } from "./clock";
+import { claimDueWorkerCall, completeWorkerReport, resolveWorkerCallAttempt } from "./actions";
+import { fromRiyadh, MINUTE, REPORT_CALL_GRACE_MS, RETRY_DELAY_MS } from "./clock";
 import { acceptHerdCountProposal, dismissHerdCountProposal, herdCountProposal } from "./herd";
 import {
   abandonReportCallAttempt,
@@ -15,12 +15,14 @@ import {
   startReportCall,
 } from "./reportCalls";
 import { previousScheduledCall } from "./schedule";
+import { questionPlanRows } from "./rules";
 import { createEmptyWorkspace } from "./seed";
 import type { Plan, Workspace } from "./types";
 import { allWorkers, canAddWorker, newWorker, setWorkers, workerLimit } from "./workers";
 
 // Thursday 5 Nov 2026, Riyadh.
 const THU_1700 = fromRiyadh(2026, 11, 5, 17, 0);
+const at = (minutes: number) => new Date(THU_1700.getTime() + minutes * MINUTE);
 const draft = { answers: [], camelUpdates: [], resourceUpdates: [], herdAccountedFor: true, taskConfirmations: [] };
 
 function farm(plan: Plan = "basic"): Workspace {
@@ -32,6 +34,64 @@ function farm(plan: Plan = "basic"): Workspace {
 }
 
 describe("schedule slots", () => {
+  it("does not invent a missed report when an unobserved slot has expired", () => {
+    const ws = farm();
+    ws.createdAt = at(-1).toISOString();
+    const result = claimDueReportCall(ws, at(REPORT_CALL_GRACE_MS / MINUTE + 1));
+    expect(result).toEqual({ ws, claim: null });
+  });
+
+  it.each(["schedule change", "plan upgrade", "setup completion"])("does not mark a retroactive report slot missed after %s", (change) => {
+    const ws = farm(change === "plan upgrade" ? "basic" : "ultimate");
+    ws.createdAt = fromRiyadh(2026, 11, 1, 12, 0).toISOString();
+    ws.setupComplete = change !== "setup completion";
+    ws.settings.callSchedule = change === "plan upgrade" ? { day: 5, time: "09:00" } : { day: null, time: change === "schedule change" ? "18:00" : "09:00" };
+    const tick = fromRiyadh(2026, 11, 5, 12, 0);
+    expect(claimDueReportCall(ws, tick).claim).toBeNull();
+    const changed = structuredClone(ws);
+    changed.setupComplete = true;
+    changed.settings.plan = "ultimate";
+    if (change === "schedule change") changed.settings.callSchedule = { day: null, time: "09:00" };
+    const result = claimDueReportCall(changed, tick);
+    expect(result.claim).toBeNull();
+    expect(result.ws).toBe(changed);
+  });
+
+  function busyFarm() {
+    const ws = farm("ultimate");
+    ws.createdAt = at(-60).toISOString();
+    ws.pendingWorkerCalls.push({ id: "pwc1", purpose: "instruction", message: "Feed the herd", taskTicketId: null, relayId: null, attempts: [], nextAttemptAt: at(-10).toISOString(), state: "pending" });
+    return claimDueWorkerCall(ws, at(-10)).ws;
+  }
+
+  it("dials a slot observed busy once the line frees after initial grace", () => {
+    const blocked = claimDueReportCall(busyFarm(), at(0));
+    expect(blocked.claim).toBeNull();
+    expect(blocked.ws.reportCalls).toEqual([]);
+    expect(blocked.ws.events.at(-1)?.text.en).toContain("line was busy");
+    expect(claimDueReportCall(blocked.ws, at(5)).ws).toBe(blocked.ws);
+    const available = resolveWorkerCallAttempt(blocked.ws, at(65), "pwc1", "delivered").ws;
+    const result = claimDueReportCall(available, at(65));
+    expect(result.claim?.attempt).toBe(1);
+    expect(result.ws.reportCalls).toMatchObject([{ occurrence: at(0).toISOString(), attempts: [{ at: at(65).toISOString(), result: "pending" }] }]);
+  });
+
+  it("lets a busy-only report slot expire without logging a missed call", () => {
+    const blocked = claimDueReportCall(busyFarm(), at(0));
+    const afterGiveUp = at(REPORT_CALL_GIVE_UP_MS / MINUTE + 1);
+    expect(claimDueReportCall(blocked.ws, afterGiveUp).ws).toBe(blocked.ws);
+    expect(blocked.ws.reportCalls).toEqual([]);
+    expect(blocked.ws.calls).toEqual([]);
+  });
+
+  it.each(["phone", "questions"])("does not defer or record a report slot missing %s", (missing) => {
+    const ws = busyFarm();
+    if (missing === "phone") ws.settings.worker.phone = "";
+    else ws.settings.questionPlan = questionPlanRows(ws).map((row) => ({ id: row.question.id, enabled: false, required: false }));
+    expect(claimDueReportCall(ws, at(0)).ws).toBe(ws);
+    expect(claimDueReportCall(ws, at(65)).ws).toBe(ws);
+  });
+
   it("counts silence after pickup as unanswered, with two capped retries and duplicate safety", () => {
     const opened = startReportCall(farm(), THU_1700, "schedule");
     let workspace = opened.ws;

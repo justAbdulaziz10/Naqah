@@ -10,8 +10,10 @@ export type CallToken =
   | { k: "report"; f: string; r: string; n: number; l: Locale; t: number }
   /** The owner's scheduled call: run `o`, attempt `n`. `r` is the report summarized, "" when none. */
   | { k: "owner"; f: string; o: string; r: string; n: number; l: Locale; t: number }
-  /** An instruction or verification call to the worker. `p` is the pending call id. */
-  | { k: "worker"; f: string; p: string; n: number; l: Locale; t: number };
+  /** Worker call `p`, attempt `n` in this round, with `b` historical attempts before this round. */
+  | { k: "worker"; f: string; p: string; n: number; b?: number; l: Locale; t: number };
+
+export const workerTokenAttempt = (token: Extract<CallToken, { k: "worker" }>) => (token.b ?? 0) + token.n;
 
 /** Long enough for ringing plus a full call and its final status callback. */
 export const CALL_TOKEN_MAX_AGE_MS = 3 * 60 * 60 * 1000;
@@ -48,6 +50,7 @@ export function verifyCallToken(
       const pending = (token as { p?: unknown }).p;
       if (typeof pending !== "string" || !UUID.test(pending)) return null;
       if (typeof token.n !== "number" || !Number.isInteger(token.n) || token.n < 1 || token.n > 3) return null;
+      if (token.b !== undefined && (typeof token.b !== "number" || !Number.isSafeInteger(token.b + token.n) || !Number.isInteger(token.b) || token.b < 0)) return null;
     } else if (token.k === "owner") {
       const { o: run, r: report } = token as { o?: unknown; r?: unknown };
       if (typeof run !== "string" || !UUID.test(run)) return null;

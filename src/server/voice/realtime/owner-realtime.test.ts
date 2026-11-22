@@ -202,7 +202,7 @@ describe("no instructions", () => {
     const step = await tool(ticket, "no_instructions", {}, "لا ما عندي شي");
     expect(step.result.end).toBe("hangup");
     expect(events().map((event) => event.type)).toEqual(["owner_call_attempt"]);
-    expect(events()[0]).toMatchObject({ runId: RUN, attempt: 1, result: "completed", eventId: `${CALL}:owner-attempt` });
+    expect(events()[0]).toMatchObject({ runId: RUN, attempt: 1, result: "completed", eventId: `${CALL}:owner-attempt:confirmed` });
   });
 
   it("refuses when the owner's words say yes", async () => {
