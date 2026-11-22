@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDemoWorkspace, createEmptyWorkspace } from "@/domain/seed";
 import type { Camel, FarmReport, Workspace } from "@/domain/types";
-import { estateMatters, isHerdFinding, mentions } from "./matters";
+import { estateMatters, findingBeyondHealth, isHerdFinding, mentions } from "./matters";
 
 const camel = (id: string, name: string, health: Camel["health"]): Camel => ({
   id, name, tag: "", sex: "female", ageYears: null, health, healthNote: null, certainty: "reported", updatedAt: null,
@@ -73,5 +73,27 @@ describe("estate matters", () => {
     const matters = estateMatters(ws, ws.reports.at(-1) ?? null);
     expect(matters[0].findings.length).toBeGreaterThan(0);
     expect(matters[0].instructions.length).toBeGreaterThan(0);
+  });
+});
+
+describe("finding beyond health", () => {
+  const wadha = camel("a", "وضحة", "watch");
+  const text = (ar: string, en: string) => ({ id: "f", criterionId: "c", text: { ar, en } });
+  it("drops a finding that only repeats the camel's health", () => {
+    expect(findingBeyondHealth(text("وضحة تحت الملاحظة", "وضحة is under watch"), wadha)).toBeNull();
+  });
+  it("keeps only the worker's note after the health line", () => {
+    expect(findingBeyondHealth(text("وضحة تحت الملاحظة — تأكل أقل", "وضحة is under watch — تأكل أقل"), wadha)).toEqual({ ar: "تأكل أقل", en: "تأكل أقل" });
+  });
+  it("strips each language on its own", () => {
+    expect(findingBeyondHealth(text("وضحة تحت الملاحظة — تأكل أقل", "Wadha is under watch — eating less"), wadha)).toEqual({ ar: "تأكل أقل", en: "Wadha is under watch — eating less" });
+  });
+  it("leaves other findings, and a health that has since changed, unchanged", () => {
+    const other = text("وضحة تأكل أقل", "وضحة is eating less");
+    expect(findingBeyondHealth(other, wadha)).toEqual(other.text);
+    const healthy = text("وضحة تحت الملاحظة", "وضحة is under watch");
+    expect(findingBeyondHealth(healthy, { ...wadha, health: "healthy" })).toEqual(healthy.text);
+    const sick = text("وضحة تحت الملاحظة", "وضحة is under watch");
+    expect(findingBeyondHealth(sick, { ...wadha, health: "sick" })).toEqual(sick.text);
   });
 });

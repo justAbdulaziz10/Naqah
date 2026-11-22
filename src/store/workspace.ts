@@ -10,7 +10,7 @@
 import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
-import { createDemoWorkspace, createEmptyWorkspace, nowFor, retainDemoHistory, type Locale, type Plan, type Workspace } from "@/domain";
+import { createDemoWorkspace, createEmptyWorkspace, nowFor, retainDemoHistory, withCurrentSampleContacts, type Locale, type Plan, type Workspace } from "@/domain";
 import { isAccountWorkspace } from "@/lib/account/types";
 
 interface WorkspaceState {
@@ -186,11 +186,16 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     }),
     {
       name: "naqah-workspace-v1",
-      version: 1,
+      // 2: sample ranches saved earlier get today's made-up phone numbers.
+      version: 2,
       storage: coalescingStorage,
       partialize: (s) => ({ workspace: s.workspace }),
       // Future Workspace versions: transform `persisted` here instead of discarding it.
-      migrate: (persisted) => persisted as Persisted,
+      migrate: (persisted, version) => {
+        const state = persisted as Persisted;
+        if (version < 2 && state?.workspace) return { ...state, workspace: withCurrentSampleContacts(state.workspace) };
+        return state;
+      },
       // localStorage is synchronous, so rehydration finishes *inside* `create()` — before
       // `useWorkspaceStore` is assigned, and the initial state can still overwrite a flag set
       // there. Mark hydrated now (state handed to the callback) and again once the store exists.
