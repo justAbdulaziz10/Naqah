@@ -11,15 +11,15 @@ export function EveningRail({ locale, className }: { locale: Locale; className?:
   const last = evening.steps.length - 1;
 
   return (
-    <figure data-ui className={cn("bg-cream p-5 text-espresso sm:p-6 lg:px-8 lg:py-6", className)}>
+    <figure data-ui className={cn("border-t-2 border-gold bg-cream p-5 text-espresso sm:p-6 lg:px-8 lg:py-7", className)}>
       <figcaption className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-[0.9375rem]">
-        <span className="whitespace-nowrap font-semibold">{evening.label}</span>
+        <span className="whitespace-nowrap text-[1.0625rem] font-semibold">{evening.label}</span>
         <span className="whitespace-nowrap text-muted">{example}</span>
       </figcaption>
       <div className="relative mt-5 lg:mt-6">
         {/* One line through every moment: solid to the saved report, then dashed to the call ahead. */}
         <span aria-hidden className="absolute inset-y-2 start-[5px] w-0.5 bg-brown lg:hidden" />
-        <span aria-hidden className="naqah-evening-line absolute start-0 top-[5px] hidden h-0.5 w-[calc((100%_-_4rem)/3_+_2rem)] bg-brown lg:block" />
+        <span aria-hidden className="absolute start-0 top-[5px] hidden h-0.5 w-[calc((100%_-_4rem)/3_+_2rem)] bg-brown lg:block" />
         <span
           aria-hidden
           className="absolute start-[calc((100%_-_4rem)/3_+_2rem)] top-[5px] hidden h-0 w-[calc((100%_-_4rem)/3_+_2rem)] border-t-2 border-dashed border-brown/50 lg:block"

@@ -1,7 +1,7 @@
 "use client";
 
 import { EmergencyStrip } from "@/components/dashboard/EmergencyStrip";
-import { EstateCalls } from "@/components/dashboard/EstateCalls";
+import { EstateCalls, NextCallsLine } from "@/components/dashboard/EstateCalls";
 import { EstateHeader, type EstateTone } from "@/components/dashboard/EstateHeader";
 import { EstateMatters } from "@/components/dashboard/EstateMatters";
 import { FirstReport } from "@/components/dashboard/FirstReport";
@@ -94,8 +94,11 @@ export default function OverviewPage() {
       scheduledOff={scheduledOff}
       nextWorker={next}
       workerStatus={workerStatus}
+      stacked
     />
   );
+  // The phone's first screen says the next calls in one line; the full week opens under it.
+  const summary = next ? <NextCallsLine ws={ws} now={now} worker={worker} nextWorker={next} workerStatus={workerStatus} /> : null;
 
   const slots = reportRhythm(ws, now, ws.settings.plan === "basic" ? 6 : 7, 3);
   const showStrip = Boolean(next) || slots.some((slot) => slot.state === "saved" || slot.state === "missed");
@@ -103,7 +106,7 @@ export default function OverviewPage() {
 
   return (
     <div className="naqah-page space-y-5 pb-8">
-      <EstateHeader name={estateName} answer={answer} tone={tone} provenance={provenance} call={<CallBar ws={ws} worker={worker} now={now} />} rhythm={rhythm} next={nextBlock} />
+      <EstateHeader name={estateName} answer={answer} tone={tone} provenance={provenance} call={<CallBar ws={ws} worker={worker} now={now} />} rhythm={rhythm} next={nextBlock} summary={summary} />
 
       <CallSetupStatus ws={ws} />
 

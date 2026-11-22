@@ -104,10 +104,10 @@ local route run with no paid settings, use:
 
 ```sh
 NAQAH_VOICE_SECRET='a-random-test-secret-at-least-32-bytes' \
-NAQAH_WORKER_PHONE='+966507782190' \
+NAQAH_WORKER_PHONE='+966500000190' \
 TWILIO_AUTH_TOKEN='local-test-auth-token' \
 node scripts/verify-naqah.mjs launch
-TWILIO_AUTH_TOKEN='local-test-auth-token' node scripts/verify-naqah.mjs voice --worker-phone '+966507782190'
+TWILIO_AUTH_TOKEN='local-test-auth-token' node scripts/verify-naqah.mjs voice --worker-phone '+966500000190'
 node scripts/verify-naqah.mjs stop
 ```
 

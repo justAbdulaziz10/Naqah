@@ -153,6 +153,53 @@ export function FieldGroup({ title, children, className }: { title: string; chil
 }
 
 /**
+ * Phones only: a group of secondary fields that already has a sensible value waits behind one line
+ * that states that value and a single action, so the step keeps to the question in hand. Wide screens
+ * show the fields in place. `open` forces the fields out (an error to fix); nothing collected changes.
+ */
+export function MobileFold({
+  title,
+  summary,
+  action,
+  open = false,
+  children,
+  className,
+}: {
+  title: string;
+  summary: ReactNode;
+  action: string;
+  open?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  const id = useId();
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded || open;
+  return (
+    <div className={cn("min-w-0", className)}>
+      {shown ? null : (
+        <div className="lg:hidden">
+          <p className="text-[1.0625rem] font-bold text-espresso">{title}</p>
+          <p className="mt-1 text-[1.0625rem] leading-relaxed text-espresso [overflow-wrap:anywhere]">{summary}</p>
+          <button
+            type="button"
+            aria-expanded={false}
+            aria-controls={id}
+            onClick={() => setExpanded(true)}
+            className="mt-1 inline-flex min-h-11 items-center text-[0.9375rem] font-semibold text-brown underline decoration-sand underline-offset-4 transition hover:decoration-brown focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brown"
+          >
+            {action}
+          </button>
+        </div>
+      )}
+      <div id={id} className={cn(shown ? "naqah-saved-in" : "max-lg:hidden", "lg:animate-none")}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
  * A tickable row: icon, label and a check. A real checkbox (or radio) underneath, so keyboard and
  * screen readers behave natively.
  */

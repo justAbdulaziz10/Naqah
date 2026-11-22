@@ -24,20 +24,21 @@ export const HERD_MARKS_MAX = 60;
 
 /**
  * The herd as a field of named marks, most concerning first. Each named camel opens its record; the rest of the
- * owner's official count stays as quiet unnamed outlines (in the legend only when there are too many). The legend says every count in words.
+ * owner's official count is said in the legend only («34 غير مسجّلة بالاسم»), never drawn as empty rings. The legend says every count in words.
  */
-export function HerdMarks({ camels, herdCount, activeId, onOpen, className }: {
+export function HerdMarks({ camels, herdCount, activeId, onOpen, legend = "full", className }: {
   camels: Camel[];
   herdCount: number | null | undefined;
   activeId?: string | null;
   onOpen: (id: string) => void;
+  /** "unnamed" keeps only the official-count remainder in the legend, for pages that already say the health counts. */
+  legend?: "full" | "unnamed";
   className?: string;
 }) {
   const { m, t, fmt, locale } = useI18n();
   const h = m.visual.herd;
   const named = [...camels].sort((a, b) => ORDER.indexOf(a.health) - ORDER.indexOf(b.health));
   const unnamed = Math.max(0, (herdCount ?? 0) - named.length);
-  const unnamedMarks = named.length + unnamed <= HERD_MARKS_MAX ? unnamed : 0;
   const groups = ORDER.map((health) => ({ health, count: named.filter((camel) => camel.health === health).length })).filter((group) => group.count > 0);
 
   return (
@@ -64,27 +65,17 @@ export function HerdMarks({ camels, herdCount, activeId, onOpen, className }: {
           );
         })}
       </ul>
-      {unnamedMarks ? (
-        <div aria-hidden className="mt-3 flex flex-wrap gap-1.5 px-1">
-          {Array.from({ length: unnamedMarks }, (_, index) => (
-            <span key={`unnamed-${index}`} className="size-3 rounded-full border border-stone bg-cream" />
-          ))}
-        </div>
-      ) : null}
-      <figcaption className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-muted">
-        {groups.map(({ health, count }) => (
+      {legend === "full" || unnamed ? <figcaption className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-muted">
+        {legend === "full" ? groups.map(({ health, count }) => (
           <span key={health} className="inline-flex items-center gap-2 whitespace-nowrap">
             <span aria-hidden className={cn("size-2.5 shrink-0 rounded-full", healthMark[health])} />
             <span className={health === "sick" || health === "watch" ? "font-semibold text-espresso" : undefined}>{h[health](fmt.number(count))}</span>
           </span>
-        ))}
+        )) : null}
         {unnamed ? (
-          <span className="inline-flex items-center gap-2 whitespace-nowrap">
-            <span aria-hidden className="size-2.5 shrink-0 rounded-full border border-stone bg-cream" />
-            {h.unnamed(fmt.number(unnamed))}
-          </span>
+          <span className="whitespace-nowrap">{h.unnamed(fmt.number(unnamed))}</span>
         ) : null}
-      </figcaption>
+      </figcaption> : null}
     </figure>
   );
 }

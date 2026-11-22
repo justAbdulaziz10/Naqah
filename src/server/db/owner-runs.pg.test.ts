@@ -56,7 +56,7 @@ function step(farmId: string, action: (ws: Workspace) => Workspace): Workspace {
 function seed(id: string, plan: "basic" | "ultimate" = "ultimate") {
   sql(`insert into auth.users values ('${id}') on conflict do nothing;
     insert into farms (id, owner_id, plan, setup_complete, owner_name, owner_phone, name, location, owner_call_day, owner_call_time)
-    values ('${id}', '${id}', '${plan}', true, 'Abdullah', '+966550123344', 'Al Nakheel', 'Qassim', ${plan === "basic" ? 4 : "null"}, '18:00');
+    values ('${id}', '${id}', '${plan}', true, 'Abdullah', '+966550000344', 'Al Nakheel', 'Qassim', ${plan === "basic" ? 4 : "null"}, '18:00');
     insert into workers (farm_id, name, phone, language) values ('${id}', 'Ahmed', '+966501234567', 'ar');`);
   return id;
 }

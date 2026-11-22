@@ -53,10 +53,10 @@ export function ConfirmDialog({
         event.preventDefault();
         onCancel();
       }}
-      className="m-auto w-[calc(100vw-2rem)] max-w-md rounded-2xl border border-stone bg-cream p-5 text-espresso shadow-lift backdrop:bg-espresso/40 sm:p-6"
+      className="naqah-dialog m-auto w-[calc(100vw-2rem)] max-w-md rounded-[var(--radius-sheet)] bg-cream p-5 text-espresso shadow-lift backdrop:bg-espresso/45 sm:p-6"
     >
-      <h2 id={titleId} className="text-lg font-bold">{title}</h2>
-      <p id={bodyId} className="mt-2 leading-relaxed text-muted">{body}</p>
+      <h2 id={titleId} className="naqah-heading text-xl">{title}</h2>
+      <p id={bodyId} className="naqah-body mt-2 text-muted">{body}</p>
       {children}
       <div className="mt-6 flex flex-wrap justify-end gap-2">
         {/* showModal() focuses the first control, so the safe choice comes first. */}

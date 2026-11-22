@@ -29,7 +29,7 @@ export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; no
   const team = `${href("/app/settings")}#settings-team`;
 
   return (
-    <div className="flex flex-col gap-2 border-t border-cream/15 pt-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:pt-6">
+    <div className="flex flex-col gap-2 border-t border-cream/15 pt-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:pt-6 lg:flex-col lg:items-start lg:gap-3">
       {/* On a phone the sentence and the number wrap on one line so what matters stays above the fold. */}
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 sm:block">
         <p className="naqah-name text-base font-semibold leading-snug text-cream sm:text-[1.125rem]">{o.callsWorker(worker)}</p>
@@ -45,9 +45,9 @@ export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; no
           )}
         </p>
       </div>
-      <div className="min-w-0 sm:max-w-sm">
+      <div className="min-w-0 sm:max-w-sm lg:max-w-none">
         {account ? (
-          <div className="flex flex-wrap items-center gap-2 sm:justify-end sm:text-end">
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end sm:text-end lg:justify-start lg:text-start">
             {/* The real call is the main action; the simulation sits beside it as the quieter one. */}
             <ReportCallNow ws={ws} worker={worker} now={now} primary />
             <Link href={href("/app/simulate")} prefetch={false} aria-describedby="call-sim-note" className={`${realClass} max-sm:flex-1`}>
@@ -58,7 +58,7 @@ export function CallBar({ ws, worker, now }: { ws: Workspace; worker: string; no
             <p id="call-sim-note" className="sr-only">{o.callBar.practice}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end sm:text-end">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end sm:text-end lg:justify-start lg:text-start">
             <Link href={href("/app/lab")} prefetch={false} onClick={() => { if (!useLabCall.getState().session) useLabCall.getState().patch({ selected: "report_call" }); }} aria-describedby="call-sim-note" className={simClass}>
               <Phone size={16} weight="fill" aria-hidden />
               {d.simulateWith}

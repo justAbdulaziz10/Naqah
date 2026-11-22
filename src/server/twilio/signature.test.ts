@@ -49,7 +49,7 @@ describe("Twilio webhook signatures", () => {
 
   it("accepts Twilio signatures with an explicit default port", () => {
     const request = new Request("https://naqah.test/api/voice/inbound");
-    const params = { From: "+966507782190" };
+    const params = { From: "+966500000190" };
     const signature = twilioRequestSignature("https://naqah.test:443/api/voice/inbound", params, "route-token");
     expect(validateTwilioRequestSignature(request, params, signature, "route-token")).toBe(true);
   });

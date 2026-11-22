@@ -18,7 +18,13 @@ type InitialPlanChoiceProps = {
   onSelect: (plan: Plan) => void;
   disabled?: boolean;
 };
-type WorkspacePlanChoiceProps = SetupFieldsProps & { mode?: "workspace"; /** Off where the week is already drawn (Settings shows RanchWeek above). */ showRhythm?: boolean };
+type WorkspacePlanChoiceProps = SetupFieldsProps & {
+  mode?: "workspace";
+  /** Off where the week is already drawn (Settings shows RanchWeek above). */
+  showRhythm?: boolean;
+  /** Off where a heading already names the plan (Settings); the legend then stays for screen readers only. */
+  showLegend?: boolean;
+};
 
 /** A plan's week in seven dots: Basic marks its one day (once chosen), Ultimate marks them all. */
 export function PlanRhythm({ plan, day, tone = "light", className }: { plan: Plan; day: Weekday | null; tone?: "light" | "dark"; className?: string }) {
@@ -69,6 +75,7 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
   const current = initial ? props.selected : ws!.settings.plan;
   const day = ws?.settings.callSchedule?.day ?? null;
   const showRhythm = initial || props.showRhythm !== false;
+  const legendHidden = initial || props.showLegend === false;
   const tooManyForBasic = ws ? ws.settings.customQuestions.length > PLAN_LIMITS.basic.customQuestions : false;
 
   function choose(plan: Plan) {
@@ -145,7 +152,7 @@ export function PlanChoice(props: InitialPlanChoiceProps | WorkspacePlanChoicePr
   return (
     <fieldset className="min-w-0">
       {/* On the plan page the heading already asks the question; the legend stays for screen readers. */}
-      <legend className={initial ? "sr-only" : "mb-4 text-[1.0625rem] font-bold text-espresso"}>{p.choose}</legend>
+      <legend className={legendHidden ? "sr-only" : "mb-4 text-[1.0625rem] font-bold text-espresso"}>{p.choose}</legend>
       {!initial && account ? (
         <div className="grid gap-3">
           {card(ws!.settings.plan, false)}

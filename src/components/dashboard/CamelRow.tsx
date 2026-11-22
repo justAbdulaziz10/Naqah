@@ -49,7 +49,8 @@ export function CamelRow({ ws, camel, now, highlighted, compact, onOpen }: {
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           <span className={cn("font-semibold leading-snug text-espresso", compact ? "text-base" : "text-lg")}>{camel.name}</span>
-          {compact ? null : <HealthBadge health={camel.health} />}
+          {/* The health word stays on every row, so the group heading is never the only place it is said. */}
+          <HealthBadge health={camel.health} />
         </span>
         {attention && camel.healthNote ? <span className="mt-1 block text-[1.0625rem] leading-relaxed text-espresso">{camel.healthNote}</span> : null}
         <span className="mt-0.5 flex flex-wrap gap-x-2 text-sm text-muted">

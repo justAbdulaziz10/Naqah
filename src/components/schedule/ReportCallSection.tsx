@@ -1,7 +1,7 @@
 "use client";
 
 import { WEEKDAY_LABELS } from "@/domain/catalog";
-import { isCompleteCallSchedule, nextScheduledCall, upcomingReportCall } from "@/domain/schedule";
+import { isCallTime, isCompleteCallSchedule, nextScheduledCall, upcomingReportCall } from "@/domain/schedule";
 import type { CallSchedule, Weekday, Workspace } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
@@ -12,6 +12,15 @@ import { WeekStrip } from "@/components/visuals/WeekStrip";
 import type { SetupFieldsProps } from "@/components/setup/types";
 
 export { upcomingReportCall } from "@/domain/schedule";
+
+/**
+ * The help line under a time field: the chosen time the way the rest of the app writes it («5:00 م»),
+ * since the native picker shows its own format. "Riyadh time" alone until a time is chosen.
+ */
+function useTimeHint(time: string | undefined) {
+  const { m, fmt } = useI18n();
+  return time && isCallTime(time) ? m.setup.call.timeHintAt(fmt.time(new Date(`2026-01-01T${time}:00+03:00`))) : m.setup.call.timeHint;
+}
 
 /**
  * The scheduled report call in one plain sentence, e.g. "NAQAH will call Ahmed every Thursday at 5:00 PM."
@@ -64,6 +73,7 @@ export function ReportCallFields({ ws, onChange, showErrors = false, showSummary
   // Shown once the owner tries to continue (or has started choosing and left the day out).
   const needsDay = weekly && (schedule?.day ?? null) === null && (showErrors || Boolean(schedule?.time));
   const needsTime = showErrors && !schedule?.time;
+  const timeHint = useTimeHint(schedule?.time);
 
   function updateSchedule(patch: Partial<CallSchedule>) {
     onChange((current) => {
@@ -94,7 +104,7 @@ export function ReportCallFields({ ws, onChange, showErrors = false, showSummary
             )}
           </StepField>
         ) : null}
-        <StepField label={s.time} hint={s.timeHint} error={needsTime ? s.needTime : undefined}>
+        <StepField label={s.time} hint={timeHint} error={needsTime ? s.needTime : undefined}>
           {({ id, describedBy }) => (
             <StepInput
               id={id}
@@ -140,6 +150,7 @@ function OwnerCallFields({ ws, onChange, showErrors = false }: SetupFieldsProps)
   const schedule = ws.settings.ownerCallSchedule ?? null;
   const needsDay = weekly && (schedule?.day ?? null) === null && (showErrors || Boolean(schedule?.time));
   const needsTime = showErrors && !schedule?.time;
+  const timeHint = useTimeHint(schedule?.time);
 
   function updateSchedule(patch: Partial<CallSchedule>) {
     onChange((current) => {
@@ -172,7 +183,7 @@ function OwnerCallFields({ ws, onChange, showErrors = false }: SetupFieldsProps)
             )}
           </StepField>
         ) : null}
-        <StepField label={s.ownerTime} hint={s.timeHint} error={needsTime ? s.needTime : undefined}>
+        <StepField label={s.ownerTime} hint={timeHint} error={needsTime ? s.needTime : undefined}>
           {({ id, describedBy }) => (
             <StepInput
               id={id}

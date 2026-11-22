@@ -34,6 +34,9 @@ export const onboarding = defineMessages({
         almost: { title: "Almost there", lead: "Open your dashboard now and finish the rest in Settings." },
       },
       finishLine: "NAQAH knows who to call, when, and what to ask.",
+      /** Phones: secondary fields wait behind their current value and one action. */
+      changeQuestions: "Change the mode or the questions",
+      changeResources: "Change what the ranch has",
       /** Local demo only: said after «Fill with sample» fills a step; the owner still presses Next. */
       demoFilled: "Sample details filled in. Check them, then continue.",
     },
@@ -82,6 +85,8 @@ export const onboarding = defineMessages({
         almost: { title: "باقي القليل", lead: "افتح لوحتك الحين، وكمّل الباقي من الإعدادات." },
       },
       finishLine: "ناقة تعرف على مين تتصل، ومتى، ووش تسأل.",
+      changeQuestions: "تغيير الطريقة أو الأسئلة",
+      changeResources: "تغيير وش عندك في العزبة",
       demoFilled: "تمت تعبئة البيانات التجريبية. راجعها، وبعدها كمّل.",
     },
     plans: {

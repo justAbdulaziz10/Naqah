@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { MagnifyingGlass, Plus } from "@phosphor-icons/react";
-import { CamelEditorDialog, type CamelFormValues } from "@/components/dashboard/CamelEditorDialog";
+import { CamelEditorSheet, type CamelFormValues } from "@/components/dashboard/CamelEditorSheet";
 import { CamelRow } from "@/components/dashboard/CamelRow";
 import { CamelSheet } from "@/components/dashboard/CamelSheet";
 import { EmptyState } from "@/components/dashboard/DashboardPrimitives";
@@ -39,6 +39,8 @@ export default function HerdPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Opened from the camel's detail sheet, the editor takes that sheet's place instead of sliding in again.
+  const [editorSwaps, setEditorSwaps] = useState(false);
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Camel | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
@@ -83,6 +85,7 @@ export default function HerdPage() {
 
   function openNewCamel() {
     setEditingId(null);
+    setEditorSwaps(false);
     setEditorOpen(true);
   }
 
@@ -91,6 +94,7 @@ export default function HerdPage() {
     setViewingId(null);
     clearLink();
     setEditingId(id);
+    setEditorSwaps(true);
     setEditorOpen(true);
   }
 
@@ -120,7 +124,7 @@ export default function HerdPage() {
       return { ...current, camels: [...current.camels, camel] };
     });
     toastWhenSaved(id ? h.savedToast(values.name) : h.addedToast(values.name));
-    closeEditor();
+    // The sheet slides away on its own, then calls closeEditor.
   }
 
   function askToRemove() {
@@ -203,7 +207,7 @@ export default function HerdPage() {
         title={h.title}
         answer={answer}
         action={(
-          <Button ref={addButtonRef} className="w-full sm:w-auto" onClick={openNewCamel}>
+          <Button ref={addButtonRef} variant="secondary" size="sm" className="self-start" onClick={openNewCamel}>
             <Plus size={18} weight="bold" aria-hidden />
             {h.addCamel}
           </Button>
@@ -214,11 +218,11 @@ export default function HerdPage() {
         <Card className="px-5 py-6 sm:px-7">
           <HerdCountFact ws={ws} worker={worker} />
           {marks ? (
-            <HerdMarks camels={camels} herdCount={herdCount} activeId={viewingId} onOpen={setViewingId} className="mt-6" />
+            <HerdMarks camels={camels} herdCount={herdCount} activeId={viewingId} onOpen={setViewingId} legend="unnamed" className="mt-6" />
           ) : dots ? (
             <div className="mt-6">
               <h2 className="text-sm font-semibold text-muted">{h.wholeHerd}</h2>
-              <HerdDots camels={camels} herdCount={herdCount} className="mt-3" />
+              <HerdDots camels={camels} herdCount={herdCount} legend="unnamed" className="mt-3" />
             </div>
           ) : null}
           {camels.length > 1 ? (
@@ -304,14 +308,16 @@ export default function HerdPage() {
           }}
         />
       ) : null}
-      <CamelEditorDialog
-        key={editorOpen ? editingId ?? "new" : "closed"}
-        open={editorOpen}
-        camel={editingCamel}
-        onClose={closeEditor}
-        onSave={saveCamel}
-        onRemove={askToRemove}
-      />
+      {editorOpen ? (
+        <CamelEditorSheet
+          key={editingId ?? "new"}
+          camel={editingCamel}
+          swap={editorSwaps}
+          onClose={closeEditor}
+          onSave={saveCamel}
+          onRemove={askToRemove}
+        />
+      ) : null}
       {removing ? (
         <ConfirmDialog
           title={h.removeConfirm(removing.name)}

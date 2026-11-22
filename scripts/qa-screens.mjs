@@ -117,7 +117,7 @@ async function runScreens() {
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         if (overflow > 1) problems.push(`[${locale}/${vp.name}] ${p || "/"} horizontal overflow ${overflow}px`);
         const name = `${locale}-${vp.name}-${(p || "/home").replaceAll("/", "_").replace(/^_/, "")}.png`;
-        await page.screenshot({ path: `${OUT}/${name}`, fullPage: true });
+        await page.screenshot({ path: `${OUT}/${name}`, fullPage: true, animations: "disabled" });
       }
       await ctx.close();
     }
