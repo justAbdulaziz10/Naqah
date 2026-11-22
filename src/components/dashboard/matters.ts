@@ -1,4 +1,5 @@
-import type { Camel, FarmReport, Finding, Relay, TaskTicket, Workspace } from "@/domain/types";
+import { camelHealthLine, NOTE_SEPARATOR } from "@/domain/findings";
+import type { Camel, FarmReport, Finding, LocalizedText, Relay, TaskTicket, Workspace } from "@/domain/types";
 
 export type MatterInstruction =
   | { kind: "task"; id: string; text: string; at: string; ticket: TaskTicket }
@@ -24,6 +25,22 @@ export function mentions(text: string, name: string) {
 export function isHerdFinding(ws: Workspace, finding: Finding) {
   const kind = ws.settings.criteria.find((criterion) => criterion.id === finding.criterionId)?.kind;
   return kind === "sick_camel" || kind === "missing_camel";
+}
+
+/**
+ * A camel's row already shows its name and health, so a finding that opens with that same line keeps
+ * only the worker's note, or nothing when there is none (an empty string in that language). Any other
+ * finding is returned unchanged.
+ */
+export function findingBeyondHealth(finding: Finding, camel: Camel): LocalizedText | null {
+  if (camel.health !== "sick" && camel.health !== "watch") return finding.text;
+  const line = camelHealthLine(camel.name, camel.health);
+  const rest = (text: string, head: string) =>
+    text === head ? "" : text.startsWith(head + NOTE_SEPARATOR) ? text.slice(head.length + NOTE_SEPARATOR.length).trim() : null;
+  // Each language on its own: a sample written with English names still reads right in Arabic.
+  const ar = rest(finding.text.ar, line.ar) ?? finding.text.ar;
+  const en = rest(finding.text.en, line.en) ?? finding.text.en;
+  return ar || en ? { ar, en } : null;
 }
 
 const concern = { sick: 0, watch: 1 } as const;
