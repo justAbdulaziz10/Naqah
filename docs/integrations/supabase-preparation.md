@@ -61,7 +61,7 @@ generated types, phone OTP. The scripts under `supabase/local-validation/` are *
 ## Manual next phase: apply to the existing project only after authorization
 
 These commands are a future checklist, **not commands run in the readiness phase**. The project owner must
-authorize and perform activation on the existing `ydsgmzxqjimwbamnksxe`. Do not create another project or
+authorize and perform activation on the existing `<project-ref>`. Do not create another project or
 alter existing Auth test users to make application migrations work. Never run `local-validation/bootstrap.sql`
 or any local-validation runner against hosted Supabase.
 
@@ -73,7 +73,7 @@ or any local-validation runner against hosted Supabase.
 3. **Link.**
    ```bash
    npx supabase@latest login
-   npx supabase@latest link --project-ref ydsgmzxqjimwbamnksxe
+   npx supabase@latest link --project-ref "<project-ref>"
    ```
    If the CLI reports that the project is not initialised, run `npx supabase@latest init` first
    (it adds `supabase/config.toml`; commit it with the migration later if you keep it).

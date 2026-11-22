@@ -8,7 +8,7 @@ const SID = `AC${"a1".repeat(16)}`;
 const secretsText = [
   "# comment", `TWILIO_ACCOUNT_SID=${SID}`, 'TWILIO_AUTH_TOKEN="real-token-value"', "export TWILIO_PHONE_NUMBER=+966110000000",
   "OPENAI_API_KEY='sk-real-value' # note", "NAQAH_VOICE_SECRET=voice-secret-value",
-  "NEXT_PUBLIC_SUPABASE_URL=https://ydsgmzxqjimwbamnksxe.supabase.co", "SUPABASE_SECRET_KEY=hosted-secret", "CRON_SECRET=cron-value",
+  "NEXT_PUBLIC_SUPABASE_URL=https://supabase.example.test", "SUPABASE_SECRET_KEY=hosted-secret", "CRON_SECRET=cron-value",
 ].join("\n");
 const stack = { NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54352", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon", SUPABASE_SECRET_KEY: "service" };
 const liveArgs = ["--live", "--secrets", "/tmp/s", "--public-url", "https://tunnel.example.com", "--allow", "+966512345678"];
@@ -111,7 +111,7 @@ describe("test-call environments", () => {
   });
 
   it("refuses a Supabase URL that isn't loopback", () => {
-    const hosted = { ...stack, NEXT_PUBLIC_SUPABASE_URL: "https://ydsgmzxqjimwbamnksxe.supabase.co" };
+    const hosted = { ...stack, NEXT_PUBLIC_SUPABASE_URL: "https://supabase.example.test" };
     expect(() => buildEnvironments(parseArgs([]), hosted)).toThrow(/non-loopback/);
     expect(() => buildEnvironments(parseArgs(liveArgs), hosted, parseSecrets(secretsText))).toThrow(/non-loopback/);
   });

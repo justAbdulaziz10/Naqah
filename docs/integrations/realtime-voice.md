@@ -134,8 +134,8 @@ Official references checked November 8, 2026:
 
 ## Running locally
 
-The bridge listens on 3300 and proxies ordinary HTTP to Next on 3301, keeping one public ngrok address. Vercel can't host
-WebSockets, so production needs a separately hosted bridge; that needs owner approval.
+For local development, the bridge listens on 3300 and proxies ordinary HTTP to Next on 3301 behind one public tunnel.
+Production needs a separately hosted WebSocket bridge approved by the project owner.
 
 Production uses one public voice origin: `NAQAH_PUBLIC_BASE_URL=https://<bridge-domain>`
 on Next, and `NAQAH_BRIDGE_PUBLIC_URL=wss://<bridge-domain>/voice-bridge/media` on both.

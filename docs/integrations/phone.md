@@ -100,14 +100,14 @@ Unit tests use mocked network calls and need no Twilio or Meta account. The voic
 the configured server and can trigger paid summary channels, so use a local or test deployment unless those charges
 are intended. By default it refuses to run when `WHATSAPP_TOKEN` or
 `NAQAH_CALL_OWNER=1` is present in its environment; pass `--allow-paid` only when those effects are intended. For a
-local route run with no paid settings, use:
+local route run with no paid settings, replace `<worker-phone>` with the sample worker number configured for your local verifier:
 
 ```sh
 NAQAH_VOICE_SECRET='a-random-test-secret-at-least-32-bytes' \
-NAQAH_WORKER_PHONE='+966500000190' \
+NAQAH_WORKER_PHONE='<worker-phone>' \
 TWILIO_AUTH_TOKEN='local-test-auth-token' \
 node scripts/verify-naqah.mjs launch
-TWILIO_AUTH_TOKEN='local-test-auth-token' node scripts/verify-naqah.mjs voice --worker-phone '+966500000190'
+TWILIO_AUTH_TOKEN='local-test-auth-token' node scripts/verify-naqah.mjs voice --worker-phone '<worker-phone>'
 node scripts/verify-naqah.mjs stop
 ```
 

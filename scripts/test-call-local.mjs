@@ -512,10 +512,12 @@ async function main() {
     if (options.repeatDemoReports) {
       // Only the presentation ranch (named «… (عرض تجريبي)») may take another call after today's report.
       // The demo login's ranch counts too, so renaming it in Settings (e.g. «تعبئة تجريبية» → «عزبة الوسم») keeps it the demo.
+      const demoEmail = process.env.NAQAH_PRESENTATION_EMAIL;
       const demoOwner = (() => {
+        if (!demoEmail) return null;
         try {
           const users = JSON.parse(readFileSync(join(ROOT, "users.json"), "utf8"));
-          const id = users.find((entry) => entry?.user?.email === "demo@naqah.demo")?.user?.id;
+          const id = users.find((entry) => entry?.user?.email === demoEmail)?.user?.id;
           return /^[0-9a-f-]{36}$/i.test(id ?? "") ? id : null;
         } catch { return null; }
       })();

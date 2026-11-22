@@ -29,6 +29,7 @@
  * Results: /tmp/naqah-test-call-iso/verify/natural-report.json and screenshots there. Exit code 1 on any failure.
  */
 import { execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect as tcpConnect } from "node:net";
 import { dirname, join } from "node:path";
@@ -51,7 +52,7 @@ const SHIFT = Number(ISOLATED) * 100;
 const PG_PORT = String(54350 + SHIFT);
 const STOP_PORTS = [54350, 54351, 54352, 3310, 3311, 3313].map((port) => port + SHIFT);
 const WORKER = MOCK_ALLOWED[0]; // +966500000001
-const DEMO = { email: "demo@naqah.demo", password: "naqah-demo-2026" };
+const DEMO = { email: "presentation@example.test", password: randomUUID() };
 const RANCH = "عزبة الوسم (عرض تجريبي)";
 /** The mock stack's voice secret (scripts/test-call-local.mjs, mock credentials): signs the direct retries. */
 const MOCK_VOICE_SECRET = "local-only-voice-secret-for-test-call";
@@ -123,7 +124,7 @@ async function startRunner({ restart = false } = {}) {
   runnerLog = openSync(join(OUT, logName), "w");
   const args = [join(REPO, "scripts/test-call-local.mjs"), "--mock", "--report-path", "--natural", "--owner-approves", "--keep-data", "--repeat-demo-reports",
     ...(restart || flag("skip-build") ? ["--skip-build"] : [])];
-  runner = spawn(process.execPath, args, { cwd: REPO, stdio: ["ignore", runnerLog, runnerLog], env: { ...process.env, NAQAH_TEST_CALL_ISOLATED: ISOLATED } });
+  runner = spawn(process.execPath, args, { cwd: REPO, stdio: ["ignore", runnerLog, runnerLog], env: { ...process.env, NAQAH_TEST_CALL_ISOLATED: ISOLATED, NAQAH_PRESENTATION_EMAIL: DEMO.email } });
   await waitFor(() => {
     if (runner.exitCode !== null) throw Object.assign(new Error("runner exited"), { fatal: true });
     return existsSync(READY_FILE);
@@ -153,7 +154,12 @@ const control = (body) => postJson(`${ready.provider}/__test/control`, body);
 
 function seedRanch() {
   const seedArgs = [join(REPO, "scripts/demo/seed-presentation.mjs"), "--db", DB, "--gateway", GATEWAY];
-  const env = { ...process.env, ...pgEnv };
+  const env = {
+    ...process.env,
+    ...pgEnv,
+    NAQAH_PRESENTATION_EMAIL: DEMO.email,
+    NAQAH_PRESENTATION_PASSWORD: DEMO.password,
+  };
   execFileSync(process.execPath, [...seedArgs, "--reset"], { cwd: REPO, env, stdio: "ignore" });
   const out = execFileSync(process.execPath, [...seedArgs, "--worker-phone", WORKER, "--end-yesterday"], { cwd: REPO, env, encoding: "utf8" });
   const farm = sql(`select id from farms where name = ${q(RANCH)}`);
