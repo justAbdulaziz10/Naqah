@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as account } from "@/app/api/account/route";
@@ -526,7 +529,10 @@ describe("test-ranch calling isolation", () => {
     vi.stubEnv("VERCEL", undefined);
     vi.stubEnv("NAQAH_DEMO_OWNER_CALL", "1");
     vi.stubEnv("NAQAH_DEMO_REPEAT_FARMS", FARMS.join(","));
-    vi.stubEnv("NAQAH_CALL_ALLOWLIST_FILE", `${process.cwd()}/package.json`);
+    // The local-demo owner route only accepts an approved-numbers file in the OS temp directory.
+    const approved = join(mkdtempSync(join(tmpdir(), "naqah-approved-")), "approved-numbers.txt");
+    writeFileSync(approved, "");
+    vi.stubEnv("NAQAH_CALL_ALLOWLIST_FILE", approved);
     for (const foreign of OTHERS) {
       identity.ownerId = ownerId(foreign);
       expect(await callNowAvailable()).toEqual({ ok: false, error: "unavailable" });
