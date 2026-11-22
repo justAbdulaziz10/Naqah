@@ -10,6 +10,26 @@ import type { Camel, Criterion, EmergencyCategory, Locale, Plan, Resource, Works
 
 /** Made up for the sample farm. It may belong to a real person, so nothing may contact it. */
 export const SAMPLE_WORKER_PHONE = "+966 50 000 0190";
+/** Made up for the sample farm, like the worker's number. */
+export const SAMPLE_OWNER_PHONE = "+966 55 000 0344";
+const SAMPLE_FARM_NAMES = new Set(["عزبة الصفراء", "Al Safra Ranch"]);
+
+/**
+ * Sample ranches saved in a browser before the sample numbers changed still hold the old ones, which may
+ * belong to real people. Give the sample ranch today's made-up numbers; any other ranch is left as it is.
+ */
+export function withCurrentSampleContacts(ws: Workspace): Workspace {
+  if (!SAMPLE_FARM_NAMES.has(ws.settings.farm.name)) return ws;
+  if (ws.settings.worker.phone === SAMPLE_WORKER_PHONE && ws.settings.owner.phone === SAMPLE_OWNER_PHONE) return ws;
+  return {
+    ...ws,
+    settings: {
+      ...ws.settings,
+      owner: { ...ws.settings.owner, phone: SAMPLE_OWNER_PHONE },
+      worker: { ...ws.settings.worker, phone: SAMPLE_WORKER_PHONE },
+    },
+  };
+}
 
 export function defaultCriteria(): Criterion[] {
   return (["sick_camel", "missing_camel", "low_feed", "low_water", "fence_damage", "medicine_low"] as const).map((kind) => ({
@@ -111,7 +131,7 @@ export function createDemoWorkspace(locale: Locale, plan: Plan = "ultimate", rea
   const ownerCall = yesterday.getTime() + 80 * MINUTE;
 
   ws.setupComplete = true;
-  ws.settings.owner = { name: ar ? "عبدالله الدوسري" : "Abdullah Al-Dosari", phone: "+966 55 000 0344" };
+  ws.settings.owner = { name: ar ? "عبدالله الدوسري" : "Abdullah Al-Dosari", phone: SAMPLE_OWNER_PHONE };
   ws.settings.farm = {
     name: ar ? "عزبة الصفراء" : "Al Safra Ranch",
     location: ar ? "الخرج، منطقة الرياض" : "Al-Kharj, Riyadh Region",
