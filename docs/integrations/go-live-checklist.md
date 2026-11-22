@@ -103,4 +103,13 @@ Routing/container/monitoring details: [voice-bridge-hosting](voice-bridge-hostin
 - [ ] Pause the trigger: `select cron.alter_job((select jobid from cron.job where jobname='naqah-report-calls'), active := false);`
   Remove it: `select cron.unschedule('naqah-report-calls');`
 - [ ] Hard stop: empty `NAQAH_CALL_ALLOWLIST` (nothing can be dialled), or revert the Vercel deployment.
+- [ ] Bridge: scale the hosted voice bridge to zero. Calls fall back or end; harmless once dialing is stopped.
 - [ ] The migrations are additive; leave them applied during a rollback.
+
+### When calls misbehave
+- An unwanted call rang: hard stop, then check the allowlist and `cron.job_run_details`.
+- Rings but silent or drops early: check bridge health, `bridge_error` and `openai_credit` in the bridge logs, run preflight, fix, then one test call (§5).
+- Voicemail treated as a person, or the reverse: read the `AnsweredBy` log, tune `NAQAH_AMD_*_MS` within range (§4), one test call.
+- Nothing rings on schedule: a heartbeat older than 15 minutes means check the Vault secrets, the `CRON_SECRET` match and `NAQAH_SCHEDULED_CALLS`;
+  a fresh heartbeat with no call means no ranch is due or the number is not allowlisted.
+- Retries or duplicates: pause the trigger, then inspect `report_call_runs` attempts (3 in total, 20 minutes apart) before re-enabling.
