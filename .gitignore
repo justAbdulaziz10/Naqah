@@ -43,6 +43,10 @@ yarn-error.log*
 next-env.d.ts
 .claude/*
 !.claude/skills/
+# per-machine agent setup: local MCP config and vendored third-party skills
+.claude/skills/supabase*/
+.mcp.json
+skills-lock.json
 
 # verification evidence
 /artifacts/

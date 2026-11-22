@@ -111,8 +111,8 @@ describe("voice webhook routes", () => {
   beforeEach(() => {
     for (const name of envNames) vi.stubEnv(name, "");
     vi.stubEnv("NAQAH_VOICE_SECRET", "route-test-secret");
-    vi.stubEnv("NAQAH_WORKER_PHONE", "+966 50 778 2190");
-    vi.stubEnv("NAQAH_OWNER_PHONE", "+966 55 012 3344");
+    vi.stubEnv("NAQAH_WORKER_PHONE", "+966 50 000 0190");
+    vi.stubEnv("NAQAH_OWNER_PHONE", "+966 55 000 0344");
     vi.stubEnv("NAQAH_VOICE_LOCALE", "ar");
   });
   afterEach(() => {
@@ -152,7 +152,7 @@ describe("voice webhook routes", () => {
   });
 
   it("simulates a full worker report through the route handlers and saves the report", async () => {
-    const started = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966507782190", To: "+966500000000" }));
+    const started = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966500000190", To: "+966500000000" }));
     let xml = await started.text();
     assertWellFormedTwiml(xml);
     let action = gatherAction(xml);
@@ -191,7 +191,7 @@ describe("voice webhook routes", () => {
   });
 
   it("reprompts then moves an unmapped spoken answer to unknown without ending the report", async () => {
-    const started = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966507782190" }));
+    const started = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966500000190" }));
     const initialXml = await started.text();
     const firstAction = gatherAction(initialXml)!;
     const missedOnce = await turn(request(firstAction, { SpeechResult: "unrecognized words" }));
@@ -207,7 +207,7 @@ describe("voice webhook routes", () => {
   });
 
   it("repeats a question after a second miss without an unknown reply, then hangs up", async () => {
-    let response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966507782190" }));
+    let response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966500000190" }));
     let xml = await response.text();
     let action = gatherAction(xml);
     for (let count = 0; action && count < 40; count += 1) {
@@ -239,7 +239,7 @@ describe("voice webhook routes", () => {
   it("returns a polite disabled message with no configuration and reports false status", async () => {
     vi.stubEnv("NAQAH_VOICE_SECRET", "");
     vi.stubEnv("NAQAH_WORKER_PHONE", "");
-    const response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966507782190" }));
+    const response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966500000190" }));
     const xml = await response.text();
     expect(response.status).toBe(200);
     assertWellFormedTwiml(xml);
@@ -250,7 +250,7 @@ describe("voice webhook routes", () => {
   it("returns 403 for missing or invalid signatures on inbound and turns", async () => {
     vi.stubEnv("TWILIO_AUTH_TOKEN", "route-test-token");
     const inboundUrl = "https://naqah.test/api/voice/inbound";
-    const fields = { From: "+966507782190", CallSid: "CA-signature-check" };
+    const fields = { From: "+966500000190", CallSid: "CA-signature-check" };
     expect((await inbound(request(inboundUrl, fields))).status).toBe(403);
     const state = signVoiceState({ v: 1, sc: "report_call", l: "ar", t: Date.now(), a: [] });
     const action = `https://naqah.test/api/voice/turn?s=${encodeURIComponent(state)}`;
@@ -284,7 +284,7 @@ describe("voice webhook routes", () => {
     vi.stubEnv("TWILIO_AUTH_TOKEN", "route-test-token");
     const publicInbound = "https://naqah.test/api/voice/inbound";
     const internalInbound = "http://internal:3000/api/voice/inbound";
-    const fields = { From: "+966507782190", CallSid: "CA-forwarded" };
+    const fields = { From: "+966500000190", CallSid: "CA-forwarded" };
     const started = await inbound(signedRequest(internalInbound, fields, publicInbound, true));
     const xml = await started.text();
     expect(started.status).toBe(200);
@@ -302,7 +302,7 @@ describe("voice webhook routes", () => {
   it("binds signed conversation state to its inbound CallSid", async () => {
     vi.stubEnv("TWILIO_AUTH_TOKEN", "route-test-token");
     const inboundUrl = "https://naqah.test/api/voice/inbound";
-    const fields = { From: "+966507782190", CallSid: "CA-original" };
+    const fields = { From: "+966500000190", CallSid: "CA-original" };
     const started = await inbound(signedRequest(inboundUrl, fields));
     const action = gatherAction(await started.text())!;
     const mismatched = { ...fields, CallSid: "CA-different", SpeechResult: "نعم" };
@@ -315,7 +315,7 @@ describe("voice webhook routes", () => {
     vi.stubEnv("TWILIO_AUTH_TOKEN", "route-test-token");
     vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", "phone-id");
     vi.stubEnv("WHATSAPP_TOKEN", "wa-test-token");
-    vi.stubEnv("NAQAH_OWNER_WHATSAPP", "+966550123344");
+    vi.stubEnv("NAQAH_OWNER_WHATSAPP", "+966550000344");
     vi.stubEnv("NAQAH_CALL_OWNER", "1");
     vi.stubEnv("TWILIO_ACCOUNT_SID", "AC-test");
     vi.stubEnv("TWILIO_PHONE_NUMBER", "+966500000000");
@@ -325,7 +325,7 @@ describe("voice webhook routes", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const worker = await driveCall("+966507782190", "CA-worker-report", true);
+    const worker = await driveCall("+966500000190", "CA-worker-report", true);
     expect(worker.completed).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const whatsappCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes("graph.facebook.com"));
@@ -336,13 +336,13 @@ describe("voice webhook routes", () => {
     expect(ownerBody.get("Twiml")!.length).toBeLessThan(4_000);
 
     fetchMock.mockClear();
-    const ownerInquiry = await driveCall("+966550123344", "CA-owner-inquiry", true);
+    const ownerInquiry = await driveCall("+966550000344", "CA-owner-inquiry", true);
     expect(ownerInquiry.completed).toBe(true);
     expect(fetchMock).not.toHaveBeenCalled();
 
     vi.stubEnv("TWILIO_AUTH_TOKEN", "");
     const skipped = vi.spyOn(console, "info").mockImplementation(() => {});
-    const unsignedWorker = await driveCall("+966507782190", "CA-unsigned-worker", false);
+    const unsignedWorker = await driveCall("+966500000190", "CA-unsigned-worker", false);
     expect(unsignedWorker.completed).toBe(true);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(skipped.mock.calls.filter(([line]) => line === "owner summary skipped: unsigned webhook")).toHaveLength(1);
@@ -356,7 +356,7 @@ describe("voice webhook routes", () => {
     vi.stubEnv("TWILIO_PHONE_NUMBER", "+966500000000");
     const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    const result = await driveCall("+966507782190", "CA-no-owner", true);
+    const result = await driveCall("+966500000190", "CA-no-owner", true);
     expect(result.completed).toBe(true);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -369,7 +369,7 @@ describe("voice webhook routes", () => {
     vi.stubEnv("VERCEL_ENV", vercel);
     vi.stubEnv("NODE_ENV", node);
     vi.stubEnv("NAQAH_ALLOW_UNSIGNED_VOICE", "0");
-    const response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966507782190" }));
+    const response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966500000190" }));
     const xml = await response.text();
     expect(response.status).toBe(200);
     expect(xmlText(xml, "Say")).toContain("خط الاتصال غير مفعّل");
@@ -380,7 +380,7 @@ describe("voice webhook routes", () => {
     vi.stubEnv("TWILIO_AUTH_TOKEN", "");
     vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("NAQAH_ALLOW_UNSIGNED_VOICE", "1");
-    const response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966507782190" }));
+    const response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966500000190" }));
     expect(response.status).toBe(200);
     const xml = await response.text();
     expect(xmlText(xml, "Say")).toContain("خط الاتصال غير مفعّل");
@@ -390,7 +390,7 @@ describe("voice webhook routes", () => {
   it("returns goodbye TwiML and logs only the error name when engine replay throws", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(voiceConversation, "replayVoiceState").mockImplementationOnce(() => { throw new TypeError("sensitive provider detail"); });
-    const response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966507782190" }));
+    const response = await inbound(request("https://naqah.test/api/voice/inbound", { From: "+966500000190" }));
     const xml = await response.text();
     expect(response.status).toBe(200);
     expect(xml).toContain("<Hangup/>");
@@ -414,7 +414,7 @@ describe("voice webhook routes", () => {
     { paidEnv: { NAQAH_CALL_OWNER: "1" } },
   ])("makes the voice verifier stop before any request when its default dry-run sees paid settings", ({ paidEnv }) => {
     const result = spawnSync(process.execPath, [
-      "scripts/verify-naqah.mjs", "voice", "--worker-phone", "+966507782190",
+      "scripts/verify-naqah.mjs", "voice", "--worker-phone", "+966500000190",
     ], {
       cwd: process.cwd(),
       env: { PATH: process.env.PATH ?? "", NODE_ENV: "test", ...paidEnv },

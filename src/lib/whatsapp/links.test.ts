@@ -84,7 +84,7 @@ describe("WhatsApp links", () => {
 });
 
 describe("sample worker number", () => {
-  it.each(["+966 50 778 2190", "0507782190", "966507782190", "٠٥٠٧٧٨٢١٩٠"])("is recognised as %s", (phone) => {
+  it.each(["+966 50 000 0190", "0500000190", "966500000190", "٠٥٠٠٠٠٠١٩٠"])("is recognised as %s", (phone) => {
     expect(isSampleWorkerPhone(phone)).toBe(true);
   });
   it.each(["0512345678", "", "not a number"])("does not block %s", (phone) => {

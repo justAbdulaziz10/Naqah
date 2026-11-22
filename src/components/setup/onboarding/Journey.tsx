@@ -92,6 +92,12 @@ export function JourneyPanel({ ws, step, onGo }: { ws: Workspace; step: number; 
         <div className="relative h-[34%] min-h-48 shrink-0">
           <Image src={photo.src} alt="" fill sizes="25rem" className="object-cover" style={{ objectPosition: photo.focus }} />
           <div aria-hidden className={"absolute inset-x-0 top-0 h-1/2 bg-linear-to-b from-espresso to-transparent" /* taste-skill-ignore: scrim joining photo to panel */} />
+          {/* CC BY-SA asks for the creator and licence wherever the photograph is shown. */}
+          <p className="absolute bottom-2 end-2 rounded bg-espresso/75 px-2 py-0.5 text-[0.75rem] text-cream/90">
+            <a href={photo.credit.sourceUrl} className="underline decoration-cream/40 underline-offset-2 hover:text-cream">{f.photoBy}: {photo.credit.creator}</a>
+            {" · "}
+            <a href={photo.credit.licenseUrl} className="underline decoration-cream/40 underline-offset-2 hover:text-cream">{photo.credit.license}</a>
+          </p>
         </div>
       ) : null}
     </aside>

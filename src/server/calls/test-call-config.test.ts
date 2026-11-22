@@ -105,13 +105,13 @@ describe("the owner approves a test number (local demo)", () => {
       expect(approveTestNumber("+966500000072", audit)).toEqual({ ok: false, reason: "not_local" });
       vi.stubEnv("NAQAH_OWNER_APPROVES_TEST_NUMBERS", "1");
       expect(ownerApprovesTestNumbers()).toBe(true);
-      expect(approveTestNumber("+44 7447 199952", audit)).toEqual({ ok: false, reason: "invalid_number" });
+      expect(approveTestNumber("+44 7700 900123", audit)).toEqual({ ok: false, reason: "invalid_number" });
       expect(approveTestNumber("+966 50 000 0072", audit)).toEqual({ ok: true, number: "+966500000072" });
       expect(callAllowlist()).toEqual(["+966500000071", "+966500000072"]);
       expect(approveTestNumber("+966500000072", audit)).toEqual({ ok: true, number: "+966500000072" });
       expect(callAllowlist()).toHaveLength(2);
       expect(readFileSync(join(dir, "approved-numbers.audit.jsonl"), "utf8")).toContain('"consent":true');
-      expect(readFileSync(join(dir, "approved-numbers.audit.jsonl"), "utf8")).not.toContain("508913447");
+      expect(readFileSync(join(dir, "approved-numbers.audit.jsonl"), "utf8")).not.toContain("500000072");
       for (let n = callAllowlist().length; n < MAX_APPROVED_NUMBERS; n += 1) approveTestNumber(`+96650000010${n}`, audit);
       expect(approveTestNumber("+966500000199", audit)).toEqual({ ok: false, reason: "limit" });
       vi.stubEnv("VERCEL", "1");

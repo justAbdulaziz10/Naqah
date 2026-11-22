@@ -235,3 +235,21 @@ ratios are unchanged.
 | **Total** | **3,054,129** | **1,931,221** |
 
 The total decreased by 1,122,908 bytes (36.8%).
+
+## Where each photograph is shown (Premium v2, 2026-11-22)
+
+This supersedes the "no longer shown" note above. The landing shows `hero`, `evening`, `heritage` and `closing`
+(`shown` in `src/components/landing/LandingPage.tsx`) and credits each in its footer. The sign-in and sign-up pages
+show `hero` (Pexels License, no attribution required). The onboarding panel shows `herder` (SPA, CC BY-SA 4.0) and
+credits it on the photograph. `herd-profile.jpg` and `closing.jpg` stay in the repository but are not shown.
+Every share-alike photograph is used unaltered (resize and crop only) under a dark scrim.
+
+| Slot | File | Shown on | Licence | Credit shown |
+|---|---|---|---|---|
+| `hero` | `hero-herd-dusk.jpg` | Landing hero, sign-in, sign-up | Pexels License | Landing footer |
+| `evening` | `evening.jpg` | Landing | CC BY-SA 4.0 | Landing footer |
+| `heritage` | `heritage.jpg` | Landing | CC BY-SA 4.0 | Landing footer |
+| `closing` | `call-hisma-sunset.jpg` | Landing closing | Unsplash License | Landing footer |
+| `herder` | `hero-herder.jpg` | Onboarding panel (wide screens) | CC BY-SA 4.0 | On the photograph |
+
+Status: all still **pending owner approval** before public promotion (LinkedIn, social preview).

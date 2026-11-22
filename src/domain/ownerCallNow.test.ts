@@ -14,7 +14,7 @@ const draft = { answers: [], camelUpdates: [], resourceUpdates: [], herdAccounte
 function farm(): Workspace {
   const ws = createEmptyWorkspace("ultimate");
   ws.setupComplete = true;
-  ws.settings.owner = { name: "Abdullah", phone: "+966 55 012 3344" };
+  ws.settings.owner = { name: "Abdullah", phone: "+966 55 000 0344" };
   ws.settings.worker = { ...ws.settings.worker, name: "Ahmed", phone: "+966501234567" };
   ws.settings.ownerCallSchedule = { day: null, time: "19:00" };
   return ws;
@@ -30,7 +30,7 @@ describe("owner call now (local demo)", () => {
     const { ws: reported, report } = completeWorkerReport(farm(), at(-30), draft);
     const opened = openOwnerCallNow(reported, NOW);
     expect(opened.blocked).toBeNull();
-    expect(opened.claim).toEqual({ runId: opened.ws.ownerCallRun!.id, attempt: 1, phone: "+966550123344", reportId: report.id });
+    expect(opened.claim).toEqual({ runId: opened.ws.ownerCallRun!.id, attempt: 1, phone: "+966550000344", reportId: report.id });
     expect(opened.ws.ownerCallRun).toMatchObject({ occurrence: NOW.toISOString(), state: "calling", nextAttemptAt: null, trigger: "manual", reportId: report.id });
     expect(opened.ws.ownerCallRun!.attempts).toEqual([{ at: NOW.toISOString(), result: "pending" }]);
   });

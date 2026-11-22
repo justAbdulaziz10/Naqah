@@ -219,7 +219,7 @@ function DemoLab() {
           )}
         </div>
         <div className="order-3 min-w-0 lg:order-none">
-          <InsidePanel ws={ws} session={session} baseline={baseline} m={m} t={t} />
+          <InsidePanel ws={ws} session={session} baseline={baseline} started={lab.callStartedAt !== null} m={m} t={t} />
         </div>
       </div>
     </div>

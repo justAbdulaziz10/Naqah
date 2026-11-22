@@ -570,7 +570,7 @@ describe("Call Lab conversation engine", () => {
 
   it("records an unspecified herd-health concern when the herd is empty and skips herd count", () => {
     const empty = createEmptyWorkspace("ultimate");
-    empty.settings.worker.phone = "+966507782190";
+    empty.settings.worker.phone = "+966500000190";
     const { ws, session } = reportCall(empty);
     expect(session.data.currentQuestionId).toBe("herd_health");
     expect(session.data.queue?.some((item) => item.id === "herd_count")).toBe(false);
@@ -628,7 +628,7 @@ describe("Call Lab conversation engine", () => {
 
   it("stores a heat-day water and shade finding when the worker answers not enough", () => {
     const ws = createEmptyWorkspace("ultimate");
-    ws.settings.worker.phone = "+966507782190";
+    ws.settings.worker.phone = "+966500000190";
     ws.settings.farm.coords = { lat: 24.155, lon: 47.334 };
     ws.resources = ws.resources.map((resource) => ({ ...resource, present: false }));
     const called = reportCall(withDemoHeat(ws, NOW));

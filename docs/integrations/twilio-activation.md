@@ -7,7 +7,7 @@ verified over HTTPS through an ngrok tunnel. Unattended scheduled calls are off.
 | Item | State |
 |---|---|
 | Account | NAQAH subaccount, active, full (not trial). Bills to the parent account's balance. |
-| Caller ID | `+447447199952` (UK, voice-capable), `TWILIO_PHONE_NUMBER` |
+| Caller ID | a UK voice-capable number (kept out of the repo), `TWILIO_PHONE_NUMBER` |
 | Saudi (+966) | Allowed: the subaccount inherits the parent's voice geo permissions (Saudi low-risk on) |
 | Credentials | The subaccount's own SID and auth token (Twilio signs its webhooks with that token) |
 | Public origin | the local ngrok domain (kept out of the repo) → `next start -p 3300`, set as `NAQAH_PUBLIC_BASE_URL` |

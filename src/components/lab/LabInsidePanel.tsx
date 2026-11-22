@@ -116,17 +116,20 @@ export function InsidePanel({
   ws,
   session,
   baseline,
+  started,
   m,
   t,
 }: {
   ws: Workspace;
   session: CallSession | null;
   baseline: string[];
+  started: boolean;
   m: ReturnType<typeof useI18n>["m"];
   t: (value: { ar: string; en: string }) => string;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const events = ws.events.filter((event) => !baseline.includes(event.id)).slice().reverse();
+  // Before the first call in the Lab, older sample events are not changes made here.
+  const events = !started ? [] : ws.events.filter((event) => !baseline.includes(event.id)).slice().reverse();
   const callouts = session?.notices ?? [];
 
   return (
