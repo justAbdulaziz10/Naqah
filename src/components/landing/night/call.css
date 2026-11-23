@@ -1,0 +1,109 @@
+/* The call stage: a phone built from layers, lit by an ember rim, floating in a 3D scene. */
+.ph-stage { perspective: 1600px; }
+
+.ph-float { animation: ph-float 7s ease-in-out infinite; will-change: transform; }
+@keyframes ph-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.ph-phone {
+  position: relative;
+  width: var(--ph-w);
+  aspect-ratio: 9 / 19.4;
+  transform-style: preserve-3d;
+}
+
+/* Thickness: stacked slices behind the front face. The back face sits behind them so it wins when flipped. */
+.ph-depth {
+  position: absolute;
+  inset: 0;
+  border-radius: 2.4rem;
+  background: #2a1f18;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.ph-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 2.4rem;
+  overflow: hidden;
+  background: #0d0a08;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 0 0 7px #17120e;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+.ph-front { transform: translateZ(0.5px); }
+.ph-back { transform: translateZ(-14.5px) rotateY(180deg); }
+
+.ph-screen {
+  position: absolute;
+  inset: 8px;
+  border-radius: 2rem;
+  overflow: hidden;
+  background: radial-gradient(120% 80% at 50% 0%, #241812 0%, #120d0a 45%, #0a0706 100%);
+}
+.ph-island {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 30%;
+  height: 3.4%;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: #050403;
+}
+.ph-rim {
+  position: absolute;
+  inset: -2px;
+  border-radius: 2.5rem;
+  pointer-events: none;
+  box-shadow: 0 0 90px -12px var(--ember), 0 0 28px -6px var(--ember);
+}
+
+/* Ember rings pulse out of the ringing phone. */
+.ph-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--ph-w);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid var(--ember);
+  translate: -50% -50%;
+  opacity: 0;
+  animation: ph-pulse 2.8s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+@keyframes ph-pulse {
+  0% { scale: 0.7; opacity: 0.8; }
+  100% { scale: 2.1; opacity: 0; }
+}
+
+/* Chat bubbles on the small screen. */
+.ph-bubble {
+  max-width: 86%;
+  border-radius: 1rem;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.ph-bubble-naqah { align-self: flex-start; background: rgba(253, 250, 243, 0.08); color: var(--text); border-start-start-radius: 0.3rem; }
+.ph-bubble-ahmed { align-self: flex-end; background: rgba(216, 173, 108, 0.18); color: #f6e7c9; border-end-end-radius: 0.3rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ph-float, .ph-ring { animation: none; }
+  .ph-ring { opacity: 0.35; scale: 1.2; }
+}
+
+/* Phone width: a hand's phone on phones, a stage prop on desktop. */
+.ph-stage { --ph-w: min(60vw, 270px); }
+@media (min-width: 1024px) { .ph-stage { --ph-w: clamp(240px, 22vw, 320px); } }
+
+/* The beats' rail: a hairline with one mark per beat. */
+.ph-rail::before {
+  content: "";
+  position: absolute;
+  inset-block: 1.5rem;
+  inset-inline-start: 5px;
+  width: 1px;
+  background: var(--line);
+}

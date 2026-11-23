@@ -308,6 +308,14 @@ exception here.
 - The landing is one photographic story: hero with the sample evening rail, the scroll-led `CallStory` (worker's call → report → owner's call → dashboard), principles with the retry rail, `PlanWeeks` with "Compare every detail", and the closing invitation. Dark scrims under text on photos are allowed for contrast. Times above story steps are timeline markers, not eyebrows. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`. Photos and their credits are tracked in `docs/design/asset-ledger.md`.
 - Arabic pages lead with Alexandria (`--font-arabic`). next/font's "Montserrat Fallback" covers every codepoint, so with Montserrat first, Arabic renders in Arial.
 - Motion is subtle and meaningful (entrances, state changes, sheets), never hides content, and stops under `prefers-reduced-motion`.
+- **Night landing (draft, Nov 2026, branch `design/landing-night`, awaiting the owner's review).** The landing is «ليلة في العزبة»: one night at the
+  ranch, dusk to dawn, on a night palette scoped to `.naqah-night` (`src/components/landing/night/night.css`); the previous landing stays in
+  `LandingPage.tsx` until the owner decides. Deliberate exceptions, at the owner's request for a richer, three-dimensional landing: a WebGL dune
+  scene in the hero (vanilla `three` in a client island; one static frame under reduced motion; the photograph with a scrim where WebGL is
+  missing), CSS-3D models built from real sample data (the phone stage, the ranch diorama, the retry orbit, the week rings), glass surfaces with
+  blur and a glow on the primary action, and `motion/react` for scroll-linked and pointer-driven movement that stops under reduced motion.
+  Everything else holds: labelled samples only, a text equivalent for every visual, hairline borders, status in words, logical utilities, Latin
+  digits, and copy in `landing.ts` under `landing.night`.
   Exception (owner request, Nov 2026): the landing hero photograph is scroll-linked (`HeroDrift` + `.naqah-drift`): the further the page scrolls, the further the herd moves to the right (physical right in both languages). It is driven by the reader's scroll, never a perpetual loop, and stays still under reduced motion.
 
 ### Known pitfalls (learned the hard way)

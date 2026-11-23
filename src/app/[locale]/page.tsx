@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { LandingPage } from "@/components/landing/LandingPage";
+import { NightLanding } from "@/components/landing/night/NightLanding";
 import { isLocale } from "@/i18n/config";
 import { localizedAlternates } from "./metadata";
 
@@ -12,5 +12,5 @@ export async function generateMetadata({ params }: PageProps<"/[locale]">): Prom
 export default async function Home({ params }: PageProps<"/[locale]">) {
   const { locale } = await params;
   if (!isLocale(locale)) notFound();
-  return <LandingPage locale={locale} />;
+  return <NightLanding locale={locale} />;
 }

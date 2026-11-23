@@ -1,0 +1,250 @@
+/*
+ * The ranch diorama (CSS 3D, no images) and the retry orbit.
+ * The 3D world uses physical left/top on purpose: transforms are not mirrored by writing direction,
+ * so the model and its labels keep one geometry in both languages. Copy around it stays logical.
+ */
+
+/* ---------- Diorama ---------- */
+.dio-stage {
+  --dio-size: clamp(14rem, 62vw, 25rem);
+  position: relative;
+  width: calc(var(--dio-size) * 1.5);
+  height: calc(var(--dio-size) * 1.05);
+  margin-inline: auto;
+  perspective: 1400px;
+  perspective-origin: 50% 30%;
+}
+.dio-float {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+.dio-world {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--dio-size);
+  height: var(--dio-size);
+  transform-style: preserve-3d;
+  transform: translate(-50%, -50%) rotateX(55deg) rotateZ(45deg);
+  --h: calc(var(--dio-size) * 0.03);
+}
+.dio-face {
+  position: absolute;
+  display: block;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+}
+.dio-top {
+  inset: 0;
+  transform: translateZ(var(--h));
+  background: var(--face-top, #3a2b20);
+}
+.dio-side-y {
+  left: 0;
+  top: 100%;
+  width: 100%;
+  height: var(--h);
+  transform-origin: top;
+  transform: rotateX(90deg);
+  background: var(--face-front, #271b13);
+}
+.dio-side-x {
+  left: 100%;
+  top: 0;
+  width: var(--h);
+  height: 100%;
+  transform-origin: left;
+  transform: rotateY(-90deg);
+  background: var(--face-side, #1b130d);
+}
+/* The ground: everything stands on its top face. */
+.dio-ground-top {
+  transform-style: preserve-3d;
+  --face-top: #33261c;
+  background-image:
+    radial-gradient(ellipse at 52% 36%, rgba(216, 121, 58, 0.26), transparent 22%),
+    radial-gradient(ellipse at 30% 70%, rgba(253, 250, 243, 0.03), transparent 50%),
+    linear-gradient(#33261c, #2c2018);
+}
+.dio-block {
+  position: absolute;
+  transform-style: preserve-3d;
+  --h: calc(var(--dio-size) * var(--z));
+  appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  outline: none;
+}
+.dio-block:focus-visible .dio-top {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 3px;
+}
+.dio-block::before {
+  /* A 44px hit area around small marks. */
+  content: "";
+  position: absolute;
+  inset: -12px;
+}
+/* The pen: a low slab with a dashed fence; the camels stand on its top face. */
+.dio-pen { --face-top: #30241a; --face-front: #241910; --face-side: #1b130d; }
+.dio-pen .dio-top {
+  transform-style: preserve-3d;
+  border: 2px dashed rgba(210, 180, 140, 0.4);
+  background-image: repeating-linear-gradient(45deg, rgba(253, 250, 243, 0.025) 0 2px, transparent 2px 14px);
+}
+.dio-camel { --face-top: #b08f66; --face-front: #8a6c49; --face-side: #6b5338; }
+.dio-camel .dio-top { border-color: rgba(253, 250, 243, 0.25); border-radius: 30% 30% 20% 20%; }
+.dio-camel-watch { --face-top: var(--warn); --face-front: #a8763a; --face-side: #7f5a2d; }
+.dio-camel-watch .dio-top { animation: dio-watch 2.6s ease-in-out infinite; }
+@keyframes dio-watch {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 168, 90, 0); }
+  50% { box-shadow: 0 0 14px 4px rgba(224, 168, 90, 0.55); }
+}
+/* Water: a dark trough with a moon glint. */
+.dio-water { --face-front: #1c1812; --face-side: #15120d; }
+.dio-water .dio-top {
+  background:
+    radial-gradient(ellipse at 62% 38%, rgba(239, 231, 214, 0.45), transparent 42%),
+    linear-gradient(135deg, #1e3843, #2a4f5d 55%, #19303a);
+  border-color: rgba(239, 231, 214, 0.18);
+}
+/* Feed store: the tallest block, with a sack-cloth texture on top. */
+.dio-feed { --face-top: #4a3828; --face-front: #33261b; --face-side: #241a12; }
+.dio-feed .dio-top {
+  background-image: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 3px, transparent 3px 11px);
+}
+/* The worker's room, with one lit window. */
+.dio-room { --face-top: #3f2f23; --face-front: #2c2017; --face-side: #1f1610; }
+.dio-window {
+  position: absolute;
+  display: block;
+  left: 36%;
+  top: 100%;
+  width: 28%;
+  height: calc(var(--h) * 0.38);
+  transform-origin: top;
+  transform: rotateX(90deg) translateY(calc(var(--h) * 0.3)) translateZ(-1px);
+  background: var(--ember);
+  box-shadow: 0 0 18px 5px rgba(216, 121, 58, 0.55);
+  border-radius: 2px;
+}
+/* The shade: a slatted roof on four posts, no walls. */
+.dio-shade { --face-top: #4a3827; }
+.dio-shade > .dio-side-y, .dio-shade > .dio-side-x { display: none; }
+.dio-shade .dio-top {
+  background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.22) 0 5px, transparent 5px 11px);
+  border-color: rgba(253, 250, 243, 0.18);
+}
+.dio-post {
+  position: absolute;
+  display: block;
+  width: 7%;
+  height: 7%;
+  transform-style: preserve-3d;
+  --face-front: #2a1f17;
+  --face-side: #1d150f;
+}
+/* A thin weather mast with a warm tip. */
+.dio-heat { --face-top: var(--warn); --face-front: #2a1f17; --face-side: #1d150f; }
+.dio-heat .dio-top { box-shadow: 0 0 14px 5px rgba(224, 168, 90, 0.5); border-color: transparent; }
+/* The floating fact label. Pinned near its element from the sm breakpoint; stacked below the model on phones. */
+.dio-label-slot {
+  position: static;
+  margin-top: 1rem;
+  width: 100%;
+}
+@media (min-width: 640px) {
+  .dio-label-slot {
+    position: absolute;
+    margin-top: 0;
+    width: max-content;
+    max-width: 15.5rem;
+    transform: translate(-50%, calc(-100% - 14px));
+    pointer-events: none;
+    z-index: 2;
+  }
+  .dio-label-slot[data-below] { transform: translate(-50%, 18px); }
+}
+
+/* ---------- Retry orbit ---------- */
+.orbit-stage {
+  perspective: 900px;
+  perspective-origin: 50% 20%;
+}
+.orbit-ring {
+  position: relative;
+  width: min(100%, 22rem);
+  aspect-ratio: 1;
+  margin-inline: auto;
+  transform-style: preserve-3d;
+  transform: rotateX(62deg);
+}
+.orbit-ring::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px dashed var(--line-strong);
+}
+.orbit-ring::after {
+  content: "";
+  position: absolute;
+  inset: 22%;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: radial-gradient(circle, rgba(216, 173, 108, 0.12), transparent 70%);
+}
+.orbit-spin {
+  position: absolute;
+  inset: 0;
+  animation: orbit-spin 16s linear infinite;
+}
+.orbit-sat {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 8px;
+  height: 8px;
+  margin: -4px;
+  border-radius: 50%;
+  background: var(--moon);
+  box-shadow: 0 0 12px 3px rgba(239, 231, 214, 0.45);
+}
+@keyframes orbit-spin { to { transform: rotate(1turn); } }
+/* Nodes stand upright on the tilted ring: the inverse tilt makes them face the reader. */
+.orbit-node {
+  position: absolute;
+  left: var(--nx);
+  top: var(--ny);
+  width: 7.5rem;
+  transform-origin: 50% 100%;
+  transform: translate(-50%, -100%) rotateX(-62deg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.orbit-disc {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  border: 2px solid var(--moon);
+  background: transparent;
+}
+.orbit-disc-lit {
+  border-color: var(--ember);
+  background: var(--ember);
+  box-shadow: 0 0 22px 6px rgba(216, 121, 58, 0.5);
+}
+.orbit-disc-gold {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-color: var(--gold-bright);
+  background: var(--gold-bright);
+  box-shadow: 0 0 26px 8px rgba(216, 173, 108, 0.45);
+}
