@@ -45,7 +45,9 @@ export async function GET(request: Request): Promise<Response> {
   const secret = cronSecret();
   if (!secret) return json({ ok: false, reason: "cron_secret_missing" }, 503);
   if (!authorized(request, secret)) return json({ ok: false, reason: "unauthorized" }, 401);
+  // After the secret check, so an unauthenticated caller learns nothing about test-ranch mode.
   const scope = testCallScope();
+  if (scope.kind === "ranch") return json({ ok: false, placed: 0, reason: "manual_only" }, 403);
   if (scope.kind === "invalid") return json({ ok: false, placed: 0, reason: "not_configured" }, 503);
   if (voiceMode() !== "farm") return json({ ok: true, placed: 0, skipped: "sample_mode" });
 

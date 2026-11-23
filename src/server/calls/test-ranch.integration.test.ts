@@ -29,7 +29,11 @@ import { toDbId } from "@/server/db/ids";
 import { loadFarm } from "@/server/db/queries";
 import { listScheduledFarmIds, recordedOutcome, runFarmAction } from "@/server/db/service-repository";
 import { advanceVoiceSession, createVoiceSession, readVoiceSession } from "@/server/db/voice-sessions";
-import { callNowAvailable, callOwnerNow, callWorkerNow, ensureFarm, loadWorkspace, openAccount, retryUndelivered, saveOwnerEdits, selectInitialPlan } from "@/server/farm/actions";
+import {
+  callNowAvailable, callOwnerNow, callWorkerNow, ensureFarm, loadWorkspace, openAccount, retryUndelivered,
+  saveOwnerEdits, selectInitialPlan, testCallsPanelState, testCallReportNow, testCallOwnerSummaryNow,
+  testCallWorkerInstructionNow, testCallWorkerVerificationNow,
+} from "@/server/farm/actions";
 import { reserveRateLimit, resetRateLimitState } from "@/server/rate-limit";
 import { markServiceClient, resetCallingOwnerCheck, verifyCallingOwner } from "@/server/test-ranch";
 import { twilioRequestSignature } from "@/server/twilio/signature";
@@ -427,7 +431,9 @@ describe("test-ranch owner account isolation", () => {
     expect(await selectInitialPlan("basic", identity.ownerId)).toEqual(unavailable);
     expect(await json(accountRequest("load"))).toEqual(unavailable);
     expect(await json(accountRequest("save", { changes: [], farm: TEST }))).toEqual(unavailable);
-    expect((await cronRequest()).status).toBe(503);
+    const cron = await cronRequest();
+    expect(cron.status).toBe(403);
+    expect(await cron.json()).toMatchObject({ ok: false, reason: "manual_only" });
     expect(await requestReportCallNow(db, caller, wrongRanch, options)).toEqual({ status: "blocked", reason: "unavailable" });
     expect(await requestOwnerCallNow(db, caller, wrongRanch, { ...options, allowlist: [] })).toEqual({ status: "blocked", reason: "unavailable" });
     expect((await inbound(twilio("/api/voice/inbound", sid(1), { From: phone(1) }))).status).toBe(503);
@@ -444,28 +450,83 @@ describe("test-ranch owner account isolation", () => {
 });
 
 describe("test-ranch calling isolation", () => {
-  it("runs the authenticated cron only for the test ranch and leaves other claims, stale runs and heartbeat unchanged", async () => {
-    const before = snapshotOthers();
-    phase("report");
-    expect((await cronRequest("wrong")).status).toBe(401);
-    vi.stubEnv("NAQAH_SCHEDULED_CALLS", "");
-    expect(await json(cronRequest())).toMatchObject({ skipped: "scheduled_calls_off", placed: 0 });
-    expect(queries).toEqual([]);
+  it.each(["report", "owner", "worker", undefined])("refuses cron in manual-only ranch scope with phase %s", async (configuredPhase) => {
+    const before = structuredClone(rows);
+    if (configuredPhase) phase(configuredPhase);
     vi.stubEnv("NAQAH_SCHEDULED_CALLS", "1");
-    expect(await json(cronRequest())).toMatchObject({ farms: 1, placed: 1, failed: 0, errors: 0 });
-    expect(placed).toHaveLength(1);
-    expect(placed[0].get("To") === phone(0)).toBe(true);
-    expect(placed[0].get("Record")).toBe("false");
-    expect(Number(placed[0].get("TimeLimit"))).toBeGreaterThan(0);
-    expect(verifyCallToken(lastPlacementToken())).toMatchObject({ k: "report", f: TEST });
-    const sidWrite = queries.find((query) => query.table === "report_call_runs" && query.method === "PATCH" && query.params.has("provider_call_id"));
-    expect(sidWrite?.params.get("farm_id")).toBe(`eq.${TEST}`);
-    expect(inFarm("report_call_runs")).toContainEqual(expect.objectContaining({ state: "missed" }));
-    expect(inFarm("pending_worker_calls")[0].dial_claimed_at).toBeNull();
-    expect(farm().owner_call_run).toBeNull();
-    expect(snapshotOthers()).toEqual(before);
+    // Unauthenticated callers get the same answers as before test-ranch mode; manual_only is for the secret holder.
+    const wrong = await cronRequest("wrong");
+    expect(wrong.status).toBe(401);
+    expect(await wrong.json()).toEqual({ ok: false, reason: "unauthorized" });
+    vi.stubEnv("CRON_SECRET", "");
+    expect((await cronRequest()).status).toBe(503);
+    vi.stubEnv("CRON_SECRET", CRON_KEY);
+    expect(await json(cronRequest())).toMatchObject({ ok: false, placed: 0, reason: "manual_only" });
+    expect((await cronRequest()).status).toBe(403);
+    await expect(runReportCallScheduler(db, recordingCaller().caller, options)).rejects.toMatchObject({ code: "unavailable" });
+    expect(placed).toEqual([]);
+    expect(queries).toEqual([]);
+    expect(rows).toEqual(before);
+  });
+
+  it("exposes test-call availability only to the confirmed owner of the configured ranch", async () => {
+    const before = structuredClone(rows);
+    expect(await testCallsPanelState()).toMatchObject({ ok: true, data: { visible: true, maxCalls: 8, callLive: false } });
+    expect(await json(accountRequest("testCallsPanel"))).toMatchObject({ ok: true, data: { visible: true } });
+
+    for (const foreign of OTHERS) {
+      identity.ownerId = ownerId(foreign);
+      expect(await testCallsPanelState()).toEqual({ ok: false, error: "unavailable" });
+      expect(await testCallReportNow()).toEqual({ ok: false, error: "unavailable" });
+      expect(await testCallOwnerSummaryNow()).toEqual({ ok: false, error: "unavailable" });
+      expect(await testCallWorkerInstructionNow()).toEqual({ ok: false, error: "unavailable" });
+      expect(await testCallWorkerVerificationNow()).toEqual({ ok: false, error: "unavailable" });
+    }
+    identity.ownerId = ownerId(TEST);
+
+    vi.stubEnv("NAQAH_TEST_RANCH_ID", OTHERS[0]);
+    expect(await testCallsPanelState()).toEqual({ ok: false, error: "unavailable" });
+    expect(await testCallReportNow()).toEqual({ ok: false, error: "unavailable" });
+    expect(await testCallOwnerSummaryNow()).toEqual({ ok: false, error: "unavailable" });
+    expect(await testCallWorkerInstructionNow()).toEqual({ ok: false, error: "unavailable" });
+    expect(await testCallWorkerVerificationNow()).toEqual({ ok: false, error: "unavailable" });
+    vi.stubEnv("NAQAH_TEST_RANCH_ID", TEST);
+
+    clearTestSettings();
+    expect(await testCallsPanelState()).toEqual({ ok: true, data: null });
+    expect(placed).toEqual([]);
+    expect(rows).toEqual(before);
     expectOnlyTestRows();
-    expect(queries.some((query) => query.table === "farms" && !query.params.has("id"))).toBe(false);
+  });
+
+  it("refuses worker instruction delivery when no instruction is pending", async () => {
+    rows.pending_worker_calls = rows.pending_worker_calls.filter((row) => row.farm_id !== TEST);
+    const before = structuredClone(rows);
+    expect(await testCallWorkerInstructionNow()).toEqual({ ok: true, data: "not_ready:no_pending_instruction" });
+    expect(placed).toEqual([]);
+    expect(rows).toEqual(before);
+  });
+
+  it.each([
+    ["report", "report", () => testCallReportNow()],
+    ["owner summary", "owner", () => testCallOwnerSummaryNow()],
+    ["worker instruction", "worker", () => testCallWorkerInstructionNow()],
+    ["worker verification", "worker", () => testCallWorkerVerificationNow()],
+  ] as const)("enforces the shared lifetime cap for the %s button", async (_label, _kind, action) => {
+    vi.stubEnv("NAQAH_TEST_MAX_CALLS", "1");
+    insert("rate_limit_buckets", { key: `test-ranch:${TEST}:placements`, count: 1, reset_at: STALE });
+    if (_label === "worker verification") {
+      const taskId = toDbId(TEST, "cap-ticket");
+      Object.assign(inFarm("pending_worker_calls")[0], { state: "delivered", task_ticket_id: taskId, next_attempt_at: null });
+      insert("task_tickets", {
+        id: taskId, farm_id: TEST, instruction: "Check the gate", status: "open",
+        scheduled_for: new Date(NOW.getTime() + 24 * 60 * 60_000).toISOString(), created_at: STALE, closed_at: null, closed_via: null,
+      });
+    }
+    expect(await action()).toEqual({ ok: true, data: "cap_reached" });
+    expect(placed).toEqual([]);
+    expect(rows.rate_limit_buckets).toContainEqual(expect.objectContaining({ key: `test-ranch:${TEST}:placements`, count: 1 }));
+    expectOnlyTestRows();
   });
 
   it("rejects service reads, farm actions, direct calls, reconciliation and Call Lab helpers before database access", async () => {
@@ -700,14 +761,17 @@ describe("the test ranch owner check", () => {
 });
 
 describe("the test ranch can complete real calling paths with mocked providers", () => {
-  async function dialPhase(kind: CallToken["k"]) {
-    phase(kind);
+  async function manualCall(op: string, kind: CallToken["k"]) {
     const before = placed.length;
-    expect(await json(cronRequest())).toMatchObject({ farms: 1, placed: 1, errors: 0 });
+    const response = await accountRequest(op);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, data: "placed" });
     expect(placed).toHaveLength(before + 1);
-    const token = lastPlacementToken();
+    const token = new URL(placed.at(-1)!.get("Url")!).searchParams.get("s")!;
     expect(verifyCallToken(token)).toMatchObject({ k: kind, f: TEST });
-    expect(placed.at(-1)!.get("To") === phone(0, kind === "owner")).toBe(true);
+    expect(placed.at(-1)!.get("To")).toBe(phone(0, kind === "owner"));
+    expect(placed.at(-1)!.get("Record")).toBe("false");
+    expect(Number(placed.at(-1)!.get("TimeLimit"))).toBeGreaterThan(0);
     return { token, callSid: sid(placed.length) };
   }
 
@@ -727,28 +791,51 @@ describe("the test ranch can complete real calling paths with mocked providers",
 
   it("claims, dials and completes report, owner summary, worker instruction and worker verification", async () => {
     const before = snapshotOthers();
-    await saveReport(await dialPhase("report"));
+    rows.pending_worker_calls = rows.pending_worker_calls.filter((row) => row.farm_id !== TEST);
+    await saveReport(await manualCall("testCallReport", "report"));
     expect(inFarm("reports")).toHaveLength(1);
     expect(inFarm("report_call_runs").at(-1)).toMatchObject({ state: "completed", report_id: inFarm("reports")[0].id });
 
-    const owner = await dialPhase("owner");
-    expect(await (await ownerAnswer(twilio("/api/voice/owner", owner.callSid, {}, owner.token))).text()).toContain("Do you have any instructions");
-    expect((await keypad(owner.callSid, 0, "2")).status).toBe(200);
+    vi.stubEnv("NAQAH_VOICE_ENGINE", "realtime");
+    vi.stubEnv("NAQAH_VOICE_LOCALE", "ar");
+    const owner = await manualCall("testCallOwnerSummary", "owner");
+    const ownerXml = await (await ownerAnswer(twilio("/api/voice/owner", owner.callSid, {}, owner.token))).text();
+    expect(ownerXml).toContain("<Stream");
+    const ownerTicket = /name="ticket" value="([^"]+)"/.exec(ownerXml)?.[1];
+    expect(ownerTicket).toBeTruthy();
+    expect((await realtimeSession(bridge("/api/voice/realtime/session", { ticket: ownerTicket, callSid: owner.callSid }))).status).toBe(200);
+    const proposed = await json(realtimeTool(bridge("/api/voice/realtime/tool", {
+      ticket: ownerTicket, callSid: owner.callSid, toolCallId: "manual-owner-proposal", name: "propose_instructions",
+      args: { items: [{ message: "صلح البوابة", kind: "task", due: new Date(NOW.getTime() + 24 * 60 * 60_000).toISOString(), evidence: "صلح البوابة بكرة" }] },
+      workerUtterance: "قل له يصلح البوابة بكرة", userSpokeSinceLastTool: true,
+    })));
+    expect(proposed.awaitingConfirmation).toBe(true);
+    const sessionNow = session(owner.callSid)?.session as Row;
+    const { reportSummaryId } = await import("@/domain/conversation/engine");
+    const summaryId = reportSummaryId(sessionNow as never, "ar");
+    const confirmed = await json(realtimeTool(bridge("/api/voice/realtime/tool", {
+      ticket: ownerTicket, callSid: owner.callSid, toolCallId: "manual-owner-confirm", name: "confirm_instructions",
+      args: { confirmed: true }, workerUtterance: "إيه احفظها", heardSummaryId: summaryId, userSpokeSinceLastTool: true,
+    })));
+    expect(JSON.parse(String(confirmed.output)).status).toBe("saved");
+    expect((await realtimeClosed(bridge("/api/voice/realtime/closed", { ticket: ownerTicket, callSid: owner.callSid, reason: "normal" }))).status).toBe(204);
     expect((await complete(ownerStatus, "/api/voice/owner/status", owner.callSid, owner.token)).status).toBe(204);
     expect(farm().owner_call_run).toMatchObject({ state: "completed", reportId: inFarm("reports")[0].id });
+    expect(inFarm("task_tickets")).toHaveLength(1);
+    const scheduledFor = Date.parse(String(inFarm("task_tickets")[0].scheduled_for));
+    expect(scheduledFor).toBeGreaterThan(NOW.getTime());
 
-    const worker = await dialPhase("worker");
-    expect(await (await workerAnswer(twilio("/api/voice/worker", worker.callSid, {}, worker.token))).text()).toContain("Move the feed");
+    vi.stubEnv("NAQAH_VOICE_ENGINE", "scripted");
+    const worker = await manualCall("testCallWorkerInstruction", "worker");
+    expect(await (await workerAnswer(twilio("/api/voice/worker", worker.callSid, {}, worker.token))).text()).toContain("صلح البوابة");
     expect((await keypad(worker.callSid, 0, "1")).status).toBe(200);
     expect((await complete(workerStatus, "/api/voice/worker/status", worker.callSid, worker.token)).status).toBe(204);
-    expect(inFarm("pending_worker_calls")[0]).toMatchObject({ state: "delivered", worker_call_attempts: [{ answered: true }] });
+    expect(inFarm("pending_worker_calls")[0]).toMatchObject({ purpose: "instruction", state: "delivered", worker_call_attempts: [{ answered: true }] });
+    expect(inFarm("pending_worker_calls")[0].message).toBe("صلح البوابة");
 
-    insert("task_tickets", {
-      id: toDbId(TEST, "gate"), farm_id: TEST, instruction: "Fix the gate", status: "open", scheduled_for: NOW.toISOString(),
-      created_at: STALE, closed_at: null, closed_via: null,
-    });
-    const verification = await dialPhase("worker");
-    expect(await (await workerAnswer(twilio("/api/voice/worker", verification.callSid, {}, verification.token))).text()).toContain("Fix the gate");
+    expect(NOW.getTime()).toBeLessThan(scheduledFor);
+    const verification = await manualCall("testCallWorkerVerification", "worker");
+    expect(await (await workerAnswer(twilio("/api/voice/worker", verification.callSid, {}, verification.token))).text()).toContain("صلح البوابة");
     expect((await keypad(verification.callSid, 0, "1")).status).toBe(200);
     expect((await complete(workerStatus, "/api/voice/worker/status", verification.callSid, verification.token)).status).toBe(204);
     expect(inFarm("task_tickets")).toMatchObject([{ status: "closed" }]);
@@ -774,11 +861,74 @@ describe("the test ranch can complete real calling paths with mocked providers",
     expectOnlyTestRows();
   });
 
+  it("waits for the owner's next button press after an unanswered worker call", async () => {
+    const first = await manualCall("testCallWorkerInstruction", "worker");
+    const callToken = verifyCallToken(first.token);
+    if (!callToken || callToken.k !== "worker") throw new Error("worker_call_token_missing");
+    expect((await workerStatus(twilio("/api/voice/worker/status", first.callSid, { CallStatus: "no-answer" }, first.token))).status).toBe(204);
+    const pending = inFarm("pending_worker_calls").find((row) => row.id === callToken.p);
+    expect(pending).toMatchObject({ state: "pending", worker_call_attempts: [{ answered: false }] });
+    expect(Date.parse(String(pending?.next_attempt_at))).toBeGreaterThan(NOW.getTime());
+
+    expect(await json(cronRequest())).toMatchObject({ ok: false, placed: 0, reason: "manual_only" });
+    await expect(runReportCallScheduler(db, recordingCaller().caller, options)).rejects.toMatchObject({ code: "unavailable" });
+    expect(placed).toHaveLength(1);
+
+    const second = await manualCall("testCallWorkerInstruction", "worker");
+    expect(second.callSid).not.toBe(first.callSid);
+    expect(placed).toHaveLength(2);
+    expect(rows.rate_limit_buckets).toContainEqual(expect.objectContaining({ key: `test-ranch:${TEST}:placements`, count: 2 }));
+    expectOnlyTestRows();
+  });
+
+  it("refuses the report and owner summary buttons while a worker instruction call is live", async () => {
+    await manualCall("testCallWorkerInstruction", "worker");
+    const cap = () => rows.rate_limit_buckets.find((row) => row.key === `test-ranch:${TEST}:placements`)?.count;
+    const capBefore = cap();
+    const runsBefore = structuredClone(inFarm("report_call_runs"));
+    const pendingBefore = structuredClone(inFarm("pending_worker_calls"));
+    const { caller, requests } = recordingCaller();
+    const allowlist = [phone(0), phone(0, true)];
+
+    // The CallBar «اتصال حقيقي», the panel's report button and a second tab all reach the same in-transaction check.
+    expect(await callWorkerNow()).toEqual({ ok: true, data: { status: "blocked", reason: "in_progress" } });
+    expect(await testCallReportNow()).toEqual({ ok: true, data: "call_live" });
+    expect(await json(accountRequest("callNow"))).toEqual({ ok: true, data: { status: "blocked", reason: "in_progress" } });
+    expect(await requestReportCallNow(db, caller, TEST, { ...options, allowlist })).toEqual({ status: "blocked", reason: "in_progress" });
+    // A stale panel skipping the availability read still meets the owner path's own check.
+    expect(await requestOwnerCallNow(db, caller, TEST, { ...options, allowlist })).toEqual({ status: "blocked", reason: "call_live" });
+    expect(await testCallOwnerSummaryNow()).toEqual({ ok: true, data: "call_live" });
+
+    expect(placed).toHaveLength(1);
+    expect(requests).toEqual([]);
+    expect(cap()).toBe(capBefore);
+    expect(inFarm("report_call_runs").map((row) => row.id)).toEqual(runsBefore.map((row) => row.id));
+    expect(inFarm("pending_worker_calls")).toEqual(pendingBefore);
+    expect(farm().owner_call_run).toBeNull();
+    expectOnlyTestRows();
+  });
+
+  it("refuses the owner summary and worker buttons while a report call is live", async () => {
+    await manualCall("testCallReport", "report");
+    const cap = () => rows.rate_limit_buckets.find((row) => row.key === `test-ranch:${TEST}:placements`)?.count;
+    const capBefore = cap();
+    const { caller, requests } = recordingCaller();
+    expect(await requestOwnerCallNow(db, caller, TEST, { ...options, allowlist: [phone(0, true)] })).toEqual({ status: "blocked", reason: "call_live" });
+    expect(await testCallOwnerSummaryNow()).toEqual({ ok: true, data: "call_live" });
+    expect(await testCallWorkerInstructionNow()).toEqual({ ok: true, data: "call_live" });
+    expect(await testCallReportNow()).toEqual({ ok: true, data: "call_live" });
+    expect(placed).toHaveLength(1);
+    expect(requests).toEqual([]);
+    expect(cap()).toBe(capBefore);
+    expect(farm().owner_call_run).toBeNull();
+    expectOnlyTestRows();
+  });
+
   it("opens, advances, closes and resumes a signed realtime session only for the test ranch", async () => {
     vi.stubEnv("NAQAH_VOICE_ENGINE", "realtime");
     vi.stubEnv("NAQAH_VOICE_STYLE", "guided");
     const before = snapshotOthers();
-    const { callSid, token } = await dialPhase("report");
+    const { callSid, token } = await manualCall("testCallReport", "report");
     const answer = await (await reportAnswer(twilio("/api/voice/outbound", callSid, {}, token))).text();
     expect(answer).toContain("<Stream");
     const ticket = /name="ticket" value="([^"]+)"/.exec(answer)?.[1];
@@ -808,9 +958,9 @@ describe("the test ranch can complete real calling paths with mocked providers",
     expect(await reserveRateLimit(key, 3, 3600, Date.now() + 3_600_000)).not.toBeNull();
 
     vi.stubEnv("NAQAH_TEST_MAX_CALLS", "1");
-    await saveReport(await dialPhase("report"));
-    phase("owner");
-    expect(await json(cronRequest())).toMatchObject({ farms: 1, placed: 0, failed: 1 });
+    const report = await manualCall("testCallReport", "report");
+    expect((await reportStatus(twilio("/api/voice/outbound/status", report.callSid, { CallStatus: "no-answer" }, report.token))).status).toBe(204);
+    expect(await testCallOwnerSummaryNow()).toEqual({ ok: true, data: "cap_reached" });
     expect(placed).toHaveLength(1);
     expect(rows.rate_limit_buckets).toContainEqual(expect.objectContaining({ key: `test-ranch:${TEST}:placements`, count: 1 }));
     expect(snapshotOthers()).toEqual(before);

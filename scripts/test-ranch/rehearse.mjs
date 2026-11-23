@@ -482,7 +482,7 @@ async function startMockOpenAI(httpPort, wsPort) {
   mockServer.wsUpgrade = wsUpgrade;
 }
 
-function appEnvironment({ phase, engine, scheduled = false, ownerCalls = false, manualCalls = false, demoCapTest = false } = {}) {
+function appEnvironment({ engine, locale = "en", ownerCalls = false, manualCalls = false, demoCapTest = false } = {}) {
   return {
     ...stackEnv,
     NODE_ENV: "production",
@@ -495,12 +495,11 @@ function appEnvironment({ phase, engine, scheduled = false, ownerCalls = false, 
     NAQAH_TEST_OWNER_EMAIL: TEST_EMAIL,
     NAQAH_TEST_RANCH_ID: FARM_IDS[0],
     NAQAH_TEST_MAX_CALLS: "4",
-    NAQAH_TEST_CALL_PHASE: phase,
     NAQAH_CALL_ALLOWLIST: TEST_NUMBER,
     NAQAH_VOICE_SECRET: VOICE_SECRET,
     NAQAH_VOICE_MODE: "farm",
     NAQAH_VOICE_ENGINE: engine,
-    NAQAH_VOICE_LOCALE: "en",
+    NAQAH_VOICE_LOCALE: locale,
     NAQAH_PUBLIC_BASE_URL: publicOrigin,
     NAQAH_BRIDGE_PUBLIC_URL: bridgePublicUrl,
     NAQAH_REALTIME_URL: realtimeOrigin,
@@ -509,7 +508,6 @@ function appEnvironment({ phase, engine, scheduled = false, ownerCalls = false, 
     TWILIO_PHONE_NUMBER: "+966500000299",
     OPENAI_API_KEY: OPENAI_KEY,
     CRON_SECRET,
-    NAQAH_SCHEDULED_CALLS: scheduled ? "1" : undefined,
     NAQAH_CALL_OWNER: ownerCalls ? "1" : undefined,
     NAQAH_MANUAL_REPORT_CALLS: manualCalls ? "1" : undefined,
     NAQAH_TEST_OUTBOUND_GATEWAY: stackEnv.NEXT_PUBLIC_SUPABASE_URL,
@@ -623,21 +621,75 @@ async function simulateTwilioCall(placement, kind) {
   return placement.sid;
 }
 
-async function runTick(phase) {
-  const file = join(tempDir, `tick-${phase}.env`);
-  writePrivate(file, envText({
-    PREVIEW_ORIGIN: appOrigin,
-    CRON_SECRET,
-    NAQAH_TEST_RANCH_ID: FARM_IDS[0],
-    NAQAH_TEST_CALL_PHASE: phase,
-  }));
-  const child = startProcess(process.execPath, [join(ROOT, "scripts/test-ranch/tick.mjs"), file, "--local"], {});
-  const outcome = await child.closed;
-  if (outcome.code !== 0) throw new Error("tick_tool_failed");
-  const output = child.outputTail.trim();
-  const match = /status=(\d+) farms=(\d+) placed=(\d+) failed=(\d+) errors=(\d+) phase=([a-z-]+)/.exec(output);
-  if (!match) throw new Error("tick_summary_invalid");
-  return { status: Number(match[1]), farms: Number(match[2]), placed: Number(match[3]), failed: Number(match[4]), errors: Number(match[5]), phase: match[6] };
+function bridgeSignature(timestamp, rawBody) {
+  const key = createHmac("sha256", VOICE_SECRET).update("naqah-bridge-internal").digest();
+  return createHmac("sha256", key).update(`${timestamp}.${rawBody}`).digest("hex");
+}
+
+async function bridgePost(path, body) {
+  const raw = JSON.stringify(body);
+  const timestamp = Date.now().toString();
+  return localRequest(new URL(path, appOrigin), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-naqah-bridge-timestamp": timestamp,
+      "x-naqah-bridge-signature": bridgeSignature(timestamp, raw),
+    },
+    body: raw,
+  });
+}
+
+function scheduledTaskAt(time) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const date = `${parts.find((part) => part.type === "year")?.value}-${parts.find((part) => part.type === "month")?.value}-${parts.find((part) => part.type === "day")?.value}`;
+  return `${date}T${time}:00+03:00`;
+}
+
+async function simulateRealtimeOwnerCall(placement) {
+  if (typeof placement.Url !== "string" || typeof placement.StatusCallback !== "string" || typeof placement.sid !== "string") {
+    throw new Error("mock_placement_shape_invalid");
+  }
+  const gate = await signedPost(placement.Url, { CallSid: placement.sid, AnsweredBy: "human" });
+  if (gate.status !== 200) throw new Error("owner_amd_callback_failed");
+  const gateTargets = collectFromTwiML(await gate.text());
+  if (!gateTargets.redirect) throw new Error("owner_answer_redirect_missing");
+  const answer = await signedPost(new URL(gateTargets.redirect, placement.Url).toString(), { CallSid: placement.sid });
+  if (answer.status !== 200) throw new Error("owner_answer_webhook_failed");
+  const xml = await answer.text();
+  if (!xml.includes("<Stream")) throw new Error("owner_realtime_stream_missing");
+  const ticket = /name="ticket" value="([^"]+)"/.exec(xml)?.[1];
+  if (!ticket) throw new Error("owner_realtime_ticket_missing");
+
+  const opened = await bridgePost("/api/voice/realtime/session", { ticket, callSid: placement.sid });
+  if (opened.status !== 200) throw new Error("owner_realtime_session_failed");
+  const time = localTaskVerificationTime();
+  const due = scheduledTaskAt(time);
+  if (Date.parse(due) <= Date.now()) throw new Error("owner_task_time_not_future");
+  const proposedResponse = await bridgePost("/api/voice/realtime/tool", {
+    ticket, callSid: placement.sid, toolCallId: "local-owner-proposal", name: "propose_instructions",
+    args: { items: [{ message: "Check the gate", kind: "task", due, evidence: `check the gate today at ${time}` }] },
+    workerUtterance: `Tell him to check the gate today at ${time}`, userSpokeSinceLastTool: true,
+  });
+  if (proposedResponse.status !== 200) throw new Error("owner_instruction_proposal_failed");
+  const proposed = await proposedResponse.json();
+  if (proposed.awaitingConfirmation !== true || !proposed.summaryId) throw new Error("owner_instruction_readback_missing");
+
+  const confirmedResponse = await bridgePost("/api/voice/realtime/tool", {
+    ticket, callSid: placement.sid, toolCallId: "local-owner-confirm", name: "confirm_instructions",
+    args: { confirmed: true }, workerUtterance: "Yes, save them", heardSummaryId: proposed.summaryId, userSpokeSinceLastTool: true,
+  });
+  if (confirmedResponse.status !== 200) throw new Error("owner_instruction_confirmation_failed");
+  const confirmed = await confirmedResponse.json();
+  if (JSON.parse(confirmed.output).status !== "saved") throw new Error("owner_instructions_not_saved");
+
+  const closed = await bridgePost("/api/voice/realtime/closed", { ticket, callSid: placement.sid, reason: "normal" });
+  if (closed.status !== 204) throw new Error("owner_realtime_close_failed");
+  const finalStatus = await signedPost(placement.StatusCallback, { CallSid: placement.sid, CallStatus: "completed" });
+  if (finalStatus.status !== 204) throw new Error("owner_final_status_callback_failed");
+  return { callSid: placement.sid, scheduledAt: due };
 }
 
 function parseSnapshot(raw) {
@@ -795,9 +847,8 @@ async function prepare() {
     renameSync(original, originalNext);
     nextWasMoved = true;
   }
-  const buildEnv = appEnvironment({ phase: "report", engine: "scripted", manualCalls: false });
+  const buildEnv = appEnvironment({ engine: "scripted", manualCalls: false });
   delete buildEnv.PORT;
-  delete buildEnv.NAQAH_TEST_CALL_PHASE;
   const build = startProcess(process.execPath, [join(ROOT, "node_modules/next/dist/bin/next"), "build"], buildEnv);
   const built = await build.closed;
   if (built.code !== 0 || !existsSync(join(ROOT, ".next/BUILD_ID"))) throw new Error("production_build_failed");
@@ -817,7 +868,7 @@ async function prepareBaseline() {
 }
 
 async function preflight() {
-  await restartNext({ phase: "report", engine: "realtime", scheduled: false, manualCalls: true });
+  await restartNext({ engine: "realtime", manualCalls: true });
   const envFile = join(tempDir, "preview.ranch.env");
   writePrivate(envFile, envText({
     PREVIEW_ORIGIN: publicOrigin,
@@ -890,68 +941,66 @@ async function bridgeSmoke() {
   report.bridgeSmoke = true;
 }
 
-async function runCallNow() {
-  await restartNext({ phase: "report", engine: "scripted", scheduled: true, manualCalls: true });
-  const response = await appPost("/api/account", { op: "callNow" }, { authenticated: true });
+async function triggerManualStage(op) {
+  const before = (await readPlacements()).length;
+  const response = await appPost("/api/account", { op }, { authenticated: true });
   const payload = response.status === 200 ? await response.json() : null;
-  if (payload?.ok !== true || payload.data?.status !== "placed") throw new Error("owner_call_now_failed");
+  if (payload?.ok !== true || payload.data !== "placed") throw new Error("manual_call_action_failed");
   const placements = await readPlacements();
-  if (placements.length !== 1 || placements[0].To !== TEST_NUMBER) throw new Error("first_call_destination_mismatch");
-  await simulateTwilioCall(placements[0], "report");
-  const savedReport = countQuery(`select count(*) from public.reports where farm_id = ${quoteSql(FARM_IDS[0])}`);
-  const linkedRun = countQuery(`select count(*) from public.report_call_runs r join public.reports p on p.id = r.report_id
-    where r.farm_id = ${quoteSql(FARM_IDS[0])} and r.provider_call_id = ${quoteSql(placements[0].sid)};`);
-  assertStep(report.reportStayedUnsaved && report.reportSavedAfterYes && savedReport === 1, "call 1 saves report only after explicit yes", "one report created after confirmation");
-  assertStep(linkedRun === 1, "call 1 report run linked", "provider run and saved report are linked");
+  if (placements.length !== before + 1 || placements[before].To !== TEST_NUMBER) throw new Error("manual_call_destination_mismatch");
   report.placements += 1;
+  return placements[before];
 }
 
-async function runOwnerTick() {
-  await restartNext({ phase: "owner", engine: "scripted", scheduled: true, ownerCalls: true, manualCalls: true });
-  const summary = await runTick("owner");
-  assertStep(summary.status === 200 && summary.farms === 1 && summary.placed === 1 && summary.failed === 0 && summary.errors === 0 && summary.phase === "owner", "owner tick", "one scoped placement; no failures");
-  const placements = await readPlacements();
-  if (placements.length !== 2 || placements[1].To !== TEST_NUMBER) throw new Error("owner_call_destination_mismatch");
-  await simulateTwilioCall(placements[1], "owner");
+async function runCallNow() {
+  await restartNext({ engine: "scripted", manualCalls: true });
+  const placement = await triggerManualStage("testCallReport");
+  await simulateTwilioCall(placement, "report");
+  const savedReport = countQuery(`select count(*) from public.reports where farm_id = ${quoteSql(FARM_IDS[0])}`);
+  const linkedRun = countQuery(`select count(*) from public.report_call_runs r join public.reports p on p.id = r.report_id
+    where r.farm_id = ${quoteSql(FARM_IDS[0])} and r.provider_call_id = ${quoteSql(placement.sid)};`);
+  assertStep(report.reportStayedUnsaved && report.reportSavedAfterYes && savedReport === 1, "call 1 saves report only after explicit yes", "one report created after confirmation");
+  assertStep(linkedRun === 1, "call 1 report run linked", "provider run and saved report are linked");
+}
+
+async function runOwnerSummary() {
+  await restartNext({ engine: "realtime", ownerCalls: true, manualCalls: true });
+  const placement = await triggerManualStage("testCallOwnerSummary");
+  const ownerCall = await simulateRealtimeOwnerCall(placement);
+  report.verificationScheduledAt = ownerCall.scheduledAt;
   const ownerState = sql("", { input: `select owner_call_run->>'state' from public.farms where id = ${quoteSql(FARM_IDS[0])};` });
   const ownerRunLinked = countQuery(`select count(*) from public.farms f join public.reports r on r.farm_id = f.id
     where f.id = ${quoteSql(FARM_IDS[0])} and f.owner_call_run->>'state' = 'completed'
       and f.owner_call_run->>'reportId' = r.id::text;`);
   const tickets = countQuery(`select count(*) from public.task_tickets where farm_id = ${quoteSql(FARM_IDS[0])};`);
   const openTickets = countQuery(`select count(*) from public.task_tickets where farm_id = ${quoteSql(FARM_IDS[0])} and status = 'open';`);
+  const dueAt = Date.parse(sql("", { input: `select scheduled_for::text from public.task_tickets where farm_id = ${quoteSql(FARM_IDS[0])} and status = 'open' limit 1;` }));
   assertStep(ownerState === "completed" && ownerRunLinked === 1 && tickets === 1 && openTickets === 1,
-    "owner run links report and creates one open task", "owner run completed with the saved report and one task after yes");
-  report.placements += 1;
+    "owner summary links the latest report and creates one task", "Realtime summary completed after explicit yes");
+  assertStep(dueAt > Date.now(), "task verification remains scheduled in the future", "the owner gave a future time during the summary call");
 }
 
-async function runWorkerTick(kind, phaseName) {
-  await restartNext({ phase: "worker", engine: "scripted", scheduled: true, manualCalls: true });
-  const summary = await runTick("worker");
-  const tickDetail = [
-    "status=" + summary.status, "farms=" + summary.farms, "placed=" + summary.placed,
-    "failed=" + summary.failed, "errors=" + summary.errors, "phase=" + summary.phase,
-  ].join(" ");
-  assertStep(summary.status === 200 && summary.farms === 1 && summary.placed === 1 && summary.failed === 0 && summary.errors === 0 && summary.phase === "worker", phaseName, tickDetail);
-  const placements = await readPlacements();
-  const index = placements.length - 1;
-  if (placements.length !== report.placements + 1 || placements[index].To !== TEST_NUMBER) throw new Error("worker_call_destination_mismatch");
-  await simulateTwilioCall(placements[index], kind);
+async function runWorkerManual(op, kind, stepName) {
+  await restartNext({ engine: "scripted", manualCalls: true });
+  const dueAt = kind === "worker_verify"
+    ? Date.parse(sql("", { input: `select scheduled_for::text from public.task_tickets where farm_id = ${quoteSql(FARM_IDS[0])} and status = 'open' limit 1;` }))
+    : null;
+  const pressedAt = Date.now();
+  if (dueAt !== null && dueAt <= pressedAt) throw new Error("verification_schedule_not_future");
+  const placement = await triggerManualStage(op);
+  if (dueAt !== null) {
+    assertStep(pressedAt < dueAt, "verification button places before the scheduled time", "one call placed immediately after owner confirmation");
+  }
+  await simulateTwilioCall(placement, kind);
   if (kind === "worker_instruction") {
     report.instructionDelivered = countQuery(`select count(*) from public.pending_worker_calls p join public.worker_call_attempts a on a.pending_call_id = p.id
       where p.farm_id = ${quoteSql(FARM_IDS[0])} and p.purpose = 'instruction' and p.state = 'delivered'
         and p.next_attempt_at is null and a.answered = true;`) === 1;
+    assertStep(report.instructionDelivered, stepName, "the owner-confirmed instruction reached the worker");
+  } else {
+    const closed = countQuery(`select count(*) from public.task_tickets where farm_id = ${quoteSql(FARM_IDS[0])} and status = 'closed' and closed_via = 'worker_task_verification';`);
+    assertStep(closed === 1, stepName, "the worker explicitly confirmed the open task");
   }
-  report.placements += 1;
-}
-
-async function waitForTaskVerificationTime() {
-  const scheduled = sql("", { input: "select min(scheduled_for)::text from public.task_tickets where farm_id = " +
-    quoteSql(FARM_IDS[0]) + " and status = 'open' and scheduled_for is not null;" });
-  const dueAt = Date.parse(scheduled);
-  if (!Number.isFinite(dueAt)) throw new Error("verification_schedule_missing");
-  assertStep(dueAt > Date.now(), "task verification scheduled after instruction delivery", "the open ticket has a future Riyadh time");
-  await waitFor(() => Date.now() >= dueAt, "task_verification_due", 180_000);
-  record("task verification time reached", true, "waiting completed without provider traffic");
 }
 
 async function checkIsolationAndCap() {
@@ -979,12 +1028,12 @@ async function checkIsolationAndCap() {
   assertStep(capCount === 4 && report.placements === 4, "four-call placement cap reached", "four mock placements recorded");
 
   writePrivate(join(tempDir, "approved-number.txt"), `${TEST_NUMBER}\n`);
-  await restartNext({ phase: "report", engine: "scripted", scheduled: true, manualCalls: true, demoCapTest: true });
-  const fifthResponse = await appPost("/api/account", { op: "callNow" }, { authenticated: true });
+  await restartNext({ engine: "scripted", manualCalls: true, demoCapTest: true });
+  const fifthResponse = await appPost("/api/account", { op: "testCallReport" }, { authenticated: true });
   const fifthPayload = fifthResponse.status === 200 ? await fifthResponse.json() : null;
   const placements = await readPlacements();
   const updatedCap = countQuery(`select count from public.rate_limit_buckets where key = ${quoteSql(`test-ranch:${FARM_IDS[0]}:placements`)};`);
-  const stoppedAtCap = fifthPayload?.ok === true && fifthPayload.data?.status === "blocked" && fifthPayload.data?.reason === "rate_limited";
+  const stoppedAtCap = fifthPayload?.ok === true && fifthPayload.data === "cap_reached";
   assertStep(stoppedAtCap && placements.length === 4 && updatedCap === 4, "fifth placement refused", "the provider received no fifth request and the durable count stayed at four");
   report.capPassed = true;
   report.testNumberOnly = placements.every((placement) => placement.To === TEST_NUMBER);
@@ -1061,7 +1110,7 @@ function evidenceMarkdown() {
     "- Local port range: " + portRange,
     "- Database: throwaway PostgreSQL; migrations applied through `20261113100000`, scheduler migration skipped",
     "- Provider boundary: Twilio REST and Realtime HTTP/WebSocket probes were redirected to local mocks; external provider fetches were blocked",
-    "- Voice: all four call conversations used NAQAH's scripted engine and signed local Twilio webhooks; the bridge was exercised for health and unsigned/signed WSS handshake only, with no audio media",
+    "- Voice: report and worker calls used signed local Twilio webhooks; the owner summary used the realtime owner tools and signed bridge requests; no audio media was sent",
     "- Mock placements: " + mockPlacements + "; all four were checked against the single test-ranch destination without printing it",
     "- Isolation: " + isolation + "; read-only SQL ran under a local BYPASSRLS read-only role",
     "- Cleanup: " + cleanupState + "; original `.next` restored", "",
@@ -1082,13 +1131,9 @@ async function runRehearsal() {
   await preflight();
   await bridgeSmoke();
   await runCallNow();
-  await runOwnerTick();
-  await runWorkerTick("worker_instruction", "worker instruction tick");
-  assertStep(report.receiptAsked === true && report.instructionDelivered === true,
-    "worker explicitly receives instruction", "receipt was recorded and the instruction marked delivered");
-  await waitForTaskVerificationTime();
-  await runWorkerTick("worker_verify", "worker verification tick");
-  assertStep(report.verificationAsked === true, "worker explicitly confirms task", "the scripted Gather required an explicit yes");
+  await runOwnerSummary();
+  await runWorkerManual("testCallWorkerInstruction", "worker_instruction", "manual worker instruction call");
+  await runWorkerManual("testCallWorkerVerification", "worker_verify", "manual worker verification call");
   await checkIsolationAndCap();
 }
 

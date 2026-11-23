@@ -27,7 +27,11 @@ describe("owner actions", () => {
   afterEach(() => vi.unstubAllEnvs());
   it.each([undefined, "", "0", "true"])("gates every independently callable owner action with flag %s", async (flag) => {
     vi.stubEnv("NEXT_PUBLIC_NAQAH_ACCOUNT_DATA", flag);
-    for (const action of Object.values(actions)) {
+    for (const [name, action] of Object.entries(actions)) {
+      if (name === "testCallsPanelState") {
+        expect(await (action as () => Promise<unknown>)()).toEqual({ ok: true, data: null });
+        continue;
+      }
       const invoke = action as (...args: unknown[]) => Promise<unknown>;
       expect(await invoke({}, {})).toEqual({ ok: false, error: "unavailable" });
     }

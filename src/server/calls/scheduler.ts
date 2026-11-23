@@ -5,6 +5,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { claimDueWorkerCall, markWorkerCallPlaced, markWorkerCallPlacementUnknown, releaseWorkerCallClaim } from "@/domain/actions";
+import { workerLineLive } from "@/domain/ownerCalls";
 import {
   abandonReportCallAttempt, claimDueReportCall, dialableWorkerPhone, placeReportCallAttempt, startReportCall,
   type ReportCallBlock,
@@ -40,15 +41,15 @@ export async function runReportCallScheduler(
   // `now` stays fixed for the whole run; this measures how far real time has moved on since it was taken.
   const runStarted = performance.now();
   const scope = testCallScope();
+  if (scope.kind === "ranch") throw new DbError("unavailable");
   if (!await verifyCallingOwner(client)) throw new DbError("unavailable");
-  const farmIds = scope.kind === "ranch" ? [scope.farmId] : await listScheduledFarmIds(client);
-  const phase = scope.kind === "ranch" ? scope.phase : undefined;
+  const farmIds = await listScheduledFarmIds(client);
   const summary: SchedulerSummary = { farms: farmIds.length, placed: 0, failed: 0, errors: 0 };
 
   for (const farmId of farmIds) {
-    if (!phase || phase === "report") await dialDueReportCall(client, caller, farmId, summary, { baseUrl, now });
-    if (!phase || phase === "worker") await dialDueWorkerCall(client, caller, farmId, summary, { baseUrl, now, runStarted });
-    if (!phase || phase === "owner") await dialOwner(client, caller, farmId, summary, now);
+    await dialDueReportCall(client, caller, farmId, summary, { baseUrl, now });
+    await dialDueWorkerCall(client, caller, farmId, summary, { baseUrl, now, runStarted });
+    await dialOwner(client, caller, farmId, summary, now);
   }
   return summary;
 }
@@ -228,6 +229,9 @@ export async function requestReportCallNow(
   type Opened = { blocked: ReportCallBlock | "duplicate" | "not_allowed" } | { claim: Claim };
   const { result } = await runFarmAction<Opened>(client, farmId, (workspace) => {
     const ws = expireReportRuns(workspace, farmId, now);
+    // Test ranch: one call at a time on the worker's line. Checked inside this revision-checked transaction, so a
+    // second tab, a stale panel or the CallBar button cannot dial while an instruction or verification call is live.
+    if (scope.kind === "ranch" && workerLineLive(ws, now)) return { ws, result: { blocked: "in_progress" as const } };
     // Checked before a run exists, so a number outside a controlled test leaves no trace and no retry.
     const saved = options.to ?? dialableWorkerPhone(ws);
     if (saved && allowlist && !allowlist.includes(saved)) return { ws, result: { blocked: "not_allowed" as const } };

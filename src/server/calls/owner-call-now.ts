@@ -6,7 +6,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { REPORT_CALL_RING_SECONDS } from "@/domain/clock";
-import { abandonOwnerCallAttempt, anyCallLive, dialableOwnerPhone, openOwnerCallNow, type OwnerCallNowBlock } from "@/domain/ownerCalls";
+import { abandonOwnerCallAttempt, anyCallLive, dialableOwnerPhone, openOwnerCallNow, workerLineLive, type OwnerCallNowBlock } from "@/domain/ownerCalls";
 import { DbError } from "@/server/db/errors";
 import { toDbId } from "@/server/db/ids";
 import { runFarmAction } from "@/server/db/service-repository";
@@ -85,6 +85,9 @@ export async function requestOwnerCallNow(
       // Undefined until migration 20261110090000 runs: a claim could not be saved, so nothing may dial.
       if (ws.ownerCallRun === undefined) return { ws, result: { blocked: "unavailable" } };
       if (anyCallLive(ws, now)) return { ws, result: { blocked: "call_live" } };
+      // Test ranch: one call at a time. A worker instruction or verification call still holding its claim blocks the
+      // owner summary too, checked in this revision-checked transaction rather than from a possibly stale panel.
+      if (testCallScope().kind === "ranch" && workerLineLive(ws, now)) return { ws, result: { blocked: "call_live" } };
       // Checked before a run exists, so a number that isn't approved here leaves no trace.
       const phone = dialableOwnerPhone(ws);
       if (phone && !allowlist.includes(phone)) return { ws, result: { blocked: "not_approved" } };
