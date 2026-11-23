@@ -13,11 +13,14 @@ import { createBridge } from './server.mjs';
 const CALL_SID = `CA${'a'.repeat(32)}`;
 const STREAM_SID = `MZ${'b'.repeat(32)}`;
 const PUBLIC_URL = 'wss://bridge.example.test/voice-bridge/media';
+const PORT_BASE = Number(process.env.NAQAH_BRIDGE_TEST_PORT_BASE || 3901);
+if (!Number.isInteger(PORT_BASE) || PORT_BASE < 1 || PORT_BASE > 65531) throw new Error('Invalid bridge test port base');
+const PORTS = { upstream: PORT_BASE, realtime: PORT_BASE + 1, bridge: PORT_BASE + 2, alternate: PORT_BASE + 3, unavailable: PORT_BASE + 4 };
 const TEST_ENV = {
-  PORT: '3903', NAQAH_BRIDGE_PUBLIC_URL: PUBLIC_URL,
+  PORT: String(PORTS.bridge), NAQAH_BRIDGE_PUBLIC_URL: PUBLIC_URL,
   TWILIO_AUTH_TOKEN: 'mock-twilio-token', NAQAH_VOICE_SECRET: 'mock-voice-secret',
-  OPENAI_API_KEY: 'mock-key-never-paid', NAQAH_BRIDGE_UPSTREAM: 'http://127.0.0.1:3901',
-  NAQAH_REALTIME_URL: 'ws://127.0.0.1:3902/provider',
+  OPENAI_API_KEY: 'mock-key-never-paid', NAQAH_BRIDGE_UPSTREAM: `http://127.0.0.1:${PORTS.upstream}`,
+  NAQAH_REALTIME_URL: `ws://127.0.0.1:${PORTS.realtime}/provider`,
 };
 const AUDIO = Buffer.alloc(160, 255).toString('base64');
 
@@ -154,13 +157,13 @@ async function fixture(options = {}) {
       }
     });
   });
-  await listen(upstream, 3901);
-  await listen(providerServer, 3902);
+  await listen(upstream, PORTS.upstream);
+  await listen(providerServer, PORTS.realtime);
   const bridge = createBridge({
     config: { ...loadConfig(TEST_ENV), ...options.config }, logger: (record) => logs.push(record), ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     limits: { closeMs: 10, transcriptionMs: 50, bargeInMs: 0, ...options.limits },
   });
-  await listen(bridge.server, 3903);
+  await listen(bridge.server, PORTS.bridge);
   return {
     bridge, requests, logs, providerEvents,
     get provider() { return provider; },
@@ -168,7 +171,7 @@ async function fixture(options = {}) {
     get providerAuth() { return providerAuth; },
     get responseId() { return latestResponseId; },
     async connect(headers = { 'X-Twilio-Signature': signature() }, path = '/voice-bridge/media') {
-      const socket = new WebSocket(`ws://127.0.0.1:3903${path}`, { headers });
+      const socket = new WebSocket(`ws://127.0.0.1:${PORTS.bridge}${path}`, { headers });
       clients.add(socket);
       socket.on('error', () => {});
       socket.on('close', () => clients.delete(socket));
@@ -253,7 +256,7 @@ test('configuration fails closed and provider overrides can only reach loopback 
     'ws://127.0.0.1.example.com', 'ws://user:pass@localhost', 'ws://[::ffff:192.168.1.1]', '']) {
     assert.throws(() => loadConfig({ ...TEST_ENV, NAQAH_REALTIME_URL: url }));
   }
-  for (const url of ['ws://127.0.0.1:3902', 'ws://127.3.4.5:3902', 'ws://[::1]:3902', 'ws://localhost:3902']) {
+  for (const url of [`ws://127.0.0.1:${PORTS.realtime}`, `ws://127.3.4.5:${PORTS.realtime}`, `ws://[::1]:${PORTS.realtime}`, `ws://localhost:${PORTS.realtime}`]) {
     assert.ok(loadConfig({ ...TEST_ENV, NAQAH_REALTIME_URL: url }).providerUrl.startsWith('ws://'));
   }
   assert.equal(loadConfig({ ...TEST_ENV, NAQAH_REALTIME_URL: undefined }).providerUrl, REALTIME_URL);
@@ -277,7 +280,7 @@ test('bridge rejects unsigned upgrades before accepting; health stays secret-fre
   const state = await fixture();
   try {
     for (const headers of [{}, { 'X-Twilio-Signature': 'invalid' }]) {
-      const socket = new WebSocket('ws://127.0.0.1:3903/voice-bridge/media', { headers });
+      const socket = new WebSocket(`ws://127.0.0.1:${PORTS.bridge}/voice-bridge/media`, { headers });
       let opened = false;
       socket.on('open', () => { opened = true; });
       socket.on('error', () => {});
@@ -286,7 +289,7 @@ test('bridge rejects unsigned upgrades before accepting; health stays secret-fre
       socket.terminate();
       assert.equal(opened, false);
     }
-    const response = await fetch('http://127.0.0.1:3903/voice-bridge/health');
+    const response = await fetch(`http://127.0.0.1:${PORTS.bridge}/voice-bridge/health`);
     assert.deepEqual(await response.json(), { ok: true, publicUrl: 'wss://bridge.example.test/voice-bridge/media', maxCallSeconds: 300 });
     assert.equal(state.requests.length, 0);
   } finally { await state.close(); }
@@ -888,11 +891,11 @@ test('provider connection refusal closes Twilio; it never retries', async () => 
     response.writeHead(503);
     response.end();
   });
-  const other = createBridge({ config: loadConfig({ ...TEST_ENV, PORT: '3904', NAQAH_REALTIME_URL: 'ws://127.0.0.1:3905/unavailable' }), logger: () => {} });
+  const other = createBridge({ config: loadConfig({ ...TEST_ENV, PORT: String(PORTS.alternate), NAQAH_REALTIME_URL: `ws://127.0.0.1:${PORTS.unavailable}/unavailable` }), logger: () => {} });
   try {
-    await listen(unavailable, 3905);
-    await listen(other.server, 3904);
-    const socket = new WebSocket('ws://127.0.0.1:3904/voice-bridge/media', { headers: { 'X-Twilio-Signature': signature() } });
+    await listen(unavailable, PORTS.unavailable);
+    await listen(other.server, PORTS.alternate);
+    const socket = new WebSocket(`ws://127.0.0.1:${PORTS.alternate}/voice-bridge/media`, { headers: { 'X-Twilio-Signature': signature() } });
     await once(socket, 'open');
     start(socket);
     await closed(socket);
@@ -1315,7 +1318,7 @@ test('SIGTERM drains active sockets and persists the closed notice before exitin
 test('container healthcheck succeeds only for a healthy local bridge', async () => {
   const state = await fixture();
   try {
-    for (const [port, expected] of [['3903', 0], ['3901', 1], ['0', 1]]) {
+    for (const [port, expected] of [[String(PORTS.bridge), 0], [String(PORTS.upstream), 1], ['0', 1]]) {
       const child = spawn(process.execPath, [new URL('./healthcheck.mjs', import.meta.url).pathname], {
         env: { PORT: port }, stdio: 'ignore',
       });
@@ -1696,7 +1699,7 @@ test('ordinary HTTP streams unchanged method, URL, body and duplicate headers', 
     const body = 'streamed-request-body';
     const result = await new Promise((resolve, reject) => {
       const request = http.request({
-        hostname: '127.0.0.1', port: 3903, agent: false, method: 'PATCH', path: '/passthrough?original=%2Fyes',
+        hostname: '127.0.0.1', port: PORTS.bridge, agent: false, method: 'PATCH', path: '/passthrough?original=%2Fyes',
         headers: [
           'Host', 'public.example.test', 'Content-Type', 'text/plain', 'Content-Length', String(Buffer.byteLength(body)),
           'X-Original', 'first', 'X-Original', 'second', 'X-Twilio-Signature', 'opaque-signed-value',
@@ -1741,7 +1744,7 @@ test('HTTP proxy forwards trailers and response bytes before the request body en
   try {
     const result = await new Promise((resolve, reject) => {
       const request = http.request({
-        hostname: '127.0.0.1', port: 3903, agent: false, path: '/stream', method: 'POST',
+        hostname: '127.0.0.1', port: PORTS.bridge, agent: false, path: '/stream', method: 'POST',
         headers: { 'transfer-encoding': 'chunked', trailer: 'X-Client-Trailer' },
       }, (response) => {
         const chunks = [];
@@ -1840,7 +1843,7 @@ async function preflight(options) {
   const state = await fixture({ ...options, fetchImpl: models });
   try {
     const body = '{"preflight":true}';
-    const response = await fetch('http://127.0.0.1:3903/voice-bridge/preflight', { method: 'POST', body, headers: internalHeaders(body, TEST_ENV.NAQAH_VOICE_SECRET) });
+    const response = await fetch(`http://127.0.0.1:${PORTS.bridge}/voice-bridge/preflight`, { method: 'POST', body, headers: internalHeaders(body, TEST_ENV.NAQAH_VOICE_SECRET) });
     return { status: response.status, json: await response.json(), events: state.providerEvents };
   } finally { await state.close(); }
 }

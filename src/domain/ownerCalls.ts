@@ -7,6 +7,7 @@ import { pushEvent, recordOwnerNotification } from "./actions";
 import { HOUR, MINUTE, REPORT_CALL_GRACE_MS, RETRY_DELAY_MS } from "./clock";
 import { uid } from "./id";
 import { REPORT_CALL_GIVE_UP_MS, reportCallIsLive, reportCallRuns } from "./reportCalls";
+import { workerCallClaimIsActive } from "./rules";
 import { previousScheduledCall } from "./schedule";
 import type { FarmReport, OwnerAttemptResult, OwnerCallRun, Workspace } from "./types";
 
@@ -220,6 +221,11 @@ export function anyCallLive(ws: Workspace, now: Date): boolean {
   const last = ws.ownerCallRun?.attempts.at(-1);
   if (!ws.ownerCallRun || last?.result !== "pending") return false;
   return now.getTime() - Date.parse(last.at) < (ws.ownerCallRun.state === "answered" ? ANSWERED_LOST_MS : RING_LOST_MS);
+}
+
+/** Any call above, or a worker instruction or verification call still holding its placement claim. */
+export function workerLineLive(ws: Workspace, now: Date): boolean {
+  return anyCallLive(ws, now) || ws.pendingWorkerCalls.some((call) => workerCallClaimIsActive(call, now));
 }
 
 /**

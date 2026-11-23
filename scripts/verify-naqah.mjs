@@ -356,7 +356,7 @@ const commands = {
     };
     const pickScenario = async (en, arName, startCall = true) => {
       await page.goto(`${BASE}/${LOCALE}/app/lab`, { waitUntil: "networkidle" });
-      await page.getByRole("button", { name: ar ? arName : en }).first().click();
+      await page.getByRole("radio", { name: ar ? arName : en }).first().click();
       if (!startCall) return;
       await page.getByRole("button", { name: ar ? "بدء التجربة" : "Start preview" }).click();
     };
@@ -439,9 +439,13 @@ const commands = {
     // Settings: Reset demo (window.confirm) clears the workspace. Last, because it wipes state.
     await step("settings-reset", async () => {
       await page.goto(`${BASE}/${LOCALE}/app/settings`, { waitUntil: "networkidle" });
-      page.once("dialog", (d) => d.accept());
       await page.getByRole("button", { name: ar ? "إعادة ضبط العرض" : "Reset demo" }).click();
-      await page.waitForTimeout(500);
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("button", { name: ar ? "إعادة الضبط" : "Reset", exact: true }).click();
+      await page.waitForFunction(() => {
+        const persisted = localStorage.getItem("naqah-workspace-v1");
+        return !persisted || JSON.parse(persisted).state?.workspace == null;
+      }, null, { timeout: 10_000 });
       check("settings Reset demo clears the workspace", (await readWs(page)) === null);
     });
     check("no page errors", errors.length === 0, errors);

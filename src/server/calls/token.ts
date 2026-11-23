@@ -3,6 +3,7 @@
  * the farm, run and attempt come from this token, which only the server can sign.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { callingFarmAllowed } from "@/server/test-ranch";
 import type { Locale } from "@/domain/types";
 
 export type CallToken =
@@ -62,7 +63,7 @@ export function verifyCallToken(
     }
     if (token.k === "report" && (typeof token.n !== "number" || !Number.isInteger(token.n) || token.n < 1 || token.n > 10)) return null;
     if (!Number.isSafeInteger(token.t) || now - token.t! > CALL_TOKEN_MAX_AGE_MS || token.t! > now + 60_000) return null;
-    return token as CallToken;
+    return callingFarmAllowed(token.f) ? token as CallToken : null;
   } catch {
     return null;
   }

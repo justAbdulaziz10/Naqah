@@ -1,5 +1,6 @@
 import { reserveRateLimit, type RateLimitLease } from "@/server/rate-limit";
 import { CALL_NOW_LIMITS, demoNoCallLimit } from "./config";
+import { callingFarmAllowed, testCallScope } from "@/server/test-ranch";
 import type { CallNowResult } from "./scheduler";
 
 /**
@@ -8,8 +9,9 @@ import type { CallNowResult } from "./scheduler";
  * past. A call refused before dialling gives its slots back; a placed or failed dial keeps them.
  */
 export async function withCallNowLimit(farmId: string, now: Date, place: () => Promise<CallNowResult>): Promise<CallNowResult> {
+  if (!callingFarmAllowed(farmId)) return { status: "blocked", reason: "unavailable" };
   // The local presentation ranch, only while the runner says so (see demoNoCallLimit).
-  if (demoNoCallLimit(farmId)) return place();
+  if (testCallScope().kind === "off" && demoNoCallLimit(farmId)) return place();
   const leases: RateLimitLease[] = [];
   const release = () => Promise.all(leases.map((lease) => lease.release()));
   for (const { window, limit, seconds } of CALL_NOW_LIMITS) {

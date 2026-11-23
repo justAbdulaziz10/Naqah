@@ -1,0 +1,23 @@
+# Test-ranch calling preview
+
+Enable Vercel Deployment Protection on the preview and grant access only to the trial participants. Supabase Auth sign-up and sign-in can still create users and sessions before the app checks their identity. Deployment Protection gates access to preview sign-up and sign-in pages. Direct access to the shared Supabase Auth and Data APIs follows the project's own policies.
+
+1. **Setup.** Set the server-only `NAQAH_TEST_OWNER_EMAIL` to the disposable test owner's email. Leave `NAQAH_TEST_RANCH_ID` unset. Only that owner can enter the account after confirming their email. Sign up with that email and select a plan to create the ranch. The account remains available for setup and every calling path stays closed.
+2. **Ranch.** Set `NAQAH_TEST_RANCH_ID` to that ranch's single lowercase UUID. Every owner account operation checks the confirmed Auth email case-insensitively and verifies the session owns that exact ranch. Calling services independently check the configured ranch's Auth owner before processing calls. A mismatch, missing owner, or failed verification closes access.
+3. **Calling.** Set `NAQAH_CALL_ALLOWLIST` to the consenting test participants' Saudi mobile numbers. Set a fresh `NAQAH_VOICE_SECRET` shared only by the preview and its bridge. Point the preview's Twilio number and bridge only at the preview origin. An empty or malformed ranch ID or an allowlist with no valid numbers refuses calls and logs the setting name.
+
+A deployment with `VERCEL_ENV=preview` refuses calling by default until ranch scope is configured. `NAQAH_PREVIEW_ALL_RANCHES=1` explicitly restores ordinary calling on a preview with no test settings. Partial or invalid test settings still refuse calls. Production and local development use ordinary calling when test settings are absent.
+
+Keep the regular farm voice configuration and feature gates. Set `NAQAH_MANUAL_REPORT_CALLS=1` to enable the test owner's manual report, instruction-delivery, and verification buttons. Set `NAQAH_CALL_OWNER=1` to enable the manual owner-summary button. In ranch scope, calls start only after the owner confirms one of those buttons. Scheduled times remain visible as reference; they never initiate a call. Leave `NAQAH_SCHEDULED_CALLS` and `CRON_SECRET` unset and do not connect an external scheduler.
+
+The `/api/cron/report-calls` route returns `403 manual_only` in ranch scope, regardless of scheduler flags, a valid cron secret, or `NAQAH_TEST_CALL_PHASE`. `runReportCallScheduler` also refuses ranch scope before loading or changing ranch data. `NAQAH_TEST_CALL_PHASE` is still parsed for compatibility, but it no longer selects test-ranch call lanes.
+
+After an unanswered, failed, or interrupted attempt, the worker run stays pending until the owner presses its stage button again. That click authorizes one new attempt within the existing three-attempt rule. There are no automatic retries in ranch scope. Every outbound placement, including a failed provider attempt, uses the same lifetime cap.
+
+Outbound placements reserve one slot each in a dedicated persistent bucket, including failed attempts. `NAQAH_TEST_MAX_CALLS` defaults to 8 and accepts 1–12. The counter survives deployments against the same database and ranch and is shared by all four stage buttons. The existing report and owner call-now windows and provider preflight limits remain in place. Calling does not invoke the rate-limit RPC that prunes expired buckets globally.
+
+Calling reads, writes, sessions and retries are scoped to the configured ranch. Inbound also needs an allowlisted number and closes for an ambiguous caller. Phone and provider SID collision checks query only counts for matching identifiers outside the ranch. Call Lab live test calls, the AI Voice Lab, the sample line and local approval of extra numbers are disabled. The local owner call-now feature keeps its existing availability restrictions.
+
+Use a dedicated account and ranch for the trial. The app guard applies to this deployment's owner and calling paths. Supabase RLS, other deployments, existing provider calls and privileged database access follow their own controls. OTP and push can still invoke the existing shared rate limiter. Inbound provider usage is subject to allowlisting, signatures and call-length limits. The placement budget covers outbound attempts.
+
+No new migration is required. Worker instruction and verification placement still requires the existing `20261113100000_worker_call_claims.sql` migration. A full four-call trial on a database without it needs separate approval to apply it. `20261113090000_report_call_scheduler.sql` is not needed for the manual-only trial and can remain unapplied.

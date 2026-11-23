@@ -7,6 +7,7 @@ import { EstateMatters } from "@/components/dashboard/EstateMatters";
 import { FirstReport } from "@/components/dashboard/FirstReport";
 import { HerdField } from "@/components/dashboard/HerdField";
 import { CallBar } from "@/components/dashboard/CallBar";
+import { TestCallsPanel } from "@/components/dashboard/TestCallsPanel";
 import { ReportLedger } from "@/components/dashboard/ReportLedger";
 import { latestReportIsOld, noVerifiedReport, workerCallStatus } from "@/components/dashboard/callStatus";
 import { estateMatters } from "@/components/dashboard/matters";
@@ -107,6 +108,8 @@ export default function OverviewPage() {
   return (
     <div className="naqah-page space-y-5 pb-8">
       <EstateHeader name={estateName} answer={answer} tone={tone} provenance={provenance} call={<CallBar ws={ws} worker={worker} now={now} />} rhythm={rhythm} next={nextBlock} summary={summary} />
+
+      <TestCallsPanel />
 
       <CallSetupStatus ws={ws} />
 

@@ -1,3 +1,4 @@
+import { testCallScope } from "@/server/test-ranch";
 import { getOwner, createClient } from "@/lib/supabase/server";
 import { withTimeout } from "@/lib/supabase/timeout";
 import type { Locale, Workspace } from "@/domain/types";
@@ -43,7 +44,7 @@ async function workspaceFor(ownerId: string, source: LabSource | null, locale: L
 }
 
 export async function POST(request: Request): Promise<Response> {
-  if (!voiceLabEnabled()) return fail("unavailable", 404);
+  if (testCallScope().kind !== "off" || !voiceLabEnabled()) return fail("unavailable", 404);
   if (!hasSameOrigin(request)) return fail("forbidden", 403);
 
   const { user, unavailable } = await getOwner();

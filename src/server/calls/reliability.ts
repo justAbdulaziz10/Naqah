@@ -3,6 +3,7 @@ import { endReportCallWithoutReport, resolveReportCallAttempt } from "@/domain/r
 import type { LocalizedText, Workspace } from "@/domain/types";
 import { toDbId } from "@/server/db/ids";
 import { runFarmAction } from "@/server/db/service-repository";
+import { callingFarmAllowed, requireCallingFarm } from "@/server/test-ranch";
 import { MAX_CALL_SECONDS } from "./config";
 
 export const CALL_STALE_MS = (MAX_CALL_SECONDS + 150) * 1000;
@@ -43,6 +44,7 @@ export function withCallDiagnostic(workspace: Workspace, farmId: string, runId: 
 }
 
 export function expireReportRuns(workspace: Workspace, farmId: string, now: Date): Workspace {
+  if (!callingFarmAllowed(farmId)) return workspace;
   let ws = workspace;
   for (const run of workspace.reportCalls ?? []) {
     if (!["calling", "answered"].includes(run.state) || run.nextAttemptAt !== null) continue;
@@ -55,6 +57,7 @@ export function expireReportRuns(workspace: Workspace, farmId: string, now: Date
 }
 
 export async function recordCallFailure(client: SupabaseClient, farmId: string, runId: string, reason: CallFailure, now: Date): Promise<void> {
+  requireCallingFarm(farmId);
   await runFarmAction(client, farmId, (workspace) => {
     let ws = withCallDiagnostic(workspace, farmId, runId, reason, now);
     const run = ws.reportCalls?.find((entry) => toDbId(farmId, entry.id) === toDbId(farmId, runId));
@@ -71,6 +74,7 @@ export async function recordCallFailure(client: SupabaseClient, farmId: string, 
 }
 
 export async function cleanStaleReportCalls(client: SupabaseClient, farmId: string, now: Date): Promise<void> {
+  requireCallingFarm(farmId);
   await runFarmAction(client, farmId, (ws) => ({ ws: expireReportRuns(ws, farmId, now), result: null }));
   const { error } = await client.from("voice_call_sessions").delete().eq("farm_id", farmId).lt("created_at", new Date(now.getTime() - CALL_STALE_MS).toISOString());
   if (error) throw new Error("Voice session cleanup failed");

@@ -1,3 +1,4 @@
+import { testCallScope } from "@/server/test-ranch";
 import { OWNER_LINE_CLOSED } from "@/server/voice/farm-call";
 import { shouldRefuseUnsignedVoice, voiceConfiguration, voiceMode } from "@/server/env";
 import { startFarmCall } from "@/server/voice/farm-call";
@@ -29,6 +30,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const config = voiceConfiguration();
+  if (testCallScope().kind !== "off") return twimlResponse(twimlGoodbye(config.locale, voiceMessages[config.locale].lineNotConfigured));
   if (!config.secret || !config.workerPhone || shouldRefuseUnsignedVoice()) return disabledResponse(config.locale);
 
   const bounded = await readBoundedText(request, MAX_FORM_BODY_BYTES);

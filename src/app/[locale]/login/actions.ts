@@ -8,6 +8,7 @@ import { reserveOtpSend } from '@/lib/supabase/otp-limit';
 import { createWritableClient } from '@/lib/supabase/server';
 import { withTimeout } from '@/lib/supabase/timeout';
 import { isLocale } from '@/i18n/config';
+import { testOwnerScope } from '@/server/test-ranch';
 
 const OTP_SEND_TIMEOUT_MS = 10_000;
 const LOGOUT_TIMEOUT_MS = 5_000;
@@ -19,6 +20,8 @@ function clientIp(list: Headers) {
 }
 
 export async function sendOwnerOtp(input: { phone: string; captchaToken?: string }): Promise<{ issue: AuthIssue | 'invalidPhone' | null }> {
+  // A test-ranch preview serves one email owner: a phone code could never pass, and each SMS costs money.
+  if (testOwnerScope().kind !== 'off') return { issue: 'unavailable' };
   const phone = typeof input?.phone === 'string' && input.phone.length <= 32 ? normalizeSaudiPhone(input.phone) : null;
   if (!phone) return { issue: 'invalidPhone' };
   const captchaToken = typeof input.captchaToken === 'string' && input.captchaToken.length <= 4096 ? input.captchaToken : undefined;

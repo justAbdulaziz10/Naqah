@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Workspace } from "@/domain/types";
+import { isServiceClient, requireCallingFarm, testCallScope } from "@/server/test-ranch";
 import { DbError, fromPostgrest } from "./errors";
 import { workspaceFromRows } from "./mappers";
 import type { FarmRow, FarmRows } from "./rows";
@@ -33,6 +34,7 @@ const merge = <T extends { id: string }>(...lists: T[][]) => [...new Map(lists.f
 
 /** Works for both clients: under RLS with an owner session, or with the service key. */
 export async function loadFarmRows(client: SupabaseClient, farm: FarmRow): Promise<FarmRows> {
+  if (isServiceClient(client)) requireCallingFarm(farm.id);
   const from = (table: string, columns = "*") => client.from(table).select(columns).eq("farm_id", farm.id);
   const [
     workers, camels, resources, customQuestions, criteria, emergencies, reports, calls, openTasks, recentTasks,
@@ -78,7 +80,11 @@ export async function loadFarmRows(client: SupabaseClient, farm: FarmRow): Promi
 
 export async function loadFarm(client: SupabaseClient, match: { id: string } | { owner_id: string }): Promise<LoadedFarm | null> {
   const [column, value] = Object.entries(match)[0];
-  const { data, error } = await client.from("farms").select("*").eq(column, value).maybeSingle();
+  const scope = isServiceClient(client) ? testCallScope() : null;
+  if (scope?.kind === "invalid" || (scope?.kind === "ranch" && "id" in match && match.id !== scope.farmId)) return null;
+  let query = client.from("farms").select("*").eq(column, value);
+  if (scope?.kind === "ranch" && !("id" in match)) query = query.eq("id", scope.farmId);
+  const { data, error } = await query.maybeSingle();
   if (error) throw fromPostgrest(error);
   if (!data) return null;
   const farm = data as FarmRow;

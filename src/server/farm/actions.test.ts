@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({ getOwner: vi.fn(), client: vi.fn(), repository: vi.fn(), apply: vi.fn(), service: vi.fn(), run: vi.fn(), reserve: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({ getOwner: mock.getOwner, createWritableClient: mock.client }));
-vi.mock("@/server/db/owner-repository", () => ({ createOwnerRepository: mock.repository }));
+vi.mock("@/server/db/owner-repository", () => ({
+  createOwnerRepository: (...args: unknown[]) => Object.assign(mock.repository(...args), { authorize: async () => {} }),
+}));
 vi.mock("./changes", () => ({ applyOwnerChanges: mock.apply }));
 vi.mock("@/server/db/service-client", () => ({ createServiceClient: mock.service }));
 vi.mock("@/server/db/service-repository", () => ({ runFarmAction: mock.run }));
@@ -25,7 +27,11 @@ describe("owner actions", () => {
   afterEach(() => vi.unstubAllEnvs());
   it.each([undefined, "", "0", "true"])("gates every independently callable owner action with flag %s", async (flag) => {
     vi.stubEnv("NEXT_PUBLIC_NAQAH_ACCOUNT_DATA", flag);
-    for (const action of Object.values(actions)) {
+    for (const [name, action] of Object.entries(actions)) {
+      if (name === "testCallsPanelState") {
+        expect(await (action as () => Promise<unknown>)()).toEqual({ ok: true, data: null });
+        continue;
+      }
       const invoke = action as (...args: unknown[]) => Promise<unknown>;
       expect(await invoke({}, {})).toEqual({ ok: false, error: "unavailable" });
     }
@@ -47,7 +53,7 @@ describe("owner actions", () => {
   });
   it("binds the repository to the session's owner", async () => {
     expect(await addCamel({ name: "Wadha" })).toEqual({ ok: true, data: "new-id" });
-    expect(mock.repository).toHaveBeenCalledWith({ session: true }, "owner");
+    expect(mock.repository).toHaveBeenCalledWith({ session: true }, "owner", { id: "owner" });
   });
   it("never applies another farm's pending edits when enabled", async () => {
     const load = vi.fn().mockResolvedValue({ farmId: "22222222-2222-4222-8222-222222222222", workspace: { createdAt: "2026-11-01T00:00:00Z" } });
@@ -71,7 +77,7 @@ describe("owner actions", () => {
     mock.apply.mockResolvedValue({ created: {}, failed: [] });
     const result = await actions.saveOwnerEdits([], farmId);
     expect(result).toMatchObject({ ok: true, data: { workspace: { farmId, ownerId: "owner" } } });
-    expect(mock.repository).toHaveBeenCalledWith({ session: true }, "owner");
+    expect(mock.repository).toHaveBeenCalledWith({ session: true }, "owner", { id: "owner" });
     expect(mock.apply).toHaveBeenCalledWith(repository, []);
   });
   it("returns session-derived owner and repository-derived farm ids for open and load", async () => {

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { connection } from "next/server";
 import { cronSecret, outboundCallMissing, outboundConfig, scheduledCallsEnabled } from "@/server/calls/config";
+import { testCallScope } from "@/server/test-ranch";
 import { runReportCallScheduler } from "@/server/calls/scheduler";
 import { createTwilioCaller } from "@/server/calls/twilio";
 import { createServiceClient } from "@/server/db/service-client";
@@ -44,6 +45,10 @@ export async function GET(request: Request): Promise<Response> {
   const secret = cronSecret();
   if (!secret) return json({ ok: false, reason: "cron_secret_missing" }, 503);
   if (!authorized(request, secret)) return json({ ok: false, reason: "unauthorized" }, 401);
+  // After the secret check, so an unauthenticated caller learns nothing about test-ranch mode.
+  const scope = testCallScope();
+  if (scope.kind === "ranch") return json({ ok: false, placed: 0, reason: "manual_only" }, 403);
+  if (scope.kind === "invalid") return json({ ok: false, placed: 0, reason: "not_configured" }, 503);
   if (voiceMode() !== "farm") return json({ ok: true, placed: 0, skipped: "sample_mode" });
 
   const missing = [...new Set([...farmVoiceMissing(), ...outboundCallMissing()])];
@@ -52,7 +57,7 @@ export async function GET(request: Request): Promise<Response> {
   if (missing.length || !config || !client) return json({ ok: false, placed: 0, reason: "not_configured", missing }, 503);
   // Unattended calls cost money and reach real people: a separate switch, off by default.
   if (!scheduledCallsEnabled()) {
-    await heartbeat(client, "scheduled_calls_off");
+    if (scope.kind === "off") await heartbeat(client, "scheduled_calls_off");
     return json({ ok: true, placed: 0, skipped: "scheduled_calls_off" });
   }
 
@@ -60,11 +65,11 @@ export async function GET(request: Request): Promise<Response> {
     const summary = await runReportCallScheduler(client, createTwilioCaller(config), { baseUrl: config.baseUrl, now: new Date() });
     // Counts only: no farm ids, phone numbers or names leave the route.
     const counts = { farms: summary.farms, placed: summary.placed, failed: summary.failed, errors: summary.errors };
-    await heartbeat(client, "ran", counts);
+    if (scope.kind === "off") await heartbeat(client, "ran", counts);
     return json({ ok: true, ...counts });
   } catch (error) {
     console.error(`[NAQAH] report call scheduler failed (${error instanceof Error ? error.name : "unknown"})`);
-    await heartbeat(client, "unavailable");
+    if (scope.kind === "off") await heartbeat(client, "unavailable");
     return json({ ok: false, reason: "unavailable" }, 503);
   }
 }

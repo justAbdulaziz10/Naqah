@@ -1,4 +1,4 @@
-import { callNowAvailable, callOwnerNow, callWorkerNow, retryUndelivered, loadWorkspace, openAccount, saveOwnerEdits } from "@/server/farm/actions";
+import { callNowAvailable, callOwnerNow, callWorkerNow, retryUndelivered, loadWorkspace, openAccount, saveOwnerEdits, testCallsPanelState, testCallReportNow, testCallOwnerSummaryNow, testCallWorkerInstructionNow, testCallWorkerVerificationNow } from "@/server/farm/actions";
 import { isAccountDataEnabled } from "@/server/farm/account-mode";
 import { MAX_JSON_BODY_BYTES, readBoundedJson } from "@/lib/http/body";
 import { hasSameOrigin } from "@/lib/http/origin";
@@ -8,6 +8,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
 /**
  * The dashboard's data path. Not a Server Action: Next queues those behind navigation and drops
  * one in flight when a page changes, which would lose the save that finishes setup.
+ * Every operation uses the same session and ranch guard as its standalone Server Action.
  */
 export async function POST(request: Request): Promise<Response> {
   if (!isAccountDataEnabled()) return Response.json({ ok: false, error: "unavailable" }, { status: 404, headers: NO_STORE });
@@ -24,6 +25,12 @@ export async function POST(request: Request): Promise<Response> {
     : body?.op === "callNowAvailable" ? await callNowAvailable()
     // One real report call to this owner's own saved primary worker; see callWorkerNow.
     : body?.op === "callNow" ? await callWorkerNow()
+    // Manual-only test-ranch controls. Each action rechecks owner, scope, readiness and placement guards.
+    : body?.op === "testCallsPanel" ? await testCallsPanelState()
+    : body?.op === "testCallReport" ? await testCallReportNow()
+    : body?.op === "testCallOwnerSummary" ? await testCallOwnerSummaryNow()
+    : body?.op === "testCallWorkerInstruction" ? await testCallWorkerInstructionNow()
+    : body?.op === "testCallWorkerVerification" ? await testCallWorkerVerificationNow()
     : body?.op === "retryUndelivered" ? await retryUndelivered(body.id)
     // LOCAL DEMO ONLY: NAQAH calls this owner's own saved, approved number now; see callOwnerNow.
     : body?.op === "callOwnerNow" ? await callOwnerNow()

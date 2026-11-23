@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Workspace } from "@/domain/types";
+import { callingFarmAllowed, requireCallingFarm, testCallScope, verifyCallingOwner } from "@/server/test-ranch";
 import { normalizePhone } from "@/server/farm/input";
 import { diffWorkspace, hasChanges } from "./diff";
 import { DbError, fromPostgrest } from "./errors";
@@ -14,19 +15,39 @@ export type Caller = { kind: "worker" | "owner"; farmId: string } | { kind: "unk
  * is treated as unknown: guessing could write one farm's update into another.
  */
 export async function findCaller(client: SupabaseClient, rawPhone: string): Promise<Caller> {
+  const scope = testCallScope();
+  if (scope.kind === "invalid") return { kind: "unknown" };
   const phone = normalizePhone(rawPhone);
   if (!phone) return { kind: "unknown" };
-  const [workers, owners] = await Promise.all([
-    client.from("workers").select("farm_id").eq("phone", phone).limit(2),
-    client.from("farms").select("id").eq("owner_phone", phone).limit(2),
-  ]);
+  let byWorker = client.from("workers").select("farm_id").eq("phone", phone);
+  let byOwner = client.from("farms").select("id").eq("owner_phone", phone);
+  if (scope.kind === "ranch") {
+    if (!scope.allowlist.includes(phone) || !await verifyCallingOwner(client, scope.farmId)) return { kind: "unknown" };
+    byWorker = byWorker.eq("farm_id", scope.farmId);
+    byOwner = byOwner.eq("id", scope.farmId);
+  }
+  const [workers, owners] = await Promise.all([byWorker.limit(2), byOwner.limit(2)]);
   if (workers.error) throw fromPostgrest(workers.error);
   if (owners.error) throw fromPostgrest(owners.error);
   const matches: Caller[] = [
     ...(workers.data ?? []).map((row) => ({ kind: "worker" as const, farmId: row.farm_id as string })),
     ...(owners.data ?? []).map((row) => ({ kind: "owner" as const, farmId: row.id as string })),
   ];
-  return matches.length === 1 ? matches[0] : { kind: "unknown" };
+  if (matches.length !== 1) return { kind: "unknown" };
+  const match = matches[0];
+  // A matching worker number must still be unambiguous across ranches. Only check for
+  // a collision after finding the test worker, and read just the count for that number.
+  if (scope.kind === "ranch" && match.kind === "worker") {
+    const duplicates = await Promise.all([
+      client.from("workers").select("farm_id", { head: true, count: "exact" }).eq("phone", phone).neq("farm_id", scope.farmId),
+      client.from("farms").select("id", { head: true, count: "exact" }).eq("owner_phone", phone).neq("id", scope.farmId),
+    ]);
+    for (const duplicate of duplicates) {
+      if (duplicate.error) throw fromPostgrest(duplicate.error);
+      if (duplicate.count !== 0) return { kind: "unknown" };
+    }
+  }
+  return match;
 }
 
 const UNDEFINED_COLUMN = "42703";
@@ -36,6 +57,8 @@ const UNDEFINED_COLUMN = "42703";
  * a call still ringing or waiting for a retry. The domain decides what is actually due.
  */
 export async function listScheduledFarmIds(client: SupabaseClient): Promise<string[]> {
+  const scope = testCallScope();
+  if (scope.kind !== "off") return scope.kind === "ranch" ? [scope.farmId] : [];
   const [scheduled, active, ownerScheduled, ownerRuns, workerCalls] = await Promise.all([
     client.from("farms").select("id").eq("setup_complete", true).not("call_time", "is", null).limit(5000),
     client.from("report_call_runs").select("farm_id").in("state", ["calling", "answered"]).limit(5000),
@@ -58,17 +81,43 @@ export async function listScheduledFarmIds(client: SupabaseClient): Promise<stri
   ])];
 }
 
+/** Look up the signed-in owner's farm without exposing any other ranch to the service key. */
+export async function callingFarmForOwner(client: SupabaseClient, ownerId: string): Promise<string | null> {
+  const scope = testCallScope();
+  if (scope.kind === "invalid") return null;
+  let query = client.from("farms").select("id").eq("owner_id", ownerId);
+  if (scope.kind === "ranch") query = query.eq("id", scope.farmId);
+  const { data, error } = await query.maybeSingle();
+  return !error && data && callingFarmAllowed(data.id) ? data.id : null;
+}
+
 /** The report-call run a provider call belongs to, so a status callback never trusts caller ID. */
 export async function findReportCallRun(client: SupabaseClient, providerCallId: string): Promise<{ farmId: string; runId: string } | null> {
   if (!providerCallId || providerCallId.length > 128) return null;
-  const { data, error } = await client.from("report_call_runs").select("id, farm_id").eq("provider_call_id", providerCallId).limit(2);
+  const scope = testCallScope();
+  if (scope.kind === "invalid") return null;
+  let query = client.from("report_call_runs").select("id, farm_id").eq("provider_call_id", providerCallId);
+  if (scope.kind === "ranch") query = query.eq("farm_id", scope.farmId);
+  const { data, error } = await query.limit(2);
   if (error) throw fromPostgrest(error);
   return data && data.length === 1 ? { farmId: data[0].farm_id as string, runId: data[0].id as string } : null;
+}
+
+/** Preserve wrong-SID rejection without loading another ranch's run. */
+export async function reportCallBoundOutsideTestRanch(client: SupabaseClient, providerCallId: string, farmId: string): Promise<boolean> {
+  const scope = testCallScope();
+  if (scope.kind !== "ranch") return false;
+  requireCallingFarm(farmId);
+  const { count, error } = await client.from("report_call_runs").select("id", { head: true, count: "exact" })
+    .eq("provider_call_id", providerCallId).neq("farm_id", farmId);
+  if (error) throw fromPostgrest(error);
+  return count !== 0;
 }
 
 export type FarmActionResult<T> = { status: "saved" | "unchanged" | "replayed"; result: T };
 
 export async function recordedOutcome<T>(client: SupabaseClient, farmId: string, eventId: string): Promise<T | null> {
+  requireCallingFarm(farmId);
   const { data, error } = await client
     .from("voice_events")
     .select("outcome")
@@ -90,6 +139,7 @@ export async function runFarmAction<T>(
   action: (ws: Workspace) => { ws: Workspace; result: T },
   options: { eventId?: string; providerCallId?: string; reportCallProviderIds?: Record<string, string> } = {},
 ): Promise<FarmActionResult<T>> {
+  if (!await verifyCallingOwner(client, farmId)) throw new DbError("unavailable");
   const { eventId, providerCallId, reportCallProviderIds } = options;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {

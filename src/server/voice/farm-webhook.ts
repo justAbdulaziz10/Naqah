@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { withTimeout } from "@/lib/supabase/timeout";
 import { createServiceClient } from "@/server/db/service-client";
+import { testCallScope, verifyCallingOwner } from "@/server/test-ranch";
+import { verifyCallToken } from "@/server/calls/token";
 import { farmVoiceMissing, voiceLocale } from "@/server/env";
 import { checkTwilioWebhookSignature } from "@/server/twilio/signature";
 import { SAVE_FAILED } from "./farm-call";
@@ -21,6 +23,8 @@ export type FarmWebhook = { client: SupabaseClient; form: URLSearchParams; callS
  */
 export async function farmWebhook(request: Request): Promise<FarmWebhook | Response> {
   const locale = voiceLocale();
+  const scope = testCallScope();
+  if (scope.kind === "invalid") return twimlResponse(twimlGoodbye(locale, voiceMessages[locale].lineNotConfigured), 503);
   const client = createServiceClient();
   if (!client || farmVoiceMissing().length) {
     console.error("[NAQAH] farm voice is not configured");
@@ -30,7 +34,10 @@ export async function farmWebhook(request: Request): Promise<FarmWebhook | Respo
   if (!bounded.ok) return twimlResponse(twimlGoodbye(locale), bounded.status);
   const form = new URLSearchParams(bounded.text);
   if (!checkTwilioWebhookSignature(request, form).verified) return twimlResponse(twimlGoodbye(locale), 403);
-  if (new URL(request.url).searchParams.get("preflight") === "1") return preflightResponse();
+  const query = new URL(request.url).searchParams;
+  if (scope.kind === "ranch" && query.has("s") && !verifyCallToken(query.get("s"))) return twimlResponse(twimlGoodbye(locale), 403);
+  if (!await verifyCallingOwner(client)) return twimlResponse(twimlGoodbye(locale, voiceMessages[locale].lineNotConfigured), 503);
+  if (query.get("preflight") === "1") return preflightResponse();
   const callSid = form.get("CallSid") ?? "";
   if (!CALL_SID.test(callSid)) return twimlResponse(twimlGoodbye(locale), 400);
   return { client, form, callSid };

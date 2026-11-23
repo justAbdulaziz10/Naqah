@@ -1,7 +1,9 @@
 import "server-only";
 import { normalizeSaudiPhone } from "@/lib/supabase/auth-input";
 
-export const testCallsEnabled = () => process.env.NAQAH_TEST_CALLS === "1";
+import { testCallScope } from "@/server/test-ranch";
+
+export const testCallsEnabled = () => testCallScope().kind === "off" && process.env.NAQAH_TEST_CALLS === "1";
 
 export function isTestCallAdmin(user: { id: string; email?: string | null; email_confirmed_at?: string | null }): boolean {
   const allowed = (process.env.NAQAH_TEST_CALL_ADMINS ?? "").split(",").map((entry) => entry.trim().toLowerCase()).filter(Boolean);

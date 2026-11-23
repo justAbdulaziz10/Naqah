@@ -1,6 +1,7 @@
 import { getOwner } from "@/lib/supabase/server";
 import { hasSameOrigin } from "@/lib/http/origin";
 import { approveTestNumber, ownerApprovesTestNumbers } from "@/server/calls/config";
+import { testCallScope } from "@/server/test-ranch";
 import { createServiceClient } from "@/server/db/service-client";
 
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -10,7 +11,7 @@ const json = (value: unknown, status = 200) => Response.json(value, { status, he
  * to test calls. It places no call and changes no saved number: Settings saves the number, «اتصال حقيقي» calls it.
  */
 export async function POST(request: Request): Promise<Response> {
-  if (!ownerApprovesTestNumbers()) return json({ ok: false, reason: "not_local" }, 404);
+  if (testCallScope().kind !== "off" || !ownerApprovesTestNumbers()) return json({ ok: false, reason: "not_local" }, 404);
   if (!hasSameOrigin(request)) return json({ ok: false, reason: "forbidden" }, 403);
   const { user } = await getOwner();
   if (!user) return json({ ok: false, reason: "unauthenticated" }, 401);
