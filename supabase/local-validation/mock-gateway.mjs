@@ -231,6 +231,13 @@ function handleLogout(req, res, scope) {
 async function handleAuth(req, res, url) {
   const path = url.pathname.slice("/auth/v1".length);
   if (path === "/.well-known/jwks.json") return sendJson(res, 200, { keys: [] });
+  const adminUser = /^\/admin\/users\/([0-9a-f-]+)$/i.exec(path);
+  if (adminUser && req.method === "GET") {
+    const token = /^Bearer (.+)$/i.exec(req.headers.authorization ?? "")?.[1];
+    if (verifyJwt(token)?.role !== "service_role") return sendAuthError(res, 403, "not_admin", "Service role required");
+    const entry = usersById.get(adminUser[1]);
+    return entry ? sendJson(res, 200, entry.user) : sendAuthError(res, 404, "user_not_found", "User not found");
+  }
   if (path === "/token") return handleToken(req, res, url.searchParams.get("grant_type"));
   if (path === "/signup") return handleSignup(req, res);
   if (path === "/logout") return handleLogout(req, res, url.searchParams.get("scope") ?? "global");
@@ -277,6 +284,17 @@ const server = http.createServer(async (req, res) => {
       restFailure = (await readJson(req)).rest === true;
       return sendJson(res, 200, { rest: restFailure });
     }
+  if (url.pathname === "/__test/twilio/2010-04-01/Accounts/AC00000000000000000000000000000000.json" && req.method === "GET") {
+    const expected = `Basic ${Buffer.from(`AC${"0".repeat(32)}:local-test-auth-token`).toString("base64")}`;
+    if (req.headers.authorization !== expected) return sendJson(res, 403, { message: "Fake credentials only" });
+    return sendJson(res, 200, { sid: `AC${"0".repeat(32)}`, status: "active" });
+  }
+  if (url.pathname === "/__test/twilio/2010-04-01/Accounts/AC00000000000000000000000000000000/IncomingPhoneNumbers.json" && req.method === "GET") {
+    const expected = `Basic ${Buffer.from(`AC${"0".repeat(32)}:local-test-auth-token`).toString("base64")}`;
+    if (req.headers.authorization !== expected) return sendJson(res, 403, { message: "Fake credentials only" });
+    const number = url.searchParams.get("PhoneNumber");
+    return sendJson(res, 200, { incoming_phone_numbers: number === "+966500000299" ? [{ phone_number: number, capabilities: { voice: true } }] : [] });
+  }
     if (/^\/__test\/twilio\/2010-04-01\/Accounts\/AC0{32}\/Calls.json$/.test(url.pathname) && req.method === "POST") {
       const expected = `Basic ${Buffer.from(`AC${"0".repeat(32)}:local-test-auth-token`).toString("base64")}`;
       if (req.headers.authorization !== expected) return sendJson(res, 403, { message: "Fake credentials only" });

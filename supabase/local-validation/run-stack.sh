@@ -62,7 +62,18 @@ else
 $PSQL -d postgres -c "drop database if exists $DB with (force)"
 $PSQL -d postgres -c "create database $DB"
 $PSQL -d "$DB" -f bootstrap.sql
-for migration in ../migrations/*.sql; do $PSQL -d "$DB" -1 -f "$migration"; done
+for migration in ../migrations/*.sql; do
+  if [ "${migration##*/}" = "20261113090000_report_call_scheduler.sql" ] && [ "${NAQAH_TEST_SKIP_SCHEDULER_MIGRATION:-}" = "1" ]; then
+    # The dress rehearsal intentionally validates against the exact schema before this scheduler migration.
+    continue
+  elif [ "${NAQAH_TEST_SKIP_CRON_EXTENSIONS:-}" = "1" ] && [ "${migration##*/}" = "20261113090000_report_call_scheduler.sql" ]; then
+    # Keep the production heartbeat table for testing the HTTP route without cron, net or Vault.
+    sed -n '/^create table if not exists public.scheduler_heartbeats (/,/^grant select, insert, update on table public.scheduler_heartbeats to service_role;/p' "$migration" \
+      | $PSQL -d "$DB" -1
+  else
+    $PSQL -d "$DB" -1 -f "$migration"
+  fi
+done
 fi
 $PSQL -d "$DB" -c "do \$\$ begin create role authenticator login noinherit; exception when duplicate_object then null; end \$\$" \
   -c "grant anon, authenticated, service_role to authenticator"
