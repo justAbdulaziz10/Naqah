@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { CamelMark } from "@/components/brand/CamelMark";
+import { CamelMarkRef } from "@/components/brand/CamelMark";
 import "./naqah3d.css";
 
 /** How many copies of the mark stack into its depth. The front one is the approved mark, unchanged. */
@@ -20,7 +20,7 @@ export function NaqahMark3D({ className = "" }: { className?: string }) {
           const depth = DEPTH - 1 - index; // Back copies first, the face last.
           return (
             <span key={depth} className="naqah3d-layer" style={{ "--d": depth } as CSSProperties} data-face={depth === 0 ? "" : undefined}>
-              <CamelMark className="h-full w-full" />
+              <CamelMarkRef className="h-full w-full" />
             </span>
           );
         })}

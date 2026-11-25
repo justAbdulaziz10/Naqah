@@ -1,5 +1,5 @@
 /*
- * The ranch diorama (CSS 3D, no images) and the retry orbit.
+ * The ranch diorama (CSS 3D, no images).
  * The 3D world uses physical left/top on purpose: transforms are not mirrored by writing direction,
  * so the model and its labels keep one geometry in both languages. Copy around it stays logical.
  */
@@ -8,15 +8,17 @@
 /* The stage and its pinned labels share one box, so label positions are percentages of the stage itself. */
 .dio-anchor {
   position: relative;
-  width: fit-content;
-  margin-inline: auto;
+  width: 100%;
+  container-type: inline-size;
 }
 .dio-stage {
-  --dio-size: clamp(14rem, 62vw, 25rem);
+  /* Phones: the model uses the full width (the stage is cropped, not the world), with larger figures. */
+  --dio-size: min(78cqw, 20rem);
+  --fw: 0.165;
   position: relative;
-  width: calc(var(--dio-size) * 1.5);
+  width: 100%;
   height: calc(var(--dio-size) * 1.05);
-  margin-inline: auto;
+  overflow: clip;
   perspective: 1400px;
   perspective-origin: 50% 30%;
 }
@@ -119,6 +121,10 @@
  * The figure undoes the world's rotateX(55deg) rotateZ(45deg) about its feet (bottom centre), which sit
  * on the centre of the camel's footprint. A darker copy, offset a hair, gives it a little thickness.
  */
+/* Phones place the pen and the herd with their own numbers (set inline as --pl, --pt, --pw, --ph). */
+@media (max-width: 639px) {
+  .dio-phone-pos { left: var(--pl) !important; top: var(--pt) !important; width: var(--pw) !important; height: var(--ph) !important; }
+}
 .dio-camel { --camel-face: #efd6ab; --camel-edge: #8f6f4b; --lift: 0px; }
 .dio-camel-watch { --camel-face: #f0a54e; --camel-edge: #94612c; }
 /* The figure, not the footprint, is what you press: the footprints overlap the figures standing behind them. */
@@ -233,15 +239,15 @@
 /* A thin weather mast with a warm tip. */
 .dio-heat { --face-top: var(--warn); --face-front: #6a5038; --face-side: #533e2b; }
 .dio-heat .dio-top { box-shadow: 0 0 14px 5px rgba(224, 168, 90, 0.5); border-color: transparent; }
-/* The floating fact label. Pinned near its element from the sm breakpoint; stacked below the model on phones. */
+/* The fact label: stacked below the model on phones, in a column beside it from the sm breakpoint. */
 .dio-label-slot {
   position: static;
   margin-top: 1rem;
   width: 100%;
   min-height: 5.75rem;
 }
-/* Slid sideways by script when the card would leave the section; the stem stays on the element. */
-.dio-label { position: relative; left: var(--dx, 0px); }
+.dio-label { position: relative; }
+.dio-leader { display: none; }
 /* The name of what is under the mouse. Only mouse hover sets it. */
 .dio-hover-tag {
   position: absolute;
@@ -258,93 +264,38 @@
   z-index: 1;
 }
 @media (min-width: 640px) {
+  .dio-anchor {
+    margin-top: 2rem;
+    padding-inline-end: 14rem;
+  }
+  .dio-stage {
+    --dio-size: min(25rem, calc(100cqw / 1.5));
+    --fw: 0.11;
+    width: calc(var(--dio-size) * 1.5);
+    overflow: visible;
+  }
   .dio-label-slot {
     position: absolute;
+    inset-inline-end: 0;
+    top: 0;
     margin-top: 0;
-    width: max-content;
-    max-width: 15.5rem;
+    width: 13rem;
     min-height: 0;
-    transform: translate(-50%, calc(-100% - 14px));
     pointer-events: none;
     z-index: 2;
   }
-  .dio-label-slot[data-below] { transform: translate(-50%, 18px); }
-}
-
-/* ---------- Retry orbit ---------- */
-.orbit-stage {
-  perspective: 900px;
-  perspective-origin: 50% 20%;
-}
-.orbit-ring {
-  position: relative;
-  width: min(calc(100% - 7rem), 22rem);
-  aspect-ratio: 1;
-  margin-inline: auto;
-  transform-style: preserve-3d;
-  transform: rotateX(62deg);
-}
-.orbit-ring::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 1px dashed var(--line-strong);
-}
-.orbit-ring::after {
-  content: "";
-  position: absolute;
-  inset: 22%;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-  background: radial-gradient(circle, rgba(216, 173, 108, 0.12), transparent 70%);
-}
-.orbit-spin {
-  position: absolute;
-  inset: 0;
-}
-.orbit-sat {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  width: 8px;
-  height: 8px;
-  margin: -4px;
-  border-radius: 50%;
-  background: var(--moon);
-  box-shadow: 0 0 12px 3px rgba(239, 231, 214, 0.45);
-}
-/* Nodes stand upright on the tilted ring: the inverse tilt makes them face the reader. */
-.orbit-node {
-  position: absolute;
-  left: var(--nx);
-  top: var(--ny);
-  width: 7.5rem;
-  transform-origin: 50% 100%;
-  transform: translate(-50%, -100%) rotateX(-62deg);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-.orbit-disc {
-  width: 1.1rem;
-  height: 1.1rem;
-  border-radius: 50%;
-  border: 2px solid var(--moon);
-  background: transparent;
-}
-.orbit-disc-lit {
-  border-color: var(--ember);
-  background: var(--ember);
-  box-shadow: 0 0 22px 6px rgba(216, 121, 58, 0.5);
-}
-.orbit-disc-gold {
-  width: 1.4rem;
-  height: 1.4rem;
-  border-color: var(--gold-bright);
-  background: var(--gold-bright);
-  box-shadow: 0 0 26px 8px rgba(216, 173, 108, 0.45);
+  .dio-leader {
+    display: block;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .dio-leader line { stroke: var(--gold-bright); stroke-opacity: 0.6; stroke-width: 1; }
+  .dio-hover-tag { z-index: 3; }
 }
 
 /* No verified report: the herd and the room go quiet, nothing glows as if it were fine. */
@@ -361,18 +312,6 @@
 .dio-label { animation: dio-label-in 0.28s ease-out both; }
 @keyframes dio-label-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-/* Desktop: the label floats well above the herd so it never hides a neighbour, tied to its element by a thin line. */
-@media (min-width: 640px) {
-  .dio-label-slot { transform: translate(-50%, calc(-100% - 64px)); }
-  .dio-label-slot::after {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: 100%;
-    width: 1px;
-    height: 58px;
-    background: linear-gradient(var(--line-strong), rgba(216, 173, 108, 0.7));
-  }
-  .dio-label-slot[data-below] { transform: translate(-50%, 64px); }
-  .dio-label-slot[data-below]::after { top: auto; bottom: 100%; background: linear-gradient(rgba(216, 173, 108, 0.7), var(--line-strong)); }
+@media (prefers-reduced-motion: reduce) {
+  .dio-label { animation: none; }
 }

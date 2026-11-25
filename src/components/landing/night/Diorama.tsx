@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import { CamelMark } from "@/components/brand/CamelMark";
+import { CamelMarkRef } from "@/components/brand/CamelMark";
 import "./diorama.css";
 
 export type Certainty = "reported" | "approximate" | "notReported" | "verified";
@@ -50,6 +50,34 @@ const CAMEL = { w: 9, h: 8 };
 /** The upright camel figure, in world sizes. The height keeps the brand mark's own proportions (990 × 767). */
 const CAMEL_FIG = { w: 0.11, h: (0.11 * 767) / 990 };
 const GROUND_Z = 0.03;
+
+/*
+ * Phones: a wider pen and a loose two-row herd, so every figure is at least a fingertip wide and apart.
+ * Spots are (u - v, u + v) in world fractions; they become percents of the phone pen below.
+ */
+const PHONE_PEN = { x: 4, y: 36, w: 62, h: 60 };
+const PHONE_FOOT = { w: 5, h: 4 };
+const PHONE_SPOTS: readonly (readonly [number, number])[] = [
+  [-0.66, 0.8],
+  [-0.43, 0.8],
+  [-0.2, 0.8],
+  [0.03, 0.8],
+  [-0.545, 1.15],
+  [-0.315, 1.15],
+  [-0.085, 1.15],
+  [0.145, 1.15],
+];
+function phoneCamel(index: number) {
+  const [c, sum] = PHONE_SPOTS[index] ?? PHONE_SPOTS[0];
+  const u = ((sum + c) / 2) * 100;
+  const v = ((sum - c) / 2) * 100;
+  return {
+    left: ((u - PHONE_PEN.x - PHONE_FOOT.w / 2) / PHONE_PEN.w) * 100,
+    top: ((v - PHONE_PEN.y - PHONE_FOOT.h / 2) / PHONE_PEN.h) * 100,
+    width: (PHONE_FOOT.w / PHONE_PEN.w) * 100,
+    height: (PHONE_FOOT.h / PHONE_PEN.h) * 100,
+  };
+}
 
 const COS45 = Math.SQRT1_2;
 const COS55 = Math.cos((55 * Math.PI) / 180);
@@ -110,6 +138,7 @@ function Block({
   onSelect,
   onHover,
   faces = true,
+  phone,
   children,
 }: {
   itemId: DioramaItem["id"];
@@ -122,13 +151,22 @@ function Block({
   onSelect: () => void;
   onHover: (on: boolean) => void;
   faces?: boolean;
+  /** Where the element stands on a phone (percent of its parent), when that differs. */
+  phone?: { left: number; top: number; width: number; height: number };
   children?: ReactNode;
 }) {
-  const style = { left: `${rect.x}%`, top: `${rect.y}%`, width: `${rect.w}%`, height: `${rect.h}%`, "--z": rect.z } as CSSProperties;
+  const style = {
+    left: `${rect.x}%`,
+    top: `${rect.y}%`,
+    width: `${rect.w}%`,
+    height: `${rect.h}%`,
+    "--z": rect.z,
+    ...(phone ? { "--pl": `${phone.left}%`, "--pt": `${phone.top}%`, "--pw": `${phone.width}%`, "--ph": `${phone.height}%` } : {}),
+  } as CSSProperties;
   return (
     <button
       type="button"
-      className={`dio-block ${kind}`}
+      className={`dio-block ${kind}${phone ? " dio-phone-pos" : ""}`}
       data-dio-id={itemId}
       style={style}
       aria-label={label}
@@ -183,6 +221,9 @@ export function Diorama({
   const [mode, setMode] = useState<"report" | "none">("report");
   const rootRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const lineRef = useRef<SVGLineElement>(null);
   // Without a verified report nothing is shown as fine: every element says so, in the same words.
   const items =
     mode === "report"
@@ -190,7 +231,6 @@ export function Diorama({
       : reportItems.map((item) => ({ ...item, fact: modes.missingFact, certainty: "notReported" as Certainty, certaintyLabel: modes.missingCertainty }));
   const byId = new Map(items.map((item) => [item.id, item] as const));
   const active = byId.get(activeId) ?? items[0];
-  const anchor = active ? anchorOf(rectOf(active.id)) : { x: 50, y: 50 };
   const hovered = hoverId && hoverId !== active?.id ? byId.get(hoverId) : undefined;
   const hoverAnchor = hovered ? anchorOf(rectOf(hovered.id)) : null;
   const labelFor = (id: DioramaItem["id"]) => {
@@ -208,17 +248,41 @@ export function Diorama({
     onHover: (on: boolean) => setHoverId(on ? id : null),
   });
 
-  // Keep the pinned label inside the section: slide the card sideways (its stem stays on the element).
+  // Beside the model (from the sm breakpoint): the card sits in its own column, level with its element and
+  // clamped to the model's height, and a thin line joins the card to the element. Phones stack it below.
   useLayoutEffect(() => {
     const label = labelRef.current;
-    const root = rootRef.current;
-    if (!label || !root) return;
-    label.style.setProperty("--dx", "0px");
-    if (getComputedStyle(label.parentElement!).position !== "absolute") return;
-    const box = root.getBoundingClientRect();
-    const rect = label.getBoundingClientRect();
-    const dx = Math.max(0, box.left - rect.left) - Math.max(0, rect.right - box.right);
-    label.style.setProperty("--dx", `${Math.round(dx)}px`);
+    const slot = label?.parentElement;
+    const anchorBox = anchorRef.current;
+    const stage = stageRef.current;
+    const line = lineRef.current;
+    if (!label || !slot || !anchorBox || !stage || !line) return;
+    const place = () => {
+      line.removeAttribute("x1");
+      if (getComputedStyle(slot).position !== "absolute") {
+        slot.style.removeProperty("top");
+        return;
+      }
+      const box = anchorBox.getBoundingClientRect();
+      const st = stage.getBoundingClientRect();
+      const a = anchorOf(rectOf(activeId));
+      const px = st.left - box.left + (a.x / 100) * st.width;
+      const py = st.top - box.top + (a.y / 100) * st.height;
+      const h = label.getBoundingClientRect().height;
+      const top = Math.max(0, Math.min(box.height - h, py - h / 2));
+      slot.style.top = `${Math.round(top)}px`;
+      const card = label.getBoundingClientRect();
+      const toEnd = card.left + card.width / 2 > box.left + px;
+      const ex = (toEnd ? card.left : card.right) - box.left;
+      const ey = Math.max(top + 14, Math.min(top + h - 14, py));
+      line.setAttribute("x1", String(Math.round(px)));
+      line.setAttribute("y1", String(Math.round(py)));
+      line.setAttribute("x2", String(Math.round(ex)));
+      line.setAttribute("y2", String(Math.round(ey)));
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
   }, [activeId, mode]);
 
   // A tap on empty ground near a camel picks the nearest camel (within 28px). On a phone the camels are
@@ -239,13 +303,14 @@ export function Diorama({
 
   // Arrow keys move through the model and the list in the same order; Home and End jump to the ends.
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    const keys = ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"];
+    // Up and Down stay with the page scroll; only the row keys move between items.
+    const keys = ["ArrowRight", "ArrowLeft", "Home", "End"];
     if (!keys.includes(event.key)) return;
     const container = event.currentTarget;
     const buttons = items.map((item) => container.querySelector<HTMLButtonElement>(`button[data-dio-id="${item.id}"]`));
     const at = items.findIndex((item) => item.id === activeId);
     const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
-    const forward = event.key === "ArrowDown" || event.key === (rtl ? "ArrowLeft" : "ArrowRight");
+    const forward = event.key === (rtl ? "ArrowLeft" : "ArrowRight");
     const next =
       event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (at + (forward ? 1 : -1) + buttons.length) % buttons.length;
     event.preventDefault();
@@ -254,13 +319,28 @@ export function Diorama({
 
   return (
     <div ref={rootRef}>
-      <div className="dio-anchor sm:mt-16">
-        <div className="dio-stage" role="group" aria-label={modelLabel} data-mode={mode} onKeyDown={onKeyDown} onClick={onStageClick}>
+      <div ref={anchorRef} className="dio-anchor">
+        <div ref={stageRef} className="dio-stage" role="group" aria-label={modelLabel} data-mode={mode} onKeyDown={onKeyDown} onClick={onStageClick}>
           <div className="dio-float">
             <div className="dio-world">
               <span className="dio-face dio-top dio-ground-top">
                 {/* The pen, with the herd on its slab. */}
-                <span className="dio-block dio-pen" style={{ left: `${PEN.x}%`, top: `${PEN.y}%`, width: `${PEN.w}%`, height: `${PEN.h}%`, "--z": PEN.z } as CSSProperties}>
+                <span
+                  className="dio-block dio-pen dio-phone-pos"
+                  style={
+                    {
+                      left: `${PEN.x}%`,
+                      top: `${PEN.y}%`,
+                      width: `${PEN.w}%`,
+                      height: `${PEN.h}%`,
+                      "--z": PEN.z,
+                      "--pl": `${PHONE_PEN.x}%`,
+                      "--pt": `${PHONE_PEN.y}%`,
+                      "--pw": `${PHONE_PEN.w}%`,
+                      "--ph": `${PHONE_PEN.h}%`,
+                    } as CSSProperties
+                  }
+                >
                   <span className="dio-face dio-side-y" />
                   <span className="dio-face dio-side-x" />
                   <span className="dio-face dio-top">
@@ -276,6 +356,7 @@ export function Diorama({
                           active={activeId === camel.id}
                           focusable={activeId === camel.id}
                           faces={false}
+                          phone={phoneCamel(index)}
                           onSelect={() => setActiveId(camel.id)}
                           onHover={(on) => setHoverId(on ? camel.id : null)}
                         >
@@ -285,13 +366,13 @@ export function Diorama({
                           <span
                             className="dio-camel-fig"
                             style={{
-                              width: `calc(var(--dio-size) * ${CAMEL_FIG.w})`,
-                              height: `calc(var(--dio-size) * ${CAMEL_FIG.h.toFixed(4)})`,
-                              marginLeft: `calc(var(--dio-size) * ${-CAMEL_FIG.w / 2})`,
+                              width: "calc(var(--dio-size) * var(--fw))",
+                              height: `calc(var(--dio-size) * var(--fw) * ${(CAMEL_FIG.h / CAMEL_FIG.w).toFixed(4)})`,
+                              marginLeft: "calc(var(--dio-size) * var(--fw) * -0.5)",
                             }}
                           >
-                            <CamelMark className="dio-camel-edge" />
-                            <CamelMark className="dio-camel-face" />
+                            <CamelMarkRef className="dio-camel-edge" />
+                            <CamelMarkRef className="dio-camel-face" />
                           </span>
                         </Block>
                       );
@@ -320,21 +401,22 @@ export function Diorama({
               <span className="dio-face dio-side-x dio-ground-side" />
             </div>
           </div>
+          {/* On a mouse, the name of what is under the pointer; it never changes the fact shown. */}
+          {hovered && hoverAnchor ? (
+            <span aria-hidden className="dio-hover-tag" style={{ left: `${hoverAnchor.x.toFixed(2)}%`, top: `${hoverAnchor.y.toFixed(2)}%` }}>
+              {hovered.name}
+            </span>
+          ) : null}
         </div>
 
-        {/* On a mouse, the name of what is under the pointer; it never changes the fact shown. */}
-        {hovered && hoverAnchor ? (
-          <span aria-hidden className="dio-hover-tag" style={{ left: `${hoverAnchor.x.toFixed(2)}%`, top: `${hoverAnchor.y.toFixed(2)}%` }}>
-            {hovered.name}
-          </span>
-        ) : null}
+        <svg aria-hidden className="dio-leader">
+          <line ref={lineRef} />
+        </svg>
 
-        {/* The fact label, announced as it changes. Pinned to its element from the sm breakpoint, stacked below on phones. */}
+        {/* The fact label, announced as it changes. Beside the model from the sm breakpoint, stacked below on phones. */}
         {active ? (
           <div
             className="dio-label-slot"
-            data-below={anchor.y < 6 ? "" : undefined}
-            style={{ left: `${anchor.x.toFixed(2)}%`, top: `${anchor.y.toFixed(2)}%` }}
             aria-live="polite"
           >
             <div ref={labelRef} key={active.id} className="dio-label night-glass night-glass-strong px-3.5 py-2.5">
@@ -352,13 +434,12 @@ export function Diorama({
       {/* The switch: the same ranch with and without a verified report. */}
       <p className="mt-6 text-center text-sm text-[var(--text-faint)]">{modes.hint}</p>
       <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-3">
-        <div role="radiogroup" aria-label={modes.label} className="inline-flex rounded-full border border-[var(--line-strong)] p-1">
+        <div role="group" aria-label={modes.label} className="inline-flex rounded-full border border-[var(--line-strong)] p-1">
           {(["report", "none"] as const).map((value) => (
             <button
               key={value}
               type="button"
-              role="radio"
-              aria-checked={mode === value}
+              aria-pressed={mode === value}
               onClick={() => setMode(value)}
               className={`min-h-11 rounded-full px-4 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gold-bright)] ${
                 mode === value ? "bg-[var(--gold-bright)] text-[var(--night-1)]" : "text-[var(--text-muted)] hover:text-[var(--text)]"

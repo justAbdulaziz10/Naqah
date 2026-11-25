@@ -87,7 +87,7 @@ html[lang="ar"] .ring-stage { --ring-dir: -1; }
   filter: drop-shadow(0 0 6px rgba(216, 121, 58, 0.8));
 }
 .ring-letter {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   line-height: 1;
   color: var(--text-faint);

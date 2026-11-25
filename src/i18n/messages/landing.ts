@@ -250,6 +250,7 @@ export const landing = defineMessages({
         caption: "Basic and Ultimate compared",
         feature: "What you get",
         sameOnBoth: "Same",
+        bothPlans: "Both plans",
         notIncluded: "Not included",
         ring: {
           basic: "Basic week: one report call on the weekday you set, Thursday in this example, and one summary call to you at your own time.",
@@ -347,13 +348,13 @@ export const landing = defineMessages({
         retry: {
           title: "If your worker doesn’t answer",
           summary: (attempts: number, minutes: number) =>
-            `If your worker doesn’t answer, NAQAH calls again ${minutes} minutes later, ${attempts} calls in all. Then it stops, and your dashboard shows the report as missed. If he answers any of them, the report is saved and the calls stop.`,
+            `If your worker doesn’t answer, NAQAH calls again ${minutes} minutes later, ${attempts} calls in all. Then it stops, and your dashboard shows the report as missed. If your worker gives the report on any of these calls, it is saved and the calls stop.`,
           call: (n: number) => `Call ${n}`,
           noAnswer: "No answer",
-          wait: (minutes: number) => `${minutes} minutes later`,
+          wait: (minutes: number) => `then ${minutes} minutes later`,
           stops: "NAQAH stops calling",
-          result: "Your dashboard shows: today’s report is missing",
-          answered: "If he answers any of these calls, the report is saved and the calls stop.",
+          result: "Your dashboard shows: no report arrived",
+          answered: "If your worker gives the report on any of these calls, it is saved and the calls stop.",
         },
       },
     },
@@ -528,7 +529,7 @@ export const landing = defineMessages({
           {
             time: "5:40 م",
             title: "ناقة تتصل على أحمد",
-            body: "على جواله العادي، بدون تطبيق. يعرّف النظام عن نفسه إنه آلي، ثم يسأل أسئلتك واحدًا واحدًا.",
+            body: "على جواله العادي، بدون تطبيق. ناقة تعرّف بنفسها إنها آلية، ثم يسأل أسئلتك واحدًا واحدًا.",
           },
           {
             time: "5:41 م",
@@ -598,6 +599,7 @@ export const landing = defineMessages({
         caption: "مقارنة بين الأساسية والمتكاملة",
         feature: "اللي تحصل عليه",
         sameOnBoth: "نفس الشيء",
+        bothPlans: "الباقتان",
         notIncluded: "غير متوفرة",
         ring: {
           basic: "أسبوع الأساسية: مكالمة تقرير وحدة في اليوم اللي تحدده، هنا الخميس، ومكالمة ملخّص لك في وقتك.",
@@ -694,13 +696,13 @@ export const landing = defineMessages({
         retry: {
           title: "إذا ما رد عاملك",
           summary: (attempts: number, minutes: number) =>
-            `إذا ما رد عاملك، ناقة تتصل عليه مرة ثانية بعد ${minutes} دقيقة، ${attempts} مكالمات بالكل. بعدها توقف، وتشوف في لوحتك إن التقرير ما وصل. ولو رد في أي مكالمة منها، ينحفظ التقرير وتوقف المكالمات.`,
+            `إذا ما رد عاملك، ناقة تتصل عليه مرة ثانية بعد ${minutes} دقيقة، ${attempts} مكالمات بالكل. بعدها توقف، وتشوف في لوحتك إن التقرير ما وصل. ولو عطى العامل تقريره في أي مكالمة منها، ينحفظ وتوقف المكالمات.`,
           call: (n: number) => `المكالمة ${n}`,
           noAnswer: "ما رد",
           wait: (minutes: number) => `بعد ${minutes} دقيقة`,
           stops: "ناقة توقف الاتصال",
-          result: "لوحتك تبيّن لك: تقرير اليوم ما وصل",
-          answered: "ولو رد في أي مكالمة منها، ينحفظ التقرير وتوقف المكالمات.",
+          result: "لوحتك تبيّن لك: التقرير ما وصل",
+          answered: "ولو عطى العامل تقريره في أي مكالمة منها، ينحفظ وتوقف المكالمات.",
         },
       },
     },

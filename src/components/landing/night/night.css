@@ -1,15 +1,13 @@
 /*
  * «ليلة في العزبة» — A night at the ranch.
  * The landing's night palette. Scoped to .naqah-night so the rest of the app keeps its ivory tokens.
- * Roles: ground (night-0..3), sky (dusk), light (moon, gold, ember), text (text, text-muted, text-faint).
+ * Roles: ground (night-0..3), light (moon, gold, ember), text (text, text-muted, text-faint).
  */
 .naqah-night {
   --night-0: #1d1611;
   --night-1: #2a2019;
   --night-2: #352920;
   --night-3: #45362a;
-  --dusk: #4d3a46;
-  --dusk-2: #6b3f3a;
   --moon: #efe7d6;
   --text: #f6eee0;
   --text-muted: #d6c6ab;
@@ -40,7 +38,7 @@
 @media (min-width: 640px) { .night-frame { padding-inline: 2rem; } }
 @media (min-width: 1024px) { .night-frame { padding-inline: 3rem; } }
 
-/* Glass surfaces float over the scene: hairline border, faint fill, blur. Never nested. */
+/* Glass surfaces float over the scene: hairline border, solid fill. Never nested. */
 .night-glass {
   border: 1px solid var(--line);
   border-radius: 1.25rem;
@@ -89,7 +87,7 @@ html[lang="ar"] .night-title { letter-spacing: 0; line-height: 1.3; }
 /* Numbers and phone numbers keep Latin digits and LTR flow. */
 .naqah-night .ltr-nums { direction: ltr; unicode-bidi: isolate; font-variant-numeric: tabular-nums; }
 
-/* Soft starfield helper (CSS fallback where WebGL is unavailable). */
+/* Soft starfield: a still CSS scatter of small lights. */
 .night-stars {
   background-image:
     radial-gradient(1px 1px at 12% 18%, rgba(255,255,255,0.8) 50%, transparent 51%),

@@ -1,7 +1,7 @@
 /* The call story: one flat phone beside four steps. Static frame, one soft shadow, a one-shot fade per screen. */
 .ph-phone {
   position: relative;
-  width: min(70vw, 18rem);
+  width: min(64vw, 16rem);
   aspect-ratio: 9 / 19.4;
   border-radius: 2.4rem;
   border: 1px solid var(--line-strong);
@@ -39,7 +39,7 @@
   max-width: 86%;
   border-radius: 1rem;
   padding: 0.45rem 0.7rem;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 .ph-bubble-naqah { align-self: flex-start; background: rgba(253, 250, 243, 0.08); color: var(--text); border-start-start-radius: 0.3rem; }
@@ -54,8 +54,8 @@
   width: 1px;
   background: var(--line);
 }
-.ph-step { opacity: 0.55; transition: opacity 200ms ease-out; }
-.ph-step:hover, .ph-step-on { opacity: 1; }
+.ph-step > :not(.ph-step-time) { opacity: 0.78; transition: opacity 200ms ease-out; }
+.ph-step:hover > :not(.ph-step-time), .ph-step-on > :not(.ph-step-time) { opacity: 1; }
 .ph-step:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) {

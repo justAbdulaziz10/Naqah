@@ -5,7 +5,7 @@ import { getMessages } from "@/i18n/messages";
 import { LANDING_PHOTOS, type LandingPhotoId } from "../photos";
 
 /** The photographs this page shows; only these are credited. */
-const shown: LandingPhotoId[] = ["hero", "closing"];
+const shown: LandingPhotoId[] = ["closing"];
 
 const footerLink =
   "inline-flex min-h-11 items-center font-semibold text-[var(--text-muted)] transition-colors hover:text-[var(--text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current";
@@ -47,14 +47,14 @@ export function NightFooter({ locale }: { locale: Locale }) {
               {credits.map((credit) => (
                 <li key={credit.sourceUrl}>
                   <bdi>
-                    <a href={credit.sourceUrl} className="underline decoration-[var(--line-strong)] underline-offset-4 hover:text-[var(--text)]">
+                    <a href={credit.sourceUrl} className="inline-flex min-h-11 items-center underline decoration-[var(--line-strong)] underline-offset-4 hover:text-[var(--text)]">
                       {credit.title}
                     </a>
                   </bdi>
                   {" · "}
                   {credit.creator}
                   {" · "}
-                  <a href={credit.licenseUrl} className="underline decoration-[var(--line-strong)] underline-offset-4 hover:text-[var(--text)]">
+                  <a href={credit.licenseUrl} className="inline-flex min-h-11 items-center underline decoration-[var(--line-strong)] underline-offset-4 hover:text-[var(--text)]">
                     {credit.license}
                   </a>
                 </li>

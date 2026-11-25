@@ -26,6 +26,7 @@ function WeekRing({ plan, locale }: { plan: Plan; locale: Locale }) {
   const lit = (index: number) => plan === "ultimate" || index === SAMPLE_WEEKDAY;
   const spoken = `${c.ring[plan]} ${Array.from({ length: 7 }, (_, i) => `${longName(i)}: ${lit(i) ? c.ring.workerCall : "—"}`).join(". ")}`;
   return (
+    <div>
     <div role="img" aria-label={spoken} className="ring-stage mt-6">
       <div aria-hidden className="ring-plane">
         <span className="ring-track" />
@@ -45,6 +46,19 @@ function WeekRing({ plan, locale }: { plan: Plan; locale: Locale }) {
           );
         })}
       </div>
+    </div>
+      <p aria-hidden className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-1 text-xs text-[var(--text-muted)]">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-[var(--ember)]" />
+          {c.ring.workerCall}
+        </span>
+        {plan === "ultimate" ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2.5 rounded-full border border-dashed border-[rgba(216,173,108,0.8)]" />
+            {c.ring.ownerCall}
+          </span>
+        ) : null}
+      </p>
     </div>
   );
 }
@@ -133,7 +147,7 @@ function Details({ locale }: { locale: Locale }) {
     r.summary,
     r.instructions,
     r.checks,
-    { label: r.retries.label, basic: r.retries.both(REPORT_CALL_RETRIES, retryMinutes), ultimate: c.sameOnBoth, same: true },
+    { label: r.retries.label, basic: r.retries.both(REPORT_CALL_RETRIES + 1, retryMinutes), ultimate: c.sameOnBoth, same: true },
     { label: r.recordings.label, basic: r.recordings.both(), ultimate: c.sameOnBoth, same: true },
     { label: r.emergency.label, basic: r.emergency.both(), ultimate: c.sameOnBoth, same: true },
     { label: r.price.label, basic: money("basic"), ultimate: money("ultimate") },
@@ -141,7 +155,30 @@ function Details({ locale }: { locale: Locale }) {
   return (
     <div id="plans-details" className="scroll-mt-24 pt-16 lg:pt-20">
       <h3 className="text-2xl font-semibold leading-tight sm:text-3xl">{c.details}</h3>
-      <table className="mt-6 w-full border-collapse text-start text-sm leading-6 sm:text-[0.95rem] sm:leading-7">
+      {/* Phones: one labelled block per feature. From sm: a real table. */}
+      <dl className="mt-6 sm:hidden">
+        {rows.map((row) => (
+          <div key={row.label} className="border-b border-[var(--line)] py-4">
+            <dt className="font-semibold text-[var(--text)]">{row.label}</dt>
+            <dd className="mt-2 grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm leading-6">
+              {row.same ? (
+                <>
+                  <span className="text-[var(--text-faint)]">{c.bothPlans}</span>
+                  <span className="text-[var(--text)]">{row.basic}</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-[var(--text-faint)]">{c.plans.basic.name}</span>
+                  <span className="text-[var(--text)]">{row.basic || c.notIncluded}</span>
+                  <span className="text-[var(--gold-bright)]">{c.plans.ultimate.name}</span>
+                  <span className="text-[var(--text)]">{row.ultimate}</span>
+                </>
+              )}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <table className="mt-6 hidden w-full sm:table border-collapse text-start text-sm leading-6 sm:text-[0.95rem] sm:leading-7">
         <caption className="sr-only">{c.caption}</caption>
         <thead>
           <tr className="border-b border-[var(--line-strong)] text-[var(--text-faint)]">
@@ -190,7 +227,7 @@ export function NightPlans({ locale }: { locale: Locale }) {
           <PlanCard plan="ultimate" locale={locale} />
         </div>
 
-        <p className="mt-6 max-w-[46rem] text-[0.95rem] leading-7 text-[var(--text-muted)]">{c.both(REPORT_CALL_RETRIES, retryMinutes)}</p>
+        <p className="mt-6 max-w-[46rem] text-[0.95rem] leading-7 text-[var(--text-muted)]">{c.both(REPORT_CALL_RETRIES + 1, retryMinutes)}</p>
         <p className="mt-1.5 text-sm leading-6 text-[var(--text-faint)]">{c.pricing(VAT_PERCENT)}</p>
 
         <Details locale={locale} />

@@ -6,7 +6,6 @@ import { LogoutButton } from './LogoutButton';
 import type { NavigationIdentity } from './navigation-state';
 import { useNavigationIdentity } from './navigation-identity';
 
-export { useNavigationIdentity };
 
 export type AuthNavigationStyle = 'desktop' | 'mobile';
 const styles = {

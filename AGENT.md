@@ -315,7 +315,7 @@ exception here.
   behind the untouched mark, never from redrawing it; it turns once into place and eases on hover. Then a flat phone with four
   clickable steps, then the sample ranch as an isometric CSS-3D model with small camels (pick anything to read its latest
   fact with its certainty in words; "No report arrived" shows that nothing is presented as fine; a synced list does the same
-  for touch and screen readers), the retry orbit, the plan week rings and the closing. No animation library: CSS only.
+  for touch and screen readers), the retry timeline, the plan week rings and the closing. No animation library: CSS only.
   Pitfall: never hold a 3D transform with `animation-fill-mode: both`; Chrome then flattens the stack. Use `backwards`.
   Performance rules (owner request after the first draft lagged): no WebGL, no live backdrop blur, no infinite animations,
   no scroll pinning or pointer tilt. Motion runs only on arrival or when the reader acts, and stops under reduced motion.

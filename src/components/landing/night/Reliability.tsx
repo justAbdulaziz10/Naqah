@@ -24,19 +24,19 @@ export function Reliability({ locale }: { locale: Locale }) {
               {c.title}
             </h2>
             <p className="mt-5 max-w-[30rem] text-lg leading-8 text-[var(--text-muted)]">{c.line}</p>
-            <ol className="mt-10 space-y-8">
+            <ul className="mt-10 space-y-8">
               {principles.map(({ key, Icon, title, body }) => (
                 <li key={key} className="grid grid-cols-[auto_1fr] gap-x-4">
                   <Icon aria-hidden size={24} weight="light" className="mt-1 text-[var(--gold-bright)]" />
                   <div>
                     <h3 className="text-xl font-semibold leading-snug text-[var(--text)]">
-                      <span className="ltr-nums">{title}</span>
+                      {title}
                     </h3>
                     <p className="mt-2 max-w-[34rem] text-pretty leading-7 text-[var(--text-muted)]">{body}</p>
                   </div>
                 </li>
               ))}
-            </ol>
+            </ul>
           </div>
           <div className="lg:col-span-6 lg:pt-4">
             <RetryTimeline locale={locale} copy={c.retry} />

@@ -1,15 +1,16 @@
 import { AuthNavigation } from "@/components/auth/AuthNavigation";
 import type { Locale } from "@/domain/types";
+import { CamelMarkSymbol } from "@/components/brand/CamelMark";
 import { Logo } from "@/components/brand/Logo";
 import { ACCOUNT_DATA } from "@/components/entry/paths";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
 import { getMessages } from "@/i18n/messages";
 import { EntryActions } from "../EntryActionsServer";
-import { MobileNavigation } from "../LandingActions";
 import { CallDimension } from "./CallDimension";
 import { NightClosing } from "./NightClosing";
 import { NightFooter } from "./NightFooter";
 import { NightHero } from "./NightHero";
+import { NightMobileNav } from "./NightMobileNav";
 import { NightPlans } from "./NightPlans";
 import { RanchDiorama } from "./RanchDiorama";
 import { Reliability } from "./Reliability";
@@ -30,6 +31,7 @@ export function NightLanding({ locale }: { locale: Locale }) {
 
   return (
     <div className="naqah-night min-h-svh overflow-x-clip">
+      <CamelMarkSymbol />
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-3 focus:z-[60] focus:inline-flex focus:min-h-11 focus:items-center focus:rounded-full focus:bg-[var(--gold-bright)] focus:px-5 focus:text-[var(--night-1)]"
@@ -48,7 +50,7 @@ export function NightLanding({ locale }: { locale: Locale }) {
                   <a
                     key={link.href}
                     href={link.href}
-                    className="inline-flex min-h-11 items-center px-3.5 text-[0.9375rem] font-semibold text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
+                    className="inline-flex min-h-11 min-w-11 justify-center items-center px-3.5 text-[0.9375rem] font-semibold text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
                   >
                     {link.label}
                   </a>
@@ -61,11 +63,12 @@ export function NightLanding({ locale }: { locale: Locale }) {
               <div className="ms-2 max-sm:hidden">
                 <EntryActions primary={{ size: "md", className: "night-cta" }} />
               </div>
-              <MobileNavigation
+              <NightMobileNav
                 links={anchorLinks}
                 authControls={ACCOUNT_DATA ? <AuthNavigation appearance="mobile" signup={false} /> : null}
                 menuLabel={landing.nav.menu}
                 menuTitle={landing.nav.menuLabel}
+                actions={<EntryActions primary={{ size: "md", className: "night-cta w-full" }} />}
               />
             </div>
           </div>

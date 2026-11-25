@@ -44,14 +44,7 @@ export function RanchDiorama({ locale }: { locale: Locale }) {
             <p className="mt-5 max-w-[28rem] text-lg leading-8 text-[var(--text-muted)]">{c.line}</p>
           </div>
           <div className="lg:col-span-8">
-      {/* The model's facts as plain text, for readers who skip the interactive model. */}
-      <ul className="sr-only">
-        {items.map((item) => (
-          <li key={item.id}>
-            {item.name}: {item.fact} ({item.certaintyLabel})
-          </li>
-        ))}
-      </ul>
+      {/* Screen readers get each fact once, from the model's own buttons (name, fact and certainty). */}
             <Diorama items={items} modelLabel={c.model} modes={c.modes} />
           </div>
         </div>
