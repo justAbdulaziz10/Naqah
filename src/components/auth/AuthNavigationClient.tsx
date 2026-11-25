@@ -1,28 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
 import { useI18n } from '@/i18n/client';
-import { observeAccountAuth } from '@/lib/account/auth-observer';
-import { loadClient } from '@/lib/supabase/lazy-client';
 import { LogoutButton } from './LogoutButton';
-import { createNavigationObserver, type NavigationIdentity } from './navigation-state';
-import { readNavigationIdentity } from './navigation-actions';
+import type { NavigationIdentity } from './navigation-state';
+import { useNavigationIdentity } from './navigation-identity';
 
-const navigationObserver = createNavigationObserver({
-  observe(changed) {
-    let stop: (() => void) | undefined;
-    let disposed = false;
-    void loadClient().then((client) => {
-      if (!disposed && client) stop = observeAccountAuth(client.auth, changed);
-    });
-    return () => {
-      disposed = true;
-      stop?.();
-    };
-  },
-  validate: readNavigationIdentity,
-});
+export { useNavigationIdentity };
 
 export type AuthNavigationStyle = 'desktop' | 'mobile';
 const styles = {
@@ -37,15 +21,6 @@ export function AuthNavigationLoading({ appearance }: { appearance: AuthNavigati
   return <span role="status" aria-label={m.auth.loading} aria-busy="true" className={styles[appearance]}>
     <span aria-hidden="true" className="invisible">{m.landing.nav.signIn}</span>
   </span>;
-}
-
-/** The validated owner identity, kept current by observed session hints. Shared by every auth-aware control. */
-export function useNavigationIdentity(initialIdentity: NavigationIdentity): NavigationIdentity {
-  const [identity, setIdentity] = useState(initialIdentity);
-  useEffect(() => {
-    return navigationObserver.subscribe(initialIdentity, setIdentity);
-  }, [initialIdentity]);
-  return identity;
 }
 
 /** Observed session hints trigger server validation; workspace/demo state is never consulted. */
