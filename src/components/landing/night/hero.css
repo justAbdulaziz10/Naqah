@@ -1,23 +1,12 @@
-/* The hero: the ranch light in the tonight card breathes with the scene's call rings. */
-.night-hero-ember {
-  box-shadow: 0 0 0 0 rgba(216, 121, 58, 0.55);
-  animation: night-hero-ember 4.5s ease-out infinite;
-}
-@keyframes night-hero-ember {
-  0% { box-shadow: 0 0 0 0 rgba(216, 121, 58, 0.55); }
-  70% { box-shadow: 0 0 0 10px rgba(216, 121, 58, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(216, 121, 58, 0); }
-}
-/* The headline and its company arrive once, from slightly below. */
+/* The headline and its company arrive once, from slightly below. Nothing in the hero loops. */
 .night-hero-arrive {
-  animation: night-hero-arrive 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: night-hero-arrive 700ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
   animation-delay: var(--arrive-delay, 0ms);
 }
 @keyframes night-hero-arrive {
-  from { opacity: 0; transform: translateY(14px); }
+  from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .night-hero-ember { animation: none; }
   .night-hero-arrive { animation: none; }
 }

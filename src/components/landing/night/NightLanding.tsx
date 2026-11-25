@@ -16,7 +16,7 @@ import { Reliability } from "./Reliability";
 import "./night.css";
 
 /**
- * «ليلة في العزبة» — the landing as one night at the ranch, dusk to dawn.
+ * The landing: ناقة in 3D first, then the call, the ranch model, what NAQAH holds to, the plans and the closing.
  * Each section owns its copy (local defineMessages) and its visuals; this file only assembles them.
  */
 export function NightLanding({ locale }: { locale: Locale }) {

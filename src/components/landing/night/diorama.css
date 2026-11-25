@@ -5,6 +5,12 @@
  */
 
 /* ---------- Diorama ---------- */
+/* The stage and its pinned labels share one box, so label positions are percentages of the stage itself. */
+.dio-anchor {
+  position: relative;
+  width: fit-content;
+  margin-inline: auto;
+}
 .dio-stage {
   --dio-size: clamp(14rem, 62vw, 25rem);
   position: relative;
@@ -19,6 +25,15 @@
   inset: 0;
   transform-style: preserve-3d;
 }
+/*
+ * Hit testing: only the things you can pick take the pointer. The flat z = 0 plane of .dio-float, the ground
+ * and the pen would otherwise sit in front of the far half of the tilted world and swallow its clicks.
+ */
+.dio-float, .dio-world, .dio-world .dio-face, .dio-pen { pointer-events: none; }
+.dio-world .dio-block:not(.dio-pen) { pointer-events: auto; }
+.dio-world .dio-block:not(.dio-pen) .dio-face { pointer-events: auto; }
+/* The shade's thin posts stand beside the pen; a fingertip near a camel must not snap to them. */
+.dio-world .dio-post, .dio-world .dio-post .dio-face { pointer-events: none; }
 .dio-world {
   position: absolute;
   left: 50%;
@@ -38,7 +53,7 @@
 .dio-top {
   inset: 0;
   transform: translateZ(var(--h));
-  background: var(--face-top, #3a2b20);
+  background: var(--face-top, #6a5440);
 }
 .dio-side-y {
   left: 0;
@@ -47,7 +62,7 @@
   height: var(--h);
   transform-origin: top;
   transform: rotateX(90deg);
-  background: var(--face-front, #271b13);
+  background: var(--face-front, #4d3c2d);
 }
 .dio-side-x {
   left: 100%;
@@ -56,17 +71,19 @@
   height: 100%;
   transform-origin: left;
   transform: rotateY(-90deg);
-  background: var(--face-side, #1b130d);
+  background: var(--face-side, #3c2e22);
 }
 /* The ground: everything stands on its top face. */
 .dio-ground-top {
   transform-style: preserve-3d;
-  --face-top: #33261c;
+  --face-top: #5e4935;
   background-image:
-    radial-gradient(ellipse at 52% 36%, rgba(216, 121, 58, 0.26), transparent 22%),
-    radial-gradient(ellipse at 30% 70%, rgba(253, 250, 243, 0.03), transparent 50%),
-    linear-gradient(#33261c, #2c2018);
+    radial-gradient(ellipse at 52% 36%, rgba(232, 140, 70, 0.3), transparent 24%),
+    radial-gradient(ellipse at 30% 70%, rgba(253, 240, 215, 0.06), transparent 55%),
+    linear-gradient(#614b37, #574330);
 }
+.dio-ground-front { --face-front: #463427; }
+.dio-ground-side { --face-side: #382a1f; }
 .dio-block {
   position: absolute;
   transform-style: preserve-3d;
@@ -84,42 +101,106 @@
   outline: 2px solid var(--gold-bright);
   outline-offset: 3px;
 }
-.dio-block::before {
-  /* A 44px hit area around small marks. */
+.dio-heat::before {
+  /* A 44px hit area around the thin mast; nothing else is close enough to share it. */
   content: "";
   position: absolute;
-  inset: -12px;
+  inset: -15px;
 }
 /* The pen: a low slab with a dashed fence; the camels stand on its top face. */
-.dio-pen { --face-top: #30241a; --face-front: #241910; --face-side: #1b130d; }
+.dio-pen { --face-top: #6b543f; --face-front: #503e2e; --face-side: #423325; }
 .dio-pen .dio-top {
   transform-style: preserve-3d;
-  border: 2px dashed rgba(210, 180, 140, 0.4);
-  background-image: repeating-linear-gradient(45deg, rgba(253, 250, 243, 0.025) 0 2px, transparent 2px 14px);
+  border: 2px dashed rgba(240, 214, 170, 0.5);
+  background-image: repeating-linear-gradient(45deg, rgba(253, 245, 225, 0.04) 0 2px, transparent 2px 14px);
 }
-.dio-camel { --face-top: #b08f66; --face-front: #8a6c49; --face-side: #6b5338; }
-.dio-camel .dio-top { border-color: rgba(253, 250, 243, 0.25); border-radius: 30% 30% 20% 20%; }
-.dio-camel-watch { --face-top: var(--warn); --face-front: #a8763a; --face-side: #7f5a2d; }
-.dio-camel-watch .dio-top { animation: dio-watch 2.6s ease-in-out infinite; }
-@keyframes dio-watch {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 168, 90, 0); }
-  50% { box-shadow: 0 0 14px 4px rgba(224, 168, 90, 0.55); }
+/*
+ * Camels: the approved brand mark, unchanged, standing upright on the pen and turned to face the reader.
+ * The figure undoes the world's rotateX(55deg) rotateZ(45deg) about its feet (bottom centre), which sit
+ * on the centre of the camel's footprint. A darker copy, offset a hair, gives it a little thickness.
+ */
+.dio-camel { --camel-face: #efd6ab; --camel-edge: #8f6f4b; --lift: 0px; }
+.dio-camel-watch { --camel-face: #f0a54e; --camel-edge: #94612c; }
+/* The figure, not the footprint, is what you press: the footprints overlap the figures standing behind them. */
+.dio-world .dio-block.dio-camel { pointer-events: none; }
+.dio-world .dio-block.dio-camel .dio-camel-fig { pointer-events: auto; cursor: pointer; }
+.dio-camel-shadow {
+  position: absolute;
+  display: block;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--dio-size) * 0.1);
+  height: calc(var(--dio-size) * 0.1);
+  transform: translate(-50%, -50%) translateZ(0.5px);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(30, 18, 8, 0.5), rgba(30, 18, 8, 0.22) 45%, transparent 70%);
+  pointer-events: none;
+}
+/* The chosen camel: a gold ring on the pen under its feet, while the figure itself rises a little. */
+.dio-camel-ring {
+  position: absolute;
+  display: block;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--dio-size) * 0.12);
+  height: calc(var(--dio-size) * 0.12);
+  transform: translate(-50%, -50%) translateZ(0.5px) scale(0.6);
+  border: 2px solid var(--gold-bright);
+  border-radius: 50%;
+  box-shadow: 0 0 12px rgba(232, 190, 120, 0.45), inset 0 0 8px rgba(232, 190, 120, 0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease-out, transform 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.dio-camel[aria-pressed="true"] { --lift: 8px; }
+.dio-camel[aria-pressed="true"] .dio-camel-ring { opacity: 1; transform: translate(-50%, -50%) translateZ(0.5px) scale(1); }
+.dio-camel-fig {
+  position: absolute;
+  display: block;
+  left: 50%;
+  bottom: 50%;
+  /* Centred by margin (set inline), not translate, so the turn happens about the feet in the pen's plane. */
+  transform-origin: 50% 100%;
+  transform: translateZ(calc(1px + var(--lift))) rotateZ(-45deg) rotateX(-55deg);
+  transition: transform 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.dio-camel-fig svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.dio-camel-fig .dio-camel-edge { color: var(--camel-edge); transform: translate(1.5px, 1px); }
+.dio-camel-fig .dio-camel-face { color: var(--camel-face); transition: color 0.2s ease-out; }
+.dio-camel-watch .dio-camel-face { filter: drop-shadow(0 0 5px rgba(240, 165, 78, 0.65)); }
+/* Hover only highlights; it never selects. */
+@media (hover: hover) {
+  .dio-camel:hover { --camel-face: #fff1d6; }
+  .dio-camel-watch:hover { --camel-face: #ffbd6b; }
+  /* Fixtures only, and never a filter on the pen: a filter flattens 3D, and the pen holds the standing herd. */
+  button.dio-block:not(.dio-camel):hover > .dio-top { filter: brightness(1.15); }
+}
+.dio-camel:focus-visible .dio-camel-fig {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 3px;
+  border-radius: 4px;
 }
 /* Water: a dark trough with a moon glint. */
-.dio-water { --face-front: #1c1812; --face-side: #15120d; }
+.dio-water { --face-front: #4a392a; --face-side: #3b2d21; }
 .dio-water .dio-top {
   background:
-    radial-gradient(ellipse at 62% 38%, rgba(239, 231, 214, 0.45), transparent 42%),
-    linear-gradient(135deg, #1e3843, #2a4f5d 55%, #19303a);
-  border-color: rgba(239, 231, 214, 0.18);
+    radial-gradient(ellipse at 62% 38%, rgba(250, 238, 214, 0.5), transparent 42%),
+    linear-gradient(135deg, #2f5a68, #427685 55%, #2a5260);
+  border-color: rgba(250, 238, 214, 0.25);
 }
 /* Feed store: the tallest block, with a sack-cloth texture on top. */
-.dio-feed { --face-top: #4a3828; --face-front: #33261b; --face-side: #241a12; }
+.dio-feed { --face-top: #93734f; --face-front: #6c5238; --face-side: #563f2b; }
 .dio-feed .dio-top {
-  background-image: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 3px, transparent 3px 11px);
+  background-image: repeating-linear-gradient(0deg, rgba(40, 24, 10, 0.2) 0 3px, transparent 3px 11px);
 }
 /* The worker's room, with one lit window. */
-.dio-room { --face-top: #3f2f23; --face-front: #2c2017; --face-side: #1f1610; }
+.dio-room { --face-top: #806349; --face-front: #5e4733; --face-side: #4b3828; }
 .dio-window {
   position: absolute;
   display: block;
@@ -134,11 +215,11 @@
   border-radius: 2px;
 }
 /* The shade: a slatted roof on four posts, no walls. */
-.dio-shade { --face-top: #4a3827; }
+.dio-shade { --face-top: #a0805b; }
 .dio-shade > .dio-side-y, .dio-shade > .dio-side-x { display: none; }
 .dio-shade .dio-top {
-  background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.22) 0 5px, transparent 5px 11px);
-  border-color: rgba(253, 250, 243, 0.18);
+  background-image: repeating-linear-gradient(90deg, rgba(40, 24, 10, 0.25) 0 5px, transparent 5px 11px);
+  border-color: rgba(253, 250, 243, 0.22);
 }
 .dio-post {
   position: absolute;
@@ -146,17 +227,35 @@
   width: 7%;
   height: 7%;
   transform-style: preserve-3d;
-  --face-front: #2a1f17;
-  --face-side: #1d150f;
+  --face-front: #5a4431;
+  --face-side: #463425;
 }
 /* A thin weather mast with a warm tip. */
-.dio-heat { --face-top: var(--warn); --face-front: #2a1f17; --face-side: #1d150f; }
+.dio-heat { --face-top: var(--warn); --face-front: #6a5038; --face-side: #533e2b; }
 .dio-heat .dio-top { box-shadow: 0 0 14px 5px rgba(224, 168, 90, 0.5); border-color: transparent; }
 /* The floating fact label. Pinned near its element from the sm breakpoint; stacked below the model on phones. */
 .dio-label-slot {
   position: static;
   margin-top: 1rem;
   width: 100%;
+  min-height: 5.75rem;
+}
+/* Slid sideways by script when the card would leave the section; the stem stays on the element. */
+.dio-label { position: relative; left: var(--dx, 0px); }
+/* The name of what is under the mouse. Only mouse hover sets it. */
+.dio-hover-tag {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 8px));
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(32, 23, 16, 0.88);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
 }
 @media (min-width: 640px) {
   .dio-label-slot {
@@ -164,6 +263,7 @@
     margin-top: 0;
     width: max-content;
     max-width: 15.5rem;
+    min-height: 0;
     transform: translate(-50%, calc(-100% - 14px));
     pointer-events: none;
     z-index: 2;
@@ -178,7 +278,7 @@
 }
 .orbit-ring {
   position: relative;
-  width: min(100%, 22rem);
+  width: min(calc(100% - 7rem), 22rem);
   aspect-ratio: 1;
   margin-inline: auto;
   transform-style: preserve-3d;
@@ -202,7 +302,6 @@
 .orbit-spin {
   position: absolute;
   inset: 0;
-  animation: orbit-spin 16s linear infinite;
 }
 .orbit-sat {
   position: absolute;
@@ -215,7 +314,6 @@
   background: var(--moon);
   box-shadow: 0 0 12px 3px rgba(239, 231, 214, 0.45);
 }
-@keyframes orbit-spin { to { transform: rotate(1turn); } }
 /* Nodes stand upright on the tilted ring: the inverse tilt makes them face the reader. */
 .orbit-node {
   position: absolute;
@@ -247,4 +345,34 @@
   border-color: var(--gold-bright);
   background: var(--gold-bright);
   box-shadow: 0 0 26px 8px rgba(216, 173, 108, 0.45);
+}
+
+/* No verified report: the herd and the room go quiet, nothing glows as if it were fine. */
+.dio-stage[data-mode="none"] .dio-camel,
+.dio-stage[data-mode="none"] .dio-camel-watch { --camel-face: #9a8670; --camel-edge: #6a5845; }
+.dio-stage[data-mode="none"] .dio-camel-watch .dio-camel-face { filter: none; }
+.dio-stage[data-mode="none"] .dio-heat .dio-top { box-shadow: none; }
+.dio-stage[data-mode="none"] .dio-window { background: #4a3828; box-shadow: none; }
+.dio-stage[data-mode="none"] .dio-ground-top { background-image: linear-gradient(#54412f, #4c3a2a); }
+
+/* Selection: the chosen element rises; its label fades in once. CSS only, instant under reduced motion. */
+.dio-block { transition: transform 0.35s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.dio-block:not(.dio-camel)[aria-pressed="true"] { transform: translateZ(14px); }
+.dio-label { animation: dio-label-in 0.28s ease-out both; }
+@keyframes dio-label-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* Desktop: the label floats well above the herd so it never hides a neighbour, tied to its element by a thin line. */
+@media (min-width: 640px) {
+  .dio-label-slot { transform: translate(-50%, calc(-100% - 64px)); }
+  .dio-label-slot::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    width: 1px;
+    height: 58px;
+    background: linear-gradient(var(--line-strong), rgba(216, 173, 108, 0.7));
+  }
+  .dio-label-slot[data-below] { transform: translate(-50%, 64px); }
+  .dio-label-slot[data-below]::after { top: auto; bottom: 100%; background: linear-gradient(rgba(216, 173, 108, 0.7), var(--line-strong)); }
 }

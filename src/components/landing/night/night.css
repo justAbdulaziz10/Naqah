@@ -4,26 +4,28 @@
  * Roles: ground (night-0..3), sky (dusk), light (moon, gold, ember), text (text, text-muted, text-faint).
  */
 .naqah-night {
-  --night-0: #0b0806;
-  --night-1: #120d09;
-  --night-2: #1c1410;
-  --night-3: #2a1e16;
-  --dusk: #3a2742;
+  --night-0: #1d1611;
+  --night-1: #2a2019;
+  --night-2: #352920;
+  --night-3: #45362a;
+  --dusk: #4d3a46;
   --dusk-2: #6b3f3a;
   --moon: #efe7d6;
-  --text: #f3eadb;
-  --text-muted: #c8b79c;
-  --text-faint: #8f7e68;
+  --text: #f6eee0;
+  --text-muted: #d6c6ab;
+  --text-faint: #a8977e;
   --gold: #b68a58;
   --gold-bright: #d8ad6c;
   --ember: #d8793a;
   --ok: #8fb07a;
   --warn: #e0a85a;
-  --line: rgba(253, 250, 243, 0.12);
-  --line-strong: rgba(253, 250, 243, 0.22);
+  --line: rgba(253, 250, 243, 0.14);
+  --line-strong: rgba(253, 250, 243, 0.26);
   --glass: rgba(253, 250, 243, 0.05);
   --glass-strong: rgba(253, 250, 243, 0.09);
-  background: var(--night-1);
+  background:
+    radial-gradient(ellipse 120% 60% at 50% 0%, rgba(210, 180, 140, 0.16), transparent 70%),
+    var(--night-1);
   color: var(--text);
   color-scheme: dark;
 }
@@ -40,13 +42,12 @@
 
 /* Glass surfaces float over the scene: hairline border, faint fill, blur. Never nested. */
 .night-glass {
-  background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 1.25rem;
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
-  backdrop-filter: blur(18px) saturate(1.2);
+  background: #33271f;
 }
-.night-glass-strong { background: var(--glass-strong); }
+/* Solid, not blurred: a live backdrop blur re-renders on every scroll frame. */
+.night-glass-strong { background: #3b2e24; }
 
 /* Display type: tight Latin, open Arabic. */
 .night-display {

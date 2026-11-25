@@ -2,13 +2,7 @@ import type { Locale } from "@/domain/types";
 import { Logo } from "@/components/brand/Logo";
 import { LocaleSwitcher } from "@/components/shell/LocaleSwitcher";
 import { getMessages } from "@/i18n/messages";
-import { defineMessages } from "@/i18n/types";
 import { LANDING_PHOTOS, type LandingPhotoId } from "../photos";
-
-const copy = defineMessages({
-  en: { line: "Private camel-ranch operations, one owner, one ranch." },
-  ar: { line: "إدارة خاصة لعزبتك، مالك واحد وعزبة واحدة." },
-});
 
 /** The photographs this page shows; only these are credited. */
 const shown: LandingPhotoId[] = ["hero", "closing"];
@@ -18,7 +12,7 @@ const footerLink =
 
 export function NightFooter({ locale }: { locale: Locale }) {
   const { common, landing } = getMessages(locale);
-  const c = copy[locale];
+  const c = getMessages(locale).landing.night.footer;
   const links = [
     { href: "#call", label: landing.nav.how },
     { href: "#reliability", label: landing.nav.principles },

@@ -7,131 +7,11 @@ import { MONTHLY_PLAN_PRICES_SAR, VAT_PERCENT } from "@/domain/pricing";
 import { getStartedPath } from "@/components/entry/paths";
 import { weekdayForms } from "@/components/visuals/weekdays";
 import { formatNumber } from "@/i18n/format";
-import { defineMessages } from "@/i18n/types";
+import { getMessages } from "@/i18n/messages";
 import { TiltCard } from "./TiltCard";
 import "./plans.css";
 
 const retryMinutes = RETRY_DELAY_MS / 60_000;
-
-/** Copy for the plans section. Facts follow AGENT.md §2; the two plans differ only in rhythm and instructions. */
-const copy = defineMessages({
-  en: {
-    title: "Two plans, on your ranch’s rhythm",
-    lead: "Choose how often you hear from your ranch. The rest is the same peace of mind.",
-    pricing: (percent: number) => `Per ranch, per month, shown before and including ${percent}% VAT. Nothing is charged in the demo.`,
-    currency: "SAR",
-    beforeVat: "a month before VAT",
-    includingVat: (percent: number, price: string) => `${price} including ${percent}% VAT`,
-    both: (attempts: number, minutes: number) =>
-      `On both plans: ${attempts} attempts, ${minutes} minutes apart. No recordings, facts only. In an emergency your worker calls you directly.`,
-    details: "Compare every detail",
-    caption: "Basic and Ultimate compared",
-    feature: "What you get",
-    sameOnBoth: "Same",
-    notIncluded: "Not included",
-    ring: {
-      basic: "Basic week: one report call on the weekday you set, Thursday in this example, and one summary call to you at your own time.",
-      ultimate: "Ultimate week: a report call every day at your time, and a summary call to you every day.",
-      workerCall: "Report call",
-      ownerCall: "Your summary call",
-    },
-    plans: {
-      basic: {
-        name: "Basic",
-        rhythm: "Once a week, on the weekday and time you set.",
-        start: "Start with Basic",
-        items: [
-          "One report call a week to your primary worker, on the weekday and time you set",
-          "Up to 5 questions of your own, beside NAQAH’s",
-          "Up to 3 registered workers",
-          "One summary call to you a week, at your own time, placed even when no verified report came in",
-        ],
-      },
-      ultimate: {
-        name: "Ultimate",
-        rhythm: "Every day, at the time you set.",
-        start: "Start with Ultimate",
-        items: [
-          "One report call a day to your primary worker, at the time you set",
-          "Unlimited questions of your own",
-          "Up to 10 registered workers",
-          "A summary call to you every day, then your spoken instructions: tasks become tickets that close only when the worker confirms",
-          "Scheduled task checks, by call",
-        ],
-      },
-    },
-    rows: {
-      report: { label: "Report call", basic: "Weekly, on your weekday and time", ultimate: "Daily, at your time" },
-      questions: { label: "Your own questions", basic: "Up to 5", ultimate: "Unlimited" },
-      workers: { label: "Registered workers", basic: "Up to 3", ultimate: "Up to 10" },
-      summary: { label: "Summary call to you", basic: "Weekly, at your own time", ultimate: "Daily, at your own time" },
-      instructions: { label: "Spoken instructions, tracked as tasks", basic: "", ultimate: "Included; a task closes only when the worker confirms" },
-      checks: { label: "Scheduled task checks", basic: "", ultimate: "By call" },
-      retries: { label: "Retries on every call", both: (attempts: number, minutes: number) => `${attempts} attempts, ${minutes} minutes apart` },
-      recordings: { label: "Recordings", both: () => "None, facts only" },
-      emergency: { label: "Emergency", both: () => "Your worker calls you directly" },
-      price: { label: "Monthly price per ranch", value: (before: string, including: string) => `SAR ${before} before VAT, SAR ${including} including VAT` },
-    },
-  },
-  ar: {
-    title: "خطتان، على إيقاع عزبتك",
-    lead: "اختر كم مرة تسمع من عزبتك. الباقي نفس الاطمئنان.",
-    pricing: (percent: number) => `لكل عزبة، شهريًا، قبل الضريبة وشاملة ${percent}٪ ضريبة القيمة المضافة. العرض التجريبي ما يسحب أي مبلغ.`,
-    currency: "ريال",
-    beforeVat: "شهريًا قبل الضريبة",
-    includingVat: (percent: number, price: string) => `${price} شامل ضريبة القيمة المضافة ${percent}٪`,
-    both: (attempts: number, minutes: number) =>
-      `في الخطتين: ${attempts} محاولات بينها ${minutes} دقيقة. بدون تسجيل، حقائق فقط. وفي الطوارئ عاملك يتصل عليك مباشرة.`,
-    details: "قارن كل التفاصيل",
-    caption: "مقارنة بين الأساسية والمتكاملة",
-    feature: "اللي تحصل عليه",
-    sameOnBoth: "نفس الشيء",
-    notIncluded: "غير متوفرة",
-    ring: {
-      basic: "أسبوع الأساسية: مكالمة تقرير وحدة في اليوم اللي تحدده، هنا الخميس، ومكالمة ملخّص لك في وقتك.",
-      ultimate: "أسبوع المتكاملة: مكالمة تقرير كل يوم في وقتك، ومكالمة ملخّص لك كل يوم.",
-      workerCall: "مكالمة التقرير",
-      ownerCall: "مكالمة الملخّص لك",
-    },
-    plans: {
-      basic: {
-        name: "الأساسية",
-        rhythm: "مرة في الأسبوع، في اليوم والوقت اللي تحدده.",
-        start: "ابدأ بالأساسية",
-        items: [
-          "مكالمة تقرير واحدة في الأسبوع على عاملك الأساسي، في اليوم والوقت اللي تحدده",
-          "حتى 5 أسئلة من عندك، فوق أسئلة ناقة",
-          "حتى 3 عمّال مسجّلين",
-          "مكالمة ملخّص لك مرة في الأسبوع في وقتك، تتصل حتى لو ما وصل تقرير مؤكد",
-        ],
-      },
-      ultimate: {
-        name: "المتكاملة",
-        rhythm: "كل يوم، في الوقت اللي تحدده.",
-        start: "ابدأ بالمتكاملة",
-        items: [
-          "مكالمة تقرير كل يوم على عاملك الأساسي، في الوقت اللي تحدده",
-          "أسئلتك بلا حد",
-          "حتى 10 عمّال مسجّلين",
-          "مكالمة ملخّص لك كل يوم، وبعدها تعليماتك بصوتك: المهام تصير تذاكر ما تنقفل إلا إذا أكّدها العامل",
-          "متابعة المهام في وقتها، بمكالمة",
-        ],
-      },
-    },
-    rows: {
-      report: { label: "مكالمة التقرير", basic: "أسبوعيًا، في يومك ووقتك", ultimate: "يوميًا، في وقتك" },
-      questions: { label: "أسئلتك الخاصة", basic: "حتى 5", ultimate: "بلا حد" },
-      workers: { label: "العمّال المسجّلين", basic: "حتى 3", ultimate: "حتى 10" },
-      summary: { label: "مكالمة الملخّص لك", basic: "أسبوعيًا في وقتك", ultimate: "يوميًا في وقتك" },
-      instructions: { label: "تعليماتك بصوتك، تتابعها ناقة كمهام", basic: "", ultimate: "متوفرة، وما تنقفل المهمة إلا بتأكيد العامل" },
-      checks: { label: "متابعة المهام في وقتها", basic: "", ultimate: "بمكالمة" },
-      retries: { label: "المحاولات في كل مكالمة", both: (attempts: number, minutes: number) => `${attempts} محاولات بينها ${minutes} دقيقة` },
-      recordings: { label: "التسجيل", both: () => "لا شيء، حقائق فقط" },
-      emergency: { label: "الطوارئ", both: () => "عاملك يتصل عليك مباشرة" },
-      price: { label: "السعر الشهري لكل عزبة", value: (before: string, including: string) => `${before} ريال قبل الضريبة، ${including} ريال شامل الضريبة` },
-    },
-  },
-});
 
 const SAMPLE_WEEKDAY = 4; // Thursday, as in the sample ranch.
 
@@ -140,7 +20,7 @@ const SAMPLE_WEEKDAY = 4; // Thursday, as in the sample ranch.
  * dashed inner ring: NAQAH calls the owner every evening. Letters stand upright above their night.
  */
 function WeekRing({ plan, locale }: { plan: Plan; locale: Locale }) {
-  const c = copy[locale];
+  const c = getMessages(locale).landing.night.plans;
   const longName = (index: number) =>
     new Intl.DateTimeFormat(locale, { weekday: "long", timeZone: "UTC" }).format(Date.UTC(2023, 0, 1 + index));
   const lit = (index: number) => plan === "ultimate" || index === SAMPLE_WEEKDAY;
@@ -150,7 +30,6 @@ function WeekRing({ plan, locale }: { plan: Plan; locale: Locale }) {
       <div aria-hidden className="ring-plane">
         <span className="ring-track" />
         {plan === "ultimate" ? <span className="ring-inner" /> : null}
-        <span className="ring-sweep" />
         {Array.from({ length: 7 }, (_, index) => {
           const on = lit(index);
           return (
@@ -171,7 +50,7 @@ function WeekRing({ plan, locale }: { plan: Plan; locale: Locale }) {
 }
 
 function Price({ plan, locale }: { plan: Plan; locale: Locale }) {
-  const c = copy[locale];
+  const c = getMessages(locale).landing.night.plans;
   const price = MONTHLY_PLAN_PRICES_SAR[plan];
   return (
     <p className="shrink-0 text-end">
@@ -190,7 +69,7 @@ function Price({ plan, locale }: { plan: Plan; locale: Locale }) {
 }
 
 function PlanCard({ plan, locale }: { plan: Plan; locale: Locale }) {
-  const c = copy[locale];
+  const c = getMessages(locale).landing.night.plans;
   const p = c.plans[plan];
   const daily = plan === "ultimate";
   return (
@@ -199,7 +78,7 @@ function PlanCard({ plan, locale }: { plan: Plan; locale: Locale }) {
       className={daily ? "night-glass-strong p-6 sm:p-8" : "p-6 sm:p-8"}
       style={daily ? { borderColor: "rgba(216, 173, 108, 0.38)" } : undefined}
     >
-      <div className="flex items-start justify-between gap-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-5">
         <div className="min-w-0">
           <h3 id={`plan-${plan}`} className="text-[1.75rem] font-semibold leading-tight sm:text-[2rem]">
             {p.name}
@@ -243,7 +122,7 @@ function PlanCard({ plan, locale }: { plan: Plan; locale: Locale }) {
 
 /** Every detail in one table: hairline rows, words not colours, one fact per cell. */
 function Details({ locale }: { locale: Locale }) {
-  const c = copy[locale];
+  const c = getMessages(locale).landing.night.plans;
   const r = c.rows;
   const money = (plan: Plan) =>
     r.price.value(formatNumber(MONTHLY_PLAN_PRICES_SAR[plan].beforeVat, locale), formatNumber(MONTHLY_PLAN_PRICES_SAR[plan].includingVat, locale));
@@ -294,7 +173,7 @@ function Details({ locale }: { locale: Locale }) {
 }
 
 export function NightPlans({ locale }: { locale: Locale }) {
-  const c = copy[locale];
+  const c = getMessages(locale).landing.night.plans;
   return (
     <section id="plans" aria-labelledby="plans-title" className="relative scroll-mt-20 py-20 sm:py-24 lg:py-32">
       <div className="night-frame">
