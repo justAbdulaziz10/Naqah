@@ -109,3 +109,12 @@ html[lang="ar"] .night-title { letter-spacing: 0; line-height: 1.3; }
     scroll-behavior: auto !important;
   }
 }
+
+/* Sign-in and logout controls (account mode) are shared with light pages; on the night ground they take night colours. */
+.night-auth a,
+.night-auth button,
+.night-auth [role="status"] { color: var(--text-muted); background: transparent; }
+.night-auth a:hover,
+.night-auth button:hover { color: var(--text); background: var(--glass); }
+.night-auth a:focus-visible,
+.night-auth button:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; }

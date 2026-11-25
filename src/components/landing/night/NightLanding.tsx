@@ -55,7 +55,7 @@ export function NightLanding({ locale }: { locale: Locale }) {
                     {link.label}
                   </a>
                 ))}
-                {ACCOUNT_DATA ? <AuthNavigation signup={false} /> : null}
+                {ACCOUNT_DATA ? <span className="night-auth contents"><AuthNavigation signup={false} /></span> : null}
               </nav>
               <div className="hidden lg:block">
                 <LocaleSwitcher className="min-h-11" tone="light" />
@@ -65,7 +65,7 @@ export function NightLanding({ locale }: { locale: Locale }) {
               </div>
               <NightMobileNav
                 links={anchorLinks}
-                authControls={ACCOUNT_DATA ? <AuthNavigation appearance="mobile" signup={false} /> : null}
+                authControls={ACCOUNT_DATA ? <div className="night-auth"><AuthNavigation appearance="mobile" signup={false} /></div> : null}
                 menuLabel={landing.nav.menu}
                 menuTitle={landing.nav.menuLabel}
                 actions={<EntryActions primary={{ size: "md", className: "night-cta w-full" }} />}

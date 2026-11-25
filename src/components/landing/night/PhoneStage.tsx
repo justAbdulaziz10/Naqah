@@ -133,6 +133,13 @@ function Phone({ active, copy }: { active: number; copy: CallCopy }) {
 export function PhoneStage({ copy }: { copy: CallCopy }) {
   const [active, setActive] = useState(0);
   const stepsRef = useRef<HTMLOListElement>(null);
+  // When the reader picks a step, a scroll notice queued just before must not take the phone back.
+  const pickedAt = useRef(0);
+  // The event's timestamp shares performance.now()'s clock, which the observer compares against.
+  const pick = (index: number, at: number) => {
+    pickedAt.current = at;
+    setActive(index);
+  };
 
   // Desktop only: a step that crosses the middle of the viewport becomes active.
   useEffect(() => {
@@ -144,20 +151,25 @@ export function PhoneStage({ copy }: { copy: CallCopy }) {
       observer?.disconnect();
       observer = null;
       if (!desktop.matches) return;
+      // A band through the middle of the window, in pixels from its height (percent margins can collapse it).
+      const band = Math.round(window.innerHeight * 0.45);
       observer = new IntersectionObserver(
         (entries) => {
+          if (performance.now() - pickedAt.current < 1200) return;
           for (const entry of entries) {
             if (entry.isIntersecting) setActive(Number((entry.target as HTMLElement).dataset.step));
           }
         },
-        { rootMargin: "-45% 0px -45% 0px" },
+        { rootMargin: `-${band}px 0px -${band}px 0px` },
       );
       list.querySelectorAll<HTMLElement>("[data-step]").forEach((item) => observer?.observe(item));
     };
     connect();
     desktop.addEventListener("change", connect);
+    window.addEventListener("resize", connect);
     return () => {
       desktop.removeEventListener("change", connect);
+      window.removeEventListener("resize", connect);
       observer?.disconnect();
     };
   }, []);
@@ -178,8 +190,8 @@ export function PhoneStage({ copy }: { copy: CallCopy }) {
                 <button
                   type="button"
                   aria-pressed={on}
-                  onClick={() => setActive(index)}
-                  onFocus={() => setActive(index)}
+                  onClick={(event) => pick(index, event.timeStamp)}
+                  onFocus={(event) => pick(index, event.timeStamp)}
                   className={`ph-step relative block min-h-11 w-full rounded-xl py-4 pe-3 ps-8 text-start lg:py-5 lg:ps-9 ${on ? "ph-step-on" : ""}`}
                 >
                   <span aria-hidden className="absolute start-0 top-[1.45rem] size-[11px] rounded-full border border-[var(--gold)] lg:top-[1.7rem]">

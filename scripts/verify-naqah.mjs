@@ -436,7 +436,7 @@ const commands = {
       check("emergency says the worker calls the owner directly", /Emergency calls go directly to the owner|اتصالات الطوارئ تذهب للمالك مباشرة/.test(text));
       check("emergency saves nothing", JSON.stringify((await readWs(page)).calls) === before);
     });
-    // Settings: Reset demo (window.confirm) clears the workspace. Last, because it wipes state.
+    // Settings: Reset demo (confirmed in the app's own dialog) clears the workspace. Last, because it wipes state.
     await step("settings-reset", async () => {
       await page.goto(`${BASE}/${LOCALE}/app/settings`, { waitUntil: "networkidle" });
       // Reset asks in the app's own dialog, then returns to the landing.

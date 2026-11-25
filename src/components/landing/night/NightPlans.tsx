@@ -16,21 +16,27 @@ const retryMinutes = RETRY_DELAY_MS / 60_000;
 const SAMPLE_WEEKDAY = 4; // Thursday, as in the sample ranch.
 
 /**
- * The week as a tilted ring of seven nights. A lit night is a report call (ember); the Ultimate ring adds the
- * dashed inner ring: NAQAH calls the owner every evening. Letters stand upright above their night.
+ * The week as a tilted ring of seven nights. A lit night is a report call (ember). The inner ring is the owner's
+ * summary call: a gold mark on one night for Basic, a dashed ring for Ultimate's daily call. Letters stand upright above their night.
  */
 function WeekRing({ plan, locale }: { plan: Plan; locale: Locale }) {
   const c = getMessages(locale).landing.night.plans;
   const longName = (index: number) =>
     new Intl.DateTimeFormat(locale, { weekday: "long", timeZone: "UTC" }).format(Date.UTC(2023, 0, 1 + index));
   const lit = (index: number) => plan === "ultimate" || index === SAMPLE_WEEKDAY;
-  const spoken = `${c.ring[plan]} ${Array.from({ length: 7 }, (_, i) => `${longName(i)}: ${lit(i) ? c.ring.workerCall : "—"}`).join(". ")}`;
+  // Day by day for screen readers: the report call and, on the same nights here, the owner's summary call.
+  const spoken = `${c.ring[plan]} ${Array.from({ length: 7 }, (_, i) => `${longName(i)}: ${lit(i) ? `${c.ring.workerCall}, ${c.ring.ownerCall}` : "—"}`).join(". ")}`;
   return (
     <div>
     <div role="img" aria-label={spoken} className="ring-stage mt-6">
       <div aria-hidden className="ring-plane">
         <span className="ring-track" />
-        {plan === "ultimate" ? <span className="ring-inner" /> : null}
+        {plan === "ultimate" ? (
+          <span className="ring-inner" />
+        ) : (
+          // Basic: one summary call to the owner a week, shown on the inner ring on the sample night.
+          <span className="ring-owner" style={{ "--a": `${(SAMPLE_WEEKDAY * 360) / 7}deg` } as CSSProperties} />
+        )}
         {Array.from({ length: 7 }, (_, index) => {
           const on = lit(index);
           return (
@@ -52,12 +58,14 @@ function WeekRing({ plan, locale }: { plan: Plan; locale: Locale }) {
           <span className="size-2 rounded-full bg-[var(--ember)]" />
           {c.ring.workerCall}
         </span>
-        {plan === "ultimate" ? (
-          <span className="inline-flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-1.5">
+          {plan === "ultimate" ? (
             <span className="size-2.5 rounded-full border border-dashed border-[rgba(216,173,108,0.8)]" />
-            {c.ring.ownerCall}
-          </span>
-        ) : null}
+          ) : (
+            <span className="size-2 rounded-full bg-[var(--gold-bright)]" />
+          )}
+          {c.ring.ownerCall}
+        </span>
       </p>
     </div>
   );

@@ -6,7 +6,7 @@ export const landing = defineMessages({
     metadata: {
       title: "NAQAH | Peace of mind, without the busyness",
       description:
-        "An AI voice agent for private camel ranches. NAQAH calls your worker at your set time, asks and records, and you get the essentials in a call.",
+        "An AI voice agent for private camel ranches. NAQAH calls your worker at your set time, asks your questions and keeps only the facts, never a recording, then calls you with what matters.",
       appTitle: "Ranch overview",
       appDescription: "Your ranch reports and herd.",
       startTitle: "Set up your ranch",

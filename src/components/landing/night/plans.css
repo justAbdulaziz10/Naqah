@@ -121,3 +121,17 @@ html[lang="ar"] .ring-stage { --ring-dir: -1; }
     rgba(58, 39, 66, 0) 72%
   );
 }
+
+/* Basic: the owner's weekly summary call, a gold mark on the inner ring on the same night as the report call. */
+.ring-owner {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.625rem;
+  height: 0.625rem;
+  margin: -0.3125rem;
+  border-radius: 50%;
+  background: var(--gold-bright);
+  box-shadow: 0 0 0 3px rgba(216, 173, 108, 0.18);
+  transform: rotate(calc(var(--a) * var(--ring-dir))) translateY(calc(var(--ring-r) * -0.6)) rotate(calc(var(--a) * var(--ring-dir) * -1));
+}
