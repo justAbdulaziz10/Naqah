@@ -439,9 +439,10 @@ const commands = {
     // Settings: Reset demo (window.confirm) clears the workspace. Last, because it wipes state.
     await step("settings-reset", async () => {
       await page.goto(`${BASE}/${LOCALE}/app/settings`, { waitUntil: "networkidle" });
-      page.once("dialog", (d) => d.accept());
+      // Reset asks in the app's own dialog, then returns to the landing.
       await page.getByRole("button", { name: ar ? "إعادة ضبط العرض" : "Reset demo" }).click();
-      await page.waitForTimeout(500);
+      await page.getByRole("dialog").getByRole("button", { name: ar ? "إعادة الضبط" : /^Reset$/ }).click();
+      await page.waitForTimeout(800);
       check("settings Reset demo clears the workspace", (await readWs(page)) === null);
     });
     check("no page errors", errors.length === 0, errors);
