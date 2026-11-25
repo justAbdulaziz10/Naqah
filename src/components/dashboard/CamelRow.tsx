@@ -1,7 +1,7 @@
 "use client";
 
 import { CaretRight, ClipboardText } from "@phosphor-icons/react";
-import { healthMark } from "@/components/visuals/HerdMarks";
+import { HealthCamel } from "@/components/visuals/HerdMarks";
 import type { Camel, Workspace } from "@/domain";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
@@ -45,7 +45,7 @@ export function CamelRow({ ws, camel, now, highlighted, compact, onOpen }: {
         highlighted && "bg-ivory",
       )}
     >
-      <span aria-hidden className={cn("mt-2 size-3 shrink-0 rounded-full", healthMark[camel.health])} />
+      <span aria-hidden className="flex w-9 shrink-0 justify-center pt-1"><HealthCamel health={camel.health} className={compact ? "h-5" : "h-7"} /></span>
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           <span className={cn("font-semibold leading-snug text-espresso", compact ? "text-base" : "text-lg")}>{camel.name}</span>

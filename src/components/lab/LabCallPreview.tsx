@@ -24,7 +24,7 @@ export function LabCallPreview({ selected, ws, m, availability, onStart }: {
 
   return (
     <Card className="min-w-0 overflow-hidden">
-      <div className="bg-espresso px-5 py-5 text-cream sm:px-6">
+      <div className="naqah-dusk naqah-estate px-5 py-5 text-cream sm:px-6">
         <div className="flex items-center gap-4">
           <div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-brown-deep">
             {caller.naqah ? <CamelMark className="relative h-7 w-auto" /> : <span className="text-lg font-semibold">{caller.name.slice(0, 1)}</span>}

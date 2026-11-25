@@ -10,7 +10,7 @@ import { useLabCall } from "@/components/lab/labStore";
 import { useIsAccount } from "@/store/workspace";
 import { ReportCallNow } from "./ReportCallNow";
 
-const simClass = "inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-cream px-3 text-[0.8125rem] sm:px-5 sm:text-sm font-semibold text-espresso transition hover:bg-ivory active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
+const simClass = "inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-full naqah-dusk-cta px-3 text-[0.8125rem] sm:px-5 sm:text-sm font-semibold transition active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d8ad6c]";
 const realClass = "inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-full border border-cream/40 px-3 text-[0.8125rem] sm:px-5 sm:text-sm font-semibold text-cream transition hover:border-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
 const linkClass = "inline-flex min-h-11 items-center py-2 font-semibold text-cream underline decoration-cream/40 underline-offset-4 transition hover:decoration-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cream";
 

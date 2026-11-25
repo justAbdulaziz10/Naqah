@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { useNavigationIdentity } from "@/components/auth/AuthNavigationClient";
+import { useNavigationIdentity } from "@/components/auth/navigation-identity";
 import type { NavigationIdentity } from "@/components/auth/navigation-state";
 import { ACCOUNT_DATA, getStartedPath } from "@/components/entry/paths";
 import { buttonClass, type ButtonStyleProps } from "@/components/ui/Button";

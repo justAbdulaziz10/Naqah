@@ -23,3 +23,31 @@ export function CamelMark({ className, title }: { className?: string; title?: st
     </svg>
   );
 }
+
+/** The id of the page-level copy of the mark, written once by `<CamelMarkSymbol/>`. */
+export const CAMEL_SYMBOL_ID = "naqah-camel-mark";
+
+/**
+ * Writes the approved path once per page so many copies can share it (the landing stacks dozens for depth and
+ * the herd). Render it once, near the top of the page, before any `<CamelMarkRef/>`.
+ */
+export function CamelMarkSymbol() {
+  return (
+    <svg aria-hidden width="0" height="0" focusable="false" style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}>
+      <symbol id={CAMEL_SYMBOL_ID} viewBox="0 0 990 767">
+        <g transform="translate(0,767) scale(0.1,-0.1)">
+          <path d={CAMEL_PATH} />
+        </g>
+      </symbol>
+    </svg>
+  );
+}
+
+/** The same mark as `<CamelMark/>`, drawn from the page's shared symbol. Decorative only. */
+export function CamelMarkRef({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 990 767" className={cn("text-gold", className)} fill="currentColor" aria-hidden focusable="false">
+      <use href={`#${CAMEL_SYMBOL_ID}`} />
+    </svg>
+  );
+}

@@ -20,7 +20,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { CamelMark } from "@/components/brand/CamelMark";
+import { CamelMark, CamelMarkSymbol } from "@/components/brand/CamelMark";
 import { EventNotifier } from "@/components/pwa/EventNotifier";
 import { Logo } from "@/components/brand/Logo";
 import { hasOwnSetupData } from "@/components/setup/draft";
@@ -75,7 +75,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   if (!hydrated) {
     return (
-      <div role="status" aria-live="polite" aria-busy className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
+      <div role="status" aria-live="polite" aria-busy className="naqah-dusk naqah-dusk-ui flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
         <CamelMark className="h-10 w-auto opacity-70 motion-safe:animate-pulse" />
         <p className="text-sm text-espresso/60">{m.app.loading.ranch}</p>
       </div>
@@ -84,7 +84,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   if (!ws || !ws.setupComplete) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-6 px-6 text-center">
+      <div className="naqah-dusk naqah-dusk-ui flex min-h-dvh flex-col items-center justify-center gap-6 px-6 text-center">
         <CamelMark className="h-16 w-auto" />
         <div className="max-w-md">
           <h1 className="text-2xl font-bold">{m.common.demo.noWorkspace}</h1>
@@ -126,10 +126,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         {m.common.nav.skip}
       </a>
+      <CamelMarkSymbol />
       <EventNotifier />
       <Toaster />
       {/* Sidebar (desktop) */}
-      <aside className="sticky top-0 hidden h-dvh flex-col border-e border-stone/70 bg-cream/60 px-4 py-6 lg:flex">
+      <aside className="naqah-dusk naqah-dusk-ui sticky top-0 hidden h-dvh flex-col border-e border-stone px-4 py-6 lg:flex">
         <div className="px-2">
           <Logo locale={locale} href={href("/")} />
           <p className="mt-5 truncate font-semibold text-espresso">{ws.settings.farm.name.trim() || m.app.overview.estateFallback}</p>
@@ -225,9 +226,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="flex min-w-0 flex-col">
         {/* Top bar */}
-        <header className="sticky top-0 z-30 border-b border-stone/60 bg-ivory">
+        <header className="sticky top-0 z-30 bg-ivory">
           {/* Phones only: on desktop the sidebar names the product and the estate. */}
-          <div className={cn("mx-auto flex h-14 max-w-6xl items-center px-4 sm:px-6 lg:hidden", voiceLab && testCall ? "gap-1" : "gap-3")}>
+          <div className={cn("naqah-dusk naqah-dusk-ui flex h-14 items-center px-4 sm:px-6 lg:hidden", voiceLab && testCall ? "gap-1" : "gap-3")}>
             <Logo locale={locale} href={href("/")} className="min-h-11" />
             <div className={cn("ms-auto flex items-center", !(voiceLab && testCall) && "gap-1")}>
               <LocaleSwitcher />
@@ -259,7 +260,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Bottom tabs (mobile) */}
       <nav
         aria-label={m.common.nav.main}
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-stone/70 bg-cream pb-[env(safe-area-inset-bottom)] lg:hidden"
+        className="naqah-dusk naqah-dusk-ui fixed inset-x-0 bottom-0 z-40 border-t border-stone pb-[env(safe-area-inset-bottom)] lg:hidden"
       >
         <div className={cn("mx-auto grid max-w-lg", nav.length > 4 ? "grid-cols-4" : "grid-cols-3")}>
           {nav.filter((n) => n.key !== "settings").map((item) => {
@@ -278,7 +279,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <NavIcon icon={item.icon} active={active} />
                 <span className="max-w-full truncate px-1">{m.common.nav[item.key]}</span>
                 {item.key === "tickets" && openTasks > 0 ? (
-                  <span className="ltr-nums absolute top-2 start-1/2 ms-2.5 min-w-4 rounded-full bg-brown px-1 text-center text-[0.65rem] leading-4 text-cream">
+                  <span className="ltr-nums absolute top-2 start-1/2 ms-2.5 min-w-4 rounded-full bg-brown px-1 text-center text-[0.65rem] font-bold leading-4 text-cream">
                     {openTasks}
                   </span>
                 ) : null}
@@ -298,7 +299,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 function DemoNotice({ showSimulate, labHref }: { showSimulate: boolean; labHref: string }) {
   const { m } = useI18n();
   return (
-    <div role="note" className="border-t border-stone/60 bg-cream lg:border-t-0">
+    <div role="note" className="border-b border-stone/70 bg-ivory">
       <div className="mx-auto flex min-h-11 max-w-6xl items-center gap-2 px-4 text-sm sm:px-6 lg:px-8">
         <Flask size={16} className="shrink-0 text-brown" aria-hidden />
         <span className="shrink-0 font-semibold text-brown">{m.common.demo.label}</span>

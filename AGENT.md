@@ -301,14 +301,38 @@ exception here.
 - Cards have a hairline border and no shadow, and are never nested. Overlays are the exception: `Sheet` and dialogs sit on a dimmed backdrop with elevation.
 - Visuals carry real data only (labelled samples in the demo and the landing) and must read well with one report or none. Timelines share one language from `src/components/visuals/`: a filled mark happened, a ring is still to come. Every visual has a text equivalent for screen readers.
 - The Overview answers first: the espresso estate header holds the ranch name, a one-sentence answer, the report rhythm strip and the next call. Below it, what needs attention, the latest report as a timestamped ledger, and the herd. Say each fact once. Camels appear by name and open their sheet.
-- Espresso fill is reserved for the estate header and the "your ranch's week" card in onboarding and Settings.
+- **One product, landing to dashboard (Nov 2026).** The owner app carries the landing's desert dusk. Colour roles, the same
+  on every app page (tokens in `globals.css`, scoped to `.naqah-app`, so onboarding and sign-in keep the milk-white tokens):
+  *dusk* (`.naqah-dusk`, the landing's night values) for the shell: desktop sidebar, phone top bar and tab bar, and the
+  loading/empty screens; *sand ground* (`ivory` = #f3ebde) under *paper surfaces* (`cream` = #fcf8f1) wherever data is read
+  and compared; brown stays the primary action on paper, gold (#d8ad6c, dark text) is the one call to action on dusk
+  (`.naqah-dusk-cta`). `.naqah-dusk-ui` swaps the text/ground tokens so shared parts read correctly on dusk; never
+  hard-code light text colours inside it.
+- The dusk field (`.naqah-dusk .naqah-estate`: warm gradient with a gold glow from the end edge) is reserved for the estate
+  header, the "your ranch's week" card in onboarding and Settings, and the Call Lab phone header. It replaces the old flat espresso.
+- The herd is drawn as small camels: the approved mark via `CamelMarkRef` (one `CamelMarkSymbol` in `AppShell`) tinted by
+  health (`HealthCamel` in `HerdMarks.tsx`), unnamed head in sand. Herd rows lead with the camel, never a dot. The camel is
+  only tinted, never outlined or decorated; its state is always said in words beside it (badge, group label or legend), and
+  the legend keeps the shape marks (ring, dashed, solid) so colour is never the only cue.
 - Soft tints are allowed only for: findings inside a report, an unanswered check inside its task, the emergency strip (sand), and a warning that would lose unsaved work. Never tint whole cards to call attention.
 - The herd count may sit large beside the herd mark field; other numbers stay inline with their label.
 - The dashboard's call row sits in the estate header right under the answer, before the week strip (`CallBar`): «ناقة تتصل على …», the worker's number with «تغيير الرقم» (opens Settings → workers), and two actions: «محاكاة مكالمة» first, «اتصال حقيقي» beside it. In an account the simulation opens `/app/simulate`, where the report engine runs on an in-memory copy of the ranch and never writes to the store, the account or the phone line; the real call is the existing `ReportCallNow` with its number confirmation, always visible and disabled with a plain reason where this site has calling off. In the demo the simulation opens the Call Lab on the report call, and the real call explains it needs a signed-in ranch. «مواعيد المكالمات» sits with the next-call times (exception recorded Nov 2026 at the owner's request: calling must be one obvious step).
-- The landing is one photographic story: hero with the sample evening rail, the scroll-led `CallStory` (worker's call → report → owner's call → dashboard), principles with the retry rail, `PlanWeeks` with "Compare every detail", and the closing invitation. Dark scrims under text on photos are allowed for contrast. Times above story steps are timeline markers, not eyebrows. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`. Photos and their credits are tracked in `docs/design/asset-ledger.md`.
+- **Old landing** (`LandingPage.tsx`, no longer routed; kept until the owner decides): one photographic story: hero with the sample evening rail, the scroll-led `CallStory` (worker's call → report → owner's call → dashboard), principles with the retry rail, `PlanWeeks` with "Compare every detail", and the closing invitation. Dark scrims under text on photos are allowed for contrast. Times above story steps are timeline markers, not eyebrows. Say each fact once; landing copy lives only in `src/i18n/messages/landing.ts`. Photos and their credits are tracked in `docs/design/asset-ledger.md`.
 - Arabic pages lead with Alexandria (`--font-arabic`). next/font's "Montserrat Fallback" covers every codepoint, so with Montserrat first, Arabic renders in Arial.
 - Motion is subtle and meaningful (entrances, state changes, sheets), never hides content, and stops under `prefers-reduced-motion`.
-  Exception (owner request, Nov 2026): the landing hero photograph is scroll-linked (`HeroDrift` + `.naqah-drift`): the further the page scrolls, the further the herd moves to the right (physical right in both languages). It is driven by the reader's scroll, never a perpetual loop, and stays still under reduced motion.
+  Exception (owner request, Nov 2026, old landing only): the hero photograph is scroll-linked (`HeroDrift` + `.naqah-drift`): the further the page scrolls, the further the herd moves to the right (physical right in both languages). It is driven by the reader's scroll, never a perpetual loop, and stays still under reduced motion.
+- **Current landing (draft, Nov 2026, branch `design/landing-night`, awaiting the owner's review; `src/app/[locale]/page.tsx` renders it).** A dark palette scoped to
+  `.naqah-night` (`src/components/landing/night/night.css`); the previous landing stays in `LandingPage.tsx` until the owner
+  decides. The hero is ناقة herself: the approved camel mark standing in 3D (`NaqahMark3D`). Depth comes from stacked copies
+  behind the untouched mark, never from redrawing it; it turns once into place and eases on hover. Then a flat phone with four
+  clickable steps, then the sample ranch as an isometric CSS-3D model with small camels (pick anything to read its latest
+  fact with its certainty in words; "No report arrived" shows that nothing is presented as fine; a synced list does the same
+  for touch and screen readers), the retry timeline, the plan week rings and the closing. No animation library: CSS only.
+  Pitfall: never hold a 3D transform with `animation-fill-mode: both`; Chrome then flattens the stack. Use `backwards`.
+  Performance rules (owner request after the first draft lagged): no WebGL, no live backdrop blur, no infinite animations,
+  no script-driven scroll pinning or pointer tilt (plain CSS `position: sticky`, like the call-story phone, is fine). Motion runs only on arrival or when the reader acts, and stops under reduced motion.
+  Everything else holds: labelled samples only, a text equivalent for every visual, status in words, logical utilities,
+  Latin digits, and copy in `landing.ts` under `landing.night`.
 
 ### Known pitfalls (learned the hard way)
 - **Store hydration:** localStorage rehydration runs *inside* zustand's `create()`, before `useWorkspaceStore` is

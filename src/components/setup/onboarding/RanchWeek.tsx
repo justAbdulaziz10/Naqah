@@ -27,7 +27,7 @@ export function RanchWeek({ ws }: { ws: Workspace }) {
   }));
 
   return (
-    <section aria-labelledby="ranch-week" className="overflow-hidden rounded-2xl bg-espresso text-cream">
+    <section aria-labelledby="ranch-week" className="naqah-dusk naqah-estate overflow-hidden rounded-2xl text-cream">
       <div className="px-5 pt-6 sm:px-8 sm:pt-8">
         {farm.name.trim() ? <p className="text-[0.9375rem] text-sand [overflow-wrap:anywhere]">{farm.name.trim()}</p> : null}
         <h2 id="ranch-week" className="mt-1 text-2xl font-semibold sm:text-[1.75rem]">{r.weekTitle}</h2>

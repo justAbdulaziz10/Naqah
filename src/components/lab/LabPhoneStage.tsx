@@ -179,7 +179,7 @@ export function PhoneStage({
 
   return (
     <Card className="min-w-0 overflow-hidden">
-      <div className="bg-espresso px-5 py-5 text-cream sm:px-6">
+      <div className="naqah-dusk naqah-estate px-5 py-5 text-cream sm:px-6">
         <div className="flex items-center gap-4">
           <div className="relative flex size-14 shrink-0 items-center justify-center rounded-full bg-brown-deep">
             {conversationActive ? <span className="absolute inset-0 animate-pulse-ring rounded-full ring-1 ring-gold/80" aria-hidden /> : null}

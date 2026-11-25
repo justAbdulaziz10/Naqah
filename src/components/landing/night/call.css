@@ -1,0 +1,64 @@
+/* The call story: one flat phone beside four steps. Static frame, one soft shadow, a one-shot fade per screen. */
+.ph-phone {
+  position: relative;
+  width: min(64vw, 16rem);
+  aspect-ratio: 9 / 19.4;
+  border-radius: 2.4rem;
+  border: 1px solid var(--line-strong);
+  background: #0d0a08;
+  box-shadow: 0 32px 64px -32px rgba(0, 0, 0, 0.7);
+}
+@media (min-width: 1024px) { .ph-phone { width: clamp(15rem, 20vw, 18rem); } }
+
+.ph-screen {
+  position: absolute;
+  inset: 7px;
+  border-radius: 2rem;
+  overflow: hidden;
+  background: linear-gradient(180deg, #241812 0%, #120d0a 45%, #0a0706 100%);
+}
+.ph-island {
+  position: absolute;
+  top: 12px;
+  inset-inline-start: 35%;
+  width: 30%;
+  height: 3.4%;
+  border-radius: 999px;
+  background: #050403;
+}
+
+/* The new screen fades in once when the step changes. */
+.ph-swap { animation: ph-in 220ms ease-out both; }
+@keyframes ph-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Chat bubbles on the small screen. */
+.ph-bubble {
+  max-width: 86%;
+  border-radius: 1rem;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+.ph-bubble-naqah { align-self: flex-start; background: rgba(253, 250, 243, 0.08); color: var(--text); border-start-start-radius: 0.3rem; }
+.ph-bubble-ahmed { align-self: flex-end; background: rgba(216, 173, 108, 0.18); color: #f6e7c9; border-end-end-radius: 0.3rem; }
+
+/* The steps: a hairline rail with one mark per step; the active step is full strength. */
+.ph-rail::before {
+  content: "";
+  position: absolute;
+  inset-block: 1.5rem;
+  inset-inline-start: 5px;
+  width: 1px;
+  background: var(--line);
+}
+.ph-step > :not(.ph-step-time) { opacity: 0.78; transition: opacity 200ms ease-out; }
+.ph-step:hover > :not(.ph-step-time), .ph-step-on > :not(.ph-step-time) { opacity: 1; }
+.ph-step:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ph-swap { animation: none; }
+  .ph-step { transition: none; }
+}

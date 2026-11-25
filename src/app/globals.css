@@ -253,6 +253,78 @@
 
 
 /* owner app — design B. Still state is the default; motion only adds arrival and feedback. */
+/*
+ * Owner app palette: the landing's desert dusk carried into the working screens.
+ * Roles, the same on every page:
+ *   dusk (.naqah-dusk): the shell (sidebar, phone bars) and the estate header. Night ground, light text, gold.
+ *   sand ground (ivory) under paper surfaces (cream): where data is read and compared.
+ * The tokens are re-pointed only inside the app, so onboarding and sign-in keep theirs.
+ */
+.naqah-app {
+  --color-ivory: #f3ebde; /* sand ground */
+  --color-cream: #fcf8f1; /* paper surfaces */
+  --color-stone: #dfd0ba; /* hairlines on sand and paper */
+  --color-sand-soft: #ecdcc3;
+  --color-muted: #66594c; /* 5.3:1 on sand, 6:1 on paper */
+  background: var(--color-ivory);
+}
+/*
+ * Dusk: the night palette of the landing. Inside it the light/dark tokens swap, so shared parts
+ * (links, dividers, rings, the logo) read correctly without a second set of classes.
+ */
+.naqah-dusk {
+  --dusk-0: #1d1611;
+  --dusk-1: #2a2019;
+  --dusk-2: #352920;
+  --dusk-3: #45362a;
+  --dusk-text: #f6eee0;
+  --dusk-muted: #d6c6ab;
+  --dusk-faint: #a8977e;
+  --dusk-gold: #d8ad6c;
+  --dusk-ember: #d8793a;
+  --dusk-line: rgba(253, 250, 243, 0.14);
+  --dusk-line-strong: rgba(253, 250, 243, 0.26);
+  --color-gold: #d8ad6c;
+  background:
+    radial-gradient(ellipse 120% 70% at 50% 0%, rgba(210, 180, 140, 0.14), transparent 70%),
+    var(--dusk-1);
+  color: var(--dusk-text);
+  color-scheme: dark;
+}
+/* The shell: text tokens point at light, ground tokens at the night. */
+.naqah-dusk-ui {
+  --color-espresso: #f6eee0;
+  --color-muted: #d6c6ab;
+  --color-faint: #a8977e;
+  --color-stone: rgba(253, 250, 243, 0.16);
+  --color-brown: #d8ad6c;
+  --color-cream: #2a2019;
+  --color-ivory: #2a2019;
+}
+/* The estate header: ring holes and "now" marks take the night ground, not black. */
+.naqah-estate {
+  --color-espresso: #2a2019;
+  --color-cream: #f6eee0;
+  --color-sand: #e3c28f;
+  background:
+    radial-gradient(ellipse 80% 90% at 85% -10%, rgba(216, 173, 108, 0.2), transparent 60%),
+    radial-gradient(ellipse 70% 60% at 0% 110%, rgba(216, 121, 58, 0.1), transparent 65%),
+    var(--dusk-2);
+}
+.naqah-estate:dir(rtl) {
+  background:
+    radial-gradient(ellipse 80% 90% at 15% -10%, rgba(216, 173, 108, 0.2), transparent 60%),
+    radial-gradient(ellipse 70% 60% at 100% 110%, rgba(216, 121, 58, 0.1), transparent 65%),
+    var(--dusk-2);
+}
+/* The one call to action on dusk, as on the landing: gold, night text. */
+.naqah-dusk-cta {
+  background: var(--dusk-gold);
+  color: var(--dusk-1);
+  box-shadow: 0 0 0 1px rgba(216, 173, 108, 0.4), 0 14px 32px -18px rgba(216, 173, 108, 0.7);
+}
+.naqah-dusk-cta:hover { background: #e6bd7e; }
+.naqah-dusk :focus-visible { outline-color: var(--dusk-gold); }
 /* Owner-entered names (ranch, camels, worker) may be one long unbroken word: break it rather than
    widen the page. Never truncate the only visible name. */
 .naqah-app main {

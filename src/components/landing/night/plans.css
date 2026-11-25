@@ -1,0 +1,137 @@
+/* Plans: the week as a tilted ring of nights. Closing: the dawn band. Both stop under reduced motion (night.css). */
+
+.ring-stage {
+  --ring-dir: 1;
+  --ring-r: 5.75rem;
+  position: relative;
+  width: 100%;
+  max-width: 17rem;
+  height: 11.5rem;
+  margin-inline: auto;
+  perspective: 900px;
+}
+html[lang="ar"] .ring-stage { --ring-dir: -1; }
+
+.ring-plane {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transform: translateY(1.25rem) rotateX(62deg);
+}
+
+.ring-track,
+.ring-sweep {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--ring-r) * 2);
+  height: calc(var(--ring-r) * 2);
+  margin: calc(var(--ring-r) * -1) 0 0 calc(var(--ring-r) * -1);
+  border-radius: 50%;
+}
+.ring-track {
+  border: 1px solid var(--line-strong);
+  box-shadow: inset 0 0 48px rgba(216, 173, 108, 0.08), 0 0 0 1px rgba(29, 22, 17, 0.4);
+  background: radial-gradient(circle, rgba(216, 173, 108, 0.05), transparent 70%);
+}
+.ring-sweep {
+  background: conic-gradient(from 0deg, transparent 0 72%, rgba(216, 173, 108, 0.35) 94%, transparent 100%);
+  -webkit-mask: radial-gradient(circle, transparent 0 calc(100% - 7px), #000 calc(100% - 6px), #000 100%);
+  mask: radial-gradient(circle, transparent 0 calc(100% - 7px), #000 calc(100% - 6px), #000 100%);
+}
+
+/* One night: a point on the ring. The dot lies in the plane; the pillar stands up from it. */
+.ring-night {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform: rotate(calc(var(--a) * var(--ring-dir))) translateY(calc(var(--ring-r) * -1)) rotate(calc(var(--a) * var(--ring-dir) * -1));
+}
+.ring-dot {
+  position: absolute;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin: -0.375rem;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: rgba(42, 32, 25, 0.85);
+}
+.ring-dot[data-lit="true"] {
+  border-color: transparent;
+  background: var(--ember);
+  box-shadow: 0 0 0 4px rgba(216, 121, 58, 0.18), 0 0 20px rgba(216, 121, 58, 0.8);
+}
+.ring-pillar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding-bottom: 0.85rem;
+  transform-origin: 50% 100%;
+  transform: translateX(-50%) rotateX(-62deg);
+}
+.ring-beam {
+  width: 2px;
+  height: 2.5rem;
+  border-radius: 1px;
+  background: transparent;
+}
+.ring-beam[data-lit="true"] {
+  background: linear-gradient(to top, var(--ember), rgba(216, 121, 58, 0));
+  filter: drop-shadow(0 0 6px rgba(216, 121, 58, 0.8));
+}
+.ring-letter {
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-faint);
+}
+.ring-letter[data-lit="true"] { color: var(--text); }
+
+/* The Ultimate ring carries a second ring: the owner's call every evening. */
+.ring-inner {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--ring-r) * 1.2);
+  height: calc(var(--ring-r) * 1.2);
+  margin: calc(var(--ring-r) * -0.6) 0 0 calc(var(--ring-r) * -0.6);
+  border-radius: 50%;
+  border: 1px dashed rgba(216, 173, 108, 0.45);
+}
+
+/* Closing: the sky lightens toward a warm horizon. */
+.dawn-glow {
+  position: absolute;
+  inset-inline: -15%;
+  bottom: -12%;
+  height: 72%;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 100%,
+    rgba(239, 231, 214, 0.55) 0%,
+    rgba(216, 173, 108, 0.45) 20%,
+    rgba(107, 63, 58, 0.35) 44%,
+    rgba(58, 39, 66, 0) 72%
+  );
+}
+
+/* Basic: the owner's weekly summary call, a gold mark on the inner ring on the same night as the report call. */
+.ring-owner {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.625rem;
+  height: 0.625rem;
+  margin: -0.3125rem;
+  border-radius: 50%;
+  background: var(--gold-bright);
+  box-shadow: 0 0 0 3px rgba(216, 173, 108, 0.18);
+  transform: rotate(calc(var(--a) * var(--ring-dir))) translateY(calc(var(--ring-r) * -0.6)) rotate(calc(var(--a) * var(--ring-dir) * -1));
+}

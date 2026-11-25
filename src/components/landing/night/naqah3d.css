@@ -1,0 +1,59 @@
+/* The 3D ناقة in the hero. Depth = stacked copies of the approved mark; the face is the mark itself. */
+.naqah3d {
+  position: relative;
+  aspect-ratio: 990 / 767;
+  width: 100%;
+  perspective: 1600px;
+  perspective-origin: 50% 40%;
+}
+/* A large, still glow behind the camel: the evening sun it stands against. */
+.naqah3d-halo {
+  position: absolute;
+  inset: -18% -8% 4% -8%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, rgba(216, 173, 108, 0.26), rgba(216, 121, 58, 0.1) 38%, transparent 66%);
+  pointer-events: none;
+}
+/* The ground it stands on: a soft shadow and one quiet ring. */
+.naqah3d-ground {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: -9%;
+  height: 22%;
+  border-radius: 50%;
+  border: 1px solid rgba(216, 173, 108, 0.22);
+  background: radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, 0.55), transparent 68%);
+  pointer-events: none;
+}
+.naqah3d-body {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transform: rotateY(-24deg) rotateX(5deg);
+  transition: transform 1.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* backwards, not both: a held animation keeps Chrome from drawing the depth, and blocks the hover turn. */
+  animation: naqah3d-turn 1.5s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+.naqah3d:hover .naqah3d-body { transform: rotateY(-12deg) rotateX(3deg); }
+@keyframes naqah3d-turn {
+  from { transform: rotateY(-62deg) rotateX(8deg); opacity: 0; }
+  to { transform: rotateY(-24deg) rotateX(5deg); opacity: 1; }
+}
+.naqah3d-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  transform: translateZ(calc(var(--d) * -3.4px));
+  /* Deeper copies fall into shadow, so the sides read as solid body. */
+  color: color-mix(in srgb, #3a2a1c calc(var(--d) * 7%), #8a6640);
+}
+/* The mark carries its own gold; inside the stack each copy takes its layer's shade instead. */
+.naqah3d-layer svg { color: inherit; }
+.naqah3d-layer[data-face] {
+  color: var(--gold-bright);
+  filter: drop-shadow(0 0 1px rgba(255, 236, 200, 0.35));
+}
+@media (prefers-reduced-motion: reduce) {
+  .naqah3d-body { animation: none; transition: none; }
+}
