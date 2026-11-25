@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import type { Camel, HealthStatus } from "@/domain/types";
 import { HEALTH_LABELS } from "@/domain/catalog";
 import { useI18n } from "@/i18n/client";
+import { CamelMarkRef } from "@/components/brand/CamelMark";
 import { cn } from "@/lib/cn";
 
 const ORDER: HealthStatus[] = ["sick", "watch", "unknown", "healthy"];
@@ -18,6 +19,19 @@ export const healthMark: Record<HealthStatus, string> = {
   unknown: "border border-dashed border-faint bg-cream",
   healthy: "bg-ok",
 };
+
+/** The herd is drawn as small camels (the approved mark, tinted, never redrawn); the shape marks above stay as the legend's cue. */
+export const healthCamelTone: Record<HealthStatus, string> = {
+  sick: "text-danger",
+  watch: "text-warn",
+  unknown: "text-faint/70",
+  healthy: "text-ok",
+};
+
+/** One camel of the herd in its health colour. Decorative: its state is always said in words nearby. */
+export function HealthCamel({ health, className }: { health: HealthStatus | "unnamed"; className?: string }) {
+  return <CamelMarkRef className={cn("w-auto shrink-0", health === "unnamed" ? "text-sand" : healthCamelTone[health], className)} />;
+}
 
 /** Past this many named camels, labels stop fitting and the plain dots take over. */
 export const HERD_MARKS_MAX = 60;
@@ -57,7 +71,10 @@ export function HerdMarks({ camels, herdCount, activeId, onOpen, className }: {
                   activeId === camel.id && "bg-ivory",
                 )}
               >
-                <span aria-hidden className={cn("size-3.5 shrink-0 rounded-full", healthMark[camel.health])} />
+                <span aria-hidden className="flex items-center gap-1">
+                  <HealthCamel health={camel.health} className="h-5" />
+                  {concern || camel.health === "unknown" ? <span className={cn("size-2 shrink-0 rounded-full", healthMark[camel.health])} /> : null}
+                </span>
                 <span className={cn("max-w-full truncate text-[0.8125rem] leading-tight", concern ? "font-semibold text-espresso" : "text-muted")}>{camel.name}</span>
               </button>
             </li>
@@ -65,9 +82,9 @@ export function HerdMarks({ camels, herdCount, activeId, onOpen, className }: {
         })}
       </ul>
       {unnamedMarks ? (
-        <div aria-hidden className="mt-3 flex flex-wrap gap-1.5 px-1">
+        <div aria-hidden className="mt-3 flex flex-wrap gap-x-1.5 gap-y-2 px-1">
           {Array.from({ length: unnamedMarks }, (_, index) => (
-            <span key={`unnamed-${index}`} className="size-3 rounded-full border border-stone bg-cream" />
+            <HealthCamel key={`unnamed-${index}`} health="unnamed" className="h-3.5" />
           ))}
         </div>
       ) : null}
@@ -80,7 +97,7 @@ export function HerdMarks({ camels, herdCount, activeId, onOpen, className }: {
         ))}
         {unnamed ? (
           <span className="inline-flex items-center gap-2 whitespace-nowrap">
-            <span aria-hidden className="size-2.5 shrink-0 rounded-full border border-stone bg-cream" />
+            <span aria-hidden className="inline-flex"><HealthCamel health="unnamed" className="h-3.5" /></span>
             {h.unnamed(fmt.number(unnamed))}
           </span>
         ) : null}

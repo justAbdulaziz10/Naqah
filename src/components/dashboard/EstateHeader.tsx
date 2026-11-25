@@ -38,7 +38,7 @@ export function EstateHeader({ name, answer, tone, provenance, call, rhythm, nex
   const title = (
     <div className="min-w-0">
       <div className="flex items-start justify-between gap-4">
-        <CamelMark className="naqah-enter h-8 w-auto shrink-0 sm:h-10" />
+        <CamelMark className="naqah-enter h-8 w-auto shrink-0 drop-shadow-[0_6px_18px_rgba(216,173,108,0.35)] sm:h-11" />
         <WeatherLine className="naqah-enter mt-1 text-end text-sm leading-snug text-cream/70" />
       </div>
       <h1 id="estate-name" className="naqah-enter naqah-name mt-3 text-[1.875rem] font-semibold leading-[1.05] tracking-[-0.025em] text-balance sm:mt-4 sm:text-[3rem] xl:text-[3.5rem]" style={step(1)}>
@@ -55,7 +55,7 @@ export function EstateHeader({ name, answer, tone, provenance, call, rhythm, nex
   );
 
   return (
-    <section aria-labelledby="estate-name" className="overflow-hidden rounded-[var(--radius-card)] bg-espresso px-5 py-5 text-cream sm:px-9 sm:py-9">
+    <section aria-labelledby="estate-name" className="naqah-dusk naqah-estate overflow-hidden rounded-[var(--radius-card)] border border-[var(--dusk-line)] px-5 py-5 text-cream sm:px-9 sm:py-9">
       {title}
       {call ? <div className="naqah-enter mt-3 sm:mt-7" style={step(4)}>{call}</div> : null}
       {rhythm ? <div className="mt-2.5 border-t border-cream/15 pt-2 sm:mt-8 sm:pt-6">{rhythm}</div> : null}

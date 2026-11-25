@@ -3,7 +3,7 @@
 import type { Camel, HealthStatus } from "@/domain/types";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/cn";
-import { healthMark } from "./HerdMarks";
+import { HealthCamel, healthMark } from "./HerdMarks";
 
 const ORDER: HealthStatus[] = ["sick", "watch", "unknown", "healthy"];
 const mark = healthMark;
@@ -11,7 +11,7 @@ const mark = healthMark;
 export const HERD_DOTS_MAX = 150;
 
 /**
- * The whole herd, one dot per camel: named camels in their health colour (most concerning first),
+ * The whole herd, one small camel per head: named camels in their health colour (most concerning first),
  * the rest of the owner's official count as quiet outlines. The legend says every number in words.
  */
 export function HerdDots({ camels, herdCount, className }: { camels: Camel[]; herdCount: number | null | undefined; className?: string }) {
@@ -29,11 +29,11 @@ export function HerdDots({ camels, herdCount, className }: { camels: Camel[]; he
 
   return (
     <figure className={cn("min-w-0", className)}>
-      <div role="img" aria-label={`${h.dotsLabel}: ${words.join(locale === "ar" ? "، " : ", ")}`} className="flex flex-wrap gap-1.5">
+      <div role="img" aria-label={`${h.dotsLabel}: ${words.join(locale === "ar" ? "، " : ", ")}`} className="flex flex-wrap gap-x-1.5 gap-y-2">
         {named.map((camel, index) => (
-          <span key={camel.id} className={cn("naqah-pop size-2.5 rounded-full", mark[camel.health])} style={{ animationDelay: `${Math.min(index, 40) * 12}ms` }} />
+          <span key={camel.id} className="naqah-pop inline-flex" style={{ animationDelay: `${Math.min(index, 40) * 12}ms` }}><HealthCamel health={camel.health} className="h-3.5" /></span>
         ))}
-        {Array.from({ length: unnamed }, (_, index) => <span key={index} className="size-2.5 rounded-full border border-stone bg-cream" />)}
+        {Array.from({ length: unnamed }, (_, index) => <HealthCamel key={index} health="unnamed" className="h-3.5" />)}
       </div>
       <figcaption aria-hidden className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
         {groups.map(({ health }, index) => (
@@ -44,7 +44,7 @@ export function HerdDots({ camels, herdCount, className }: { camels: Camel[]; he
         ))}
         {unnamed ? (
           <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-            <span className="size-2 shrink-0 rounded-full border border-stone bg-cream" />
+            <HealthCamel health="unnamed" className="h-3" />
             {words.at(-1)}
           </span>
         ) : null}

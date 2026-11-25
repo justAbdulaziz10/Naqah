@@ -301,7 +301,19 @@ exception here.
 - Cards have a hairline border and no shadow, and are never nested. Overlays are the exception: `Sheet` and dialogs sit on a dimmed backdrop with elevation.
 - Visuals carry real data only (labelled samples in the demo and the landing) and must read well with one report or none. Timelines share one language from `src/components/visuals/`: a filled mark happened, a ring is still to come. Every visual has a text equivalent for screen readers.
 - The Overview answers first: the espresso estate header holds the ranch name, a one-sentence answer, the report rhythm strip and the next call. Below it, what needs attention, the latest report as a timestamped ledger, and the herd. Say each fact once. Camels appear by name and open their sheet.
-- Espresso fill is reserved for the estate header and the "your ranch's week" card in onboarding and Settings.
+- **One product, landing to dashboard (Nov 2026).** The owner app carries the landing's desert dusk. Colour roles, the same
+  on every app page (tokens in `globals.css`, scoped to `.naqah-app`, so onboarding and sign-in keep the milk-white tokens):
+  *dusk* (`.naqah-dusk`, the landing's night values) for the shell: desktop sidebar, phone top bar and tab bar, and the
+  loading/empty screens; *sand ground* (`ivory` = #f3ebde) under *paper surfaces* (`cream` = #fcf8f1) wherever data is read
+  and compared; brown stays the primary action on paper, gold (#d8ad6c, dark text) is the one call to action on dusk
+  (`.naqah-dusk-cta`). `.naqah-dusk-ui` swaps the text/ground tokens so shared parts read correctly on dusk; never
+  hard-code light text colours inside it.
+- The dusk field (`.naqah-dusk .naqah-estate`: warm gradient with a gold glow from the end edge) is reserved for the estate
+  header, the "your ranch's week" card in onboarding and Settings, and the Call Lab phone header. It replaces the old flat espresso.
+- The herd is drawn as small camels: the approved mark via `CamelMarkRef` (one `CamelMarkSymbol` in `AppShell`) tinted by
+  health (`HealthCamel` in `HerdMarks.tsx`), unnamed head in sand. Herd rows lead with the camel, never a dot. The camel is
+  only tinted, never outlined or decorated; its state is always said in words beside it (badge, group label or legend), and
+  the legend keeps the shape marks (ring, dashed, solid) so colour is never the only cue.
 - Soft tints are allowed only for: findings inside a report, an unanswered check inside its task, the emergency strip (sand), and a warning that would lose unsaved work. Never tint whole cards to call attention.
 - The herd count may sit large beside the herd mark field; other numbers stay inline with their label.
 - The dashboard's call row sits in the estate header right under the answer, before the week strip (`CallBar`): «ناقة تتصل على …», the worker's number with «تغيير الرقم» (opens Settings → workers), and two actions: «محاكاة مكالمة» first, «اتصال حقيقي» beside it. In an account the simulation opens `/app/simulate`, where the report engine runs on an in-memory copy of the ranch and never writes to the store, the account or the phone line; the real call is the existing `ReportCallNow` with its number confirmation, always visible and disabled with a plain reason where this site has calling off. In the demo the simulation opens the Call Lab on the report call, and the real call explains it needs a signed-in ranch. «مواعيد المكالمات» sits with the next-call times (exception recorded Nov 2026 at the owner's request: calling must be one obvious step).
